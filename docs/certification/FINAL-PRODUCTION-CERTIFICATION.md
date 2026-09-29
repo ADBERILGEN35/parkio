@@ -129,6 +129,13 @@ See [`KNOWN-ISSUES.md`](../releases/KNOWN-ISSUES.md).
 |----|---------|
 | PP-01–PP-06 | Managed HA data, secrets manager, CD, on-call, scale testing |
 
+PP-01 architecture decision (provider/topology) is recorded in
+[ADR-PP-01A](../architecture/adr/ADR-PP-01A-managed-postgresql.md)
+(**ACCEPTED WITH CONDITIONS**). That ADR does **not** close PP-01, does **not**
+make public production GO, and does **not** authorize municipal production
+enablement. Next implementation step is PP-01B IaC +
+[sandbox spikes](../architecture/pp-01b-spike-registry.md).
+
 ### Open source
 
 | ID | Blocker |

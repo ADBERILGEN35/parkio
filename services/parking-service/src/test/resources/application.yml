@@ -22,6 +22,13 @@ parkio:
   municipal:
     enabled: false
     manual-sync-enabled: false
+    discovery:
+      # Isolate non-discovery tests from DATA-WP-12 canonical default-on.
+      duplicate-presentation-enabled: false
+    registry:
+      # Isolate non-provenance tests from DATA-WP-11 canonical default-on.
+      provenance-publication-enabled: false
+      provenance-ingest-write-enabled: true
     izum:
       enabled: false
       scheduler-enabled: false
@@ -49,6 +56,9 @@ parkio:
     retention:
       outbox-enabled: false
       inbox-enabled: false
+  auth:
+    client:
+      base-url: http://localhost:0
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   media:
@@ -58,6 +68,17 @@ parkio:
       base-url: http://localhost:0
       connect-timeout: 1s
       read-timeout: 1s
+  user:
+    client:
+      # No user-service in tests: fail-open favourite lookup uses unroutable port.
+      base-url: http://localhost:0
+      connect-timeout: 1s
+      read-timeout: 1s
+  spa:
+    recommendations:
+      enabled: false
+    ranking:
+      enabled: false
   parking:
     outcome:
       max-processing-attempts: 3
@@ -84,6 +105,8 @@ parkio:
     moderation-consumer:
       enabled: false
     ai-validation-consumer:
+      enabled: false
+    erasure-consumer:
       enabled: false
     relay:
       enabled: false

@@ -1,0 +1,5 @@
+*Bekleme listesi aboneliği onaylandı*
+type=`waitlist.subscription_confirmed` severity=`info`
+env=`e2e` service=`gateway-service`
+at=`2026-09-22T16:38:59Z`
+olay=`e-posta onayı tamamlandı (çift onay)`

@@ -1,0 +1,21 @@
+manifest_version: 1
+clusters: [core, parking]
+entries:
+  - { service: auth-service, database: parkio_auth, role: parkio_auth, cluster: core }
+  - { service: gateway-service, database: parkio_gateway, role: parkio_gateway, cluster: core }
+  - { service: user-service, database: parkio_user, role: parkio_user, cluster: core }
+  - { service: media-service, database: parkio_media, role: parkio_media, cluster: core }
+  - { service: gamification-service, database: parkio_gamification, role: parkio_gamification, cluster: core }
+  - { service: notification-service, database: parkio_notification, role: parkio_notification, cluster: core }
+  - { service: moderation-service, database: parkio_moderation, role: parkio_moderation, cluster: core }
+  - { service: analytics-service, database: parkio_analytics, role: parkio_analytics, cluster: core }
+  - { service: ai-validation-service, database: parkio_aivalidation, role: parkio_aivalidation, cluster: core }
+  - { service: parking-service, database: parkio_parking, role: parkio_parking, cluster: parking }
+constraints:
+  database_count: 10
+  role_count: 10
+  server_count: 2
+  postgis_databases: [parkio_parking]
+  public_network_access: false
+  client_tls_mode: verify-full
+  production_apply_authorized: false

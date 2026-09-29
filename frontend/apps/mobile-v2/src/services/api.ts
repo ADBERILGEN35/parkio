@@ -9,12 +9,17 @@ import {
   createModerationApi,
   createNotificationsApi,
   createParkingApi,
+  createPlacesApi,
+  createPublicExploreApi,
+  createPublicGeocodingApi,
   createUsersApi,
   setRefreshHandler,
 } from '@parkio/api-client';
 import { appConfig } from '@/config/env';
+import { clearPendingAuthGateIntent } from '@/features/auth/authGateIntents';
 import { useAuthStore } from '@/state/authStore';
-import { secureStore } from './secureStore';
+import { configureRankingEvaluationApi } from './rankingEvaluationCorrelation';
+import { getSecureStoreGeneration } from './secureStore';
 import { tokenStorage } from './tokenStorage';
 
 /**
@@ -31,6 +36,7 @@ export const apiClient = createApiClient({
   onAuthFailure: () => {
     tokenStorage.clearTokens();
     useAuthStore.getState().clearSession();
+    clearPendingAuthGateIntent();
   },
   onAccountNotActive: () => useAuthStore.getState().markSuspended(),
 });
@@ -38,19 +44,24 @@ export const apiClient = createApiClient({
 export const authApi = createAuthApi(apiClient);
 export const usersApi = createUsersApi(apiClient);
 export const parkingApi = createParkingApi(apiClient);
+configureRankingEvaluationApi(parkingApi);
 export const mediaApi = createMediaApi(apiClient);
 export const notificationsApi = createNotificationsApi(apiClient);
 export const gamificationApi = createGamificationApi(apiClient);
 export const geocodingApi = createGeocodingApi(apiClient);
+export const placesApi = createPlacesApi(apiClient);
 export const moderationApi = createModerationApi(apiClient);
 export const analyticsApi = createAnalyticsApi(apiClient);
+/** Anonymous public Explore — no auth required; never fuse with private municipal nearby. */
+export const publicExploreApi = createPublicExploreApi(apiClient);
+/** Anonymous public destination search — never fuse with private /geocoding/search. */
+export const publicGeocodingApi = createPublicGeocodingApi(apiClient);
 
 /**
  * Single-flight refresh implementation. Concurrent 401s collapse into one
- * `POST /auth/refresh-token` inside the api-client. The keystore refresh token
- * is replayed in the body; the backend rotates it and returns fresh access AND
- * refresh tokens, both persisted. `sessionEpoch` detects a logout racing the
- * in-flight refresh so a late success cannot resurrect a dead session.
+ * `POST /auth/refresh-token` inside the api-client. Rotated tokens are persisted
+ * durably BEFORE session adoption. Logout / generation bump wins over a late
+ * refresh so a dead session cannot resurrect.
  */
 setRefreshHandler(async () => {
   const refreshToken = tokenStorage.getRefreshToken();
@@ -58,6 +69,7 @@ setRefreshHandler(async () => {
     return null;
   }
   const epochAtStart = useAuthStore.getState().sessionEpoch;
+  const generationAtStart = getSecureStoreGeneration();
   try {
     const result = await authApi.refresh(refreshToken);
     if (!result.accessToken || !result.refreshToken) {
@@ -66,8 +78,25 @@ setRefreshHandler(async () => {
     if (useAuthStore.getState().sessionEpoch !== epochAtStart) {
       return null;
     }
-    tokenStorage.setTokens({ accessToken: result.accessToken, refreshToken: result.refreshToken });
-    await secureStore.saveSession({ userId: result.user.id });
+    if (getSecureStoreGeneration() !== generationAtStart) {
+      return null;
+    }
+    const persisted = await tokenStorage.persistSession({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      userId: result.user.id,
+      expectedGeneration: generationAtStart,
+    });
+    if (!persisted.ok) {
+      useAuthStore.getState().clearSession();
+      clearPendingAuthGateIntent();
+      return null;
+    }
+    if (useAuthStore.getState().sessionEpoch !== epochAtStart) {
+      await tokenStorage.clearDurable();
+      clearPendingAuthGateIntent();
+      return null;
+    }
     useAuthStore.getState().setSession(result.user);
     return result.accessToken;
   } catch (error) {
@@ -78,6 +107,7 @@ setRefreshHandler(async () => {
     if (error instanceof UnauthorizedError) {
       tokenStorage.clearTokens();
       useAuthStore.getState().clearSession();
+      clearPendingAuthGateIntent();
     }
     return null;
   }

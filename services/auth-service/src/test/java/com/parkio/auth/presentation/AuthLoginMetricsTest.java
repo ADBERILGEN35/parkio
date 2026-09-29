@@ -99,6 +99,33 @@ class AuthLoginMetricsTest {
         verify(authService).forgotPassword(new ForgotPasswordCommand("User@Example.com", EmailLocale.TR));
     }
 
+    @Test
+    void publicResendVerificationReturnsAcceptedWhenDeliveryFails() {
+        org.mockito.Mockito.doThrow(new com.parkio.auth.infrastructure.notification.EmailDeliveryException(
+                        "provider 429", null))
+                .when(authService)
+                .resendVerification(any());
+
+        var response = controller.resendVerification(
+                new com.parkio.auth.presentation.dto.ResendVerificationRequest("user@example.com", "en"),
+                new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(202);
+    }
+
+    @Test
+    void publicForgotPasswordReturnsOkWhenDeliveryFails() {
+        org.mockito.Mockito.doThrow(new com.parkio.auth.infrastructure.notification.EmailDeliveryException(
+                        "provider 500", null))
+                .when(authService)
+                .forgotPassword(any());
+
+        var response = controller.forgotPassword(
+                new ForgotPasswordRequest("user@example.com", "en"), new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+    }
+
     private static RefreshCookieProperties refreshCookieProperties() {
         RefreshCookieProperties properties = new RefreshCookieProperties();
         properties.setAllowedOrigins(java.util.List.of("http://localhost:5173"));

@@ -46,9 +46,19 @@ import { RuntimeRouteRoot } from './RuntimeRouteRoot';
 vi.mock('@/pages/MapPage', () => ({
   MapPage: () => <span data-testid="lazy-route-marker">map-page</span>,
 }));
+vi.mock('@/pages/PublicExplorePage', () => ({
+  PublicExplorePage: () => (
+    <span data-testid="lazy-route-marker">public-explore-page</span>
+  ),
+}));
 vi.mock('@/pages/SpotDetailPage', () => ({
   SpotDetailPage: () => (
     <span data-testid="lazy-route-marker">spot-detail-page</span>
+  ),
+}));
+vi.mock('@/pages/MunicipalFacilityDetailPage', () => ({
+  MunicipalFacilityDetailPage: () => (
+    <span data-testid="lazy-route-marker">facility-detail-page</span>
   ),
 }));
 vi.mock('@/pages/MySpotsPage', () => ({
@@ -105,6 +115,11 @@ vi.mock('@/pages/admin/AdminUserDetailPage', () => ({
     <span data-testid="lazy-route-marker">admin-user-detail-page</span>
   ),
 }));
+vi.mock('@/pages/admin/AdminWaitlistPage', () => ({
+  AdminWaitlistPage: () => (
+    <span data-testid="lazy-route-marker">admin-waitlist-page</span>
+  ),
+}));
 vi.mock('@/pages/admin/AdminSecurityPage', () => ({
   AdminSecurityPage: () => (
     <span data-testid="lazy-route-marker">admin-security-page</span>
@@ -136,6 +151,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.VERIFY_EMAIL]: ROUTE_COMPONENT_KEYS.VERIFY_EMAIL_PAGE,
   [ROUTE_IDS.TERMS]: ROUTE_COMPONENT_KEYS.TERMS_PAGE,
   [ROUTE_IDS.PRIVACY]: ROUTE_COMPONENT_KEYS.PRIVACY_PAGE,
+  [ROUTE_IDS.PUBLIC_EXPLORE]: ROUTE_COMPONENT_KEYS.PUBLIC_EXPLORE_PAGE,
   [ROUTE_IDS.PROTECTED_BOUNDARY]: ROUTE_COMPONENT_KEYS.PROTECTED_BOUNDARY,
   [ROUTE_IDS.AUTHENTICATED_ENTRY]: ROUTE_COMPONENT_KEYS.REDIRECT,
   [ROUTE_IDS.PREPARING]: ROUTE_COMPONENT_KEYS.ACCOUNT_PREPARING_PAGE,
@@ -144,6 +160,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.APPLICATION_SHELL]: ROUTE_COMPONENT_KEYS.APPLICATION_SHELL,
   [ROUTE_IDS.MAP]: ROUTE_COMPONENT_KEYS.MAP_PAGE,
   [ROUTE_IDS.SPOT_DETAIL]: ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE,
+  [ROUTE_IDS.FACILITY_DETAIL]: ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE,
   [ROUTE_IDS.MY_SPOTS]: ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE,
   [ROUTE_IDS.UPLOAD]: ROUTE_COMPONENT_KEYS.UPLOAD_PAGE,
   [ROUTE_IDS.PROFILE]: ROUTE_COMPONENT_KEYS.PROFILE_PAGE,
@@ -163,6 +180,7 @@ const EXPECTED_COMPONENT_KEYS = {
   [ROUTE_IDS.ADMIN_USERS]: ROUTE_COMPONENT_KEYS.ADMIN_USERS_PAGE,
   [ROUTE_IDS.ADMIN_USER_DETAIL]:
     ROUTE_COMPONENT_KEYS.ADMIN_USER_DETAIL_PAGE,
+  [ROUTE_IDS.ADMIN_WAITLIST]: ROUTE_COMPONENT_KEYS.ADMIN_WAITLIST_PAGE,
   [ROUTE_IDS.ADMIN_SECURITY]: ROUTE_COMPONENT_KEYS.ADMIN_SECURITY_PAGE,
   [ROUTE_IDS.ADMIN_ANALYTICS]: ROUTE_COMPONENT_KEYS.ANALYTICS_PAGE,
   [ROUTE_IDS.ADMIN_AUDIT]: ROUTE_COMPONENT_KEYS.ADMIN_AUDIT_PAGE,
@@ -191,8 +209,10 @@ const EXPECTED_EAGER_COMPONENTS: Partial<
 };
 
 const EXPECTED_LAZY_MARKERS: Partial<Record<RouteComponentKey, string>> = {
+  [ROUTE_COMPONENT_KEYS.PUBLIC_EXPLORE_PAGE]: 'public-explore-page',
   [ROUTE_COMPONENT_KEYS.MAP_PAGE]: 'map-page',
   [ROUTE_COMPONENT_KEYS.SPOT_DETAIL_PAGE]: 'spot-detail-page',
+  [ROUTE_COMPONENT_KEYS.FACILITY_DETAIL_PAGE]: 'facility-detail-page',
   [ROUTE_COMPONENT_KEYS.MY_SPOTS_PAGE]: 'my-spots-page',
   [ROUTE_COMPONENT_KEYS.UPLOAD_PAGE]: 'upload-page',
   [ROUTE_COMPONENT_KEYS.PROFILE_PAGE]: 'profile-page',
@@ -204,6 +224,7 @@ const EXPECTED_LAZY_MARKERS: Partial<Record<RouteComponentKey, string>> = {
   [ROUTE_COMPONENT_KEYS.ADMIN_DASHBOARD_PAGE]: 'admin-dashboard-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_USERS_PAGE]: 'admin-users-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_USER_DETAIL_PAGE]: 'admin-user-detail-page',
+  [ROUTE_COMPONENT_KEYS.ADMIN_WAITLIST_PAGE]: 'admin-waitlist-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_SECURITY_PAGE]: 'admin-security-page',
   [ROUTE_COMPONENT_KEYS.ANALYTICS_PAGE]: 'analytics-page',
   [ROUTE_COMPONENT_KEYS.ADMIN_AUDIT_PAGE]: 'admin-audit-page',

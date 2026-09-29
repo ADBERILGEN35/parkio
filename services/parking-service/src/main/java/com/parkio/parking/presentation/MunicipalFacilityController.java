@@ -1,6 +1,7 @@
 package com.parkio.parking.presentation;
 
 import com.parkio.parking.application.MunicipalFacilityQueryService;
+import com.parkio.parking.application.RegistryPublicationService;
 import com.parkio.parking.presentation.dto.MunicipalFacilityResponse;
 import java.util.List;
 import java.util.UUID;
@@ -14,23 +15,65 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/parking/facilities")
 public class MunicipalFacilityController {
-    private final MunicipalFacilityQueryService service;
+    static final int DEFAULT_RADIUS_METERS = 1000;
+    /** Authenticated nearby default — dense OSM/İZELMAN viewports exceed the old 20 cap. */
+    static final int DEFAULT_NEARBY_LIMIT = 100;
+    static final int MAX_NEARBY_LIMIT = 100;
 
-    public MunicipalFacilityController(MunicipalFacilityQueryService service) { this.service = service; }
+    private final MunicipalFacilityQueryService service;
+    private final RegistryPublicationService registryPublication;
+
+    public MunicipalFacilityController(
+            MunicipalFacilityQueryService service,
+            RegistryPublicationService registryPublication) {
+        this.service = service;
+        this.registryPublication = registryPublication;
+    }
 
     @GetMapping("/nearby")
     public List<MunicipalFacilityResponse> nearby(
             @RequestParam double lat,
             @RequestParam double lng,
-            @RequestParam(defaultValue = "1000") int radiusMeters,
-            @RequestParam(defaultValue = "20") int limit) {
-        return service.nearby(lat, lng, radiusMeters, limit).stream()
-                .map(MunicipalFacilityResponse::from).toList();
+            @RequestParam(required = false) Integer radiusMeters,
+            @RequestParam(required = false) Integer radius,
+            @RequestParam(required = false) Integer limit) {
+        int resolved = resolveRadiusMeters(radiusMeters, radius);
+        int resolvedLimit = resolveNearbyLimit(limit);
+        return service.nearby(lat, lng, resolved, resolvedLimit).stream()
+                .map(view -> MunicipalFacilityResponse.from(
+                        view, registryPublication.forFacility(view.id())))
+                .toList();
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<MunicipalFacilityResponse> byId(@PathVariable UUID id) {
-        return service.findById(id).map(MunicipalFacilityResponse::from)
+        return service.findById(id).map(view -> MunicipalFacilityResponse.from(
+                        view, registryPublication.forFacility(view.id())))
                 .map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Canonical query parameter is {@code radiusMeters}. Legacy {@code radius} is accepted when
+     * {@code radiusMeters} is absent. When both are present, {@code radiusMeters} wins.
+     * Invalid values are left for {@link MunicipalFacilityQueryService} validation.
+     */
+    static int resolveRadiusMeters(Integer radiusMeters, Integer radius) {
+        Integer chosen = radiusMeters != null ? radiusMeters : radius;
+        if (chosen == null) {
+            return DEFAULT_RADIUS_METERS;
+        }
+        return chosen;
+    }
+
+    /**
+     * Default authenticated nearby limit is {@link #DEFAULT_NEARBY_LIMIT}. Values above
+     * {@link #MAX_NEARBY_LIMIT} are clamped; non-positive values fall back to the default.
+     * Anonymous Public Explore keeps its own hard cap ({@code MAX_LIMIT=6}) on a separate path.
+     */
+    static int resolveNearbyLimit(Integer limit) {
+        if (limit == null || limit <= 0) {
+            return DEFAULT_NEARBY_LIMIT;
+        }
+        return Math.min(limit, MAX_NEARBY_LIMIT);
     }
 }

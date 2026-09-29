@@ -1,0 +1,19 @@
+=== PARKIO-Y03 Slack biz isolated acceptance ===
+[PASS] 1. registration_commit_produces_event
+[PASS] 2. failed_registration_no_completion
+[PASS] 3. duplicate_replay_dedup
+[PASS] 4. concurrent_dedup
+[PASS] 5. crash_restart_preserves_pending
+[PASS] 6. http_429_retry_after
+[PASS] 7. transient_retry_bounds
+[PASS] 8. permanent_and_exhausted_dlt
+[PASS] 9. transport_rejection_not_success
+[PASS] 10. incident_recovery_correlation
+[PASS] 11. local_offsite_backup_distinct
+[PASS] 12. sensitive_mention_safety
+[PASS] 13. disabled_no_outbound
+[PASS] 14. slack_outage_isolated
+[PASS] 15. alertmanager_compat
+---
+{"PASS": 15, "FAIL": 0, "NOT_EXECUTED": 0}
+TOTAL=15 PASS=15 FAIL=0 NOT_EXECUTED=0

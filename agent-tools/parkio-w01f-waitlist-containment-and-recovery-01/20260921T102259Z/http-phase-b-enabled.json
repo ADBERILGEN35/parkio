@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "name": "enabled_registration_pending",
+      "ok": true,
+      "detail": "http=202 db=PENDING"
+    },
+    {
+      "name": "enabled_confirm_works",
+      "ok": true,
+      "detail": "reg=202 confirm=202 db=CONFIRMED"
+    },
+    {
+      "name": "enabled_withdraw_works",
+      "ok": true,
+      "detail": "http=202 db=WITHDRAWN"
+    }
+  ],
+  "countsBefore": {
+    "pending": "1",
+    "confirmed": "1",
+    "withdrawn": "1",
+    "flyway": "2"
+  }
+}

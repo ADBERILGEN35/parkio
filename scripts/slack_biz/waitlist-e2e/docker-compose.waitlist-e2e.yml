@@ -1,0 +1,139 @@
+# TEST-ONLY isolated stack: gateway container → shared inbox → slack_biz
+# consumer → durable relay queue → worker → MOCK Slack. Not part of any
+# production compose file set; never uses a real webhook or email provider.
+#
+#   scripts/slack_biz/waitlist-e2e/run-e2e.sh      (drives every scenario)
+#
+# NOTE: postgres/redis/python images must already be pulled (internal network).
+#
+# UIDs mirror the proposed Civo layout: gateway image user 10001, relay
+# service user 10002, shared inbox group 10500 (setgid dir, mode 2770).
+name: parkio-waitlist-e2e
+
+x-relay: &relay
+  image: python:3.12-alpine
+  user: "10002:10500"
+  working_dir: /opt/relay
+  volumes:
+    - ../:/opt/relay/slack_biz:ro
+    - waitlist_inbox:/inbox
+    - relay_state:/state
+  environment: &relay-env
+    PYTHONDONTWRITEBYTECODE: "1"
+    PYTHONUNBUFFERED: "1"
+    PARKIO_SLACK_BIZ_ENABLED: ${E2E_RELAY_ENABLED:-true}
+    PARKIO_SLACK_BIZ_ENVIRONMENT: e2e
+    PARKIO_SLACK_BIZ_DATA_DIR: /state
+    PARKIO_SLACK_BIZ_WAITLIST_INBOX: /inbox
+    PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ: http://mock-slack:8080/services/E2E/MOCK/not-a-real-webhook
+    PARKIO_SLACK_BIZ_MAX_ATTEMPTS: "5"
+    PARKIO_SLACK_BIZ_HTTP_TIMEOUT: "3"
+  depends_on:
+    inbox-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+  networks: [e2e]
+
+services:
+  inbox-init:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /inbox /state &&
+        chown 10002:10500 /inbox && chmod 2770 /inbox &&
+        chown 10002:10002 /state && chmod 0700 /state
+    volumes:
+      - waitlist_inbox:/inbox
+      - relay_state:/state
+    networks: [e2e]
+
+  postgres-gateway:
+    image: ${E2E_POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_DB: parkio_gateway
+      POSTGRES_USER: parkio_gateway
+      POSTGRES_PASSWORD: e2e_only_gateway_pw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parkio_gateway -d parkio_gateway"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [e2e]
+
+  redis:
+    image: ${E2E_REDIS_IMAGE:-redis:7-alpine}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [e2e]
+
+  mock-slack:
+    image: python:3.12-alpine
+    user: "10003:10003"
+    working_dir: /opt/mock
+    command: ["python", "/opt/mock/mock_slack_server.py"]
+    environment:
+      MOCK_SLACK_LOG: /data/requests.jsonl
+      MOCK_SLACK_SEQUENCE: ${E2E_MOCK_SEQUENCE:-}
+    tmpfs:
+      - /data:uid=10003,gid=10003,mode=0755
+    volumes:
+      - ./mock_slack_server.py:/opt/mock/mock_slack_server.py:ro
+    networks: [e2e]
+
+  gateway-service:
+    image: ${E2E_GATEWAY_IMAGE:?set E2E_GATEWAY_IMAGE}
+    group_add: ["10500"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-gateway:5432/parkio_gateway
+      SPRING_DATASOURCE_USERNAME: parkio_gateway
+      SPRING_DATASOURCE_PASSWORD: e2e_only_gateway_pw
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_TRACING_ENABLED: "false"
+      PARKIO_ENVIRONMENT: e2e
+      PARKIO_GATEWAY_INTERNAL_SECRET: e2e-only-internal-secret-0123456789abcdef
+      PARKIO_WAITLIST_HASH_SECRET: ${E2E_HASH_SECRET:-e2e-only-waitlist-hash-secret-0123456789ab}
+      PARKIO_WAITLIST_ADMISSIONS_ENABLED: "true"
+      PARKIO_WAITLIST_IP_RATE_LIMIT_MAX: "200"
+      PARKIO_WAITLIST_EMAIL_RATE_LIMIT_MAX: "20"
+      PARKIO_WAITLIST_EMAIL_PROVIDER: logging
+      PARKIO_WAITLIST_ALLOW_LOGGING_PROVIDER: "true"
+      PARKIO_AUTH_JWKS_URI: http://127.0.0.1:1/unused-jwks
+      PARKIO_CORS_ALLOWED_ORIGINS: http://localhost
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED: ${E2E_GATEWAY_OPS_ENABLED:-true}
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR: /var/lib/parkio/waitlist-ops-inbox
+      PARKIO_WAITLIST_OPS_NOTIFICATIONS_POLL_INTERVAL: ${E2E_POLL_INTERVAL:-PT3S}
+    volumes:
+      - waitlist_inbox:/var/lib/parkio/waitlist-ops-inbox
+    depends_on:
+      inbox-init:
+        condition: service_completed_successfully
+      postgres-gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [e2e]
+
+  relay-consumer:
+    <<: *relay
+    command: ["python", "/opt/relay/slack_biz/consume_waitlist.py", "--loop", "--interval", "1"]
+
+  relay-worker:
+    <<: *relay
+    command: ["python", "/opt/relay/slack_biz/worker.py", "--loop", "--interval", "1"]
+
+volumes:
+  waitlist_inbox:
+  relay_state:
+
+# Internal network: no route to the internet, so nothing can reach real Slack
+# or an email provider even by misconfiguration. The runner uses docker exec.
+networks:
+  e2e:
+    internal: true

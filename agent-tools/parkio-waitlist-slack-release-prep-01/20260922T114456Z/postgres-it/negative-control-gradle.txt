@@ -1,0 +1,3 @@
+WaitlistOpsNotificationPostgresIT > genuineSqlFailureInsideSavepointKeepsConfirmationCommittable() FAILED
+> Task :services:gateway-service:integrationTest FAILED
+BUILD FAILED in 1m 22s

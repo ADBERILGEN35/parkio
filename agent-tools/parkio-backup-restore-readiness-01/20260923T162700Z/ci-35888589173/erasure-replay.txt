@@ -1,0 +1,4 @@
+active_in_erasure_set_before_replay=1
+active_in_erasure_set_after_replay=0
+restored_tombstones=2
+privacy=PASS

@@ -1,4 +1,22 @@
 User-agent: *
-Allow: /
+Allow: /explore
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /check-email
+Disallow: /verify-email
+Disallow: /map
+Disallow: /spots/
+Disallow: /facilities/
+Disallow: /my-spots
+Disallow: /upload
+Disallow: /profile
+Disallow: /reports
+Disallow: /notifications
+Disallow: /gamification
+Disallow: /leaderboard
+Disallow: /moderation
+Disallow: /admin
 
-Sitemap: https://parkio.dev/sitemap.xml
+Sitemap: https://app.parkio.dev/sitemap.xml

@@ -1,0 +1,10 @@
+Flyway OSS 10.22.0 against disposable Postgres 16 (docker w01b-pg :55441 / parkio_gateway_flyway):
+- Migrating to version 1 - create waitlist interest: SUCCESS
+- Migrating to version 2 - waitlist double opt in: SUCCESS
+- flyway_schema_history versions 1,2 success=t
+Manual upgrade path (empty › V1 SQL › V2 SQL on parkio_gateway): SUCCESS
+HTTP+persistence acceptance: WaitlistControllerTest (H2 MODE=PostgreSQL + Flyway classpath): BUILD SUCCESSFUL (13 tests)
+CORS: CorsConfigTest included in same gradle run: PASS
+Marketing validator PASS; Playwright marketing 9/9 PASS; adapter unit PASS
+Real Resend delivery: NOT_EXECUTED
+Production DB: NOT_EXECUTED

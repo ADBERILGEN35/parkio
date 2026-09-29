@@ -32,6 +32,10 @@ on:
 permissions:
   contents: read
   actions: read
+  packages: read
+
+env:
+  PARKIO_CI_HAS_STAGING_ENV: ${{ vars.PARKIO_CI_HAS_STAGING_ENV }}
 
 concurrency:
   group: shared-staging-verification-${{ github.ref }}
@@ -50,6 +54,46 @@ jobs:
             echo "production execution rejected" >&2
             exit 1
           fi
+      - name: Fail closed when SHARED_STAGING is selected without capacity
+        if: ${{ inputs.execution_environment == 'SHARED_STAGING' && vars.PARKIO_CI_HAS_STAGING_ENV != 'yes' }}
+        run: |
+          echo "SHARED_STAGING requires repository variable PARKIO_CI_HAS_STAGING_ENV=yes and an authorized isolated host."
+          echo "This is fail-closed, not a skip."
+          exit 1
+
+  isolated-preflight:
+    name: Isolated CI_EPHEMERAL preflight
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR for private MinIO pins
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Syntax, pins, and compose render
+        run: |
+          set -euo pipefail
+          bash -n scripts/staging/run-wp062b-restored-stack-verification.sh
+          bash -n scripts/staging/lib/safety-guards.sh
+          bash -n scripts/staging/cleanup-isolated-stack.sh
+          test -f docker/docker-compose.restored-application-verification.yml
+          bash scripts/ci/assert-minio-image-pins.sh
+          cp docker/.env.example docker/.env.ci-wp062b
+          docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.restored-application-verification.yml \
+            --env-file docker/.env.ci-wp062b \
+            config >/tmp/wp062b-compose.yml
+          test -s /tmp/wp062b-compose.yml
+          echo "isolated-preflight OK (compose render + pin assert)."
+          echo "This is preflight only. Full restored-stack APIs are a separate job."
+          echo "CI_EPHEMERAL/LOCAL_REPRESENTATIVE execute against disposable compose + synthetic backups."
+          echo "SHARED_STAGING also needs an authorized isolated host, endpoints, credentials, and cleanup."
+          echo "PARKIO_CI_HAS_STAGING_ENV=yes is only an operator attestation; it is not sufficient by itself."
 
   restored-stack:
     needs: guard
@@ -66,23 +110,46 @@ jobs:
       PARKIO_WP062B_SIGNOFF_TICKET: ${{ inputs.signoff_ticket }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fail closed on fork PRs needing private MinIO
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Fork PRs cannot read private ghcr.io/adberilgen35/parkio/{minio,mc} with GITHUB_TOKEN."
+          echo "This is fail-closed, not a skip. Open the change from ADBERILGEN35/parkio."
+          exit 1
+
+      - name: Log in to GHCR for private MinIO pulls
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Require python3
         run: python3 --version
       - name: Runner capability note
         run: |
-          echo "Full restored app stack may be INFRA_INPUT_REQUIRED on small GitHub-hosted runners."
-          echo "Use a capable self-hosted runner label when SHARED_STAGING capacity exists."
-      - name: Structural validation only when secrets missing
-        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV != 'yes' }}
+          echo "CI_EPHEMERAL/LOCAL_REPRESENTATIVE: GitHub-hosted ubuntu-latest + Docker + GHCR MinIO pins."
+          echo "SHARED_STAGING is not this runner. Do not set PARKIO_CI_HAS_STAGING_ENV=yes to unlock a job."
+      - name: Refuse SHARED_STAGING on this GitHub-hosted runner
+        if: ${{ inputs.execution_environment == 'SHARED_STAGING' }}
+        run: |
+          echo "SHARED_STAGING requires an authorized isolated host, restored synthetic data,"
+          echo "service endpoints, credentials, and cleanup — not merely PARKIO_CI_HAS_STAGING_ENV=yes."
+          echo "INFRA_INPUT_REQUIRED: no authorized shared-staging host is attached to this workflow."
+          exit 1
+      - name: Prepare disposable env for isolated execute
+        if: ${{ inputs.execution_environment != 'SHARED_STAGING' }}
         run: |
           set -euo pipefail
-          bash -n scripts/staging/run-wp062b-restored-stack-verification.sh
-          bash -n scripts/staging/lib/safety-guards.sh
-          test -f docker/docker-compose.restored-application-verification.yml
-          echo "INFRA_INPUT_REQUIRED: staging .env/secrets not provisioned for full stack on this runner"
+          cp docker/.env.example docker/.env
+          echo "Prepared docker/.env from example for disposable CI_EPHEMERAL restore (synthetic passwords only)."
       - name: Execute WP-06.2B restored stack
-        if: ${{ env.PARKIO_CI_HAS_STAGING_ENV == 'yes' }}
-        run: ./scripts/staging/run-wp062b-restored-stack-verification.sh
+        if: ${{ inputs.execution_environment != 'SHARED_STAGING' }}
+        env:
+          PARKIO_WP062B_BUILD_IMAGES: "yes"
+        run: bash scripts/staging/run-wp062b-restored-stack-verification.sh
       - name: Diagnostics
         if: always()
         run: |
@@ -90,7 +157,7 @@ jobs:
           docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" || true
       - name: Cleanup isolated project
         if: always()
-        run: ./scripts/staging/cleanup-isolated-stack.sh || true
+        run: bash scripts/staging/cleanup-isolated-stack.sh || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4

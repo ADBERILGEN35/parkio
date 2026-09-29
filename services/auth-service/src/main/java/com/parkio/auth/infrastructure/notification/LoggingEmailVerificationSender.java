@@ -2,8 +2,6 @@ package com.parkio.auth.infrastructure.notification;
 
 import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.domain.EmailLocale;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,9 +40,7 @@ public class LoggingEmailVerificationSender implements EmailVerificationSender {
                     Integer.toHexString(email.hashCode()), locale.code());
             return;
         }
-        String separator = verificationUrl.contains("?") ? "&" : "?";
-        String encoded = URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
-        log.info("Email verification link for {}: {}{}token={} (locale={})",
-                email, verificationUrl, separator, encoded, locale.code());
+        String link = AuthTransactionalEmailTemplates.pageUrl(verificationUrl, rawToken, locale);
+        log.info("Email verification link for {}: {} (locale={})", email, link, locale.code());
     }
 }

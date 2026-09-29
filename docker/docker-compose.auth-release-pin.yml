@@ -1,0 +1,17 @@
+# Parkio hosted-beta auth release pin — PR #78 Resend delivery readiness (2026-09-22)
+# Runtime source tip: b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449
+# Merge: 2b107967792b981f82d720a333c8fa2c52ebf6af
+# Local image ID == registry manifest digest for this single-arch push.
+# Rollback (PR #68 auth image):
+#   ghcr.io/adberilgen35/parkio/auth-service@sha256:c9875b416b9a9db9d597fa2e81ab9b5cc9858738b7bea7175c5fac5f00606ac1
+# Applied via docker/compose.production.files (after GMP pins, with web pin).
+# Recreate with:
+#   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
+#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate auth-service
+#
+# Practical digest update: change ONLY the services.auth-service.image line below.
+name: parkio
+
+services:
+  auth-service:
+    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e

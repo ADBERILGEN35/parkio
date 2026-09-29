@@ -1,0 +1,18 @@
+# Auth registration env wiring (INVITE window / CLOSED restore).
+#
+# Secret-free overlay: no images, no volumes, no bind mounts.
+# Precedence in docker/compose.production.files:
+#   after azure-hosted-beta.yml (auth-service only sets tracing there)
+#   before docker-compose.auth-release-pin.yml (image only)
+# Duplicate-mount: this file declares no volumes, so it cannot remount
+# auth-service or collide with waitlist-ops-inbox.yml (gateway-only).
+# Token is interpolated from the host env file; never commit a literal.
+name: parkio
+
+services:
+  auth-service:
+    environment:
+      PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:-closed}
+      PARKIO_REGISTRATION_INVITE_CREATION_ENABLED: ${PARKIO_REGISTRATION_INVITE_CREATION_ENABLED:-false}
+      PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN: ${PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN:-}
+      PARKIO_REGISTRATION_INVITE_TTL: ${PARKIO_REGISTRATION_INVITE_TTL:-P7D}

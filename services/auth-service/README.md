@@ -289,14 +289,36 @@ logging provider is selected or raw-token logging is enabled. Delivery counters
 are exported at `/actuator/prometheus` as `email_sent_total`,
 `email_failed_total`, and `email_verification_sent_total`.
 
-**Retry / outbox plan (R5.4):** Auth sends transactional email synchronously inside
-the request thread today. That is acceptable for low-volume verification and reset
-flows because failures surface to the caller and Resend retries are idempotent at the
-HTTP layer. If delivery volume or reliability requirements grow, introduce an
-`email_outbox` table (same pattern as notification-service push attempts): persist the
-template + recipient hash + idempotency key, drain with a scheduled worker, exponential
-backoff, and DLQ after `max-attempts`. Until then, monitor `email_failed_total` and
-alert on sustained failures.
+**Send failure / ambiguous acceptance semantics:** Auth sends transactional email
+synchronously inside the request `@Transactional` boundary. There is **no** application
+retry loop (avoids duplicate sends). `ResendEmailSender` sets Resend's
+`Idempotency-Key` header (`auth/<template>/<emailHash>/<tokenFingerprint>`, ≤256 chars,
+24h retention per Resend docs). That key only deduplicates **retries of the same**
+template + recipient + raw token. A new registration or resend that mints a **new**
+token intentionally uses a new key and is a distinct send. Provider HTTP acceptance
+(`email_sent`) is **not** inbox delivery proof.
+
+Finite Resend HTTP timeouts default to connect **2s** and read **5s**
+(`parkio.email.resend.connect-timeout` / `read-timeout`).
+
+Public `POST /resend-verification` and `POST /forgot-password` absorb
+`EmailDeliveryException` **after** the service method exits (so the transaction has
+already rolled back) and always return `202` / `200` respectively — eligible,
+unknown and ineligible accounts stay indistinguishable. Register and admin resend
+still map delivery failure to `503 EMAIL_DELIVERY_UNAVAILABLE`.
+
+| Outcome | Account / token state |
+|---|---|
+| Provider 4xx/5xx or transport error before commit | `EmailDeliveryException` rolls back the request transaction: register creates no account / outbox row; resend keeps the previous verification hash; forgot-password keeps prior active reset token |
+| Provider HTTP 2xx | Token hash (and new pending account on register) is committed; inbox delivery is separate |
+| Ambiguous timeout after provider may have accepted | Transaction rolls back (no committed new token/account). A delivered message, if any, carries a rolled-back token and cannot verify; operator should treat as failed send and use a fresh register/resend |
+
+**Retry / outbox plan (R5.4):** If delivery volume or reliability requirements grow,
+introduce an `email_outbox` table (same pattern as notification-service push attempts):
+persist the template + recipient hash + idempotency key, drain with a scheduled worker,
+bounded backoff, and DLQ after `max-attempts`. Do not add unbounded retries or signed
+delivery webhooks without a separate decision. Until then, monitor `email_failed_total`
+and alert on sustained failures.
 
 ## Refresh-token transport and CSRF boundary
 

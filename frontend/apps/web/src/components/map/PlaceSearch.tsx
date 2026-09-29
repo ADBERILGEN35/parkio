@@ -9,7 +9,11 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type GeocodeResult } from '@/lib/geocoding';
-import { usePlaceAutocomplete, type AutocompleteStatus } from '@/lib/usePlaceAutocomplete';
+import {
+  usePlaceAutocomplete,
+  type AutocompleteStatus,
+  type PlaceSearchFn,
+} from '@/lib/usePlaceAutocomplete';
 
 export interface PlaceSearchProps {
   /** Visible field label (also the accessible name). */
@@ -22,26 +26,58 @@ export interface PlaceSearchProps {
    * single-match submit. The resolved `GeocodeResult` carries lat/lng + labels.
    */
   onSelect: (result: GeocodeResult) => void;
+  /**
+   * Optional geocoding lookup override. Defaults to authenticated geocoding.
+   * Public Explore injects the certified public destination search endpoint.
+   */
+  searchFn?: PlaceSearchFn;
+  /** Optional debounce override forwarded to autocomplete. */
+  debounceMs?: number;
+  /** When false, disables transient retries (preferred for public rate-limited search). */
+  retry?: boolean;
+  /**
+   * Fired when the query is cleared (empty input / clear control). Consumers use
+   * this to drop selectedDestination without requiring a separate control.
+   */
+  onClear?: () => void;
+  /** Show an explicit clear button when the query is non-empty. */
+  showClear?: boolean;
+  /** Accessible name for the clear control. */
+  clearLabel?: string;
+  /**
+   * Fired when the autocomplete interaction opens or closes (loading / results /
+   * empty / error / rate-limited vs idle or dismissed). Consumers may hide
+   * competing discovery chrome without mutating map state.
+   */
+  onInteractionChange?: (active: boolean) => void;
 }
 
 /**
- * Address/place typeahead used by both `/map` and `/upload`.
+ * Address/place typeahead used by `/map`, `/upload`, and anonymous `/explore`.
  *
  * Owns its own query text, debounced suggestions ({@link usePlaceAutocomplete}),
  * dropdown open/highlight state, keyboard navigation, and a submit fallback. It is
  * purely a *search* control: it never sets coordinates itself — the consumer reacts
- * to {@link PlaceSearchProps.onSelect} (e.g. center a map, fill lat/lng). Geocoding
- * is proxied through Parkio's backend; see `lib/geocoding.ts`.
+ * to {@link PlaceSearchProps.onSelect}. Geocoding is proxied through Parkio's
+ * backend; see `lib/geocoding.ts` / public geocoding for Explore.
  */
 export function PlaceSearch({
   label,
   placeholder,
   compact = false,
   onSelect,
+  searchFn,
+  debounceMs,
+  retry,
+  onClear,
+  showClear = false,
+  clearLabel,
+  onInteractionChange,
 }: PlaceSearchProps) {
   const { t } = useTranslation('map');
   const resolvedLabel = label ?? t('placeSearchLabel');
   const resolvedPlaceholder = placeholder ?? t('placeSearchPlaceholder');
+  const resolvedClearLabel = clearLabel ?? t('assistant.clearDestination');
   const listboxId = useId();
   const optionId = (index: number) => `${listboxId}-option-${index}`;
 
@@ -50,9 +86,19 @@ export function PlaceSearch({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const autocomplete = usePlaceAutocomplete();
+  const autocomplete = usePlaceAutocomplete({ searchFn, debounceMs, retry });
   const suggestions = autocomplete.results;
   const showDropdown = dropdownOpen && autocomplete.status !== 'idle';
+
+  useEffect(() => {
+    onInteractionChange?.(showDropdown);
+  }, [showDropdown, onInteractionChange]);
+
+  useEffect(() => {
+    return () => {
+      onInteractionChange?.(false);
+    };
+  }, [onInteractionChange]);
 
   const closeDropdown = () => {
     setDropdownOpen(false);
@@ -66,10 +112,22 @@ export function PlaceSearch({
     onSelect(result);
   };
 
+  const clearQuery = () => {
+    setQuery('');
+    autocomplete.clear();
+    closeDropdown();
+    onClear?.();
+  };
+
   const onChange = (value: string) => {
     setQuery(value);
     setHighlightedIndex(-1);
     setDropdownOpen(true);
+    if (!value.trim()) {
+      autocomplete.clear();
+      onClear?.();
+      return;
+    }
     autocomplete.suggest(value);
   };
 
@@ -131,7 +189,7 @@ export function PlaceSearch({
         <div className="relative min-w-0 flex-1">
           <Input
             label={compact ? undefined : resolvedLabel}
-            type="search"
+            type={showClear ? 'text' : 'search'}
             autoComplete="off"
             placeholder={resolvedPlaceholder}
             value={query}
@@ -147,10 +205,25 @@ export function PlaceSearch({
             aria-activedescendant={highlightedIndex >= 0 ? optionId(highlightedIndex) : undefined}
             className={
               compact
-                ? 'rounded-full bg-surface-container-lowest py-xs pl-md pr-sm shadow-none'
+                ? cn(
+                    'rounded-full bg-surface-container-lowest py-xs pl-md shadow-none',
+                    showClear && query ? 'pr-10' : 'pr-sm',
+                  )
                 : undefined
             }
           />
+          {showClear && query ? (
+            <button
+              type="button"
+              data-testid="place-search-clear"
+              aria-label={resolvedClearLabel}
+              className="absolute right-2 top-1/2 z-[1] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container hover:text-on-surface focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={clearQuery}
+            >
+              <Icon name="close" className="text-[18px] leading-none" />
+            </button>
+          ) : null}
           {showDropdown ? (
             <SuggestionsDropdown
               listboxId={listboxId}
@@ -208,6 +281,11 @@ function SuggestionsDropdown({
       ) : null}
       {status === 'error' ? (
         <p className="m-0 px-md py-sm text-label-sm text-error">{t('placeSearchError')}</p>
+      ) : null}
+      {status === 'rateLimited' ? (
+        <p className="m-0 px-md py-sm text-label-sm text-on-surface-variant">
+          {t('placeSearchRateLimited')}
+        </p>
       ) : null}
       {showEmpty ? (
         <p className="m-0 px-md py-sm text-label-sm text-on-surface-variant">{t('placeSearchEmpty')}</p>

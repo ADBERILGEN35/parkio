@@ -1,0 +1,4 @@
+before=15
+after=15
+confirmed=2
+survived=True

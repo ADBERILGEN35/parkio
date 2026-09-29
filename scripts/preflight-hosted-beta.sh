@@ -15,7 +15,7 @@
 #
 # Options:
 #   --env-file <path>   env file to validate (default: $PARKIO_ENV_FILE or docker/.env)
-#   --deployment-profile <name>  hosted-beta or azure-hosted-beta
+#   --deployment-profile <name>  hosted-beta, azure-hosted-beta, or invite-production
 #   --skip-compose      skip the docker-compose render (no docker needed; used by
 #                       fixture tests and by deploy-hosted-beta.sh, which renders
 #                       the compose config itself immediately afterwards)
@@ -99,7 +99,7 @@ if [ -z "$DEPLOYMENT_PROFILE" ]; then
 fi
 DEPLOYMENT_PROFILE=${DEPLOYMENT_PROFILE:-hosted-beta}
 case "$DEPLOYMENT_PROFILE" in
-  hosted-beta|azure-hosted-beta) ;;
+  hosted-beta|azure-hosted-beta|invite-production) ;;
   *)
     echo "ERROR: unsupported PARKIO_DEPLOYMENT_PROFILE='$DEPLOYMENT_PROFILE'" >&2
     exit 2
@@ -110,6 +110,13 @@ export PARKIO_DEPLOYMENT_PROFILE="$DEPLOYMENT_PROFILE"
 # is_placeholder VALUE -> 0 if the value looks like an unreplaced template value.
 is_placeholder() {
   echo "$1" | grep -qiE 'CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|YOUR_|<[A-Za-z_-]+>|DUMMY|SAMPLE_|TODO|FIXME|00000000-0000-0000-0000-000000000000'
+}
+
+# is_jwt_pem_placeholder VALUE -> 0 only for known env-template markers.
+# Short tokens (TODO/FIXME/YOUR_/DUMMY/SAMPLE_) must NOT be used on PKCS#8 PEM
+# bodies: they collide with random base64 and false-fail CI dry-run fixtures.
+is_jwt_pem_placeholder() {
+  echo "$1" | grep -qiE 'CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|<[A-Za-z_-]+>|00000000-0000-0000-0000-000000000000'
 }
 
 # Known committed local-dev values that must never reach a hosted environment.
@@ -224,7 +231,7 @@ fi
 JWT_PEM=$(env_get PARKIO_JWT_PRIVATE_KEY_PEM)
 if [ -z "$JWT_PEM" ]; then
   fail "PARKIO_JWT_PRIVATE_KEY_PEM" "JWT private key is empty" "openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 — store as one double-quoted line with \\n escapes"
-elif is_placeholder "$JWT_PEM"; then
+elif is_jwt_pem_placeholder "$JWT_PEM"; then
   fail "PARKIO_JWT_PRIVATE_KEY_PEM" "JWT private key is a placeholder" "generate a real PKCS#8 key (see .env.hosted-beta.example)"
 else
   case "$JWT_PEM" in
@@ -286,11 +293,18 @@ else
   esac
 fi
 
-EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
-if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
-  fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
-else
+# Expo remains mandatory for hosted environments that intentionally include
+# mobile push. The web-only invite-production profile enforces disabled/noop in
+# its dedicated wrapper instead.
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
   ok
+else
+  EXPO_TOKEN=$(env_get PARKIO_EXPO_ACCESS_TOKEN)
+  if [ -z "$EXPO_TOKEN" ] || is_placeholder "$EXPO_TOKEN"; then
+    fail "PARKIO_EXPO_ACCESS_TOKEN" "missing or placeholder" "create an access token at expo.dev (Account settings -> Access tokens)"
+  else
+    ok
+  fi
 fi
 
 SLACK_URL=$(env_get PARKIO_ALERT_SLACK_WEBHOOK_URL)
@@ -484,7 +498,10 @@ else
 fi
 
 PUSH_PROVIDER=$(env_get PARKIO_PUSH_DELIVERY_PROVIDER)
-if [ "$PUSH_PROVIDER" = "expo" ]; then
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  # Exact disabled/noop semantics are checked by preflight-invite-production.sh.
+  ok
+elif [ "$PUSH_PROVIDER" = "expo" ]; then
   ok
 elif [ "$ALLOW_PROVIDER" = "1" ] && [ -n "$PUSH_PROVIDER" ] && [ "$PUSH_PROVIDER" != "noop" ]; then
   warn "PARKIO_PUSH_DELIVERY_PROVIDER" "'$PUSH_PROVIDER' (non-default) explicitly allowed — document the rationale in the deploy notes"
@@ -548,15 +565,32 @@ else
 fi
 
 ENVIRONMENT=$(env_get PARKIO_ENVIRONMENT)
-if [ "$ENVIRONMENT" != "hosted-beta" ]; then
-  fail "PARKIO_ENVIRONMENT" "'${ENVIRONMENT:-<unset -> compose default 'local'>}' — observability labels and alert routing key off this" "set PARKIO_ENVIRONMENT=hosted-beta"
+EXPECTED_ENVIRONMENT="hosted-beta"
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  EXPECTED_ENVIRONMENT="invite-production"
+fi
+if [ "$ENVIRONMENT" != "$EXPECTED_ENVIRONMENT" ]; then
+  fail "PARKIO_ENVIRONMENT" "'${ENVIRONMENT:-<unset -> compose default 'local'>}' — observability labels and alert routing key off this" "set PARKIO_ENVIRONMENT=$EXPECTED_ENVIRONMENT"
+else
+  ok
+fi
+
+# Known CI synthetic MapTiler key must never be selected for a hosted deploy.
+# Mock CI image acceptance still uses this value and does not run this preflight.
+MAP_KEY=$(env_get VITE_MAPTILER_KEY)
+if [ "$MAP_KEY" = "ci-web-build-security-synthetic" ]; then
+  fail "VITE_MAPTILER_KEY" "known CI synthetic test map key must not be deployed" "use the authorized production MapTiler configuration; keep the synthetic key only in mock CI acceptance"
 else
   ok
 fi
 
 APP_ENV=$(env_get VITE_APP_ENV)
-if [ -n "$APP_ENV" ] && [ "$APP_ENV" != "hosted-beta" ]; then
-  fail "VITE_APP_ENV" "'$APP_ENV' — the web build must be a hosted-beta build" "set VITE_APP_ENV=hosted-beta (or leave unset; overlay default)"
+EXPECTED_APP_ENV="hosted-beta"
+if [ "$DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  EXPECTED_APP_ENV="invite-production"
+fi
+if [ -n "$APP_ENV" ] && [ "$APP_ENV" != "$EXPECTED_APP_ENV" ]; then
+  fail "VITE_APP_ENV" "'$APP_ENV' — the web build must match the deployment environment" "set VITE_APP_ENV=$EXPECTED_APP_ENV"
 else
   ok
 fi

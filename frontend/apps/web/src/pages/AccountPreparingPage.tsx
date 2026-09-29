@@ -1,10 +1,15 @@
 import { UnauthorizedError } from '@parkio/api-client';
+import type { User } from '@parkio/types';
 import { Button, Icon, SkeletonBlock, Surface } from '@parkio/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppRuntime } from '@/app/AppRuntimeContext';
 import { performLogout } from '@/auth/logout';
-import { clearPendingProfile, getPendingProfile, hasPendingProfile } from '@/auth/pendingProfile';
+import {
+  claimPendingProfileFor,
+  clearPendingProfile,
+  hasPendingProfile,
+} from '@/auth/pendingProfile';
 import { useAuthStore } from '@/auth/store';
 
 /** Poll /auth/me once per second… */
@@ -23,14 +28,18 @@ type Phase = 'provisioning' | 'saving-profile';
  * (the store's `provisioning` flag suppresses the global suspended screen for that
  * window only). Once the profile is ready it persists any registration-captured
  * profile fields (display name / phone) via `PATCH /users/me` and completes the
- * provisioning lifecycle. RoutePolicyBoundary exclusively owns the resulting
- * navigation.
+ * provisioning lifecycle. The fields are only applied when the `/auth/me`
+ * identity, the still-current session generation and the pending profile's
+ * registered owner all name the same account; the pending profile is claimed
+ * (cleared) before the request so a duplicate run cannot re-apply it.
+ * RoutePolicyBoundary exclusively owns the resulting navigation.
  * A failed profile save is non-fatal — the account still works and a soft warning
  * is shown.
  */
 export function AccountPreparingPage() {
   const {
     authSession,
+    authStore,
     sdk: { authApi, usersApi },
   } = useAppRuntime();
   const { t } = useTranslation(['auth', 'common']);
@@ -40,8 +49,11 @@ export function AccountPreparingPage() {
   const [signingOut, setSigningOut] = useState(false);
   const [phase, setPhase] = useState<Phase>('provisioning');
   const [profileWarning, setProfileWarning] = useState(false);
+  const [phoneReentryNotice, setPhoneReentryNotice] = useState(false);
 
   const activeRef = useRef(true);
+  /** Identifies the latest readiness run; results of superseded runs are ignored. */
+  const runIdRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimer = () => {
@@ -51,43 +63,98 @@ export function AccountPreparingPage() {
     }
   };
 
-  const finishWithProfile = useCallback(async () => {
-    const pending = getPendingProfile();
-    if (!hasPendingProfile(pending)) {
-      endProvisioning();
-      return;
-    }
+  const isCurrentRun = (runId: number) => activeRef.current && runIdRef.current === runId;
 
-    setPhase('saving-profile');
-    try {
-      await usersApi.updateMyProfile({
-        displayName: pending.displayName || undefined,
-        phoneNumber: pending.phoneNumber || undefined,
-      });
-      if (!activeRef.current) return;
-      clearPendingProfile();
-      endProvisioning();
-    } catch {
-      if (!activeRef.current) return;
-      clearPendingProfile();
-      setProfileWarning(true);
-    }
-  }, [endProvisioning, usersApi]);
+  const finishWithProfile = useCallback(
+    async (runId: number, user: User, sessionEpoch: number) => {
+      const sessionUnchanged = () => {
+        const state = authStore.getState();
+        return state.sessionEpoch === sessionEpoch && state.user?.id === user.id;
+      };
+      // Synchronous ownership check + claim immediately before the mutation:
+      // another account's (or an ownerless) pending profile is discarded here.
+      const pending = claimPendingProfileFor(user.id);
+      if (!hasPendingProfile(pending)) {
+        endProvisioning();
+        return;
+      }
+
+      const requestPhoneReentry = Boolean(pending.needsPhoneReentry && !pending.phoneNumber);
+      // The exact credential of the verified session; the SDK stamps this token
+      // (not whatever replaced it in storage) and only retries after a refresh
+      // that still yields this account.
+      const boundAccessToken = authStore.getState().accessToken;
+
+      // Re-entry-only: nothing to PATCH; ask the user to add phone from Profile.
+      if (!pending.displayName && !pending.phoneNumber && requestPhoneReentry) {
+        setPhoneReentryNotice(true);
+        return;
+      }
+
+      if (!boundAccessToken) {
+        endProvisioning();
+        return;
+      }
+
+      setPhase('saving-profile');
+      try {
+        await usersApi.updateMyProfileAs(
+          {
+            accessToken: boundAccessToken,
+            allowRetry: (refreshedAccessToken) => {
+              const state = authStore.getState();
+              return state.accessToken === refreshedAccessToken && state.user?.id === user.id;
+            },
+          },
+          {
+            displayName: pending.displayName || undefined,
+            phoneNumber: pending.phoneNumber || undefined,
+          },
+        );
+        if (!isCurrentRun(runId) || !sessionUnchanged()) return;
+        if (requestPhoneReentry) {
+          setPhoneReentryNotice(true);
+          return;
+        }
+        endProvisioning();
+      } catch {
+        if (!isCurrentRun(runId) || !sessionUnchanged()) return;
+        setProfileWarning(true);
+      }
+    },
+    [authStore, endProvisioning, usersApi],
+  );
 
   const runReadiness = useCallback(() => {
     activeRef.current = true;
+    const runId = ++runIdRef.current;
     setTimedOut(false);
     const deadline = Date.now() + READINESS_WINDOW_MS;
 
     const attempt = async () => {
-      if (!activeRef.current) return;
+      if (!isCurrentRun(runId)) return;
+      // The session generation this identity lookup is issued under.
+      const sessionEpoch = authStore.getState().sessionEpoch;
       try {
         const user = await authApi.me();
-        if (!activeRef.current) return;
+        if (!isCurrentRun(runId)) return;
+        const state = authStore.getState();
+        if (state.sessionEpoch !== sessionEpoch) {
+          // The session changed while /auth/me was in flight: that answer belongs
+          // to an earlier auth generation and authorizes nothing. Re-check.
+          timerRef.current = setTimeout(() => void attempt(), 0);
+          return;
+        }
+        if (state.user?.id !== user.id) {
+          // Identity disagreement within one generation: fail closed.
+          clearPendingProfile();
+          endProvisioning();
+          return;
+        }
         setUser(user);
-        await finishWithProfile();
+        await finishWithProfile(runId, user, authStore.getState().sessionEpoch);
       } catch (error) {
-        if (!activeRef.current) return;
+        if (!isCurrentRun(runId)) return;
         if (error instanceof UnauthorizedError) return;
         if (Date.now() >= deadline) {
           setTimedOut(true);
@@ -98,7 +165,7 @@ export function AccountPreparingPage() {
     };
 
     void attempt();
-  }, [authApi, finishWithProfile, setUser]);
+  }, [authApi, authStore, endProvisioning, finishWithProfile, setUser]);
 
   useEffect(() => {
     runReadiness();
@@ -111,6 +178,7 @@ export function AccountPreparingPage() {
   const onRetry = () => {
     clearTimer();
     setProfileWarning(false);
+    setPhoneReentryNotice(false);
     setPhase('provisioning');
     runReadiness();
   };
@@ -130,7 +198,7 @@ export function AccountPreparingPage() {
     }
   };
 
-  if (profileWarning) {
+  if (profileWarning || phoneReentryNotice) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-lg bg-background px-md py-xl text-on-background">
         <Surface level="card" className="w-full max-w-md p-lg text-center">
@@ -139,7 +207,9 @@ export function AccountPreparingPage() {
           </span>
           <h1 className="m-0 text-headline-md text-on-surface">{t('auth:preparing.readyTitle')}</h1>
           <p className="m-0 mt-sm text-body-md text-on-surface-variant">
-            {t('auth:preparing.profileWarning')}
+            {phoneReentryNotice && !profileWarning
+              ? t('auth:preparing.phoneReentry')
+              : t('auth:preparing.profileWarning')}
           </p>
           <div className="mt-lg flex justify-center">
             <Button onClick={onContinue}>

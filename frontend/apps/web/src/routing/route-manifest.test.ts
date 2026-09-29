@@ -64,10 +64,12 @@ describe('canonical route inventory', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/',
       '/preparing',
       '/map',
       '/spots/:spotId',
+      '/facilities/:facilityId',
       '/my-spots',
       '/upload',
       '/profile',
@@ -81,6 +83,7 @@ describe('canonical route inventory', () => {
       '/admin',
       '/admin/users',
       '/admin/users/:id',
+      '/admin/waitlist',
       '/admin/security',
       '/admin/analytics',
       '/admin/audit',
@@ -203,7 +206,7 @@ describe('canonical route inventory', () => {
       {
         id: ROUTE_IDS.ADMIN_MODERATION,
         labelKey: 'admin:shell.nav.moderation',
-        order: 3,
+        order: 4,
         end: false,
       },
       {
@@ -219,27 +222,33 @@ describe('canonical route inventory', () => {
         end: false,
       },
       {
+        id: ROUTE_IDS.ADMIN_WAITLIST,
+        labelKey: 'admin:shell.nav.waitlist',
+        order: 2,
+        end: false,
+      },
+      {
         id: ROUTE_IDS.ADMIN_SECURITY,
         labelKey: 'admin:shell.nav.security',
-        order: 2,
+        order: 3,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_ANALYTICS,
         labelKey: 'admin:shell.nav.analytics',
-        order: 4,
+        order: 5,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_AUDIT,
         labelKey: 'admin:shell.nav.audit',
-        order: 5,
+        order: 6,
         end: false,
       },
       {
         id: ROUTE_IDS.ADMIN_SYSTEM,
         labelKey: 'admin:shell.nav.system',
-        order: 6,
+        order: 7,
         end: false,
       },
     ]);
@@ -275,11 +284,14 @@ describe('canonical route inventory', () => {
       ['/verify-email', 'titles.verifyEmail'],
       ['/terms', 'titles.terms'],
       ['/privacy', 'titles.privacy'],
+      ['/explore', 'titles.explore'],
       ['/', 'titles.home'],
       ['/preparing', 'titles.preparing'],
       ['/map', 'titles.map'],
       [`/spots/${validUuid}`, 'titles.spotDetails'],
       ['/spots/not-a-uuid', 'titles.spotDetails'],
+      [`/facilities/${validUuid}`, 'titles.facilityDetails'],
+      ['/facilities/not-a-uuid', 'titles.facilityDetails'],
       ['/my-spots', 'titles.mySpots'],
       ['/upload', 'titles.upload'],
       ['/profile', 'titles.profile'],
@@ -294,6 +306,7 @@ describe('canonical route inventory', () => {
       ['/admin/users', 'titles.adminUsers'],
       [`/admin/users/${validUuid}`, 'titles.adminUser'],
       ['/admin/users/not-a-uuid', 'titles.adminUser'],
+      ['/admin/waitlist', 'titles.adminWaitlist'],
       ['/admin/security', 'titles.adminSecurity'],
       ['/admin/analytics', 'titles.analytics'],
       ['/admin/audit', 'titles.adminAudit'],
@@ -318,6 +331,7 @@ describe('canonical route inventory', () => {
       ROUTE_IDS.RESET_PASSWORD,
       ROUTE_IDS.CHECK_EMAIL,
       ROUTE_IDS.VERIFY_EMAIL,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.PREPARING,
     ]);
     for (const path of [
@@ -327,6 +341,7 @@ describe('canonical route inventory', () => {
       '/reset-password',
       '/check-email',
       '/verify-email',
+      '/explore',
       '/preparing',
     ]) {
       expect(isNavigationInterruptionBypassPath(path)).toBe(true);
@@ -537,6 +552,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.VERIFY_EMAIL,
       ROUTE_IDS.TERMS,
       ROUTE_IDS.PRIVACY,
+      ROUTE_IDS.PUBLIC_EXPLORE,
       ROUTE_IDS.NOT_FOUND,
     ]);
 
@@ -549,6 +565,7 @@ describe('derived route classifications', () => {
       '/verify-email',
       '/terms',
       '/privacy',
+      '/explore',
       '/unknown',
     ]) {
       expect(classifyRoutePath(path)).toBe('public');
@@ -611,6 +628,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.PREPARING,
       ROUTE_IDS.MAP,
       ROUTE_IDS.SPOT_DETAIL,
+      ROUTE_IDS.FACILITY_DETAIL,
       ROUTE_IDS.MY_SPOTS,
       ROUTE_IDS.UPLOAD,
       ROUTE_IDS.PROFILE,
@@ -624,6 +642,7 @@ describe('derived route classifications', () => {
       ROUTE_IDS.ADMIN_DASHBOARD,
       ROUTE_IDS.ADMIN_USERS,
       ROUTE_IDS.ADMIN_USER_DETAIL,
+      ROUTE_IDS.ADMIN_WAITLIST,
       ROUTE_IDS.ADMIN_SECURITY,
       ROUTE_IDS.ADMIN_ANALYTICS,
       ROUTE_IDS.ADMIN_AUDIT,
@@ -657,7 +676,7 @@ describe('manifest snapshot', () => {
 
     expect(projection).toMatchInlineSnapshot(`
       {
-        "fingerprint": "ec6a749f",
+        "fingerprint": "f7b9d17e",
         "graph": [
           "routing.root|root|pathless",
           "auth.login|routing.root|/login",
@@ -668,6 +687,7 @@ describe('manifest snapshot', () => {
           "auth.verify-email|routing.root|/verify-email",
           "legal.terms|routing.root|/terms",
           "legal.privacy|routing.root|/privacy",
+          "public.explore|routing.root|/explore",
           "routing.protected|routing.root|pathless",
           "app.entry|routing.protected|/",
           "account.preparing|routing.protected|/preparing",
@@ -675,6 +695,7 @@ describe('manifest snapshot', () => {
           "shell.application|routing.protected|pathless",
           "app.map|shell.application|/map",
           "app.spot-detail|shell.application|/spots/:spotId",
+          "app.facility-detail|shell.application|/facilities/:facilityId",
           "app.my-spots|shell.application|/my-spots",
           "app.upload|shell.application|/upload",
           "app.profile|shell.application|/profile",
@@ -691,13 +712,14 @@ describe('manifest snapshot', () => {
           "admin.dashboard|shell.admin|index",
           "admin.users|shell.admin|users",
           "admin.user-detail|shell.admin|users/:id",
+          "admin.waitlist|shell.admin|waitlist",
           "admin.security|shell.admin|security",
           "admin.analytics|shell.admin|analytics",
           "admin.audit|shell.admin|audit",
           "admin.system|shell.admin|system",
           "routing.not-found|routing.root|*",
         ],
-        "total": 37,
+        "total": 40,
       }
     `);
   });

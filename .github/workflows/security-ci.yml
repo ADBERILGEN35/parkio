@@ -20,7 +20,7 @@ name: Security CI
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [api, master]
   schedule:
     # Weekly drift check, early Monday UTC.
     - cron: "23 3 * * 1"
@@ -47,6 +47,7 @@ jobs:
       - name: Checkout full history
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
           fetch-depth: 0
 
       - name: Run gitleaks
@@ -89,6 +90,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -112,6 +115,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
 
       # Authenticated ghcr pull avoids anonymous trivy-db rate limits
       # (TOOMANYREQUESTS) when fetching the vulnerability database.
@@ -243,6 +248,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
 
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
@@ -374,9 +381,11 @@ jobs:
           CODEQL_ENABLED: ${{ vars.CODEQL_ENABLED }}
         run: |
           if [ "${CODEQL_ENABLED}" = "true" ]; then
-            codeql_line="**enabled** (result: ${CODEQL_RESULT}) — SARIF uploaded to Code Scanning"
+            codeql_line="**enabled** (result: ${CODEQL_RESULT}) — SARIF uploaded to Code Scanning when available"
           else
-            codeql_line="**skipped** (CODEQL_ENABLED is not \"true\"; Code Scanning unavailable on this repo)"
+            # Distinguishes intentional gate-off from platform unavailability. Public repos
+            # can run CodeQL without GHAS; this skip is a configuration choice, not a PASS.
+            codeql_line="**skipped by configuration** (CODEQL_ENABLED is not \"true\"; not a SAST PASS)"
           fi
 
           {

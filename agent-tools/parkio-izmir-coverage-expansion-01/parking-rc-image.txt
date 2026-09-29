@@ -1,0 +1,6 @@
+﻿Id=parkio/parking-service@sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4
+GIT=7595f47dde752a6441b7c4759f939d1792213d56
+BUILT_FROM=3b7fdc8f59d1 (parking code unchanged; retagged)
+BUILT_AT=2026-09-22T10:44:20.6399734+03:00
+REPOSITORY               TAG                              DIGEST                                                                    IMAGE ID       CREATED         SIZE parkio/parking-service   izmir-coverage-rc-7595f47dde75   sha256:4f35e1eddb9c6f74ca312255d2d9a86fbed8e998c2cd2545b8b80642715582c4   4f35e1eddb9c   9 minutes ago   650MB
+RETAGGED_FROM=3b7fdc8f59d1 SAME_DIGEST=true

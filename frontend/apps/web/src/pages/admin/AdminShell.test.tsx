@@ -10,6 +10,7 @@ function renderAdminShell(path = '/admin') {
       <Route path="/admin" element={<AdminShell />}>
         <Route index element={<p>Dashboard page</p>} />
         <Route path="users/*" element={<p>Users page</p>} />
+        <Route path="waitlist" element={<p>Waitlist page</p>} />
         <Route path="security" element={<p>Security page</p>} />
         <Route path="analytics" element={<p>Analytics page</p>} />
         <Route path="audit" element={<p>Audit page</p>} />
@@ -39,6 +40,7 @@ describe('AdminShell manifest-derived navigation', () => {
     ).toEqual([
       { label: 'Dashboard', destination: '/admin' },
       { label: 'Users', destination: '/admin/users' },
+      { label: 'Waitlist', destination: '/admin/waitlist' },
       { label: 'Security', destination: '/admin/security' },
       { label: 'Moderation', destination: '/admin/moderation' },
       { label: 'Analytics', destination: '/admin/analytics' },

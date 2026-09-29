@@ -1,0 +1,53 @@
+# Parkio slack_biz — gateway waitlist inbox consumer (Civo host).
+# Validates envelopes written by gateway-service into the shared inbox and
+# durable-enqueues them. No network access is needed or allowed.
+[Unit]
+Description=Parkio slack_biz waitlist inbox consumer
+Documentation=file:///opt/parkio/docs/operations/waitlist-slack-notifications.md
+After=local-fs.target
+ConditionPathIsDirectory=/var/lib/parkio/waitlist-ops-inbox
+
+[Service]
+Type=simple
+User=parkio-slackbiz
+Group=parkio-waitlist-inbox
+UMask=0007
+EnvironmentFile=/etc/parkio/slack-biz.conf.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/parkio/scripts/slack_biz/consume_waitlist.py --loop --interval 5
+Restart=on-failure
+RestartSec=10s
+
+# Least privilege
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/parkio/slack-biz /var/lib/parkio/waitlist-ops-inbox
+ReadOnlyPaths=/opt/parkio/scripts/slack_biz
+MemoryMax=128M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

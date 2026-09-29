@@ -1,0 +1,38 @@
+test_count_sql_and_compare (__main__.DumpProfileTest) ... ok
+test_count_sql_refuses_injected_identifier (__main__.DumpProfileTest) ... ok
+test_profile_counts_without_row_contents (__main__.DumpProfileTest) ... ok
+test_runbook_pipeline_on_real_backup_encryption (__main__.DumpProfileTest)
+Same cipher as backup-databases.sh; synthetic passphrase and data only. ... ok
+test_truncated_copy_fails (__main__.DumpProfileTest) ... ok
+test_usage (__main__.DumpProfileTest) ... ok
+test_application_container_fails (__main__.IsolationPreflightTest) ... ok
+test_env_file_is_read (__main__.IsolationPreflightTest) ... ok
+test_erasure_ledger_requirement_and_drill_id (__main__.IsolationPreflightTest) ... ok
+test_isolated_inert_environment_passes (__main__.IsolationPreflightTest) ... ok
+test_named_outbound_secret_fails (__main__.IsolationPreflightTest) ... ok
+test_offsite_credentials_must_be_gone_before_restore (__main__.IsolationPreflightTest) ... ok
+test_open_egress_fails (__main__.IsolationPreflightTest) ... ok
+test_poller_or_sender_flag_fails (__main__.IsolationPreflightTest) ... ok
+test_production_host_fails (__main__.IsolationPreflightTest) ... ok
+test_real_email_provider_fails (__main__.IsolationPreflightTest) ... ok
+test_real_webhook_anywhere_fails_without_printing_it (__main__.IsolationPreflightTest) ... ok
+test_age_limit (__main__.StampPreflightTest) ... ok
+test_bash_integrity_writer_is_accepted (__main__.StampPreflightTest) ... ok
+test_complete_not_binding_sums_fails (__main__.StampPreflightTest) ... ok
+test_ledger_with_personal_fields_fails_without_printing_them (__main__.StampPreflightTest) ... ok
+test_missing_complete_fails (__main__.StampPreflightTest) ... ok
+test_missing_database_fails (__main__.StampPreflightTest) ... ok
+test_missing_directory (__main__.StampPreflightTest) ... ok
+test_missing_ledger_fails_closed (__main__.StampPreflightTest) ... ok
+test_non_ciphertext_dump_fails (__main__.StampPreflightTest) ... ok
+test_plaintext_dump_and_unlisted_file_fail (__main__.StampPreflightTest) ... ok
+test_stale_offsite_flag_is_warning_only (__main__.StampPreflightTest) ... ok
+test_tampered_dump_fails (__main__.StampPreflightTest) ... ok
+test_unsafe_checksum_path_fails (__main__.StampPreflightTest) ... ok
+test_valid_stamp_passes_and_report_leaks_nothing (__main__.StampPreflightTest) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 2.276s
+
+OK
+rc=0

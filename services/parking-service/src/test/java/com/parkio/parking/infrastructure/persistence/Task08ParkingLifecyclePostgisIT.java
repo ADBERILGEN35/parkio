@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -48,9 +49,7 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 class Task08ParkingLifecyclePostgisIT {
 
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4")
-                    .asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
     private static final String GATEWAY_SECRET =
             "test-only-parkio-gateway-internal-secret-0123456789";
 

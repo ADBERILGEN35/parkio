@@ -1,0 +1,7 @@
+scenario,distance_m,name_similarity,operator_similarity,address_match,district_match,type_a,type_b,expected
+distance-only,8,0,0,false,false,UNKNOWN,UNKNOWN,SKIP
+name-only-outside-radius,120,0.99,0,false,false,UNKNOWN,UNKNOWN,SKIP
+far-same-name-conflict,200,0.99,0,false,false,UNKNOWN,UNKNOWN,HARD_CONFLICT
+multi-signal,12,0.95,0.90,true,true,OFF_STREET,OFF_STREET,CANDIDATE
+type-conflict,5,1.0,1.0,true,true,ON_STREET,OFF_STREET,HARD_CONFLICT
+below-threshold,90,0.70,0,false,false,UNKNOWN,UNKNOWN,SKIP

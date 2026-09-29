@@ -21,7 +21,7 @@ Verified findings only. No speculative defects.
 
 | ID | Issue | Impact | Status |
 |----|-------|--------|--------|
-| PP-01 | **No managed HA Postgres with PITR** | Data loss risk | **NO GO** — see production-readiness plan |
+| PP-01 | **Managed Postgres PITR proven; zone-redundant HA deferred** | First invite rollout may use single-zone Flexible Server + PITR; zone loss still an outage | **PITR closed** on disposable Azure Flexible Server ([pp-01-managed-postgresql-pitr-ha.md](../architecture/pp-01-managed-postgresql-pitr-ha.md)). **HA deferred** (ADR still requires ZR HA before broad public GO). Hosted-beta not migrated. Public production remains **NO-GO**. |
 | PP-02 | **No managed Kafka RF≥3** | Broker loss = event loss risk | **NO GO** |
 | PP-03 | **No secrets manager + rotation** | Operational secret risk | **NO GO** |
 | PP-04 | **No CD with rollback + approval** | Unsafe deploy velocity | **NO GO** |

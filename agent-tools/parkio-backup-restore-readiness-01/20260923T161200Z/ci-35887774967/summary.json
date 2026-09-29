@@ -1,0 +1,13 @@
+{
+  "tool": "restore-drill-01",
+  "schemaVersion": 1,
+  "verdict": "FAIL",
+  "reason": "row-count parity parking",
+  "elapsedSeconds": 4,
+  "parity": {
+    "auth": "PASS",
+    "gateway": "PASS",
+    "parking": "FAIL",
+    "user": "PASS"
+  }
+}

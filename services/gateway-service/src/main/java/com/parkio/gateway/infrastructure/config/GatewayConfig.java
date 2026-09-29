@@ -18,7 +18,8 @@ import org.springframework.context.annotation.Configuration;
     CorsProperties.class,
     UserStatusProperties.class,
     SessionEpochProperties.class,
-    TrustedProxyProperties.class
+    TrustedProxyProperties.class,
+    GatewayPublicSurfaceProperties.class
 })
 public class GatewayConfig {
 

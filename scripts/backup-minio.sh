@@ -37,7 +37,7 @@ parkio_backup_load_env "${ENV_FILE}"
 
 BUCKET="${MINIO_BUCKET:-parkio-media}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in env}"
-MC_IMAGE="${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-09-16T17-43-14Z}"
+MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 MIRROR_DEST="${DEST_DIR}/minio/${BUCKET}"
 
 MINIO_CONTAINER="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
@@ -52,10 +52,10 @@ if [ -z "${NETWORK}" ]; then
   exit 1
 fi
 
-echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, container=${MINIO_CONTAINER}, network=${NETWORK}, dryRun=${DRY_RUN})"
+echo "MinIO backup -> ${MIRROR_DEST} (bucket=${BUCKET}, container=${MINIO_CONTAINER}, network=${NETWORK}, dryRun=${DRY_RUN})" >&2
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: would mirror local/${BUCKET} to ${MIRROR_DEST}"
+  echo "DRY-RUN: would mirror local/${BUCKET} to ${MIRROR_DEST}" >&2
   echo "0"
   exit 0
 fi
@@ -72,7 +72,8 @@ docker run --rm \
   "${MC_IMAGE}" \
   -c '
     set -eu
-    mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-    mc mirror --overwrite "local/${BUCKET}" /backup
+    mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null
+    chmod -R a+rwX /backup
     mc ls --recursive "local/${BUCKET}" | wc -l
   '

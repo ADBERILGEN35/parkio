@@ -13,14 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import com.parkio.parking.testsupport.PostgisTestImages;
 import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class MunicipalSourceMigrationPostgresIT {
 
-    private static final DockerImageName POSTGIS_IMAGE =
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
+    private static final DockerImageName POSTGIS_IMAGE = PostgisTestImages.dockerImageName();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGIS_IMAGE)
@@ -29,13 +29,13 @@ class MunicipalSourceMigrationPostgresIT {
             .withPassword("parkio");
 
     @Test
-    void freshSchemaMigratesThroughV29WithMunicipalTablesAndSeeds() throws Exception {
+    void freshSchemaMigratesthroughV36WithMunicipalTablesAndSeeds() throws Exception {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("40");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(tableExists(connection, "municipal_source_sync_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_parking_facilities")).isTrue();
@@ -48,19 +48,33 @@ class MunicipalSourceMigrationPostgresIT {
             assertThat(indexExists(connection, "idx_municipal_parking_facilities_location")).isTrue();
             assertThat(indexExists(connection, "uq_municipal_source_sync_runs_one_running")).isTrue();
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
+                assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
+            assertThat(seedCount(connection, "kayseri-bb-otoparklar")).isEqualTo(1);
             assertThat(tableExists(connection, "municipal_osm_import_runs")).isTrue();
             assertThat(tableExists(connection, "municipal_facility_conflation_decisions")).isTrue();
+            assertThat(tableExists(connection, "municipal_link_candidate_generation_runs")).isTrue();
+            assertThat(indexExists(connection, "uq_mlcg_runs_one_running")).isTrue();
+            assertThat(tableExists(connection, "ranking_evaluations")).isTrue();
+            assertThat(tableExists(connection, "ranking_evaluation_outcomes")).isTrue();
 
             flyway.migrate();
-            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("40");
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
+                assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
             assertThat(seedCount(connection, "osm-geofabrik-turkey")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
+            assertThat(seedCount(connection, "kayseri-bb-otoparklar")).isEqualTo(1);
         }
     }
 
     @Test
-    void v27SchemaUpgradesCleanlyToV29() throws Exception {
+    void v27SchemaUpgradesCleanlyToV36() throws Exception {
         Flyway targetV27 = flyway(MigrationVersion.fromVersion("27"));
         targetV27.clean();
         targetV27.migrate();
@@ -74,13 +88,19 @@ class MunicipalSourceMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("29");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("40");
             assertThat(tableExists(connection, "municipal_data_sources")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_facility_source_links",
                     "fk_municipal_facility_source_links_facility")).isTrue();
             assertThat(foreignKeyExists(connection, "municipal_occupancy_snapshots",
                     "fk_municipal_occupancy_snapshots_facility")).isTrue();
+            assertThat(tableExists(connection, "municipal_link_candidate_generation_runs")).isTrue();
             assertThat(seedCount(connection, "izmir-izum-otoparklar")).isEqualTo(1);
+                assertThat(seedCount(connection, "izelman-open-parking-facilities")).isEqualTo(1);
+            assertThat(seedCount(connection, "istanbul-ispark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "ankara-anpark-parks")).isEqualTo(1);
+            assertThat(seedCount(connection, "konya-bb-otopark-bilgileri")).isEqualTo(1);
+            assertThat(seedCount(connection, "kayseri-bb-otoparklar")).isEqualTo(1);
         }
     }
 

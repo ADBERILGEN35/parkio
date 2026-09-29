@@ -1,0 +1,45 @@
+# Preparation-only continuous-operation overlay. It defines no application
+# services and must not be applied without a later production authorization.
+
+services:
+  nr-budget-gate:
+    image: python:3.12-alpine@sha256:c4634f578a412db396771b61b064c6e546c9d6414c7fb5b1b05d5871f1885f7b
+    restart: unless-stopped
+    stop_grace_period: 20s
+    environment:
+      PARKIO_NR_UPSTREAM_BASE_URI: ${PARKIO_NR_UPSTREAM_BASE_URI:?set the EU Log API endpoint}
+      PARKIO_NR_LOG_API_KEY: ${PARKIO_NR_LOG_API_KEY:?supply a New Relic ingest license key out of band}
+      PARKIO_NR_BUDGET_BYTES: "0"
+      PARKIO_NR_DAILY_BUDGET_BYTES: ${PARKIO_NR_DAILY_BUDGET_BYTES:?set the approved UTC daily transport budget}
+      PARKIO_NR_MONTHLY_BUDGET_BYTES: ${PARKIO_NR_MONTHLY_BUDGET_BYTES:?set the approved UTC monthly transport budget}
+      PARKIO_NR_BUDGET_STATE_DB: /var/lib/parkio-nr-budget/budget.db
+      PARKIO_NR_GATE_MAX_REQUEST_BYTES: "1000000"
+      PARKIO_NR_GATE_UPSTREAM_TIMEOUT_SECONDS: "10"
+      PARKIO_NR_UPSTREAM_TLS_VERIFY: "on"
+      PARKIO_NR_GATE_TEST_CONTROL: "off"
+      PARKIO_NR_GATE_INTERNAL_KEY: gate-internal-not-a-secret
+    volumes:
+      - ../scripts/newrelic_log_pilot/budget_gate.py:/opt/parkio/scripts/newrelic_log_pilot/budget_gate.py:ro
+      - ${PARKIO_NR_BUDGET_STATE_ROOT:?set the persistent budget-state directory}:/var/lib/parkio-nr-budget
+    ports: !override []
+    mem_limit: 96m
+    cpus: 0.25
+    pids_limit: 64
+
+  fluent-bit-nr-pilot:
+    image: ghcr.io/adberilgen35/parkio/fluent-bit-nr@sha256:1fc39bab4984ade1fef732d0b5892963aae8c67af00f21ca8bbb643dcb181fee
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      PARKIO_ENVIRONMENT: ${PARKIO_ENVIRONMENT:?set the exact production environment label}
+      PARKIO_RELEASE_ID: ${PARKIO_RELEASE_ID:?set the deployed application identity}
+      PARKIO_COLLECTOR_SOURCE_SHA: ${PARKIO_COLLECTOR_SOURCE_SHA:?set the reviewed collector source SHA}
+      PARKIO_NR_COLLECTOR_ID: fluent-bit-5.1.2-parkio-libssh2-deb13u2
+    volumes: !override
+      - ./fluent-bit/fluent-bit-continuous.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/fluent-bit-service-and-tail.conf:/fluent-bit/etc/fluent-bit-service-and-tail.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parkio/parsers.conf:ro
+      - ./fluent-bit/parkio_filters.lua:/fluent-bit/etc/parkio/parkio_filters.lua:ro
+      - ${PARKIO_NR_COLLECTOR_STATE_ROOT:?set the collector-state directory}:/var/fluent-bit/state
+      - ${PARKIO_NR_SOURCE_ROOT:?set the reviewed helper spool path}:/var/log/parkio-pilot:ro
+    ports: !override []

@@ -1,0 +1,1 @@
+MAPTILER_FROM=api.parkio.dev LEN=22

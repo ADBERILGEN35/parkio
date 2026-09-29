@@ -1,0 +1,83 @@
+# promtool unit tests for municipal IZUM + ISPARK SLA alert rules.
+rule_files:
+  - ../municipal-source-health-alert-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: ispark stale success age fires warning after for window
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"}'
+        values: "700 700 700 700 700 700"
+      - series: 'parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"}'
+        values: "0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: MunicipalIsparkSecondsSinceSuccessWarning
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalIsparkSecondsSinceSuccessWarning
+              severity: warning
+              owner: parking
+              source_key: istanbul-ispark-parks
+              source_mode: SCHEDULED
+            exp_annotations:
+              summary: İSPARK son başarıdan beri geçen süre (uyarı)
+              description: İSPARK uyarı SLA penceresi (600s / ~5 kaçırılan 2 dakikalık döngü) içinde başarılı senkron tamamlamadı.
+              operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+  - name: ispark disabled suppresses age alert
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"}'
+        values: "900 900 900 900 900 900"
+      - series: 'parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"}'
+        values: "1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: MunicipalIsparkSecondsSinceSuccessWarning
+        exp_alerts: []
+
+  - name: izum consecutive failures warning still fires
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "3 3 3 3 3 3"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: MunicipalSourceConsecutiveFailuresWarning
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalSourceConsecutiveFailuresWarning
+              severity: warning
+              owner: parking
+              source_key: izmir-izum-otoparklar
+              source_mode: SCHEDULED
+            exp_annotations:
+              summary: Belediye kaynağı ardışık hata eşiği (uyarı)
+              description: İZUM senkron ardışık hataları yükseldi. Operasyonel SLA durumunu ve sınırlı hata kategorisini actuator health ayrıntılarından kontrol edin.
+              operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+  - name: occupancy retention failure alert fires
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_occupancy_retention_failures_total'
+        values: "0 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MunicipalOccupancyRetentionFailures
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalOccupancyRetentionFailures
+              severity: warning
+              owner: parking
+            exp_annotations:
+              summary: Belediye doluluk saklama hatası bildirildi
+              description: Saklama temizliği hata fırlattı. Ingestion ve Public Explore devam etmeli; parking-service günlüklerini inceleyin.
+              operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md

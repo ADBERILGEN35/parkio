@@ -1,0 +1,26 @@
+{
+  "createTableCount": 14,
+  "extensions": [],
+  "flywayFailedRows": 0,
+  "flywayHead": "23",
+  "grantRoles": [],
+  "pgDumpVersion": "16.10",
+  "restrictCommands": true,
+  "rowCounts": {
+    "public.admin_audit_events": 0,
+    "public.auth_user_roles": 0,
+    "public.auth_users": 3,
+    "public.erased_user_tombstones": 1,
+    "public.erasure_requests": 0,
+    "public.erasure_service_acks": 0,
+    "public.flyway_schema_history": 23,
+    "public.inbox_events": 0,
+    "public.outbox_events": 3,
+    "public.outbox_recovery_audit": 0,
+    "public.password_reset_tokens": 0,
+    "public.refresh_tokens": 0,
+    "public.registration_invites": 0,
+    "public.roles": 4
+  },
+  "serverVersion": "16.10"
+}

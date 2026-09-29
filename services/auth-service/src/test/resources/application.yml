@@ -59,3 +59,5 @@ parkio:
     provision-topics: false
     relay:
       enabled: false
+  registration:
+    mode: open

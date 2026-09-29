@@ -4,6 +4,10 @@ plugins {
 
 description = "API gateway and edge routing for all Parkio services"
 
+evaluationDependsOn(":services:auth-service")
+val authMain = project(":services:auth-service").sourceSets["main"]
+val authMainClasses = files(authMain.output.classesDirs).builtBy(authMain.classesTaskName)
+
 dependencies {
     implementation(libs.spring.cloud.gateway)
     implementation(libs.spring.boot.starter.actuator)
@@ -27,7 +31,21 @@ dependencies {
     runtimeOnly(libs.jjwt.jackson)
     runtimeOnly(libs.postgresql)
 
+    // spring-cloud-starter hardcodes bcprov 1.80.2; raise floor to catalog ≥1.85 (CVE-2026-8763).
+    constraints {
+        implementation(libs.bouncycastle.bcprov) {
+            because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI CRITICAL policy")
+        }
+    }
+
     testImplementation(libs.spring.boot.starter.test)
+    // Contract proof uses auth JWT/admin types. Classes only: the auth jar also
+    // ships db/migration V1 which collides with gateway Flyway on the test classpath.
+    testImplementation(authMainClasses)
+    // Real-PostgreSQL proof of waitlist migrations/transactions (`integrationTest`, Docker).
+    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.postgresql)
+    testRuntimeOnly(libs.postgresql)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

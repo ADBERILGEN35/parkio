@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { SessionQueryCacheSync } from '@/data/SessionQueryCacheSync';
+import { registerSessionQueryClient } from '@/data/sessionQueryCleanup';
 import { createMobileQueryClient } from './query-client';
 
 /**
@@ -12,6 +13,8 @@ import { createMobileQueryClient } from './query-client';
  */
 export function QueryProvider({ children }: { children: ReactNode }) {
   const [client] = useState(createMobileQueryClient);
+
+  useEffect(() => registerSessionQueryClient(client), [client]);
 
   useEffect(() => {
     return onlineManager.setEventListener((setOnline) =>

@@ -9,7 +9,11 @@ import {
   type ModerationApi,
   type NotificationsApi,
   type ParkingApi,
+  type PlacesApi,
+  type PublicExploreApi,
+  type PublicGeocodingApi,
   type UsersApi,
+  type WaitlistApi,
   createAdminApi,
   createAnalyticsApi,
   createApiClient,
@@ -20,7 +24,11 @@ import {
   createModerationApi,
   createNotificationsApi,
   createParkingApi,
+  createPlacesApi,
+  createPublicExploreApi,
+  createPublicGeocodingApi,
   createUsersApi,
+  createWaitlistApi,
 } from '@parkio/api-client';
 
 /** Domain-only SDK surface exposed to Web features. The raw transport stays private here. */
@@ -34,7 +42,11 @@ export interface ParkioSdk {
   readonly moderationApi: ModerationApi;
   readonly analyticsApi: AnalyticsApi;
   readonly adminApi: AdminApi;
+  readonly waitlistApi: WaitlistApi;
   readonly geocodingApi: GeocodingApi;
+  readonly placesApi: PlacesApi;
+  readonly publicExploreApi: PublicExploreApi;
+  readonly publicGeocodingApi: PublicGeocodingApi;
 }
 
 export function createParkioSdk(options: ApiClientOptions): ParkioSdk {
@@ -50,6 +62,10 @@ export function createParkioSdk(options: ApiClientOptions): ParkioSdk {
     moderationApi: createModerationApi(transport),
     analyticsApi: createAnalyticsApi(transport),
     adminApi: createAdminApi(transport),
+    waitlistApi: createWaitlistApi(transport),
     geocodingApi: createGeocodingApi(transport),
+    placesApi: createPlacesApi(transport),
+    publicExploreApi: createPublicExploreApi(transport),
+    publicGeocodingApi: createPublicGeocodingApi(transport),
   });
 }

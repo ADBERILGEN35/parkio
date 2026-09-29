@@ -6,6 +6,8 @@ export {
   type ApiClientOptions,
 } from './client';
 export { createAuthApi, type AuthApi } from './auth';
+export { createPublicExploreApi, type PublicExploreApi } from './public-explore';
+export { createPublicGeocodingApi, type PublicGeocodingApi } from './public-geocoding';
 export { createUsersApi, type UsersApi } from './users';
 export { createParkingApi, type ParkingApi } from './parking';
 export { createMediaApi, type MediaApi, type MediaFilePart, type UploadMediaOptions } from './media';
@@ -15,6 +17,7 @@ export { createModerationApi, type ModerationApi } from './moderation';
 export { createAnalyticsApi, type AnalyticsApi } from './analytics';
 export { createAdminApi, type AdminApi } from './admin';
 export { createGeocodingApi, type GeocodingApi } from './geocoding';
+export { createPlacesApi, type PlacesApi } from './places';
 export {
   createWaitlistApi,
   isWaitlistRole,

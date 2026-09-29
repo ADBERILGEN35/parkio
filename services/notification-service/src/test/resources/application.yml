@@ -26,6 +26,9 @@ parkio:
     retention:
       outbox-enabled: false
       inbox-enabled: false
+  auth:
+    client:
+      base-url: http://localhost:0
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   kafka:

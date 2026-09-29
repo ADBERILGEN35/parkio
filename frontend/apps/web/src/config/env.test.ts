@@ -62,6 +62,42 @@ describe('createFrontendConfig', () => {
     ).toThrow('VITE_MAPTILER_KEY is required');
   });
 
+  it('accepts invite-production as a production-like environment', () => {
+    const config = createFrontendConfig(
+      env({
+        VITE_APP_ENV: 'invite-production',
+        VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+        VITE_MAPTILER_KEY: 'map-key',
+      }),
+    );
+
+    expect(config.appEnv).toBe('invite-production');
+    expect(config.isProductionLike).toBe(true);
+    expect(config.features.smartReturn).toBe(false);
+  });
+
+  it('requires an API URL for invite-production', () => {
+    expect(() =>
+      createFrontendConfig(
+        env({
+          VITE_APP_ENV: 'invite-production',
+          VITE_MAPTILER_KEY: 'map-key',
+        }),
+      ),
+    ).toThrow('VITE_API_BASE_URL is required');
+  });
+
+  it('requires MapTiler configuration for invite-production', () => {
+    expect(() =>
+      createFrontendConfig(
+        env({
+          VITE_APP_ENV: 'invite-production',
+          VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+        }),
+      ),
+    ).toThrow('VITE_MAPTILER_KEY is required when VITE_APP_ENV=invite-production');
+  });
+
   it('keeps Smart Return disabled in hosted-beta unless explicitly enabled', () => {
     const config = createFrontendConfig(
       env({
@@ -80,9 +116,67 @@ describe('createFrontendConfig', () => {
     expect(config.features.smartReturn).toBe(true);
   });
 
-  it('disables Smart Return when the frontend flag is false', () => {
-    const config = createFrontendConfig(env({ VITE_SMART_RETURN_ENABLED: 'false' }));
+  it('keeps municipal discovery disabled by default', () => {
+    const config = createFrontendConfig(env());
+    expect(config.features.municipalDiscovery).toBe(false);
+  });
 
-    expect(config.features.smartReturn).toBe(false);
+  it('enables municipal discovery only when explicitly true', () => {
+    const config = createFrontendConfig(
+      env({ VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'true' }),
+    );
+    expect(config.features.municipalDiscovery).toBe(true);
+  });
+
+  it('keeps municipal discovery disabled in hosted-beta unless explicitly enabled', () => {
+    const config = createFrontendConfig(
+      env({
+        VITE_APP_ENV: 'hosted-beta',
+        VITE_API_BASE_URL: 'https://api.parkio.example/api/v1',
+        VITE_MAPTILER_KEY: 'map-key',
+      }),
+    );
+    expect(config.features.municipalDiscovery).toBe(false);
+  });
+
+  it('keeps municipal discovery disabled when the flag is false', () => {
+    const config = createFrontendConfig(
+      env({ VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'false' }),
+    );
+    expect(config.features.municipalDiscovery).toBe(false);
+  });
+
+  it('keeps smart parking assistant disabled by default', () => {
+    const config = createFrontendConfig(env());
+    expect(config.features.smartParkingAssistant).toBe(false);
+  });
+
+  it('enables smart parking assistant only when explicitly true', () => {
+    const config = createFrontendConfig(
+      env({ VITE_SMART_PARKING_ASSISTANT_ENABLED: 'true' }),
+    );
+    expect(config.features.smartParkingAssistant).toBe(true);
+  });
+
+  it('keeps smart parking assistant disabled when the flag is false', () => {
+    const config = createFrontendConfig(
+      env({ VITE_SMART_PARKING_ASSISTANT_ENABLED: 'false' }),
+    );
+    expect(config.features.smartParkingAssistant).toBe(false);
+  });
+
+  it('keeps public explore disabled unless explicitly enabled at build time', () => {
+    expect(createFrontendConfig(env()).features.publicExplore).toBe(false);
+    expect(createFrontendConfig(env({ VITE_PUBLIC_EXPLORE_ENABLED: 'false' })).features.publicExplore)
+      .toBe(false);
+    expect(createFrontendConfig(env({ VITE_PUBLIC_EXPLORE_ENABLED: 'true' })).features.publicExplore)
+      .toBe(true);
+  });
+
+  it('fails registration mode bootstrap closed outside tests and preserves open test UX', () => {
+    expect(createFrontendConfig(env()).registrationModeBootstrap).toBe('CLOSED');
+    expect(createFrontendConfig(env({ MODE: 'test' })).registrationModeBootstrap).toBe('OPEN');
+    expect(createFrontendConfig(env({ VITE_REGISTRATION_MODE: 'invite' })).registrationModeBootstrap)
+      .toBe('INVITE');
   });
 });

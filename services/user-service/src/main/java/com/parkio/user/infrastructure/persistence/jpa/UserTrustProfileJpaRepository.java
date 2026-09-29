@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface UserTrustProfileJpaRepository extends JpaRepository<UserTrustProfileEntity, UUID> {
 
     Optional<UserTrustProfileEntity> findByUserProfileId(UUID userProfileId);
+
+    void deleteByUserProfileId(UUID userProfileId);
 }

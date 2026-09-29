@@ -84,6 +84,22 @@ backups/
 deploy-artifacts/*
 !deploy-artifacts/.gitkeep
 
+# PP-01B-SPIKE-03 Mode A transient TLS material (never commit)
+**/.spike03-certs/
+**/spike03-tls-work/
+
+# PP-01B Terraform authoring artifacts (never commit state/plans/locks local)
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/*.tfplan.*
+**/crash.log
+**/crash.*.log
+infra/terraform/**/*.auto.tfvars
+infra/terraform/**/terraform.tfvars
+infra/evidence/
+
 backup-artifacts/*
 !backup-artifacts/.gitkeep
 
@@ -93,6 +109,9 @@ backup-artifacts/*
 # Prometheus textfile metrics (written by backup jobs)
 docker/prometheus/textfile/*.prom
 !docker/prometheus/textfile/.gitkeep
+
+# Isolated alerting-acceptance receipts (no secrets; still local/CI only)
+docker/.alerting-acceptance-receipts/
 
 
 # Local pnpm cache
@@ -122,3 +141,11 @@ frontend/apps/mobile-v2/android/build/
 
 # Local IDE
 .idea/workspace.xml
+# Operator-generated DATA hosted-beta gate evidence
+docs/evidence/data-wp-*/
+
+# Operator-generated DATA hosted-beta gate evidence
+docs/evidence/data-wp-*/
+
+# Temporary hosted-beta gate scripts
+scripts/staging/_wp*a_*.sh

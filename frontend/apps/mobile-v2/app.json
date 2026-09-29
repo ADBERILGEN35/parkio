@@ -8,11 +8,6 @@
     "scheme": "parkio-v2",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": ["**/*"],
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F8F9FF"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "dev.parkio.mobilev2",

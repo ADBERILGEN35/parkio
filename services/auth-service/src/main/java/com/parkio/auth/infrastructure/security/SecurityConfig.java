@@ -38,7 +38,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh-token",
                                 "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/v1/auth/.well-known/jwks.json").permitAll()
+                                "/api/v1/auth/.well-known/jwks.json",
+                                // Informational registration bootstrap — exact GET only.
+                                // State-changing methods on this path remain authenticated.
+                                "/api/v1/auth/registration-mode").permitAll()
                         // Internal service-to-service endpoints (e.g. the gateway's session-epoch
                         // check) carry no JWT; they are guarded by the X-Gateway-Auth shared
                         // secret in GatewayAuthFilter and are not routed publicly.

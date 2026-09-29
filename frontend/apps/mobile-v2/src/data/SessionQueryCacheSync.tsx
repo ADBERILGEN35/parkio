@@ -19,7 +19,7 @@ export function SessionQueryCacheSync() {
       return;
     }
     if (previousUserId.current !== userId) {
-      clearUserSessionQueries(queryClient);
+      void clearUserSessionQueries(queryClient);
       previousUserId.current = userId;
     }
   }, [userId, queryClient]);

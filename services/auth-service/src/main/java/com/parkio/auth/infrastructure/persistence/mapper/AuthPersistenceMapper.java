@@ -1,12 +1,15 @@
 package com.parkio.auth.infrastructure.persistence.mapper;
 
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.PasswordResetToken;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RegistrationInvite;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.infrastructure.persistence.entity.AuthUserEntity;
 import com.parkio.auth.infrastructure.persistence.entity.PasswordResetTokenEntity;
 import com.parkio.auth.infrastructure.persistence.entity.RefreshTokenEntity;
+import com.parkio.auth.infrastructure.persistence.entity.RegistrationInviteEntity;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -44,6 +47,7 @@ public final class AuthPersistenceMapper {
                 entity.getEmailVerificationTokenHash(),
                 entity.getEmailVerificationExpiresAt(),
                 entity.getEmailVerificationSentAt(),
+                EmailLocale.fromNullable(entity.getPreferredLocale()),
                 entity.getSessionEpoch(),
                 roles,
                 entity.getCreatedAt(),
@@ -65,6 +69,7 @@ public final class AuthPersistenceMapper {
                 user.emailVerificationTokenHash(),
                 user.emailVerificationExpiresAt(),
                 user.emailVerificationSentAt(),
+                user.preferredLocale().code(),
                 user.sessionEpoch(),
                 roles,
                 user.createdAt(),
@@ -123,5 +128,27 @@ public final class AuthPersistenceMapper {
                 token.consumedAt(),
                 token.createdAt(),
                 token.version());
+    }
+
+    public static RegistrationInvite toDomain(RegistrationInviteEntity entity) {
+        return new RegistrationInvite(
+                entity.getId(),
+                entity.getTokenHash(),
+                entity.getExpiresAt(),
+                entity.getConsumedAt(),
+                entity.getCreatedAt(),
+                entity.getCreatedBy(),
+                entity.getVersion());
+    }
+
+    public static RegistrationInviteEntity toEntity(RegistrationInvite invite) {
+        return new RegistrationInviteEntity(
+                invite.id(),
+                invite.tokenHash(),
+                invite.expiresAt(),
+                invite.consumedAt(),
+                invite.createdAt(),
+                invite.createdBy(),
+                invite.version());
     }
 }

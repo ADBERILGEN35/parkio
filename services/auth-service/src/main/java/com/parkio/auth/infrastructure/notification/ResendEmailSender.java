@@ -5,8 +5,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.domain.EmailLocale;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,83 +47,87 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         this.resetUrl = resetUrl;
     }
 
+    /**
+     * Reserved PRIV-001A operator acceptance domain ({@code @priv001a.parkio.invalid}).
+     * Skipping Resend here prevents real-provider delivery / billing for synthetic
+     * principals. This is <strong>not</strong> an email-verification bypass: accounts
+     * remain {@code PENDING_VERIFICATION} until the operator harness performs its
+     * allowlisted verification-state mutation (or a real token is verified).
+     */
+    static final String PRIV001A_SYNTHETIC_EMAIL_SUFFIX = "@priv001a.parkio.invalid";
+
+    static boolean isPriv001aSyntheticEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        String normalized = email.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.endsWith(PRIV001A_SYNTHETIC_EMAIL_SUFFIX)
+                && normalized.matches("^priv001a-[a-z0-9]{6,64}@priv001a\\.parkio\\.invalid$");
+    }
+
     @Override
     public void sendVerificationLink(String recipientEmail, String rawToken, EmailLocale locale) {
-        String link = appendToken(verificationUrl, rawToken);
-        TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.verification(locale);
-        String text = """
-                %s
-
-                %s
-
-                %s
-
-                %s
-                """.formatted(copy.heading(), copy.body(), link, copy.ignoreNote());
-        String html = """
-                <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
-                  <h1 style="font-size:20px;margin:0 0 12px">%s</h1>
-                  <p style="margin:0 0 16px">%s</p>
-                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">%s</a></p>
-                  <p style="margin:0;font-size:13px;color:#5c5f66">%s<br><a href="%s">%s</a></p>
-                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">%s</p>
-                </div>
-                """.formatted(
-                escapeHtml(copy.heading()),
-                escapeHtml(copy.body()),
-                escapeHtml(link),
-                escapeHtml(copy.cta()),
-                escapeHtml(copy.fallbackLinkIntro()),
-                escapeHtml(link),
-                escapeHtml(link),
-                escapeHtml(copy.ignoreNote()));
-        send("email_verification", recipientEmail, copy.subject(), text, html);
+        if (isPriv001aSyntheticEmail(recipientEmail)) {
+            metrics.verificationSent();
+            log.info(
+                    "Skipping Resend for PRIV-001A synthetic principal; template=email_verification, emailHash={}",
+                    emailHash(recipientEmail));
+            return;
+        }
+        String link = AuthTransactionalEmailTemplates.pageUrl(verificationUrl, rawToken, locale);
+        AuthTransactionalEmailTemplates.Copy copy = AuthTransactionalEmailTemplates.verification(locale, link);
+        send(
+                "email_verification",
+                recipientEmail,
+                rawToken,
+                copy.subject(),
+                AuthTransactionalEmailTemplates.renderText(copy),
+                AuthTransactionalEmailTemplates.renderHtml(copy));
         metrics.verificationSent();
     }
 
     @Override
     public void sendResetLink(String recipientEmail, String rawToken, EmailLocale locale) {
-        String link = appendToken(resetUrl, rawToken);
-        TransactionalEmailCopy.Copy copy = TransactionalEmailCopy.passwordReset(locale);
-        String text = """
-                %s
-
-                %s
-
-                %s
-
-                %s
-                """.formatted(copy.heading(), copy.body(), link, copy.ignoreNote());
-        String html = """
-                <div style="font-family:Inter,Segoe UI,sans-serif;line-height:1.5;color:#1a1c1e;max-width:560px">
-                  <h1 style="font-size:20px;margin:0 0 12px">%s</h1>
-                  <p style="margin:0 0 16px">%s</p>
-                  <p style="margin:0 0 20px"><a href="%s" style="display:inline-block;background:#0061a4;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600">%s</a></p>
-                  <p style="margin:0;font-size:13px;color:#5c5f66">%s<br><a href="%s">%s</a></p>
-                  <p style="margin:20px 0 0;font-size:13px;color:#5c5f66">%s</p>
-                </div>
-                """.formatted(
-                escapeHtml(copy.heading()),
-                escapeHtml(copy.body()),
-                escapeHtml(link),
-                escapeHtml(copy.cta()),
-                escapeHtml(copy.fallbackLinkIntro()),
-                escapeHtml(link),
-                escapeHtml(link),
-                escapeHtml(copy.ignoreNote()));
-        send("password_reset", recipientEmail, copy.subject(), text, html);
+        if (isPriv001aSyntheticEmail(recipientEmail)) {
+            log.info(
+                    "Skipping Resend for PRIV-001A synthetic principal; template=password_reset, emailHash={}",
+                    emailHash(recipientEmail));
+            return;
+        }
+        String link = AuthTransactionalEmailTemplates.pageUrl(resetUrl, rawToken, locale);
+        AuthTransactionalEmailTemplates.Copy copy = AuthTransactionalEmailTemplates.passwordReset(locale, link);
+        send(
+                "password_reset",
+                recipientEmail,
+                rawToken,
+                copy.subject(),
+                AuthTransactionalEmailTemplates.renderText(copy),
+                AuthTransactionalEmailTemplates.renderHtml(copy));
     }
 
-    private void send(String template, String recipientEmail, String subject, String text, String html) {
+    private void send(
+            String template,
+            String recipientEmail,
+            String rawToken,
+            String subject,
+            String text,
+            String html) {
+        String idempotencyKey = idempotencyKey(template, recipientEmail, rawToken);
         try {
             resend.post()
                     .uri("/emails")
+                    .header("Idempotency-Key", idempotencyKey)
                     .body(ResendEmailRequest.create(
                             email.getFrom(), recipientEmail, email.getReplyTo(), subject, text, html))
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        HttpStatusCode status = response.getStatusCode();
                         throw new EmailDeliveryException(
-                                "Resend rejected transactional email with status " + response.getStatusCode(),
+                                "Resend rejected transactional email with status "
+                                        + status.value()
+                                        + " ("
+                                        + statusClass(status)
+                                        + ")",
                                 null);
                     })
                     .toBodilessEntity();
@@ -141,22 +147,46 @@ public class ResendEmailSender implements EmailVerificationSender, PasswordReset
         }
     }
 
-    private static String appendToken(String baseUrl, String rawToken) {
-        String separator = baseUrl.contains("?") ? "&" : "?";
-        return baseUrl + separator + "token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
+    /**
+     * Stable per exact send attempt for a given template/recipient/raw-token.
+     * Retries of that same triple reuse the provider response (24h). A new
+     * registration or resend that mints a different token intentionally uses a
+     * new key. Fingerprint is a truncated SHA-256 of the raw token — never the
+     * raw token itself.
+     */
+    static String idempotencyKey(String template, String recipientEmail, String rawToken) {
+        return "auth/" + template + "/" + emailHash(recipientEmail) + "/" + tokenFingerprint(rawToken);
+    }
+
+    private static String statusClass(HttpStatusCode status) {
+        int code = status.value();
+        if (code == 401 || code == 403) {
+            return "auth";
+        }
+        if (code == 429) {
+            return "rate_limited";
+        }
+        if (code >= 500) {
+            return "provider_5xx";
+        }
+        if (code >= 400) {
+            return "client_4xx";
+        }
+        return "other";
     }
 
     private static String emailHash(String email) {
         return Integer.toHexString(email.hashCode());
     }
 
-    private static String escapeHtml(String value) {
-        return value
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
+    private static String tokenFingerprint(String rawToken) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

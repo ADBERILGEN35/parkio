@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1095",
+    "name": "ALSANCAK YOL BOYU OTOPARKI",
+    "type": "yolustu",
+    "district": "Altındağ",
+    "lat": 39.941283987606035,
+    "lng": 32.855654018215056,
+    "capacity": 16,
+    "schedule": "Haftanın her günü 08:00-18:00",
+    "address": "Alsancak Mahallesi, Altındağ/Ankara",
+    "active": true
+  },
+  {
+    "id": "1118",
+    "name": "SIHHIYE ÇOK KATLI OTOPARKI",
+    "type": "kapali",
+    "district": "Çankaya",
+    "lat": 39.926417,
+    "lng": 32.859245,
+    "capacity": 186,
+    "schedule": "Haftanın her günü 00:00-24:00",
+    "address": "Sıhhiye, Çankaya/Ankara",
+    "active": true
+  }
+]

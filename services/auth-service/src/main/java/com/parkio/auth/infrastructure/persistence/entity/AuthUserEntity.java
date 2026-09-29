@@ -57,6 +57,9 @@ public class AuthUserEntity {
     @Column(name = "email_verification_sent_at")
     private Instant emailVerificationSentAt;
 
+    @Column(name = "preferred_locale", nullable = false, length = 8)
+    private String preferredLocale = "tr";
+
     @Column(name = "session_epoch", nullable = false)
     private long sessionEpoch;
 
@@ -88,6 +91,7 @@ public class AuthUserEntity {
                           String emailVerificationTokenHash,
                           Instant emailVerificationExpiresAt,
                           Instant emailVerificationSentAt,
+                          String preferredLocale,
                           long sessionEpoch,
                           Set<RoleEntity> roles,
                           Instant createdAt,
@@ -102,6 +106,7 @@ public class AuthUserEntity {
         this.emailVerificationTokenHash = emailVerificationTokenHash;
         this.emailVerificationExpiresAt = emailVerificationExpiresAt;
         this.emailVerificationSentAt = emailVerificationSentAt;
+        this.preferredLocale = preferredLocale == null || preferredLocale.isBlank() ? "tr" : preferredLocale;
         this.sessionEpoch = sessionEpoch;
         this.roles = roles;
         this.createdAt = createdAt;
@@ -146,6 +151,10 @@ public class AuthUserEntity {
 
     public Instant getEmailVerificationSentAt() {
         return emailVerificationSentAt;
+    }
+
+    public String getPreferredLocale() {
+        return preferredLocale;
     }
 
     public long getSessionEpoch() {

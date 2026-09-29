@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Parkio | Bildirim listesi onayı</title>
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="parkio-waitlist-api" content="https://api.parkio.dev/api/v1">
+  <meta name="parkio-waitlist-mode" content="api">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="stylesheet" href="/styles.css?v=w01l7">
+</head>
+<body>
+<a class="skip-link" href="#main" data-i18n="skip">İçeriğe atla</a>
+<header class="site-header"><div class="container nav"><a class="brand" href="/" aria-label="Parkio home"><span class="brand-mark"><img src="/assets/parkio-logo.png" alt="Parkio logo" width="44" height="44"></span><span class="brand-copy"><span class="brand-name">Parkio</span><span class="brand-tagline" data-i18n="brand.tagline">Park zekâsı</span></span></a>
+<div class="lang-switch" role="group" aria-label="Dil seçimi" data-i18n-attr="aria-label" data-i18n="lang.aria"><button type="button" class="lang-btn is-active" data-lang-option="tr" aria-pressed="true">TR</button><button type="button" class="lang-btn" data-lang-option="en" aria-pressed="false">EN</button></div>
+<a class="btn btn-secondary btn-sm" href="/">Parkio</a></div></header>
+<main id="main" class="legal">
+  <div class="container legal-wrap">
+    <div class="kicker" data-i18n="waitlist.page.kicker">Kayıt bildirimi</div>
+    <h1 data-i18n="waitlist.page.confirm.h1">E-posta onayını tamamlayın</h1>
+    <p data-i18n="waitlist.page.confirm.lede">Bağlantı önizlemeleri kaydı otomatik onaylamaz. Listede kalmak için aşağıdaki düğmeye basın.</p>
+    <form id="waitlist-confirm-form" class="waitlist-panel" novalidate>
+      <button class="btn btn-primary" type="submit" data-i18n="waitlist.page.confirm.cta">Onayla</button>
+      <p class="waitlist-feedback" data-waitlist-feedback role="status" aria-live="polite" hidden></p>
+      <p class="waitlist-isolated" data-waitlist-isolated-note hidden></p>
+    </form>
+    <p class="legal-note" data-i18n="waitlist.page.confirm.note">Kaydınızı tamamlamak için onay düğmesine basın. Destek: info@parkio.dev</p>
+  </div>
+</main>
+<script src="/i18n.js?v=w01l7" defer></script>
+<script src="/waitlist.js?v=w01l7" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  function applyTitle(locale) {
+    if (!window.ParkioI18n) return;
+    document.title = window.ParkioI18n.t(locale === 'en' ? 'en' : 'tr', 'waitlist.page.confirm.title');
+  }
+  document.addEventListener('parkio:locale', function (e) { applyTitle(e.detail.locale); });
+  applyTitle(window.ParkioI18n ? window.ParkioI18n.resolveLocale() : 'tr');
+});
+</script>
+</body>
+</html>

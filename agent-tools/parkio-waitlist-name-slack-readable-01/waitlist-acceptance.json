@@ -1,0 +1,155 @@
+{
+  "suite": "waitlist-slack-notifications",
+  "summary": {
+    "PASS": 23,
+    "FAIL": 0
+  },
+  "results": [
+    {
+      "id": "W01",
+      "name": "committed confirmation → one Turkish Slack message",
+      "status": "PASS",
+      "detail": "delivered=1 posts=1"
+    },
+    {
+      "id": "W02",
+      "name": "rolled-back confirmation → no envelope → nothing sent",
+      "status": "PASS",
+      "detail": "gateway rollback is proven in WaitlistOpsNotificationOutboxTest; relay idle"
+    },
+    {
+      "id": "W03",
+      "name": "duplicate envelope (re-export after crash) → suppressed",
+      "status": "PASS",
+      "detail": "posts=1 suppressed=2"
+    },
+    {
+      "id": "W04",
+      "name": "integration disabled → queued, nothing sent",
+      "status": "PASS",
+      "detail": "posts=0 pending=1"
+    },
+    {
+      "id": "W05",
+      "name": "timeout (ambiguous) → bounded retry, never confirmed early",
+      "status": "PASS",
+      "detail": "ambiguous→retry→delivered (duplicate risk documented)"
+    },
+    {
+      "id": "W06",
+      "name": "timeouts exhausted → delivery_unknown (operator-visible)",
+      "status": "PASS",
+      "detail": "attempts=3 → delivery_unknown, no further sends"
+    },
+    {
+      "id": "W07",
+      "name": "429 honours Retry-After, then delivers",
+      "status": "PASS",
+      "detail": "retry_after≈7.0s then delivered"
+    },
+    {
+      "id": "W08",
+      "name": "5xx transient → retry then success",
+      "status": "PASS",
+      "detail": "503→retry→delivered"
+    },
+    {
+      "id": "W09",
+      "name": "5xx persistent → bounded attempts → dead (DLT)",
+      "status": "PASS",
+      "detail": "max_attempts=3 → dead"
+    },
+    {
+      "id": "W10",
+      "name": "permanent failure (404 no_service / 400) → dead, no retry",
+      "status": "PASS",
+      "detail": "posts=2 dead=2 retries=0"
+    },
+    {
+      "id": "W11",
+      "name": "hostile envelopes (secrets in field names AND values) → rejected, not retained, not logged",
+      "status": "PASS",
+      "detail": "rejected=17 retained=0 categories=bad_dedup_key,bad_event_id,bad_occurred_at,environment_mismatch,producer_mismatch,unknown_field,unsupported_event_type"
+    },
+    {
+      "id": "W12",
+      "name": "non-confirmation signals / env mismatch / bad shape → rejected",
+      "status": "PASS",
+      "detail": "rejected=11 categories=9"
+    },
+    {
+      "id": "W15",
+      "name": "opt-in forensic retention: 0600, hashed name, pruned after bound",
+      "status": "PASS",
+      "detail": "kept=1 (0600, hashed name) → pruned after 1h bound"
+    },
+    {
+      "id": "W16",
+      "name": "retention: acked files, DLT and terminal rows pruned; pending + dedup window kept",
+      "status": "PASS",
+      "detail": "acked=3→0, dlt=1→0, terminal after 168h, pending kept, in-window dup suppressed"
+    },
+    {
+      "id": "W17",
+      "name": "backlog discard empties the durable relay queue without sending",
+      "status": "PASS",
+      "detail": "discarded=3 sent=0 re-export suppressed"
+    },
+    {
+      "id": "W18",
+      "name": "queue write failure leaves the envelope in the inbox (no ack, no loss)",
+      "status": "PASS",
+      "detail": "not acked on write failure; delivered on next poll"
+    },
+    {
+      "id": "W19",
+      "name": "backpressure: queue full / low disk → files kept, nothing deleted, resumes",
+      "status": "PASS",
+      "detail": "queue_full + low_disk deferrals kept 3 files; resumed → 7 pending, 0 lost"
+    },
+    {
+      "id": "W13",
+      "name": "webhook URL and secrets never logged or persisted",
+      "status": "PASS",
+      "detail": "webhook URL absent from queue/DLT/metrics/logs"
+    },
+    {
+      "id": "W20",
+      "name": "contract v2 fullName + counts → readable Turkish Slack",
+      "status": "PASS",
+      "detail": "v2 name+counts rendered"
+    },
+    {
+      "id": "W21",
+      "name": "v1 historical + v2 null fullName both render nameless label",
+      "status": "PASS",
+      "detail": "v1+v2 nameless dual-read"
+    },
+    {
+      "id": "W22",
+      "name": "adversarial fullName escaped; mention-bearing names rejected",
+      "status": "PASS",
+      "detail": "amp escaped; mention/url name rejected"
+    },
+    {
+      "id": "W23",
+      "name": "unknown v2 field rejected; counts without snapshotAt rejected",
+      "status": "PASS",
+      "detail": "unknown_field + bad_confirmed_count"
+    },
+    {
+      "id": "W14",
+      "name": "captured relay logs contain no prohibited values",
+      "status": "PASS",
+      "detail": "log_bytes=1914"
+    }
+  ],
+  "example_messages": {
+    "confirmed": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_v2": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_nameless": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_escaped": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe &amp; O’Neill\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=42, bugün=3\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._\nOrtam: `acceptance` (üretim dışı)",
+    "confirmed_production_example": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ad belirtilmemiş\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist",
+    "confirmed_production_v2_example": "*🎉 Yeni bekleme listesi kaydı onaylandı*\nAd soyad: Ayşe Yılmaz\nOnay zamanı: 2026-09-22 14:04 (Türkiye saati)\nYönetim: https://app.parkio.dev/admin/waitlist\nDışa aktarım özeti (Europe/Istanbul günü): onaylı toplam=17, bugün=2\n_Sayımlar dışa aktarım anındaki veritabanı anlık görüntüsüdür; Slack yeniden denemelerinde değişmez._"
+  }
+}

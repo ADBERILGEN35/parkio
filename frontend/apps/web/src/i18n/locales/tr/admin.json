@@ -7,6 +7,7 @@
     "nav": {
       "dashboard": "Kontrol paneli",
       "users": "Kullanıcılar",
+      "waitlist": "Bekleme listesi",
       "security": "Güvenlik",
       "moderation": "Moderasyon",
       "analytics": "Analitik",
@@ -177,6 +178,48 @@
     "emptyDescription": "Yönetim işlemleri burada görünecek.",
     "eventActor": "aktör {{actorId}} ({{roles}})",
     "eventTarget": "hedef {{type}}{{id}}"
+  },
+  "waitlist": {
+    "title": "Bildirim bekleme listesi",
+    "subtitle": "Kayıt bildirim listesine kim katıldı, onayladı veya ayrıldı.",
+    "distinction": "Bunlar yalnızca e-posta bildirim abonelikleridir — Parkio uygulama hesapları değildir. Onaylı bekleme listesi durumu ürün girişi vermez.",
+    "countsTitle": "Sayımlar (tüm abonelikler)",
+    "countsNote": "Bu toplamlar tüm bildirim-listesi aboneliklerini kapsar ve aşağıdaki filtreleri yok sayar. Filtreler yalnızca tabloya ve onaylı CSV dışa aktarımının tarih aralığına uygulanır.",
+    "counts": {
+      "pending": "Bekleyen: {{count}}",
+      "confirmed": "Onaylı: {{count}}",
+      "withdrawn": "Çekilmiş: {{count}}",
+      "total": "Toplam: {{count}}"
+    },
+    "filters": "Filtreler",
+    "statusLabel": "Durum",
+    "createdFrom": "Kayıt başlangıcı",
+    "createdTo": "Kayıt bitişi",
+    "exportConfirmed": "Onaylıları CSV olarak dışa aktar",
+    "exporting": "Dışa aktarılıyor…",
+    "exportNote": "Dışa aktarım yalnızca onaylı abonelikleri içerir. Jetonlar ve kötüye kullanım karmaları asla dışa aktarılmaz.",
+    "subscriptions": "Abonelikler",
+    "emptyTitle": "Eşleşen abonelik yok",
+    "emptyDescription": "Durum veya tarih filtrelerini değiştirin ya da yeni kayıtları bekleyin.",
+    "sourceUnknown": "Bilinmiyor",
+    "pageLabel": "Sayfa {{page}} / {{pages}} (toplam {{total}})",
+    "status": {
+      "all": "Tüm durumlar",
+      "PENDING": "Bekleyen",
+      "CONFIRMED": "Onaylı",
+      "WITHDRAWN": "Çekilmiş"
+    },
+    "table": {
+      "fullName": "Ad soyad",
+      "nameNotProvided": "Ad belirtilmemiş",
+      "email": "E-posta",
+      "status": "Durum",
+      "locale": "Dil",
+      "source": "Kaynak",
+      "created": "Kayıt",
+      "confirmed": "Onay",
+      "withdrawn": "Çekilme"
+    }
   },
   "system": {
     "title": "Sistem",

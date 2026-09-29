@@ -1,0 +1,6 @@
+flyway_22_23
+  22|create registration invites|true
+  23|auth user preferred locale|true
+preferred_locale_column preferred_locale|character varying|'tr'::character varying
+pending_unverified_count 0
+registration_and_profiles

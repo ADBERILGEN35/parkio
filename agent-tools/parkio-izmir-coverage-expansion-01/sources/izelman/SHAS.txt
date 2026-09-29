@@ -1,0 +1,4 @@
+258674e5beb2d7020648a5d5526afd03c9239a6f29c8ca21861ceded50e5e729  izelman-aboneli-otopark.csv  lines=18
+72c78cec17ba951a18911f5bd4aa9aafa3f65e0bf620c66d76ef08ff59ff1eb7  izelman-yol-kenari-otoparklar.csv  lines=49
+fa541856035713b792cbf75d777c2166ee28b61fca7627a2220870cc7546a6f4  izelman-kapalialan-otoparklar.csv  lines=24
+52f0a396a96928bad088df4172021f54ea7c42a538471eb8607df99ca28a1c92  izelman-yolkenari-disinda-acikalan-otoparklar.csv  lines=12

@@ -13,6 +13,8 @@ export interface ChipProps {
   onPress?: () => void;
   disabled?: boolean;
   size?: 'md' | 'sm';
+  /** Label line clamp — raise for long municipal source labels. */
+  numberOfLines?: number;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -20,7 +22,16 @@ export interface ChipProps {
  * Attribute / filter chip: pill on surface-container-1; selected =
  * primary-fixed fill + primary ink (FILL-1 feel per the pen kit).
  */
-export function Chip({ label, icon, selected, onPress, disabled, size = 'md', style }: ChipProps) {
+export function Chip({
+  label,
+  icon,
+  selected,
+  onPress,
+  disabled,
+  size = 'md',
+  numberOfLines = 1,
+  style,
+}: ChipProps) {
   const theme = useTheme();
   const { colors } = theme;
   const fg = selected
@@ -44,7 +55,7 @@ export function Chip({ label, icon, selected, onPress, disabled, size = 'md', st
       ]}
     >
       {icon && <MaterialCommunityIcons name={icon} size={size === 'sm' ? 13 : 15} color={fg} />}
-      <AppText variant={size === 'sm' ? 'labelSm' : 'bodySm'} color={fg} numberOfLines={1}>
+      <AppText variant={size === 'sm' ? 'labelSm' : 'bodySm'} color={fg} numberOfLines={numberOfLines}>
         {label}
       </AppText>
     </View>

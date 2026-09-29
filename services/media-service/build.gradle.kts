@@ -26,12 +26,10 @@ dependencies {
     // S3-compatible object storage.
     implementation(libs.minio)
 
-    // MinIO drags in bcprov 1.81 (CVE-2025-14813). Raise the floor to the patched
-    // 1.81.x release without changing the MinIO version; Parkio only uses BC as a
-    // MinIO transitive, never its GOST cipher paths.
+    // MinIO pulls bcprov transitively; raise floor to catalog ≥1.85 (CVE-2026-8763).
     constraints {
         implementation(libs.bouncycastle.bcprov) {
-            because("CVE-2025-14813: bcprov-jdk18on <= 1.81 is blocked by Security CI")
+            because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI CRITICAL policy")
         }
     }
 

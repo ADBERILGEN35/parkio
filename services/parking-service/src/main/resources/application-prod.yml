@@ -1,0 +1,19 @@
+# Production profile: keep public municipal discovery/provenance dark until a
+# separate production rollout approval. Canonical application.yml defaults
+# enable these for local/hosted-beta; this profile re-pins env defaults to false
+# so activating `prod` without an explicit env override stays off.
+parkio:
+  municipal:
+    discovery:
+      # DATA-WP-12: nearby duplicate-presentation leave-on is hosted-beta only until approved.
+      duplicate-presentation-enabled: ${PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED:false}
+    registry:
+      # DATA-WP-11: public provenance leave-on is hosted-beta only until approved.
+      provenance-publication-enabled: ${PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED:false}
+    ops:
+      # DATA-WP-15: operator quality/coverage report stays dark until DATA-WP-15A.
+      quality-report-enabled: ${PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED:false}
+      # DATA-WP-16: source-mode SLA stays dark until DATA-WP-16A (legacy age semantics).
+      source-mode-sla-enabled: ${PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED:false}
+      # DATA-WP-18: district coverage stays dark until DATA-WP-18A.
+      district-coverage-enabled: ${PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED:false}

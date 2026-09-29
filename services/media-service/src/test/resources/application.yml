@@ -15,8 +15,14 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: false
+  kafka:
+    listener:
+      auto-startup: false
 
 parkio:
+  auth:
+    client:
+      base-url: http://localhost:0
   idempotency:
     ttl: 24h
   lifecycle:

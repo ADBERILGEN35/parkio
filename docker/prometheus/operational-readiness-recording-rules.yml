@@ -2,20 +2,25 @@ groups:
   - name: parkio-operational-readiness
     interval: 30s
     rules:
+      # True success ratio. Do NOT clamp_min(total, 1): at low traffic that turns a
+      # healthy ~0.13 req/s all-200 stream into a false ~13% availability and pages
+      # ParkingAvailabilityBaselining / GatewayAvailabilityBaselining.
+      # Zero traffic yields an empty vector (no recording sample) so baselining
+      # alerts stay quiet until requests exist.
       - record: parkio:gateway:availability_ratio5m
         expr: |
           sum(rate(http_server_requests_seconds_count{service="gateway-service",status!~"5.."}[5m]))
           /
-          clamp_min(sum(rate(http_server_requests_seconds_count{service="gateway-service"}[5m])), 1)
+          sum(rate(http_server_requests_seconds_count{service="gateway-service"}[5m]))
       - record: parkio:parking:availability_ratio5m
         expr: |
           sum(rate(http_server_requests_seconds_count{service="parking-service",status!~"5.."}[5m]))
           /
-          clamp_min(sum(rate(http_server_requests_seconds_count{service="parking-service"}[5m])), 1)
+          sum(rate(http_server_requests_seconds_count{service="parking-service"}[5m]))
       - record: parkio:auth:availability_ratio5m
         expr: |
           sum(rate(http_server_requests_seconds_count{service="auth-service",status!~"5.."}[5m]))
           /
-          clamp_min(sum(rate(http_server_requests_seconds_count{service="auth-service"}[5m])), 1)
+          sum(rate(http_server_requests_seconds_count{service="auth-service"}[5m]))
       - record: parkio:platform:service_up
         expr: up{job="parkio-services"}

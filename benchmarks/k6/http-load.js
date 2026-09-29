@@ -1,6 +1,18 @@
 import http from 'k6/http';
 import { check, fail, group, sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
+import { criticalAuthThresholds } from './critical-auth-gates.js';
+
+/**
+ * Parkio k6 smoke — native mobile auth transport.
+ *
+ * Auth refresh/logout intentionally use X-Parkio-Client: mobile + JSON body
+ * refreshToken. Browser cookie+Origin CSRF path is a different contract and is
+ * not exercised here (k6 has no reliable Secure cookie jar for that path).
+ *
+ * Critical auth lifecycle checks are tagged critical=login|refresh and gated by
+ * strict thresholds so aggregate HTTP error budgets cannot hide refresh failures.
+ */
 
 const BASE_URL = (__ENV.PARKIO_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 const API = `${BASE_URL}/api/v1`;
@@ -23,6 +35,15 @@ const createSpotLatency = new Trend('parkio_create_spot_latency', true);
 const moderationLatency = new Trend('parkio_moderation_latency', true);
 const analyticsLatency = new Trend('parkio_analytics_latency', true);
 const businessErrorRate = new Rate('parkio_business_error_rate');
+const criticalLoginOk = new Rate('parkio_critical_login_ok');
+const criticalRefreshOk = new Rate('parkio_critical_refresh_ok');
+const criticalLoginSamples = new Counter('parkio_critical_login_samples');
+const criticalRefreshSamples = new Counter('parkio_critical_refresh_samples');
+
+const MOBILE_JSON_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Parkio-Client': 'mobile',
+};
 
 export const options = {
   scenarios: {
@@ -53,6 +74,9 @@ export const options = {
     parkio_nearby_latency: ['p(95)<1500'],
     parkio_geocoding_latency: ['p(95)<2500'],
     parkio_profile_latency: ['p(95)<1000'],
+    // Critical auth lifecycle — must execute and succeed; cannot pass vacuously.
+    // Rate metrics: rate only. Nonzero execution is gated by Counter *_samples.
+    ...criticalAuthThresholds(),
   },
   summaryTrendStats: ['min', 'avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
@@ -62,14 +86,17 @@ export function setup() {
     fail('PARKIO_K6_EMAIL and PARKIO_K6_PASSWORD are required. Seed a non-production test account first.');
   }
 
-  const login = loginOnce();
-  const userId = login.json('user.id') || login.json('user.userId') || login.json('user.authUserId');
+  const login = loginOnce({ critical: false });
+  const userId =
+    login.response.json('user.id') ||
+    login.response.json('user.userId') ||
+    login.response.json('user.authUserId');
   if (!userId) {
     fail('Login succeeded but response did not expose user.id/userId/authUserId for user-scoped probes.');
   }
 
   return {
-    accessToken: login.json('accessToken'),
+    accessToken: login.accessToken,
     userId,
   };
 }
@@ -124,34 +151,79 @@ export function authenticatedReadFlow(data) {
   sleep(Number(__ENV.PARKIO_K6_THINK_TIME_SECONDS || '1'));
 }
 
+/**
+ * Independent synthetic session per iteration: login → refresh (rotated token) → logout.
+ * Never reuses another VU's refresh token after rotation.
+ */
 export function authSessionFlow() {
-  const login = loginOnce();
-  const accessToken = login.json('accessToken');
-  if (accessToken) {
-    record(refreshLatency, http.post(`${API}/auth/refresh-token`, null, { tags: { endpoint: 'refresh' } }), 200);
-    http.post(`${API}/auth/logout`, null, authParams(accessToken));
-  }
+  const login = loginOnce({ critical: true });
+  const refreshBody = JSON.stringify({ refreshToken: login.refreshToken });
+  const refreshResponse = http.post(`${API}/auth/refresh-token`, refreshBody, {
+    headers: MOBILE_JSON_HEADERS,
+    tags: { endpoint: 'refresh', critical: 'refresh' },
+  });
+  refreshLatency.add(refreshResponse.timings.duration);
+  criticalRefreshSamples.add(1);
+
+  const refreshOk = check(
+    refreshResponse,
+    {
+      'critical refresh status 200': (r) => r.status === 200,
+      'critical refresh returns access token': (r) => Boolean(safeJson(r, 'accessToken')),
+      'critical refresh returns rotated refresh token': (r) => Boolean(safeJson(r, 'refreshToken')),
+    },
+    { critical: 'refresh' },
+  );
+  criticalRefreshOk.add(refreshOk);
+  businessErrorRate.add(!refreshOk);
+
+  const rotatedRefresh = safeJson(refreshResponse, 'refreshToken') || login.refreshToken;
+  http.post(`${API}/auth/logout`, JSON.stringify({ refreshToken: rotatedRefresh }), {
+    headers: MOBILE_JSON_HEADERS,
+    tags: { endpoint: 'logout' },
+  });
 }
 
-function loginOnce() {
+function loginOnce({ critical }) {
   const response = http.post(
     `${API}/auth/login`,
     JSON.stringify({ email: EMAIL, password: PASSWORD }),
     {
-      headers: { 'Content-Type': 'application/json' },
-      tags: { endpoint: 'login' },
+      headers: MOBILE_JSON_HEADERS,
+      tags: critical
+        ? { endpoint: 'login', critical: 'login' }
+        : { endpoint: 'login' },
     },
   );
   loginLatency.add(response.timings.duration);
-  const ok = check(response, {
-    'login status 200': (r) => r.status === 200,
-    'login returns access token': (r) => Boolean(r.json('accessToken')),
-  });
+
+  const checks = critical
+    ? {
+        'critical login status 200': (r) => r.status === 200,
+        'critical login returns access token': (r) => Boolean(safeJson(r, 'accessToken')),
+        'critical login returns refresh token': (r) => Boolean(safeJson(r, 'refreshToken')),
+      }
+    : {
+        'login status 200': (r) => r.status === 200,
+        'login returns access token': (r) => Boolean(safeJson(r, 'accessToken')),
+        'login returns refresh token': (r) => Boolean(safeJson(r, 'refreshToken')),
+      };
+
+  const ok = check(response, checks, critical ? { critical: 'login' } : undefined);
+  if (critical) {
+    criticalLoginSamples.add(1);
+    criticalLoginOk.add(ok);
+  }
   businessErrorRate.add(!ok);
   if (!ok) {
-    fail(`Login failed with status ${response.status}: ${response.body}`);
+    fail(`Login failed with status ${response.status}`);
   }
-  return response;
+
+  return {
+    response,
+    accessToken: safeJson(response, 'accessToken'),
+    refreshToken: safeJson(response, 'refreshToken'),
+  };
 }
 
 function uploadTinyJpeg(accessToken) {
@@ -173,7 +245,7 @@ function uploadTinyJpeg(accessToken) {
     },
   );
   record(uploadLatency, response, [200, 201]);
-  return response.json('mediaId') || null;
+  return safeJson(response, 'mediaId') || null;
 }
 
 function createSpot(accessToken, mediaId) {
@@ -223,4 +295,12 @@ function authHeaders(accessToken) {
   return {
     Authorization: `Bearer ${accessToken}`,
   };
+}
+
+function safeJson(response, path) {
+  try {
+    return response.json(path);
+  } catch {
+    return null;
+  }
 }

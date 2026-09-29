@@ -1301,6 +1301,12 @@ test('backend-change classifier distinguishes protected backend paths', () => {
   assert.equal(isBackendProtectedPath('settings.gradle.kts'), true);
   assert.equal(isBackendProtectedPath('frontend/packages/api-client/src/index.ts'), false);
   assert.equal(isBackendProtectedPath('docs/sprint-2.3/implementation-plan.md'), false);
+  assert.equal(isBackendProtectedPath('docker/docker-compose.apps.yml'), true);
+  assert.equal(isBackendProtectedPath('docker/docker-compose.web-release-pin.yml'), false);
+  assert.equal(isBackendProtectedPath('docker/web-hosted-beta.release-bake.env'), false);
+  assert.equal(isBackendProtectedPath('docker/web-hosted-beta.municipal-on.bake.env'), false);
+  assert.equal(isBackendProtectedPath('docker/compose.production.files'), false);
+  assert.equal(isBackendProtectedPath('docker/.env.azure-hosted-beta.example'), false);
 });
 
 test('WP-04 rejects global queryClient.clear outside the session-cache owner', () => {

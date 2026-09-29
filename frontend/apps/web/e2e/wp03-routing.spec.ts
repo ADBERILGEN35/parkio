@@ -216,6 +216,9 @@ class MockWp03Backend {
           body: JSON.stringify(data),
         });
 
+      if (method === 'GET' && path === '/auth/registration-mode') {
+        return json({ mode: 'OPEN' });
+      }
       if (method === 'POST' && path === '/auth/refresh-token') {
         this.refreshCount += 1;
         await this.bootstrapGate?.promise;
@@ -436,6 +439,16 @@ async function spaGoto(page: Page, path: string) {
   }, path);
 }
 
+async function expectLoginRedirectWithReturn(
+  page: Page,
+  expectedReturn: string,
+) {
+  await expect(page).toHaveURL((url) => new URL(url).pathname === '/login');
+  const loginUrl = new URL(page.url());
+  expect(loginUrl.pathname).toBe('/login');
+  expect(loginUrl.searchParams.get('return')).toBe(expectedReturn);
+}
+
 /** Same-origin link click so React Router data-router + useBlocker observe the transition. */
 
 async function callRuntimeAuth(
@@ -603,12 +616,11 @@ test.describe('WP-03 canonical routing acceptance', () => {
     );
 
     backend.releaseBootstrap();
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/admin/analytics?unsafe=1');
     await page.getByLabel('Email').fill(users.admin.email);
     await page.getByLabel('Password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).toHaveURL(/\/admin\/analytics$/);
-    expect(new URL(page.url()).search).toBe('');
+    await expect(page).toHaveURL(/\/admin\/analytics\?unsafe=1$/);
     expect(new URL(page.url()).hash).toBe('');
   });
 
@@ -631,12 +643,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
   test('provisioning and authenticated users receive lifecycle-owned replacement redirects', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
+    await page.addInitScript((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'Pending Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'Pending Driver' }),
       );
-    });
+    }, USER_ID);
     await installMockApi(page, {
       user: users.user,
       profileReady: false,
@@ -847,7 +859,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       });
       channel.close();
     });
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/upload');
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
@@ -926,6 +938,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/verify-email': 'Verify your email',
       '/privacy': 'Privacy Policy',
       '/terms': 'Terms of Service',
+      '/explore': 'Parkio public parking explore',
     };
 
     expect(publicRoutes.map((route) => route.path).sort()).toEqual(
@@ -938,6 +951,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
         '/verify-email',
         '/privacy',
         '/terms',
+        '/explore',
       ].sort(),
     );
 
@@ -985,6 +999,7 @@ test.describe('WP-03 canonical routing acceptance', () => {
         '/check-email',
         '/verify-email',
         '/preparing',
+        '/explore',
       ].sort(),
     );
     expect(bypassRoutes.every((route) => route.bypass)).toBe(true);
@@ -997,18 +1012,19 @@ test.describe('WP-03 canonical routing acceptance', () => {
       '/check-email': 'Check your email',
       '/verify-email': 'Verify your email',
       '/preparing': /Preparing your account|Parkio/,
+      '/explore': 'Parkio public parking explore',
     };
 
     for (const route of bypassRoutes) {
       await markUploadDirty(page);
       if (route.path === '/preparing') {
         backend.setProfileReady(false);
-        await page.evaluate(() => {
+        await page.evaluate((ownerUserId) => {
           sessionStorage.setItem(
             'parkio.pendingProfile',
-            JSON.stringify({ displayName: 'Bypass Preparing Driver' }),
+            JSON.stringify({ ownerUserId, displayName: 'Bypass Preparing Driver' }),
           );
-        });
+        }, USER_ID);
         await callRuntimeAuth(page, 'beginProvisioning');
         await expect(page.getByRole('dialog')).toHaveCount(0);
         await expect(page).toHaveURL(/\/preparing$/);
@@ -1034,12 +1050,12 @@ test.describe('WP-03 canonical routing acceptance', () => {
       profileReady: false,
     });
     await markUploadDirty(page);
-    await page.evaluate(() => {
+    await page.evaluate((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'Dirty Provisioning Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'Dirty Provisioning Driver' }),
       );
-    });
+    }, USER_ID);
     void backend;
 
     await callRuntimeAuth(page, 'beginProvisioning');
@@ -1131,18 +1147,18 @@ test.describe('WP-03 canonical routing acceptance', () => {
       page.getByRole('heading', { name: 'Privacy Policy' }),
     ).toBeVisible();
     await spaGoto(page, '/map');
-    await expect(page).toHaveURL(/\/login$/);
+    await expectLoginRedirectWithReturn(page, '/map');
     await page.goBack();
     await expect(page).toHaveURL(/\/privacy$/);
     await expect(page).not.toHaveURL(/\/map$/);
 
     const provisioning = await page.context().newPage();
-    await provisioning.addInitScript(() => {
+    await provisioning.addInitScript((ownerUserId) => {
       sessionStorage.setItem(
         'parkio.pendingProfile',
-        JSON.stringify({ displayName: 'History Driver' }),
+        JSON.stringify({ ownerUserId, displayName: 'History Driver' }),
       );
-    });
+    }, USER_ID);
     await installMockApi(provisioning, {
       user: users.user,
       profileReady: false,

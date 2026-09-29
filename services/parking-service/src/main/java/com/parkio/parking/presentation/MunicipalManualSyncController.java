@@ -2,8 +2,12 @@ package com.parkio.parking.presentation;
 
 import com.parkio.parking.application.MunicipalFacilitySyncService;
 import com.parkio.parking.externalsource.MunicipalSyncResult;
+import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.kayseri.KayseriMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.konya.KonyaMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,6 +55,18 @@ public class MunicipalManualSyncController {
         if (!admin) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin role required");
         if (IzumMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getIzum().isEnabled()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "IZUM source is disabled");
+        }
+        if (IsparkMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getIspark().isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "ISPARK source is disabled");
+        }
+        if (AnparkMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getAnpark().isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "ANPARK source is disabled");
+        }
+        if (KonyaMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getKonya().isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "KONYA source is disabled");
+        }
+        if (KayseriMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey) && !properties.getKayseri().isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "KAYSERI source is disabled");
         }
         Instant started = Instant.now();
         try {

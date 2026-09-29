@@ -1,4 +1,5 @@
 import { showWarning } from '@/lib/toast';
+import { resetProductAnalyticsIdentity } from '@/services/productAnalytics';
 import type { AuthSession } from './session';
 
 /**
@@ -7,6 +8,11 @@ import type { AuthSession } from './session';
  * to /login once the session is gone.
  */
 export async function performLogout(authSession: AuthSession): Promise<void> {
+  try {
+    await resetProductAnalyticsIdentity();
+  } catch {
+    // fail-open — logout must proceed
+  }
   const result = await authSession.logout();
   if (!result.backendSucceeded) {
     showWarning('Could not reach the server, but this browser was signed out.');

@@ -1,0 +1,4 @@
+﻿Id=sha256:7a00a214ab61bebd9c2d3d7cf83b4523dab80cc4d5b6c9761188e11b1cfc8d7a
+GIT=7595f47dde752a6441b7c4759f939d1792213d56
+BUILT_AT=2026-09-22T10:44:42.8201874+03:00
+REPOSITORY   TAG                              DIGEST                                                                    IMAGE ID       CREATED         SIZE parkio/web   izmir-coverage-rc-7595f47dde75   sha256:7a00a214ab61bebd9c2d3d7cf83b4523dab80cc4d5b6c9761188e11b1cfc8d7a   7a00a214ab61   2 seconds ago   97.5MB

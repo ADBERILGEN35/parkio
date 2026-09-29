@@ -69,19 +69,19 @@ describe('S1-P0-02 active ParkingSession query ownership', () => {
     );
   });
 
-  it('clears active-session coordinates on logout while preserving nearby', () => {
+  it('clears active-session coordinates on logout including authenticated nearby (PA-02)', async () => {
     const client = new QueryClient();
     client.setQueryData(parkingKeys.activeSession(), {
       ...activeParkingSessionFixture,
       latitude: 41.1,
       longitude: 29.1,
     });
-    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'public' }]);
+    client.setQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }), [{ id: 'community' }]);
 
-    clearUserSessionQueries(client);
+    await clearUserSessionQueries(client);
 
     expect(client.getQueryData(parkingKeys.activeSession())).toBeUndefined();
-    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toEqual([{ id: 'public' }]);
+    expect(client.getQueryData(parkingKeys.nearby({ lat: 1, lng: 2 }))).toBeUndefined();
   });
 
   it('claim-style invalidation can surface a COMMUNITY session', async () => {

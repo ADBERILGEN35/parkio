@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "name": "redisabled_blocks_admission",
+      "ok": true,
+      "detail": "http=503 count=0 sends=4"
+    },
+    {
+      "name": "data_survives_redisable_restart",
+      "ok": true,
+      "detail": "before={\"pending\":\"1\",\"confirmed\":\"1\",\"withdrawn\":\"1\",\"flyway\":\"2\"} after={\"pending\":\"1\",\"confirmed\":\"1\",\"withdrawn\":\"1\",\"flyway\":\"2\"}"
+    },
+    {
+      "name": "health_up_after_redisable",
+      "ok": true,
+      "detail": "http=200"
+    },
+    {
+      "name": "pending_row_preserved",
+      "ok": true,
+      "detail": "email=w01f-pending@example.test"
+    },
+    {
+      "name": "withdraw_works_while_admissions_disabled",
+      "ok": true,
+      "detail": "http=202 db=WITHDRAWN"
+    }
+  ],
+  "before": {
+    "pending": "1",
+    "confirmed": "1",
+    "withdrawn": "1",
+    "flyway": "2"
+  },
+  "after": {
+    "pending": "1",
+    "confirmed": "1",
+    "withdrawn": "1",
+    "flyway": "2"
+  }
+}

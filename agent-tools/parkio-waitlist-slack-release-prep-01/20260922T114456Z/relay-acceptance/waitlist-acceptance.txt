@@ -1,0 +1,26 @@
+W01 PASS committed confirmation → one Turkish Slack message — delivered=1 posts=1
+W02 PASS rolled-back confirmation → no envelope → nothing sent — gateway rollback is proven in WaitlistOpsNotificationOutboxTest; relay idle
+W03 PASS duplicate envelope (re-export after crash) → suppressed — posts=1 suppressed=2
+W04 PASS integration disabled → queued, nothing sent — posts=0 pending=1
+W05 PASS timeout (ambiguous) → bounded retry, never confirmed early — ambiguous→retry→delivered (duplicate risk documented)
+W06 PASS timeouts exhausted → delivery_unknown (operator-visible) — attempts=3 → delivery_unknown, no further sends
+W07 PASS 429 honours Retry-After, then delivers — retry_after≈7.0s then delivered
+W08 PASS 5xx transient → retry then success — 503→retry→delivered
+W09 PASS 5xx persistent → bounded attempts → dead (DLT) — max_attempts=3 → dead
+W10 PASS permanent failure (404 no_service / 400) → dead, no retry — posts=2 dead=2 retries=0
+W11 PASS hostile envelopes (secrets in field names AND values) → rejected, not retained, not logged — rejected=17 retained=0 categories=bad_dedup_key,bad_event_id,bad_occurred_at,environment_mismatch,producer_mismatch,unknown_field,unsupported_event_type
+W12 PASS non-confirmation signals / env mismatch / bad shape → rejected — rejected=11 categories=9
+W15 PASS opt-in forensic retention: 0600, hashed name, pruned after bound — kept=1 (0600, hashed name) → pruned after 1h bound
+W16 PASS retention: acked files, DLT and terminal rows pruned; pending + dedup window kept — acked=3→0, dlt=1→0, terminal after 168h, pending kept, in-window dup suppressed
+W17 PASS backlog discard empties the durable relay queue without sending — discarded=3 sent=0 re-export suppressed
+W18 PASS queue write failure leaves the envelope in the inbox (no ack, no loss) — not acked on write failure; delivered on next poll
+W13 PASS webhook URL and secrets never logged or persisted — webhook URL absent from queue/DLT/metrics/logs
+W14 PASS captured relay logs contain no prohibited values — log_bytes=1572
+{"PASS": 18, "FAIL": 0}
+--- example message (synthetic) ---
+*Bekleme listesi aboneliği onaylandı*
+type=`waitlist.subscription_confirmed` severity=`info`
+env=`production` service=`gateway-service`
+at=`2026-09-22T11:04:05Z`
+olay=`e-posta onayı tamamlandı (çift onay)`
+exit=0

@@ -14,10 +14,11 @@ class OsmGeoJsonParkingParserTest {
             bytes = in.readAllBytes();
         }
         List<OsmParkingFeature> features = new OsmGeoJsonParkingParser(new ObjectMapper()).parse(bytes);
-        assertThat(features).hasSize(7);
-        assertThat(features.stream().filter(OsmParkingFeature::valid)).hasSize(5);
+        // 9 fixture features: 7 valid (+ way/7007 operator, way/8008 brand), 2 rejected (clip / parking_space)
+        assertThat(features).hasSize(9);
+        assertThat(features.stream().filter(OsmParkingFeature::valid)).hasSize(7);
         assertThat(features.stream().map(OsmParkingFeature::externalId))
-                .contains("node/1001", "way/1001", "way/2002", "relation/3003");
+                .contains("node/1001", "way/1001", "way/2002", "relation/3003", "way/7007", "way/8008");
         assertThat(features.stream().filter(f -> "outside_izmir_clip".equals(f.rejectReason()))).hasSize(1);
         assertThat(features.stream().filter(f -> "parking_space_not_facility".equals(f.rejectReason()))).hasSize(1);
         assertThat(features.stream().filter(f -> "access_not_publishable".equals(f.rejectReason()))).isEmpty();

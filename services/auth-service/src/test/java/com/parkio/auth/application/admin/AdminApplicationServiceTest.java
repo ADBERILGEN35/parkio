@@ -4,12 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.auth.application.AuthApplicationService;
+import com.parkio.auth.application.command.RefreshTokenCommand;
 import com.parkio.auth.application.LoginFailureTracker;
 import com.parkio.auth.application.PasswordResetLimiter;
+import com.parkio.auth.application.RegistrationGateService;
 import com.parkio.auth.application.VerificationResendLimiter;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
-import com.parkio.auth.application.port.AccessTokenIssuer;
 import com.parkio.auth.application.port.AdminAuditEventRepository;
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.EmailVerificationSender;
@@ -20,24 +21,31 @@ import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenHasher;
 import com.parkio.auth.application.port.RefreshTokenRepository;
+import com.parkio.auth.application.port.RegistrationInviteRepository;
 import com.parkio.auth.application.port.RoleRepository;
 import com.parkio.auth.application.port.SecureTokenGenerator;
 import com.parkio.auth.application.result.AdminUserSummary;
-import com.parkio.auth.application.result.IssuedAccessToken;
 import com.parkio.auth.application.result.PageResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.RefreshToken;
+import com.parkio.auth.domain.RegistrationInvite;
 import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
+import com.parkio.auth.domain.RegistrationMode;
 import com.parkio.auth.domain.admin.AdminAuditAction;
 import com.parkio.auth.domain.admin.AdminAuditEvent;
 import com.parkio.auth.domain.admin.AdminAuditResult;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.config.RegistrationProperties;
 import com.parkio.auth.infrastructure.metrics.AdminMetrics;
+import com.parkio.auth.infrastructure.security.JwtProperties;
+import com.parkio.auth.infrastructure.security.JwtService;
+import com.parkio.auth.infrastructure.security.RsaKeyProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
@@ -71,6 +79,8 @@ class AdminApplicationServiceTest {
     private FakeOutboxEventAppender outbox;
     private FakeInboxEventRepository inbox;
     private AdminApplicationService adminService;
+    private AuthApplicationService authService;
+    private JwtService jwtService;
     private UUID adminId;
     private UUID superAdminId;
     private UUID regularUserId;
@@ -88,13 +98,20 @@ class AdminApplicationServiceTest {
             case ADMIN -> Optional.of(ADMIN_ROLE);
             case SUPER_ADMIN -> Optional.of(SUPER_ADMIN_ROLE);
         };
-        AuthApplicationService authService = buildAuthService(roles);
+        JwtProperties jwtProperties = new JwtProperties();
+        jwtProperties.setGenerateEphemeralKey(true);
+        jwtProperties.setIssuer("parkio-test");
+        jwtProperties.setAudience("parkio-test-api");
+        jwtProperties.setAccessTokenTtl(Duration.ofMinutes(15));
+        jwtService = new JwtService(jwtProperties, new RsaKeyProvider(jwtProperties),
+                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
+        authService = buildAuthService(roles);
         AdminMetrics metrics = new AdminMetrics(new SimpleMeterRegistry());
         adminService = new AdminApplicationService(
                 authUsers, refreshTokens, roles, auditEvents, outbox, inbox, authService, metrics,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
-        adminId = seedUser("admin@parkio.example", Set.of(ADMIN_ROLE), AuthUserStatus.ACTIVE, true);
+        adminId = seedUser("admin@parkio.example", Set.of(USER_ROLE, ADMIN_ROLE), AuthUserStatus.ACTIVE, true);
         superAdminId = seedUser("super@parkio.example", Set.of(SUPER_ADMIN_ROLE), AuthUserStatus.ACTIVE, true);
         regularUserId = seedUser("user@parkio.example", Set.of(USER_ROLE), AuthUserStatus.ACTIVE, true);
     }
@@ -152,6 +169,83 @@ class AdminApplicationServiceTest {
     }
 
     @Test
+    void revokingAdminInvalidatesPreviouslyIssuedAccessTokens() {
+        long previousEpoch = authUsers.findById(adminId).orElseThrow().sessionEpoch();
+        String oldToken = jwtService.issue(authUsers.findById(adminId).orElseThrow()).token();
+        assertThat(jwtService.parse(oldToken).roles()).contains("ADMIN");
+        refreshTokens.save(RefreshToken.issueRoot(adminId, "hash-raw-refresh", NOW.plus(Duration.ofDays(30)), NOW));
+
+        adminService.revokeRole(superAdminId, Set.of("SUPER_ADMIN"), adminId, RoleName.ADMIN, "demote");
+
+        AuthUser demoted = authUsers.findById(adminId).orElseThrow();
+        assertThat(demoted.hasRole(RoleName.ADMIN)).isFalse();
+        assertThat(demoted.sessionEpoch()).isEqualTo(previousEpoch + 1);
+        assertThat(jwtService.parse(oldToken).roles()).contains("ADMIN"); // signed, but stale at the gateway
+        var refreshed = authService.refresh(new RefreshTokenCommand("raw-refresh"));
+        assertThat(jwtService.parse(refreshed.accessToken()).roles()).containsExactly("USER");
+        assertThat(refreshed.user().sessionEpoch()).isEqualTo(previousEpoch + 1);
+        assertThat(authUsers.findById(regularUserId).orElseThrow().sessionEpoch()).isZero();
+    }
+
+    @Test
+    void repeatedRoleRevocationDoesNotAdvanceEpoch() {
+        adminService.revokeRole(superAdminId, Set.of("SUPER_ADMIN"), adminId, RoleName.ADMIN, "demote");
+        assertThatThrownBy(() -> adminService.revokeRole(
+                superAdminId, Set.of("SUPER_ADMIN"), adminId, RoleName.ADMIN, "again"))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode()).isEqualTo(AuthErrorCode.CONFLICT);
+        assertThat(authUsers.findById(adminId).orElseThrow().sessionEpoch()).isEqualTo(1L);
+    }
+
+    @Test
+    void grantingRoleAlsoInvalidatesOldRoleSnapshot() {
+        adminService.grantRole(superAdminId, Set.of("SUPER_ADMIN"), regularUserId, RoleName.ADMIN, "promote");
+        assertThat(authUsers.findById(regularUserId).orElseThrow().sessionEpoch()).isEqualTo(1L);
+    }
+
+    @Test
+    void revokingAllSessionsInvalidatesIssuedAccessTokens() {
+        long previousEpoch = authUsers.findById(regularUserId).orElseThrow().sessionEpoch();
+        RefreshToken first = RefreshToken.issueRoot(regularUserId, "hash-first", NOW.plus(Duration.ofDays(30)), NOW);
+        RefreshToken second = RefreshToken.issueRoot(regularUserId, "hash-second", NOW.plus(Duration.ofDays(30)), NOW);
+        refreshTokens.save(first);
+        refreshTokens.save(second);
+
+        adminService.revokeAllSessions(adminId, Set.of("ADMIN"), regularUserId, "security reset");
+
+        assertThat(first.isRevoked()).isTrue();
+        assertThat(second.isRevoked()).isTrue();
+        assertThat(authUsers.findById(regularUserId).orElseThrow().sessionEpoch())
+                .isEqualTo(previousEpoch + 1);
+        assertThat(authUsers.findById(adminId).orElseThrow().sessionEpoch()).isZero();
+    }
+
+    @Test
+    void repeatedRevokeAllSessionsAdvancesEpochEvenWithoutRefreshTokens() {
+        adminService.revokeAllSessions(adminId, Set.of("ADMIN"), regularUserId, "first");
+        adminService.revokeAllSessions(adminId, Set.of("ADMIN"), regularUserId, "again");
+        assertThat(authUsers.findById(regularUserId).orElseThrow().sessionEpoch()).isEqualTo(2L);
+    }
+
+    @Test
+    void revokingOneSessionLeavesOtherDevicesAndAccessEpochAlone() {
+        RefreshToken first = RefreshToken.issueRoot(regularUserId, "hash-first", NOW.plus(Duration.ofDays(30)), NOW);
+        RefreshToken second = RefreshToken.issueRoot(regularUserId, "hash-second", NOW.plus(Duration.ofDays(30)), NOW);
+        refreshTokens.save(first);
+        refreshTokens.save(second);
+
+        adminService.revokeSession(adminId, Set.of("ADMIN"), regularUserId, first.id(), "one device");
+
+        assertThat(first.isRevoked()).isTrue();
+        assertThat(second.isRevoked()).isFalse();
+        assertThat(authUsers.findById(regularUserId).orElseThrow().sessionEpoch()).isZero();
+        assertThatThrownBy(() -> adminService.revokeSession(
+                adminId, Set.of("ADMIN"), regularUserId, first.id(), "again"))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode()).isEqualTo(AuthErrorCode.SESSION_NOT_FOUND);
+    }
+
+    @Test
     void cannotRemoveLastSuperAdmin() {
         assertThatThrownBy(() -> adminService.revokeRole(
                         superAdminId, Set.of("SUPER_ADMIN"), superAdminId, RoleName.SUPER_ADMIN, "demote"))
@@ -193,7 +287,7 @@ class AdminApplicationServiceTest {
                 outbox,
                 inbox,
                 new FakePasswordHasher(),
-                user -> new IssuedAccessToken("access-" + user.id(), NOW.plusSeconds(900)),
+                jwtService,
                 new FakeRefreshTokenHasher(),
                 new FakeSecureTokenGenerator(),
                 new FakeLoginFailureTracker(),
@@ -202,11 +296,22 @@ class AdminApplicationServiceTest {
                 new FakeEmailVerificationSender(),
                 new FakePasswordResetEmailSender(),
                 new com.parkio.auth.application.PasswordPolicy(),
+                openRegistrationGate(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 Duration.ofDays(30),
                 Duration.ofDays(90),
                 Duration.ofHours(24),
                 Duration.ofHours(1));
+    }
+
+    private static RegistrationGateService openRegistrationGate() {
+        RegistrationProperties properties = new RegistrationProperties();
+        properties.setMode(RegistrationMode.OPEN);
+        return new RegistrationGateService(
+                properties,
+                new NoopRegistrationInviteRepository(),
+                new FakeRefreshTokenHasher(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private UUID seedUser(String email, Set<Role> roles, AuthUserStatus status, boolean verified) {
@@ -221,6 +326,7 @@ class AdminApplicationServiceTest {
                 null,
                 null,
                 null,
+                EmailLocale.TR,
                 0L,
                 roles,
                 NOW.minus(Duration.ofDays(1)),
@@ -309,7 +415,7 @@ class AdminApplicationServiceTest {
 
         @Override
         public Optional<RefreshToken> findByTokenHash(String tokenHash) {
-            return Optional.empty();
+            return byId.values().stream().filter(token -> token.tokenHash().equals(tokenHash)).findFirst();
         }
 
         @Override
@@ -412,6 +518,10 @@ class AdminApplicationServiceTest {
         public void append(UserRestoredEvent event) {
             restored.add(event);
         }
+
+        @Override
+        public void append(com.parkio.auth.domain.event.UserErasureRequestedEvent event) {
+        }
     }
 
     private static final class FakeInboxEventRepository implements InboxEventRepository {
@@ -420,6 +530,18 @@ class AdminApplicationServiceTest {
         @Override
         public boolean tryClaim(UUID eventId, String eventType, Instant processedAt) {
             return claimed.add(eventId);
+        }
+    }
+
+    private static final class NoopRegistrationInviteRepository implements RegistrationInviteRepository {
+        @Override
+        public RegistrationInvite save(RegistrationInvite invite) {
+            return invite;
+        }
+
+        @Override
+        public boolean consumeIfValid(String tokenHash, Instant now) {
+            return false;
         }
     }
 

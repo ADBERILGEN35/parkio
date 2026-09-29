@@ -32,7 +32,7 @@ public class ParkingSpotEntity {
     @Column(name = "owner_user_id", nullable = false, updatable = false)
     private UUID ownerUserId;
 
-    @Column(name = "media_id", nullable = false, updatable = false)
+    @Column(name = "media_id")
     private UUID mediaId;
 
     @Column(name = "latitude", nullable = false)

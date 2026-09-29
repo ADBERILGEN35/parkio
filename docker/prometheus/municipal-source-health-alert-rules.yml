@@ -1,0 +1,299 @@
+groups:
+  - name: parkio-municipal-source-health-alerts
+    rules:
+      # --- SCHEDULED source (İZUM): age + failure + stale RUNNING ---
+      - alert: MunicipalSourceConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağı ardışık hata eşiği (uyarı)
+          description: İZUM senkron ardışık hataları yükseldi. Operasyonel SLA durumunu ve sınırlı hata kategorisini actuator health ayrıntılarından kontrol edin.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağı ardışık hata eşiği (kritik)
+          description: İZUM senkron ardışık hataları kritik. Sınırlı error_category ile upstream timeout ile schema_contract ayrımını yapın.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağı son başarıdan beri geçen süre (uyarı)
+          description: İZUM uyarı SLA penceresi içinde başarılı senkron tamamlamadı. Yaş uyarıları yalnızca SCHEDULED kaynaklara uygulanır.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağı son başarıdan beri geçen süre (kritik)
+          description: İZUM kritik SLA penceresi içinde başarılı senkron tamamlamadı. Genel doluluk STALE/null olabilir. OPERATOR_IMPORTED kaynaklar yaş-only uyarılardan bilinçli olarak hariçtir.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağında eski RUNNING senkron işlemi var
+          description: Bir belediye senkron çalışması stale-running SLA eşiğinin ötesinde RUNNING kaldı.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalSourceRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="izmir-izum-otoparklar"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: izmir-izum-otoparklar
+          source_mode: SCHEDULED
+        annotations:
+          summary: Belediye kaynağı ardışık hatalardan sonra toparlandı
+          description: İZUM hata serisinden sonra başarılı senkron tamamladı. Doluluk tazeliğinin LIVE veya AGING’e döndüğünü doğrulayın.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      # --- SCHEDULED source (İSPARK): same SLA windows as İZUM (2-minute fixedDelay) ---
+      # Warning age 600s ≈ 5 missed cycles; critical 1800s ≈ 15 missed cycles.
+      # for: 5m avoids paging on a single transient upstream blip.
+      - alert: MunicipalIsparkConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK ardışık hata eşiği (uyarı)
+          description: İSPARK senkron ardışık hataları yükseldi. Operasyonel SLA durumunu ve sınırlı hata kategorisini actuator health ayrıntılarından kontrol edin.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK ardışık hata eşiği (kritik)
+          description: İSPARK senkron ardışık hataları kritik. Sınırlı error_category ile upstream timeout ile schema_contract ayrımını yapın.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessWarning
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 600
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK son başarıdan beri geçen süre (uyarı)
+          description: İSPARK uyarı SLA penceresi (600s / ~5 kaçırılan 2 dakikalık döngü) içinde başarılı senkron tamamlamadı.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkSecondsSinceSuccessCritical
+        expr: |
+          parkio_municipal_source_seconds_since_success{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} >= 1800
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK son başarıdan beri geçen süre (kritik)
+          description: İSPARK kritik SLA penceresi (1800s) içinde başarılı senkron tamamlamadı. Genel doluluk STALE/null olabilir.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK’ta eski RUNNING senkron işlemi var
+          description: Bir İSPARK senkron çalışması stale-running SLA eşiğinin ötesinde RUNNING kaldı.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalIsparkRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="istanbul-ispark-parks"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: istanbul-ispark-parks
+          source_mode: SCHEDULED
+        annotations:
+          summary: İSPARK ardışık hatalardan sonra toparlandı
+          description: İSPARK hata serisinden sonra başarılı senkron tamamladı. Doluluk tazeliğinin LIVE veya AGING’e döndüğünü doğrulayın.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      # --- OPERATOR_IMPORTED source (OSM): failures + stale RUNNING only (no age-only alerts) ---
+      - alert: MunicipalOsmConsecutiveFailuresWarning
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} >= 3
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operatör içe aktarma ardışık hata eşiği (uyarı)
+          description: OSM içe aktarma hataları yükseldi. Seconds-since-success OPERATOR_IMPORTED kaynaklar için gözlemseldir ve sayfalama yapmaz.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmConsecutiveFailuresCritical
+        expr: |
+          parkio_municipal_source_consecutive_failures{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} >= 5
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operatör içe aktarma ardışık hata eşiği (kritik)
+          description: OSM içe aktarma ardışık hataları kritik. OPERATOR_IMPORTED kaynaklarda yaş-only CRITICAL kullanılmaz.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmStaleRunningOperation
+        expr: |
+          parkio_municipal_source_stale_running_operations{source_key="osm-geofabrik-turkey",source_mode="OPERATOR_IMPORTED"} > 0
+          and on(source_key)
+          parkio_municipal_source_operational_state{source_key="osm-geofabrik-turkey",state="DISABLED"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operatör içe aktarmada eski RUNNING işlem var
+          description: Bir OSM içe aktarma çalışması stale-running SLA eşiğinin ötesinde RUNNING kaldı.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOsmRecovered
+        expr: increase(parkio_municipal_source_recoveries_total{source_key="osm-geofabrik-turkey"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          owner: parking
+          source_key: osm-geofabrik-turkey
+          source_mode: OPERATOR_IMPORTED
+        annotations:
+          summary: OSM operatör içe aktarma ardışık hatalardan sonra toparlandı
+          description: OSM hata serisinden sonra başarılı içe aktarma tamamladı.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      # --- Occupancy retention (7d + latest preserve) ---
+      # Expected cadence: daily at 04:00 UTC after 03:30 backup. Warn if no success for 36h.
+      - alert: MunicipalOccupancyRetentionStale
+        expr: |
+          (time() - parkio_municipal_occupancy_retention_last_success_unixtime) > 129600
+          and on()
+          parkio_municipal_occupancy_retention_last_success_unixtime > 0
+        for: 30m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Belediye doluluk saklama yakın zamanda başarılı olmadı
+          description: Gauge daha önce başarılı olmuşken 36 saat içinde başarılı belediye doluluk saklama temizliği yok. Yedekleme kapısını ve parking-service günlüklerini kontrol edin.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+      - alert: MunicipalOccupancyRetentionFailures
+        expr: increase(parkio_municipal_occupancy_retention_failures_total[1h]) >= 1
+        for: 0m
+        labels:
+          severity: warning
+          owner: parking
+        annotations:
+          summary: Belediye doluluk saklama hatası bildirildi
+          description: Saklama temizliği hata fırlattı. Ingestion ve Public Explore devam etmeli; parking-service günlüklerini inceleyin.
+          operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md

@@ -25,6 +25,12 @@ class RateLimitKeyResolverTest {
     private final KeyResolver proxyAwareResolver = new RateLimitConfig()
             .userOrIpKeyResolver(new ClientIpResolver(List.of("172.16.0.0/12")));
 
+    private final KeyResolver publicExploreResolver = new RateLimitConfig()
+            .publicExploreIpKeyResolver(new ClientIpResolver(List.of("172.16.0.0/12")));
+
+    private final KeyResolver publicGeocodingResolver = new RateLimitConfig()
+            .publicGeocodingIpKeyResolver(new ClientIpResolver(List.of("172.16.0.0/12")));
+
     @Test
     void usesUserIdWhenAuthenticated() {
         MockServerHttpRequest request = MockServerHttpRequest
@@ -94,5 +100,54 @@ class RateLimitKeyResolverTest {
 
         assertThat(key).isEqualTo("ip:172.18.0.5");
         assertThat(key).doesNotContain("FLUSHALL");
+    }
+
+    @Test
+    void publicExploreAlwaysUsesSpoofResistantResolvedIpEvenWithUserHeader() {
+        MockServerHttpRequest request = MockServerHttpRequest
+                .get("/api/v1/public/explore/facilities")
+                .remoteAddress(new InetSocketAddress("172.18.0.5", 5555))
+                .header("X-Forwarded-For", "203.0.113.9, 172.18.0.4")
+                .header("X-Real-IP", "198.51.100.1")
+                .header("Forwarded", "for=192.0.2.1")
+                .header(GatewayHeaders.USER_ID, "user-123")
+                .build();
+
+        String key = publicExploreResolver.resolve(MockServerWebExchange.from(request)).block();
+
+        assertThat(key).isEqualTo("public-explore-ip:203.0.113.9");
+    }
+
+    @Test
+    void publicGeocodingAlwaysUsesSpoofResistantResolvedIpEvenWithUserHeader() {
+        MockServerHttpRequest request = MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search")
+                .remoteAddress(new InetSocketAddress("172.18.0.5", 5555))
+                .header("X-Forwarded-For", "203.0.113.9, 172.18.0.4")
+                .header("X-Real-IP", "198.51.100.1")
+                .header("Forwarded", "for=192.0.2.1")
+                .header(GatewayHeaders.USER_ID, "user-123")
+                .build();
+
+        String key = publicGeocodingResolver.resolve(MockServerWebExchange.from(request)).block();
+
+        assertThat(key).isEqualTo("public-geocoding-ip:203.0.113.9");
+        assertThat(key).doesNotStartWith("public-explore-ip:");
+        assertThat(key).doesNotStartWith("user:");
+    }
+
+    @Test
+    void publicGeocodingDoesNotTrustSpoofedForwardedForFromUntrustedPeer() {
+        MockServerHttpRequest request = MockServerHttpRequest
+                .get("/api/v1/public/geocoding/search")
+                .remoteAddress(new InetSocketAddress("203.0.113.7", 5555))
+                .header("X-Forwarded-For", "198.51.100.1")
+                .build();
+
+        KeyResolver untrusted = new RateLimitConfig()
+                .publicGeocodingIpKeyResolver(new ClientIpResolver(List.of()));
+        String key = untrusted.resolve(MockServerWebExchange.from(request)).block();
+
+        assertThat(key).isEqualTo("public-geocoding-ip:203.0.113.7");
     }
 }

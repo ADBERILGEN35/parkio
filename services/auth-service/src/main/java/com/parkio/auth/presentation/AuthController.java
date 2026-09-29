@@ -16,6 +16,7 @@ import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
+import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
 import com.parkio.auth.presentation.dto.AuthResponse;
 import com.parkio.auth.presentation.dto.ChangePasswordRequest;
 import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
@@ -38,6 +39,8 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseCookie;
@@ -60,6 +63,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     private final AuthApplicationService authService;
     private final AuthMetrics authMetrics;
     private final RefreshCookieProperties refreshCookie;
@@ -81,7 +86,8 @@ public class AuthController {
                 new RegisterCommand(
                         request.email(),
                         request.password(),
-                        EmailLocale.fromNullable(request.locale())));
+                        EmailLocale.fromNullable(request.locale()),
+                        request.inviteToken()));
         return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.pendingVerification(result));
     }
 
@@ -141,8 +147,15 @@ public class AuthController {
     public ResponseEntity<Void> resendVerification(@Valid @RequestBody ResendVerificationRequest request,
                                                    HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        authService.resendVerification(new ResendVerificationCommand(
-                request.email(), EmailLocale.fromNullable(request.locale())));
+        // Enumeration-safe: EmailDeliveryException must leave the service method so
+        // @Transactional rolls back token rotation, then be absorbed here so eligible
+        // accounts cannot be distinguished from unknown/ineligible via HTTP status.
+        try {
+            authService.resendVerification(new ResendVerificationCommand(
+                    request.email(), EmailLocale.fromNullable(request.locale())));
+        } catch (EmailDeliveryException ex) {
+            log.warn("Public verification resend delivery failed; response remains enumeration-safe");
+        }
         return ResponseEntity.accepted().build();
     }
 
@@ -151,8 +164,12 @@ public class AuthController {
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
                                                HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        authService.forgotPassword(new ForgotPasswordCommand(
-                request.email(), EmailLocale.fromNullable(request.locale())));
+        try {
+            authService.forgotPassword(new ForgotPasswordCommand(
+                    request.email(), EmailLocale.fromNullable(request.locale())));
+        } catch (EmailDeliveryException ex) {
+            log.warn("Public password-reset delivery failed; response remains enumeration-safe");
+        }
         return ResponseEntity.ok().build();
     }
 

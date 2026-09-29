@@ -1,5 +1,9 @@
 # Hostinger Static Landing Deployment
 
+> Historical July 2026 Vite landing instructions. Do not use this document for a new
+> deployment. The canonical current source and operator procedure are in
+> [MARKETING-SOURCE-DEPLOYMENT.md](MARKETING-SOURCE-DEPLOYMENT.md).
+
 Date: 2026-07-08
 
 ## Status

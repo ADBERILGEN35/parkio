@@ -1,0 +1,21 @@
+{
+  "createTableCount": 9,
+  "extensions": [],
+  "flywayFailedRows": 0,
+  "flywayHead": "14",
+  "grantRoles": [],
+  "pgDumpVersion": "16.10",
+  "restrictCommands": true,
+  "rowCounts": {
+    "public.device_tokens": 0,
+    "public.erased_user_tombstones": 0,
+    "public.flyway_schema_history": 14,
+    "public.inbox_events": 0,
+    "public.notification_delivery_attempts": 0,
+    "public.notification_preferences": 0,
+    "public.notification_templates": 5,
+    "public.notifications": 0,
+    "public.outbox_events": 0
+  },
+  "serverVersion": "16.10"
+}

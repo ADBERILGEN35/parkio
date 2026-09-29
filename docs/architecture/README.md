@@ -115,6 +115,15 @@ Start with:
 - [Hosted Beta Runbook](../../HOSTED-BETA-RUNBOOK.md)
 - [docker/README.md](../../docker/README.md)
 - [Production Readiness](production-readiness.md)
+- [ADR-PP-01A Managed PostgreSQL provider and topology](adr/ADR-PP-01A-managed-postgresql.md) (**ACCEPTED WITH CONDITIONS** — PP-01 implementation remains open)
+- [PP-01B Spike Registry](pp-01b-spike-registry.md)
+- [PP-01B-SPIKE-01 Azure technical validation](pp-01b-spike-01.md) (**CLOSED — ACCEPT WITH NON-BLOCKING NOTES**)
+- [PP-01B-SPIKE-02 PostGIS spatial parity](pp-01b-spike-02-postgis-spatial-parity.md) (**MODE A COMPLETE — PASS WITH NON-BLOCKING NOTES**; Mode B pending)
+- [PP-01B-SPIKE-03 Private network / DNS / TLS](pp-01b-spike-03-private-network-dns-tls.md) (**MODE A COMPLETE**; Mode B **HOLD — NOT EXECUTED**)
+- [PP-01B-R0 Managed PostgreSQL IaC contract](pp-01b-iac-contract.md) (**ACCEPTED WITH CONDITIONS** — authoring authorized)
+- [PP-01B-IAC-01 Terraform](../../infra/terraform/README.md) (offline authoring **CLOSED**; **PP-01B still OPEN**; no apply until Mode B gates)
+- [PP-01B Mode B authorization](pp-01b-mode-b-authorization.md) (**AUTHORIZED FOR STEP 2** — `PP-01B-MODE-B-20260804-01`; IAC-02 enablement; Step 3B not started)
+- [PP-01B-IAC-02 Terraform](../../infra/terraform/README.md) (Mode B sandbox enablement; no apply)
 
 
 ## Parking Validation / Decision Architecture (WP-05)
@@ -162,10 +171,73 @@ Canonical municipal source architecture inside parking-service (İzmir / İZUM f
 ## Current Limitations
 
 Parkio is not public-production ready. Known blockers include managed HA data
-services, secrets manager and rotation workflow, stronger CD rollback,
+services (PP-01 architecture decided in [ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md);
+implementation still open), secrets manager and rotation workflow, stronger CD rollback,
 production on-call process, and production-scale validation.
 
 See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 
 - [DATA-WP-02 OSM İzmir import](wp-data-02-osm-izmir-facility-import.md)
 - [ADR: OSM import tooling](adr/ADR-WP-DATA-02-osm-import-tooling.md)
+- [DATA-WP-03 İZELMAN inventory, roadside and tariffs](wp-data-03-izelman-inventory-tariffs.md)
+- [DATA-WP-04 canonical registry provenance and link review](wp-data-04-canonical-registry-provenance-link-review.md)
+- [Municipal registry review runbook](../operations/municipal-registry-review-runbook.md)
+- [DATA-WP-05 bounded registry candidate generation](wp-data-05-engineering-specification.md)
+- [DATA-WP-05 acceptance traceability](wp-data-05-acceptance-traceability.md)
+  - Specification: complete.
+  - Implementation: complete (`deb557d` + closure `b3f1cec`).
+  - Hosted-beta DATA-WP-05A: complete (dark deploy + dry-run; 0 eligible candidates).
+  - Decision Intelligence WP-05 remains a separate work package.
+- [DATA-WP-06 municipal source health, SLA and recovery](wp-data-06-engineering-specification.md)
+  - Specification: complete (`090242f`).
+  - Implementation: complete (`f4faf279`).
+  - DATA-WP-06A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+  - Decision Intelligence WP-05 remains a separate work package.
+- [DATA-WP-07 public facility discovery duplicate-presentation safety](wp-data-07-engineering-specification.md)
+  - Specification: hardened safety contract complete.
+  - Implementation: query-time nearby duplicate-presentation policy (DATA-WP-07).
+  - DATA-WP-07A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+  - Repository **WP-07** (mobile/session foundation) remains a separate work package.
+- [DATA-WP-09 public facility provenance publication](wp-data-09-engineering-specification.md)
+  - Specification + implementation: bounded nearby/detail provenance.
+  - DATA-WP-09A hosted-beta gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-10 municipal field provenance selection on ingest](wp-data-10-engineering-specification.md)
+  - Specification + implementation: İZUM/OSM ingest writes allow-listed provenance.
+  - Backfill omitted (no safe field ownership without guessing).
+  - DATA-WP-10A hosted-beta gate: complete (ACCEPT).
+- [DATA-WP-11 enable public municipal provenance publication](wp-data-11-engineering-specification.md)
+  - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
+  - No semantic/DTO/migration changes; kill-switch restores null fields.
+  - DATA-WP-11A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-12 enable nearby duplicate-presentation by default](wp-data-12-engineering-specification.md)
+  - Canonical default **true**; production profile pins **false**; Azure hosted-beta Compose `:-true`.
+  - Matching thresholds unchanged; detail endpoint unaffected; kill-switch restores legacy nearby.
+  - DATA-WP-12A hosted-beta leave-on gate: complete (ACCEPT WITH NON-BLOCKING NOTES).
+- [DATA-WP-13 OSM facility display-label hygiene](wp-data-13-engineering-specification.md)
+  - Policy `osm-label-v1` (kill-switch `legacy`); NAME provenance only for real name tags.
+  - No migration / DTO change; reimport refreshes labels; DATA-WP-13A hosted-beta gate: complete.
+- [DATA-WP-14 field provenance reconciliation](wp-data-14-engineering-specification.md)
+  - Same-source stale selection withdrawal on successful İZUM/OSM ingest (hard delete).
+  - No migration / DTO / label-precedence change; DATA-WP-14A hosted-beta gate: complete.
+- [DATA-WP-15 municipal source quality and coverage report API](wp-data-15-engineering-specification.md)
+- [DATA-WP-16 source-mode-aware municipal SLA for operator imports](wp-data-16-engineering-specification.md)
+- [DATA-WP-17 source-level availability semantics alignment](wp-data-17-engineering-specification.md)
+  - Read-only ADMIN/SUPER_ADMIN aggregates; kill-switch default **false**; reuses WP-06 health + WP-13 label outcomes.
+  - No score, linking, İZELMAN pub, migration, or frontend; DATA-WP-15A leave-on gate: not started.
+- [DATA-WP-18 municipal district coverage quality report](wp-data-18-engineering-specification.md)
+  - Additive `districtCoverage` on WP-15 overall report; independent kill-switch default **false**; reuses WP-08 ilceler asset.
+  - Hosted-beta leave-on (DATA-WP-18A) accepted with non-blocking notes (legacy PIP false-positive overlaps).
+- [DATA-WP-19 İzmir district geometry topology reconciliation](wp-data-19-engineering-specification.md)
+  - Root cause: even-odd ray casting false positives; JTS + normalized MakeValid asset; topology policy default off until DATA-WP-19A.
+  - No migration / no deployment in this package; province clip unchanged.
+- [DATA-WP-08 İzmir administrative-boundary clip](wp-data-08-engineering-specification.md)
+  - Clip `izmir-admin-izbb-2024-10-18-v1` from İZBB `ilceler.geojson` (CC BY 4.0).
+  - Operator-managed boundary + polygon osmium extract; rollback to `izmir-bbox-v1`.
+  - Status: **COMPLETE** (asset accepted); DATA-WP-08A hosted-beta reimport: **not started**.
+
+> **Name collision:** Repository **WP-05** is Decision Intelligence. Repository
+> **WP-06** is Operational Platform (`docs/operations/wp-06-*`). Repository
+> **WP-07** is Mobile Application Foundation & Sprint 01 closure
+> (`docs/architecture/wp-07-*`, `frontend/architecture/sprint-3/WP-07-MOBILE.md`).
+> Municipal data packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen
+> `wp-05-*`, ops `wp-06-*`, or mobile/session `wp-07-*`.

@@ -13,6 +13,7 @@ export interface ToggleProps {
   onValueChange: (value: boolean) => void;
   disabled?: boolean;
   accessibilityLabel?: string;
+  testID?: string;
 }
 
 const WIDTH = 48;
@@ -20,7 +21,7 @@ const HEIGHT = 28;
 const KNOB = 22;
 
 /** Animated switch matching the pen kit (off = outline-variant track). */
-export function Toggle({ value, onValueChange, disabled, accessibilityLabel }: ToggleProps) {
+export function Toggle({ value, onValueChange, disabled, accessibilityLabel, testID }: ToggleProps) {
   const theme = useTheme();
   const progress = useSharedValue(value ? 1 : 0);
 
@@ -42,6 +43,7 @@ export function Toggle({ value, onValueChange, disabled, accessibilityLabel }: T
 
   return (
     <Pressable
+      testID={testID}
       onPress={() => onValueChange(!value)}
       disabled={disabled}
       accessibilityRole="switch"

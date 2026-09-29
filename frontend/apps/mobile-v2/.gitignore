@@ -1,0 +1,3 @@
+# Expo machine-local state.
+.expo/
+expo-env.d.ts

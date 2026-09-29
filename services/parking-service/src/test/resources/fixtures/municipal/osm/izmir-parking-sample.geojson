@@ -16,6 +16,7 @@
         "osmId": 1001,
         "amenity": "parking",
         "name": "Konak Test Otopark",
+        "name:tr": "Konak Test Otoparkı",
         "operator": "Izmir Belediyesi",
         "access": "yes",
         "fee": "yes",
@@ -104,6 +105,42 @@
         "osmId": 6006,
         "amenity": "parking_space",
         "access": "yes"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "way/7007",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [27.1600, 38.4200], [27.1605, 38.4200], [27.1605, 38.4204], [27.1600, 38.4204], [27.1600, 38.4200]
+        ]]
+      },
+      "properties": {
+        "osmType": "way",
+        "osmId": 7007,
+        "amenity": "parking",
+        "operator": "Bornova Belediyesi",
+        "access": "yes",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "way/8008",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [27.1700, 38.4250], [27.1705, 38.4250], [27.1705, 38.4254], [27.1700, 38.4254], [27.1700, 38.4250]
+        ]]
+      },
+      "properties": {
+        "osmType": "way",
+        "osmId": 8008,
+        "amenity": "parking",
+        "brand": "Parkio",
+        "access": "yes",
+        "underground": "yes"
       }
     }
   ]

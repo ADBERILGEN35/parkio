@@ -11,11 +11,19 @@ name: Frontend Real Stack E2E
 # references them via `env:` — secrets are NEVER echoed:
 #   PARKIO_REAL_USER_EMAIL / PARKIO_REAL_USER_PASSWORD            (required for auth/upload/map)
 #   PARKIO_REAL_MODERATOR_EMAIL / PARKIO_REAL_MODERATOR_PASSWORD  (optional; enables moderator test)
-#   PARKIO_REAL_ADMIN_EMAIL / PARKIO_REAL_ADMIN_PASSWORD          (optional; enables admin test)
-#   PARKIO_REAL_E2E_VERIFICATION_TOKEN                            (optional; enables /verify-email test)
+#   PARKIO_REAL_ADMIN_EMAIL / PARKIO_REAL_ADMIN_PASSWORD          (optional hosted override)
+#   PARKIO_REAL_E2E_VERIFICATION_TOKEN                            (optional hosted override)
+# Local mode seeds synthetic USER/MODERATOR/ADMIN in the disposable DB when those
+# secrets are absent. Isolated OPEN registration + logging-token verify is a
+# separate local-only step; the default stack stays CLOSED.
 # Local mode additionally needs the DB/object-store passwords the compose stack requires,
 # provided as a single secret blob:
 #   PARKIO_LOCAL_ENV  — full contents of docker/.env (POSTGRES_*_PASSWORD, MINIO_*, etc.)
+# When PARKIO_LOCAL_ENV is unset, local mode copies docker/.env.example and
+# injects a disposable PKCS#8 JWT. That is isolated CI material, not a
+# production or shared-environment secret. Hosted mode still needs deployed
+# URLs plus PARKIO_REAL_* secrets and is not executed from this workflow
+# without those inputs.
 
 on:
   workflow_dispatch:
@@ -42,6 +50,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: frontend-real-e2e-${{ github.ref }}
@@ -51,7 +60,7 @@ jobs:
   real-e2e:
     name: Real stack Playwright (${{ inputs.mode }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,39 +75,98 @@ jobs:
           fi
 
       # --- local mode: bring up infra + apps and seed the test accounts ---------- #
+      - name: Log in to GHCR for private MinIO pulls
+        if: inputs.mode == 'local'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Write docker/.env (local mode)
         if: inputs.mode == 'local'
         env:
           PARKIO_LOCAL_ENV: ${{ secrets.PARKIO_LOCAL_ENV }}
         run: |
-          if [ -z "${PARKIO_LOCAL_ENV}" ]; then
-            echo "::error::local mode requires the PARKIO_LOCAL_ENV secret (contents of docker/.env)."
-            exit 1
+          set -euo pipefail
+          if [ -n "${PARKIO_LOCAL_ENV}" ]; then
+            printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
+            echo "Using PARKIO_LOCAL_ENV secret for local compose."
+          else
+            cp docker/.env.example docker/.env
+            echo "PARKIO_LOCAL_ENV unset; using docker/.env.example for disposable synthetic local mode."
           fi
-          printf '%s' "${PARKIO_LOCAL_ENV}" > docker/.env
+          # .env.example intentionally has no JWT. Isolated CI generates a
+          # throwaway PKCS#8 key. This is not a production or shared secret.
+          if ! grep -Eq '^PARKIO_JWT_PRIVATE_KEY_PEM=.+' docker/.env || \
+             grep -Eq '^PARKIO_JWT_PRIVATE_KEY_PEM=(""|)$' docker/.env; then
+            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/parkio-real-e2e-jwt.pem
+            python3 - <<'PY'
+          from pathlib import Path
+          env_path = Path("docker/.env")
+          pem = Path("/tmp/parkio-real-e2e-jwt.pem").read_text().strip().replace("\n", "\\n")
+          lines = []
+          replaced = False
+          for line in env_path.read_text().splitlines():
+              if line.startswith("PARKIO_JWT_PRIVATE_KEY_PEM="):
+                  lines.append(f'PARKIO_JWT_PRIVATE_KEY_PEM="{pem}"')
+                  replaced = True
+              else:
+                  lines.append(line)
+          if not replaced:
+              lines.append(f'PARKIO_JWT_PRIVATE_KEY_PEM="{pem}"')
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+            rm -f /tmp/parkio-real-e2e-jwt.pem
+            echo "Injected disposable PKCS#8 JWT for isolated local E2E."
+          fi
 
       - name: Boot the stack (local mode)
         if: inputs.mode == 'local'
         run: |
+          set -euo pipefail
           docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d --build
           echo "Waiting for the gateway to answer..."
+          up=0
           for i in $(seq 1 60); do
             if curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json >/dev/null 2>&1; then
-              echo "gateway up"; break
+              echo "gateway up"
+              up=1
+              break
             fi
             sleep 5
           done
+          if [ "$up" != 1 ]; then
+            echo "ERROR: gateway did not answer on :8080 after 300s. Isolated local E2E cannot continue."
+            exit 1
+          fi
+
+      - name: Materialize synthetic accounts when secrets are absent
+        if: inputs.mode == 'local'
+        id: accounts
+        env:
+          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
+        run: |
+          if [ -n "${PARKIO_REAL_USER_EMAIL}" ] && [ -n "${PARKIO_REAL_USER_PASSWORD}" ]; then
+            echo "source=secrets" >> "$GITHUB_OUTPUT"
+            echo "PARKIO_REAL_USER_EMAIL=${PARKIO_REAL_USER_EMAIL}" >> "$GITHUB_ENV"
+            echo "PARKIO_REAL_USER_PASSWORD=${PARKIO_REAL_USER_PASSWORD}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "source=synthetic" >> "$GITHUB_OUTPUT"
+          echo "PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_USER_PASSWORD=Parkio-Synthetic-E2E-1234" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_MODERATOR_PASSWORD=Parkio-Synthetic-E2E-1234" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local" >> "$GITHUB_ENV"
+          echo "PARKIO_REAL_ADMIN_PASSWORD=Parkio-Synthetic-E2E-1234" >> "$GITHUB_ENV"
+          echo "Using disposable real-e2e.parkio.local user/moderator/admin accounts; hosted/shared credentials were not provided."
 
       - name: Seed real-stack accounts (local mode)
         if: inputs.mode == 'local' && inputs.seed
         env:
           PARKIO_ENV_FILE: docker/.env
-          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
-          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
-          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
-          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
-          PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
-          PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
         run: ./scripts/seed-real-e2e.sh --target local --update-passwords
 
       # --- frontend toolchain --------------------------------------------------- #
@@ -107,10 +175,10 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -122,22 +190,129 @@ jobs:
         working-directory: frontend
         run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
 
+      - name: Apply non-empty hosted admin or verify secrets
+        env:
+          SECRET_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
+          SECRET_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
+          SECRET_VERIFY_TOKEN: ${{ secrets.PARKIO_REAL_E2E_VERIFICATION_TOKEN }}
+        run: |
+          if [ -n "${SECRET_ADMIN_EMAIL}" ] && [ -n "${SECRET_ADMIN_PASSWORD}" ]; then
+            echo "PARKIO_REAL_ADMIN_EMAIL=${SECRET_ADMIN_EMAIL}" >> "$GITHUB_ENV"
+            echo "PARKIO_REAL_ADMIN_PASSWORD=${SECRET_ADMIN_PASSWORD}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${SECRET_VERIFY_TOKEN}" ]; then
+            echo "PARKIO_REAL_E2E_VERIFICATION_TOKEN=${SECRET_VERIFY_TOKEN}" >> "$GITHUB_ENV"
+          fi
+
       - name: Run real-stack E2E
         working-directory: frontend
         env:
           PARKIO_REAL_E2E: "true"
           # hosted uses the supplied URLs; local starts Vite itself against the local gateway.
+          # Do not overlay empty secrets here: that would wipe synthetic local ADMIN
+          # credentials written to GITHUB_ENV and skip admin-analytics without cause.
           PARKIO_REAL_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:5173' || inputs.base_url }}
           PARKIO_REAL_API_BASE_URL: ${{ inputs.mode == 'local' && 'http://localhost:8080/api/v1' || inputs.api_base_url }}
           PARKIO_REAL_E2E_START_WEB: ${{ inputs.mode == 'local' && 'true' || 'false' }}
-          PARKIO_REAL_USER_EMAIL: ${{ secrets.PARKIO_REAL_USER_EMAIL }}
-          PARKIO_REAL_USER_PASSWORD: ${{ secrets.PARKIO_REAL_USER_PASSWORD }}
-          PARKIO_REAL_MODERATOR_EMAIL: ${{ secrets.PARKIO_REAL_MODERATOR_EMAIL }}
-          PARKIO_REAL_MODERATOR_PASSWORD: ${{ secrets.PARKIO_REAL_MODERATOR_PASSWORD }}
-          PARKIO_REAL_ADMIN_EMAIL: ${{ secrets.PARKIO_REAL_ADMIN_EMAIL }}
-          PARKIO_REAL_ADMIN_PASSWORD: ${{ secrets.PARKIO_REAL_ADMIN_PASSWORD }}
-          PARKIO_REAL_E2E_VERIFICATION_TOKEN: ${{ secrets.PARKIO_REAL_E2E_VERIFICATION_TOKEN }}
         run: pnpm e2e:real
+
+      - name: Isolated OPEN registration + logging-token verify (local only)
+        if: ${{ always() && !cancelled() && inputs.mode == 'local' }}
+        working-directory: frontend
+        env:
+          PARKIO_REAL_E2E: "true"
+          PARKIO_REAL_BASE_URL: http://localhost:5173
+          PARKIO_REAL_API_BASE_URL: http://localhost:8080/api/v1
+          PARKIO_REAL_E2E_START_WEB: "true"
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          env_path = Path("../docker/.env")
+          text = env_path.read_text()
+          def upsert(body: str, key: str, value: str) -> str:
+              lines = []
+              found = False
+              for line in body.splitlines():
+                  if line.startswith(f"{key}=") or line.startswith(f"# {key}="):
+                      lines.append(f"{key}={value}")
+                      found = True
+                  else:
+                      lines.append(line)
+              if not found:
+                  lines.append(f"{key}={value}")
+              return "\n".join(lines) + "\n"
+          text = upsert(text, "PARKIO_REGISTRATION_MODE", "open")
+          text = upsert(text, "PARKIO_EMAIL_VERIFICATION_LOG_TOKEN", "true")
+          env_path.write_text(text)
+          PY
+          docker compose \
+            -f ../docker/docker-compose.yml \
+            -f ../docker/docker-compose.apps.yml \
+            -f ../docker/docker-compose.auth-registration-env.yml \
+            up -d --no-build --force-recreate --no-deps auth-service
+          up=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/api/v1/auth/registration-mode >/dev/null 2>&1 \
+              && curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json >/dev/null 2>&1; then
+              mode="$(curl -fsS http://localhost:8080/api/v1/auth/registration-mode)"
+              echo "registration-mode=${mode}"
+              echo "${mode}" | grep -qi OPEN && { up=1; break; }
+            fi
+            sleep 5
+          done
+          if [ "$up" != 1 ]; then
+            echo "ERROR: isolated OPEN auth overlay did not become reachable."
+            exit 1
+          fi
+          pnpm --filter @parkio/web exec -- playwright test -c playwright.real.config.ts --grep "registers a real pending account"
+          python3 - <<'PY'
+          import re, subprocess
+          from pathlib import Path
+          from urllib.parse import unquote
+          logs = subprocess.check_output(
+              [
+                  "docker", "compose",
+                  "-f", "../docker/docker-compose.yml",
+                  "-f", "../docker/docker-compose.apps.yml",
+                  "logs", "--no-color", "auth-service",
+              ],
+              text=True,
+              stderr=subprocess.STDOUT,
+          )
+          matches = re.findall(r"verify-email\?token=([^&\s]+)", logs)
+          if not matches:
+              raise SystemExit(
+                  "no verification token in auth-service logs; "
+                  "need PARKIO_EMAIL_PROVIDER=logging and PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=true"
+              )
+          token_path = Path("/tmp/parkio-real-e2e-verify.token")
+          token_path.write_text(unquote(matches[-1]), encoding="ascii")
+          token_path.chmod(0o600)
+          print("extracted_verification_token=yes")
+          PY
+          export PARKIO_REAL_E2E_VERIFICATION_TOKEN
+          PARKIO_REAL_E2E_VERIFICATION_TOKEN="$(cat /tmp/parkio-real-e2e-verify.token)"
+          rm -f /tmp/parkio-real-e2e-verify.token
+          pnpm --filter @parkio/web exec playwright test -c playwright.real.config.ts --grep "verifies email when a real verification"
+          python3 - <<'PY'
+          from pathlib import Path
+          env_path = Path("../docker/.env")
+          text = env_path.read_text()
+          lines = []
+          for line in text.splitlines():
+              if line.startswith("PARKIO_REGISTRATION_MODE="):
+                  lines.append("PARKIO_REGISTRATION_MODE=closed")
+              elif line.startswith("PARKIO_EMAIL_VERIFICATION_LOG_TOKEN="):
+                  lines.append("PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=false")
+              else:
+                  lines.append(line)
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+          docker compose \
+            -f ../docker/docker-compose.yml \
+            -f ../docker/docker-compose.apps.yml \
+            up -d --no-build --force-recreate --no-deps auth-service || true
 
       - name: Dump stack logs on failure (local mode)
         if: failure() && inputs.mode == 'local'

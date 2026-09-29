@@ -1,0 +1,11 @@
+⚠️ Karışık grup (1 aktif / 1 çözüldü)
+Ortam: production
+Grup özeti: 1 aktif, 1 çözüldü (tamamen çözülmüş değil).
+Uyarı: UnknownSyntheticAlert
+Servis: gateway-service
+Başlangıç: 2026-09-22 11:04 UTC
+İlk kontrol: runbook ve izleme bağlantılarını kullanın.
+İzleme / müdahale rehberi: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+Durum: sorun çözüldü — koşul artık tetiklenmiyor.
+İzleme / müdahale rehberi: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md

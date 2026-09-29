@@ -163,6 +163,14 @@ else
 fi
 rm -f "$NOALERT"
 
+# ---- known CI synthetic MapTiler key must fail hosted deploy preflight ------
+SYNTH_MAP="${TMPDIR:-/tmp}/preflight-synthetic-map-$$.env"
+sed -e 's/^VITE_APP_ENV=hosted-beta$/VITE_APP_ENV=hosted-beta\nVITE_MAPTILER_KEY=ci-web-build-security-synthetic/' \
+  "$FIXTURES/valid.env" > "$SYNTH_MAP"
+run_case "synthetic MapTiler key exits 1" "$SYNTH_MAP" 1
+expect "synthetic MapTiler key blocked" "VITE_MAPTILER_KEY"
+rm -f "$SYNTH_MAP"
+
 # ---- committed templates must never pass ------------------------------------
 run_case "docker/.env.hosted-beta.example exits 1" ../../docker/.env.hosted-beta.example 1
 expect "template blocked" "PREFLIGHT: FAIL"

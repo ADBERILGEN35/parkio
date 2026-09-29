@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "PASS": 13,
+    "FAIL": 0,
+    "NOT_EXECUTED": 1
+  },
+  "results": [
+    {
+      "id": "1",
+      "name": "registration_commit_vs_rollback",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "2",
+      "name": "crash_after_enqueue_before_ack",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "3",
+      "name": "queue_write_fail_no_ack",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "4",
+      "name": "single_worker_enforced",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "5",
+      "name": "crash_after_claim_reclaim",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "6",
+      "name": "accept_then_drop_ambiguous_retry",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "7",
+      "name": "reject_timeout_not_success",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "8",
+      "name": "restart_preserves_states",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "9",
+      "name": "replay_inside_retention",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "10",
+      "name": "replay_outside_retention",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "11",
+      "name": "disabled_no_outbound",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "12",
+      "name": "sensitive_mention_safety",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "13",
+      "name": "ambiguous_exhaust_delivery_unknown",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "14",
+      "name": "kafka_live_consumer",
+      "status": "NOT_EXECUTED",
+      "detail": "ABSENT"
+    }
+  ],
+  "real_slack_delivery": "NOT_EXECUTED",
+  "slack_messages_sent": 0
+}

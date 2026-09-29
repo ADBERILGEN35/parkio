@@ -34,13 +34,13 @@ and a public landing/waitlist path.
 Parkio does **not** currently claim active users, revenue, funding,
 partnerships, awards, production HA, or a live public beta.
 
-## Preview
+## Public Surfaces
 
-The web landing experience is implemented in
-[`frontend/apps/web`](frontend/apps/web/) and public assets live under
-[`frontend/apps/web/public`](frontend/apps/web/public/).
+The canonical, directly deployable `parkio.dev` marketing source lives in
+[`web/marketing`](web/marketing/). The authenticated product and its independently
+declared public explore route live in [`frontend/apps/web`](frontend/apps/web/).
 
-![Parkio social preview](frontend/apps/web/public/og-parkio.png)
+![Parkio social preview](web/marketing/assets/social-preview.png)
 
 ## Why Parkio Exists
 

@@ -15,7 +15,7 @@ export function SessionQueryCacheSync() {
       if (previous.userId === current.userId) {
         return;
       }
-      clearUserSessionQueries(queryClient);
+      void clearUserSessionQueries(queryClient);
     });
   }, [authStore, queryClient]);
 

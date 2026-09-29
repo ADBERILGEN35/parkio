@@ -34,6 +34,9 @@ dependencies {
 
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
+    implementation(libs.commons.csv)
+    // DATA-WP-19: PreparedGeometry.covers for district assignment (replaces defective even-odd PIP).
+    implementation(libs.jts.core)
 
     // Asynchronous event transport (Kafka). Topic provisioning + config now;
     // outbox relay and consumers are added later.
@@ -48,4 +51,45 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// PP-01B-SPIKE-02 Mode A: forward optional PostGIS image override into the test JVM.
+// Usage: ./gradlew :services:parking-service:integrationTest -Dparkio.postgis.image=<pinned-image>
+tasks.named<Test>("integrationTest") {
+    val image = providers.systemProperty("parkio.postgis.image")
+        .orElse(providers.gradleProperty("parkio.postgis.image"))
+    if (image.isPresent) {
+        systemProperty("parkio.postgis.image", image.get())
+    }
+    // Capture at configuration time so the Test task action stays configuration-cache safe.
+    val evidenceDir = providers.environmentVariable("PARKIO_SPIKE02_EVIDENCE_DIR")
+    if (evidenceDir.isPresent) {
+        environment("PARKIO_SPIKE02_EVIDENCE_DIR", evidenceDir.get())
+    }
+    // Opt-in combined İzmir candidate coverage (IZUM+İZELMAN+OSM).
+    listOf(
+        "parkio.combined.izmir.candidate",
+        "parkio.osm.real.izmir.geojson",
+        "parkio.izelman.official.dir",
+        "parkio.combined.report.dir",
+    ).forEach { key ->
+        val value = providers.systemProperty(key)
+        if (value.isPresent) {
+            systemProperty(key, value.get())
+        }
+    }
+    // Also forward env-based OSM/İZELMAN paths used by opt-in ITs.
+    listOf(
+        "PARKIO_OSM_REAL_IZMIR_VALIDATION",
+        "PARKIO_OSM_REAL_IZMIR_GEOJSON",
+        "PARKIO_OSM_REAL_IZMIR_REPORT_DIR",
+        "PARKIO_IZELMAN_OFFICIAL_DIR",
+        "PARKIO_COMBINED_IZMIR_CANDIDATE",
+        "PARKIO_COMBINED_REPORT_DIR",
+    ).forEach { key ->
+        val value = providers.environmentVariable(key)
+        if (value.isPresent) {
+            environment(key, value.get())
+        }
+    }
 }

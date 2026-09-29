@@ -1,0 +1,22 @@
+{
+  "createTableCount": 10,
+  "extensions": [],
+  "flywayFailedRows": 0,
+  "flywayHead": "13",
+  "grantRoles": [],
+  "pgDumpVersion": "16.10",
+  "restrictCommands": true,
+  "rowCounts": {
+    "public.appeals": 0,
+    "public.erased_user_tombstones": 0,
+    "public.flyway_schema_history": 13,
+    "public.inbox_events": 0,
+    "public.moderation_cases": 0,
+    "public.moderation_decisions": 0,
+    "public.outbox_events": 0,
+    "public.outbox_recovery_audit": 0,
+    "public.user_reports": 0,
+    "public.user_violations": 0
+  },
+  "serverVersion": "16.10"
+}

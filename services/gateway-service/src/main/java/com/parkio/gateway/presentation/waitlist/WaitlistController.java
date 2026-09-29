@@ -1,8 +1,12 @@
 package com.parkio.gateway.presentation.waitlist;
 
 import com.parkio.gateway.application.waitlist.SubmitWaitlistCommand;
+import com.parkio.gateway.application.waitlist.WaitlistAdminCounts;
+import com.parkio.gateway.application.waitlist.WaitlistAdminPage;
 import com.parkio.gateway.application.waitlist.WaitlistApplicationService;
+import com.parkio.gateway.application.waitlist.WaitlistCsv;
 import com.parkio.gateway.application.waitlist.WaitlistExportRow;
+import com.parkio.gateway.application.waitlist.WaitlistStatus;
 import com.parkio.gateway.infrastructure.config.ClientIpResolver;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +31,9 @@ import reactor.core.publisher.Mono;
 public class WaitlistController {
 
     private static final WaitlistAcceptedResponse ACCEPTED = new WaitlistAcceptedResponse("accepted");
+    private static final WaitlistAcceptedResponse CONFIRMED = new WaitlistAcceptedResponse("confirmed");
+    private static final WaitlistAcceptedResponse WITHDRAWN = new WaitlistAcceptedResponse("withdrawn");
+    private static final String NO_STORE = "no-store";
 
     private final WaitlistApplicationService waitlistService;
     private final ClientIpResolver clientIpResolver;
@@ -45,13 +52,61 @@ public class WaitlistController {
         SubmitWaitlistCommand command = new SubmitWaitlistCommand(
                 request.email(),
                 request.consentTimestamp(),
+                request.fullName(),
                 request.city(),
                 request.role(),
                 request.source(),
+                request.locale(),
                 clientIp,
                 userAgent);
         return waitlistService.submit(command)
                 .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(ACCEPTED));
+    }
+
+    @PostMapping("/api/v1/waitlist/confirm")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> confirm(@Valid @RequestBody WaitlistTokenRequest request) {
+        return waitlistService.confirm(request.token())
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(CONFIRMED));
+    }
+
+    @PostMapping("/api/v1/waitlist/withdraw")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> withdraw(@Valid @RequestBody WaitlistTokenRequest request) {
+        return waitlistService.withdraw(request.token())
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(WITHDRAWN));
+    }
+
+    @PostMapping("/api/v1/waitlist/resend")
+    public Mono<ResponseEntity<WaitlistAcceptedResponse>> resend(
+            @Valid @RequestBody ResendWaitlistRequest request,
+            ServerWebExchange exchange) {
+        String clientIp = clientIpResolver.resolve(exchange.getRequest());
+        return waitlistService.resend(request.email(), clientIp)
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body(ACCEPTED));
+    }
+
+    /**
+     * Operator visibility for notification-list subscriptions (not application accounts).
+     * Authorization is enforced at the gateway edge ({@code ADMIN}/{@code SUPER_ADMIN}).
+     */
+    @GetMapping("/api/v1/waitlist/admin/summary")
+    public Mono<ResponseEntity<WaitlistAdminCounts>> adminSummary() {
+        return waitlistService.adminCounts()
+                .map(counts -> ResponseEntity.ok()
+                        .header(HttpHeaders.CACHE_CONTROL, NO_STORE)
+                        .body(counts));
+    }
+
+    @GetMapping("/api/v1/waitlist/admin")
+    public Mono<ResponseEntity<WaitlistAdminPage>> adminList(
+            @RequestParam(required = false) WaitlistStatus status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return waitlistService.adminList(status, createdFrom, createdTo, page, size)
+                .map(result -> ResponseEntity.ok()
+                        .header(HttpHeaders.CACHE_CONTROL, NO_STORE)
+                        .body(result));
     }
 
     @GetMapping(value = "/api/v1/waitlist/export", produces = "text/csv")
@@ -61,31 +116,27 @@ public class WaitlistController {
         return waitlistService.export(createdFrom, createdTo)
                 .map(rows -> ResponseEntity.ok()
                         .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                        .header(HttpHeaders.CACHE_CONTROL, NO_STORE)
+                        .header(HttpHeaders.PRAGMA, "no-cache")
                         .header(HttpHeaders.CONTENT_DISPOSITION,
                                 ContentDisposition.attachment()
-                                        .filename("parkio-waitlist.csv")
+                                        .filename("parkio-waitlist-confirmed.csv")
                                         .build()
                                         .toString())
                         .body(toCsv(rows).getBytes(StandardCharsets.UTF_8)));
     }
 
     private static String toCsv(List<WaitlistExportRow> rows) {
-        StringBuilder csv = new StringBuilder("email,city,role,source,createdAt,consentTimestamp\n");
+        StringBuilder csv = new StringBuilder("email,fullName,city,role,source,createdAt,consentTimestamp\n");
         for (WaitlistExportRow row : rows) {
-            csv.append(csv(row.email())).append(',')
-                    .append(csv(row.city())).append(',')
-                    .append(csv(row.role())).append(',')
-                    .append(csv(row.source())).append(',')
-                    .append(csv(row.createdAt().toString())).append(',')
-                    .append(csv(row.consentTimestamp().toString())).append('\n');
+            csv.append(WaitlistCsv.cell(row.email())).append(',')
+                    .append(WaitlistCsv.cell(row.fullName())).append(',')
+                    .append(WaitlistCsv.cell(row.city())).append(',')
+                    .append(WaitlistCsv.cell(row.role())).append(',')
+                    .append(WaitlistCsv.cell(row.source())).append(',')
+                    .append(WaitlistCsv.cell(row.createdAt().toString())).append(',')
+                    .append(WaitlistCsv.cell(row.consentTimestamp().toString())).append('\n');
         }
         return csv.toString();
-    }
-
-    private static String csv(String value) {
-        if (value == null) {
-            return "";
-        }
-        return "\"" + value.replace("\"", "\"\"") + "\"";
     }
 }

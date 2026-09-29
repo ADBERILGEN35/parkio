@@ -1,0 +1,24 @@
+auth_image ghcr.io/adberilgen35/parkio/auth-service@sha256:c9875b416b9a9db9d597fa2e81ab9b5cc9858738b7bea7175c5fac5f00606ac1
+auth_id sha256:c9875b416b9a9db9d597fa2e81ab9b5cc9858738b7bea7175c5fac5f00606ac1
+auth_status running
+auth_env
+  PARKIO_EMAIL_FROM=Parkio <verify@parkio.dev>
+  PARKIO_EMAIL_PROVIDER=logging
+  PARKIO_EMAIL_REPLY_TO=support@parkio.dev
+  PARKIO_EMAIL_VERIFICATION_LOG_TOKEN=false
+  PARKIO_EMAIL_VERIFICATION_URL=https://app.parkio.dev/verify-email
+  PARKIO_PASSWORD_RESET_LOG_TOKEN=false
+  PARKIO_PASSWORD_RESET_URL=https://app.parkio.dev/reset-password
+  PARKIO_RESEND_API_KEY=SET_len=36
+  PARKIO_WEB_BASE_URL=https://app.parkio.dev
+register_http 403
+register_code REGISTRATION_CLOSED
+flyway_22_23_error 2
+  psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "parkio" does not exist 
+preferred_locale_column_error 2
+  psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "parkio" does not exist 
+pending_verification_count_error 2
+  psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "parkio" does not exist 
+nr_continuous
+  parkio-nr-log-continuous-fluent-bit-nr-pilot-1 Up 4 hours (healthy)
+  parkio-nr-log-continuous-nr-budget-gate-1 Up 4 hours (healthy)

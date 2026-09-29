@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.gateway.infrastructure.config.GatewayPublicSurfaceProperties;
 import com.parkio.gateway.infrastructure.client.SessionEpochCache;
 import com.parkio.gateway.infrastructure.client.SessionEpochClient;
 import com.parkio.gateway.infrastructure.client.SessionEpochProperties;
@@ -42,8 +43,9 @@ class SessionEpochGlobalFilterTest {
     private final SessionEpochClient client = mock(SessionEpochClient.class);
     private final SessionEpochCache cache = new SessionEpochCache(CLOCK, new SessionEpochProperties());
     private final SessionEpochGlobalFilter filter = new SessionEpochGlobalFilter(
-            new PublicEndpoints(), client, cache,
-            new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(), CLOCK));
+            new PublicEndpoints(new GatewayPublicSurfaceProperties()),
+            new SessionEpochVerifier(client, cache,
+                    new GatewayErrorResponseWriter(new ObjectMapper().findAndRegisterModules(), CLOCK)));
 
     @Test
     void tokenWithCurrentEpochReachesProtectedRoute() {
@@ -60,6 +62,18 @@ class SessionEpochGlobalFilterTest {
         when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.just(3L));
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = protectedExchange(2L);
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void futureTokenEpochIsRejectedWith401() {
+        when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.just(2L));
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = protectedExchange(3L);
 
         filter.filter(exchange, chain).block();
 
@@ -96,6 +110,18 @@ class SessionEpochGlobalFilterTest {
                 .thenReturn(Mono.error(new SessionEpochUnavailableException("auth-service down")));
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = protectedExchange(1L);
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.wasInvoked()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void emptyEpochLookupFailsClosedWith503() {
+        when(client.fetchCurrentEpoch(USER_ID)).thenReturn(Mono.empty());
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = protectedExchange(0L);
 
         filter.filter(exchange, chain).block();
 

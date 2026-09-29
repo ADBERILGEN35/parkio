@@ -198,6 +198,21 @@ class ParkingSpotTest {
         assertThat(spot.status()).isEqualTo(ParkingSpotStatus.REVIEW_FAILED);
     }
 
+    /**
+     * Domain overdue uses {@code !now.isBefore(deadline)} (i.e. {@code now >= deadline}).
+     * Claim SQL must use the same closed lower bound ({@code moderation_deadline_at <= :now});
+     * an exclusive {@code <} leaves the exact-deadline instant unclaimable while domain says overdue.
+     */
+    @Test
+    void moderationOverdueIncludesExactDeadlineInstant() {
+        ParkingSpot spot = createSpot();
+        Instant deadline = spot.moderationDeadlineAt();
+
+        assertThat(spot.isModerationOverdue(deadline.minusNanos(1))).isFalse();
+        assertThat(spot.isModerationOverdue(deadline)).isTrue();
+        assertThat(spot.isModerationOverdue(deadline.plusNanos(1))).isTrue();
+    }
+
     @Test
     void staleVerdictsAreDetectedAgainstTheDecisionWatermark() {
         ParkingSpot spot = createSpot();

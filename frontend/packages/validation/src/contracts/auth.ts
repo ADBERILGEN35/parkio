@@ -33,6 +33,7 @@ export const registerRequestSchema = z
     email: z.string().min(1).email().max(255),
     password: z.string().min(12).max(100),
     locale: localeSchema.nullable().optional(),
+    inviteToken: z.string().min(1).max(512).nullable().optional(),
   })
   .strict() satisfies z.ZodType<RegisterRequest>;
 

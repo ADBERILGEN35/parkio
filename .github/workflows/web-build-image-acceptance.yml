@@ -1,0 +1,64 @@
+# Historical one-off acceptance for security PRs #87 and #91.
+# This is not an active api release gate. Do not generalize the
+# `if: pull_request.number == 87 || 91` condition to current PRs;
+# web image identity is enforced by the hosted-beta / pin workflows.
+#
+name: Web build image acceptance
+
+on:
+  pull_request:
+    branches: [api, fix/web-build-image-security]
+    paths:
+      - .github/workflows/web-build-image-acceptance.yml
+      - agent-tools/parkio-web-build-image-security-01/**
+      - agent-tools/parkio-web-builder-pnpm-security-01/**
+      - frontend/**
+      - docker/web-hosted-beta.release-bake.env
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-build-image-acceptance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  web-image:
+    if: github.event.pull_request.number == 87 || github.event.pull_request.number == 91
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install browser smoke dependencies
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      - name: Build, scan and accept exact image
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash agent-tools/parkio-web-build-image-security-01/ci-accept-image.sh
+
+      - name: Upload exact tested image and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build-security-01-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/web-build-security-01/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,126 @@
+# PP-01B-IAC-01 — Offline Terraform validation (no apply, no Azure credentials).
+
+name: PP-01B Terraform Offline
+
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - 'docs/architecture/pp-01b-iac-contract.md'
+      - '.github/workflows/pp-01b-terraform-offline.yml'
+  push:
+    branches: [api, master]
+    paths:
+      - 'infra/terraform/**'
+      - 'docs/architecture/pp-01b-iac-contract.md'
+      - '.github/workflows/pp-01b-terraform-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pp01b-tf-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
+
+jobs:
+  offline:
+    name: Offline fmt / init / validate / test / guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.8'
+          terraform_wrapper: false
+
+      - name: Terraform fmt -check
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Init + validate sandbox
+        working-directory: infra/terraform/stacks/sandbox
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Init + validate staging
+        working-directory: infra/terraform/stacks/staging
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Init + validate production
+        working-directory: infra/terraform/stacks/production
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Terraform tests (policy-guards)
+        working-directory: infra/terraform/modules/policy-guards
+        run: terraform init -backend=false -input=false && terraform test
+
+      - name: Terraform tests (network-dns)
+        working-directory: infra/terraform/modules/network-dns
+        run: terraform init -backend=false -input=false && terraform test
+
+      - name: Terraform tests (mode-b-probe)
+        working-directory: infra/terraform/modules/mode-b-probe
+        run: terraform init -backend=false -input=false && terraform test
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.55.1
+
+      - name: TFLint
+        working-directory: infra/terraform
+        run: |
+          tflint --init || true
+          tflint --recursive --config "$(pwd)/.tflint.hcl"
+
+      - name: Checkov (static)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform
+          framework: terraform
+          soft_fail: false
+          config_file: infra/terraform/.checkov.yaml
+          skip_check: CKV_TF_1,CKV_AZURE_130,CKV_AZURE_136,CKV2_AZURE_32,CKV_AZURE_128,CKV_AZURE_129,CKV_AZURE_68,CKV_AZURE_138,CKV2_AZURE_7,CKV2_AZURE_31
+          output_format: cli
+          download_external_modules: false
+
+      - name: Secret scan (gitleaks) scoped to terraform
+        uses: docker://zricethezav/gitleaks:v8.28.0
+        with:
+          args: >
+            dir
+            --config /github/workspace/.gitleaks.toml
+            --redact
+            --verbose
+            /github/workspace/infra/terraform
+
+      - name: Policy guards
+        run: bash infra/terraform/tests/policy-guards.sh
+
+      - name: Assert no apply in this workflow
+        run: |
+          if grep -Eiq 'terraform[[:space:]]+(apply|destroy)' .github/workflows/pp-01b-terraform-offline.yml; then
+            echo "Forbidden apply/destroy step found"
+            exit 1
+          fi
+          test -f infra/terraform/stacks/sandbox/.terraform.lock.hcl
+          test -f infra/terraform/stacks/staging/.terraform.lock.hcl
+          test -f infra/terraform/stacks/production/.terraform.lock.hcl
+          echo "no-apply assertion OK; lockfiles present"
+
+      - name: git diff --check
+        run: git diff --check

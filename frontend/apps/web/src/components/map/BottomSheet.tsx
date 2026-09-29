@@ -48,6 +48,8 @@ export interface BottomSheetProps {
   onStateChange: (state: SheetState) => void;
   /** Accessible name for the sheet region and its drag handle. */
   ariaLabel: string;
+  /** Localized handle instructions and state summary. */
+  handleAriaLabel: string;
   /** Compact content shown in the always-visible peek (e.g. result count). */
   summary?: ReactNode;
   children: ReactNode;
@@ -70,11 +72,14 @@ export function BottomSheet({
   state,
   onStateChange,
   ariaLabel,
+  handleAriaLabel,
   summary,
   children,
   className,
 }: BottomSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window !== 'undefined' ? window.innerHeight : 720,
@@ -108,6 +113,21 @@ export function BottomSheet({
       window.visualViewport?.removeEventListener('resize', readHeight);
     };
   }, []);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) return;
+    const collapsed = state === 'collapsed';
+    node.setAttribute('aria-hidden', collapsed ? 'true' : 'false');
+    if (collapsed) {
+      node.setAttribute('inert', '');
+      if (node.contains(document.activeElement)) {
+        handleRef.current?.focus();
+      }
+      return;
+    }
+    node.removeAttribute('inert');
+  }, [state]);
 
   const offsetFor = useCallback(
     (target: SheetState): number => {
@@ -227,8 +247,9 @@ export function BottomSheet({
       }}
     >
       <button
+        ref={handleRef}
         type="button"
-        aria-label={`${ariaLabel}, ${state}. Drag, or press arrow keys to resize.`}
+        aria-label={handleAriaLabel}
         aria-expanded={state !== 'collapsed'}
         onClick={onHandleClick}
         onKeyDown={onHandleKeyDown}
@@ -243,7 +264,10 @@ export function BottomSheet({
         {summary ? <span className="block">{summary}</span> : null}
       </button>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-sm overflow-y-auto px-md pb-safe pt-xs hide-scrollbar">
+      <div
+        ref={contentRef}
+        className="flex min-h-0 flex-1 flex-col gap-sm overflow-y-auto px-md pb-safe pt-xs hide-scrollbar"
+      >
         {children}
       </div>
     </aside>

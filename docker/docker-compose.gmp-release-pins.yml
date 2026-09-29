@@ -1,0 +1,33 @@
+# Parkio GMP release pins — PR #111 ISPARK closed-occupancy publication 2026-09-25
+# Parking source / OCI revision: 1dd2d5bcc537aea8f150b313cf6151e5bdd31297 (PR #111 merge)
+# Reviewed head: 31baaed7053dd76e41de7981c5e5cc41b25de98e
+# Single-platform OCI image manifest (GHCR confirmed; no separate index):
+#   ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2
+# linux/amd64 platform manifest (same as registry digest above):
+#   sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2
+# Image config:
+#   sha256:0f62313a1d71021c9e0ea9f150d8b3f825e2f3b32e43ebf5f7363cfb6b03a7d7
+# Rollback (live pre-PR #111 parking):
+#   ghcr.io/adberilgen35/parkio/parking-service@sha256:02553cadbd950a6f80fd61801cdfa628fbf9ef9dd3fea9d68e138aa2e2d8a742
+#   OCI revision: unknown (unproven)
+# Gateway/media pins unchanged from live production / PR #106:
+#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
+#   ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
+# ONLY gateway/media/parking image references. Do not broaden.
+# Applied via docker/compose.production.files (before auth/web pins).
+# Recreate with:
+#   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
+#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate parking-service
+#
+# Practical digest update: change ONLY the services.parking-service.image line below.
+name: parkio
+
+services:
+  gateway-service:
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
+
+  media-service:
+    image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
+
+  parking-service:
+    image: ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2

@@ -2,6 +2,8 @@
 
 Operator guide for Prometheus alerts on hosted-beta. Alerts route through Alertmanager
 when `PARKIO_ALERT_SLACK_WEBHOOK_URL` or `PARKIO_ALERT_WEBHOOK_URL` is set in `docker/.env`.
+Paging architecture, secrets, silences, and the synthetic probe:
+[alerting.md](./alerting.md).
 
 ## First steps (any alert)
 
@@ -91,7 +93,31 @@ Feature-flag rollback (recreate parking-service after env change):
 `PARKIO_PARKING_SESSION_STALE_ENABLED=false` or disable reminders /
 auto-complete individually (see stale runbook).
 
+## HighJvmMemoryUsage {#highjvmmemoryusage}
+
+- Heap >90% of max for 10m. Inspect Grafana **Parkio - JVM** and `docker stats`.
+- Safe first action: confirm no leak (steady climb vs a traffic spike). Restarting a JVM drops the symptom and loses in-memory state — do that only after checking health and current requests.
+- Do not raise heap without checking host `HostHighMemoryUsage*` (10 JVMs on one VPS).
+- Escalation: roll back a recent deploy if the climb started after it.
+
+## BackupFailed / BackupStale / offsite / encryption {#backupfailed}
+
+- Meaning: last backup **attempt metrics** say failed, stale, offsite-failed, or encryption off in production mode. File existence is not success.
+- Inspect: `parkio_backup_*` in Prometheus, `/var/log/parkio-backup.log`, `backup-artifacts/`.
+- Safe first action: re-run `scripts/backup-hosted-beta.sh` with the intended `BACKUP_PRODUCTION_MODE` still set.
+- Do not: disable encryption, skip offsite, or "fix" the alert by writing a fake `parkio_backup.prom`.
+- Escalation: [backup-runbook.md](./backup-runbook.md), [restore-runbook.md](./restore-runbook.md).
+
+## ParkioAlertingAcceptanceTest {#parkioalertingacceptancetest}
+
+- Meaning: synthetic plumbing probe is armed. Not a product outage.
+- Inspect: who armed `parkio_alerting_acceptance_test`.
+- Safe first action: set the gauge to 0 / remove the textfile.
+- Do not leave it firing on hosted-beta.
+- Procedure: [alerting.md](./alerting.md#synthetic-acceptance).
+
 ## Escalation
 
 - Capture alert labels, Grafana screenshots, and `docker compose ps`.
 - If data loss suspected, stop writes and consult [restore-runbook.md](./restore-runbook.md).
+- Do not paste webhook URLs, tokens, or DB passwords into tickets or chat.

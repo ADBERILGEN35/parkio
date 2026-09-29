@@ -1,3 +1,39 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# pnpm 11 reads workspace settings here; preserve the former .npmrc layout.
+nodeLinker: hoisted
+virtualStoreDirMaxLength: 60
+strictDepBuilds: true
+# Keep dependency lifecycle scripts denied; unknown new scripts fail the install.
+allowBuilds:
+  esbuild: false
+  msw: false
+  unrs-resolver: false
+
+# Existing security and compatibility pins moved from package.json.
+overrides:
+  'form-data': '4.0.6'
+  'axios': '^1.18.1'
+  'postcss': '^8.5.23'
+  'js-yaml': '4.3.2'
+  '@xmldom/xmldom@0.8': '0.8.15'
+  '@xmldom/xmldom@0.9': '0.9.12'
+  'nanoid': '^3.3.17'
+  'brace-expansion@1': '^1.1.18'
+  'brace-expansion@5': '^5.0.9'
+  'react': '19.2.3'
+  'react-dom': '19.2.3'
+  '@types/react': '19.2.17'
+  '@types/react-dom': '19.2.3'
+  # SDK 56.0.22 bundledNativeModules.json. The previous 56.0.16 pin contradicted
+  # both apps/mobile (56.0.17) and the 56.0.16 ledger (~56.0.17). A split
+  # 56.0.16/56.0.22 hoist leaves duplicate native modules; both apps stay on 56.
+  '@expo/metro-runtime': '56.0.21'
+  '@expo/dom-webview': '56.0.6'
+  'browserslist': '^4.28.7'
+  'vite@6.4.3>esbuild': '0.27.4'
+  # Official image-size 2.0.4 is CJS+ESM and is past CVE-2025-71329/71330
+  # (last affected 1.2.1 / 2.0.2). metro@0.84.4 still declares ^1.0.2.
+  'image-size': '2.0.4'

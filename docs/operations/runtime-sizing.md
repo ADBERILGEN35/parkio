@@ -84,7 +84,7 @@ checkpoint); Kafka gets `pids_limit: 512` and `stop_grace_period: 60s` (KRaft lo
 | --- | --- | --- | --- |
 | prometheus | 1024 MB | 1.0 | 15-day TSDB + remote-write receiver + exemplars. |
 | loki | 512 MB | 1.0 | Log store (168h retention, compactor). |
-| tempo | 512 MB | 1.0 | Trace store (48h block retention). |
+| tempo | 512 MB | 1.0 | Shared hosted-beta trace store limit. Invite-production overrides this to 1024 MB after R11D proved recurring memcg OOM kills at 512 MB during block flush/compaction. |
 | grafana | 384 MB | 0.5 | Dashboards. |
 | promtail | 128 MB | 0.5 | Log shipper. |
 | alertmanager | 128 MB | 0.25 | Alert routing. |

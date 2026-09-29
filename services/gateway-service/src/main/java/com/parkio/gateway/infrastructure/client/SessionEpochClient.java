@@ -29,11 +29,19 @@ public class SessionEpochClient {
                 .exchangeToMono(response -> {
                     if (response.statusCode().is2xxSuccessful()) {
                         return response.bodyToMono(SessionEpochResponse.class)
-                                .map(SessionEpochResponse::sessionEpoch);
+                                .map(body -> {
+                                    if (!userId.equals(body.userId()) || body.sessionEpoch() == null) {
+                                        throw new SessionEpochUnavailableException(
+                                                "auth-service returned an invalid session epoch response");
+                                    }
+                                    return body.sessionEpoch();
+                                });
                     }
                     return response.releaseBody().then(Mono.error(new SessionEpochUnavailableException(
                             "auth-service returned status " + response.statusCode().value())));
                 })
+                .switchIfEmpty(Mono.error(new SessionEpochUnavailableException(
+                        "auth-service returned no session epoch")))
                 .timeout(properties.getRequestTimeout())
                 // Anything not already an "unavailable" signal (timeout, connection refused,
                 // malformed body, ...) is normalised to fail-closed unavailability.

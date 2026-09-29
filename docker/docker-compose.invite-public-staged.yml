@@ -1,0 +1,22 @@
+# docker-compose.invite-public-staged.yml
+#
+# Pre-cutover staging overlay for invite-production PUBLIC edge mode.
+# Applied only when PARKIO_INVITE_EDGE_MODE=public and
+# PARKIO_INVITE_ACME_AUTHORIZED=false (PROD-DEPLOY-01B-02).
+#
+# Keeps the loopback-only gateway acceptance endpoint while Caddy remains
+# disabled and DNS still points at hosted-beta. When ACME is authorized at
+# cutover, this overlay is omitted and gateway-service stays internal-only.
+#
+# Runtime identity (PARKIO_ENVIRONMENT / PARKIO_GIT_SHA), registration mode, and
+# public-actuator flag are mapped on invite-public.yml and inherited here —
+# do not reintroduce a ports-only gap that leaves /actuator/info at
+# local/unknown (PROD-DEPLOY-01B-02D) or silently drops CLOSED/false
+# (PROD-DEPLOY-01B-03B). Loopback smoke remains readable via PublicEndpoints
+# loopback exemption when the public-surface flag is false.
+name: parkio
+
+services:
+  gateway-service:
+    ports: !override
+      - "127.0.0.1:8080:8080"

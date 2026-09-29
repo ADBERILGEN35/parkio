@@ -5,13 +5,22 @@
 > this document — it is a proposal. It does not change application business logic
 > or public APIs.
 
+> **PROD-READINESS-03 (2026-08-17):** CONTROLLED FIRST PRODUCTION INVITE =
+> **CONDITIONAL GO**. BROAD PUBLIC PRODUCTION = **NO-GO**. Parkio is **not** safe
+> to invite real users today. Full matrix and P0 list:
+> `deploy-artifacts/prod-readiness-03/FINAL-GO-NO-GO.md` (gitignored). Do **not**
+> treat hosted-beta as production proof. `PROD-DEPLOY-01A` was separately
+> authorized on 2026-08-17 and provisioned the dark invite foundation; it did
+> not authorize DNS switching, data migration, user traffic, or invitations.
+
 ## Executive verdict
 
 | Question | Answer |
 |----------|--------|
-| **GO / NO-GO for hosted (closed/invite) beta** | **GO — conditional** on the *hosted-beta blockers* below. The application layer is ready; the deployment/ops layer needs a thin, well-scoped hardening pass. |
-| **GO / NO-GO for public production** | **NO-GO** until the *public-production blockers* are closed (HA + backups/PITR for data, secrets manager + rotation, CD with rollback, alerting + on-call, load/security testing). |
-| **Recommended deployment path** | **Phase 1 (hosted beta):** Docker Compose on a single right-sized VPS, gateway behind a TLS reverse proxy. **Phase 2 (public prod):** managed container platform + **managed Postgres (PITR + PostGIS)** + **managed Kafka/Redpanda (RF≥3)** + **managed S3-compatible storage**. **Defer Kubernetes** until team/scale justify it (see §2). |
+| **GO / NO-GO for hosted (closed/invite) beta** | **GO — conditional** on the *hosted-beta blockers* below. Hosted-beta is **not** first production invite. |
+| **GO / NO-GO for controlled first production invite** | **CONDITIONAL GO** (PROD-READINESS-03). Close invite P0s (managed DB, secrets, Alertmanager runtime, backup cron, deploy/cutover path, erasure ON, gateway exposure proof) before PROD-DEPLOY-01. |
+| **GO / NO-GO for public production** | **NO-GO** until the *public-production blockers* are closed (zone-redundant HA, Kafka RF≥3, secrets manager + rotation, CD with rollback, alerting always-on, load/security testing, private networking proven). |
+| **Recommended deployment path** | **Phase 1 (hosted beta):** Docker Compose on a single right-sized VPS, gateway behind a TLS reverse proxy. **Phase 2 (invite production):** managed Postgres (PITR + PostGIS; HA deferred with accepted risk) + production secrets + Alertmanager Slack + backup cron — only after PROD-DEPLOY-01 entry criteria. **Phase 3 (public prod):** managed container platform + **ZR HA Postgres** + **managed Kafka/Redpanda (RF≥3)** + **managed S3-compatible storage**. **Defer Kubernetes** until team/scale justify it (see §2). |
 
 ### What is already strong (do not redo)
 
@@ -45,8 +54,12 @@ The codebase is unusually deployment-aware for its stage:
 
 ### The deployment-layer gap in one sentence
 
-> The **app** is production-shaped; the **platform** is local-only — no IaC, no TLS, single-broker Kafka,
-> single-node Postgres/MinIO with no backups/PITR, no CD, no alerting, no tracing aggregation.
+> The **app** is production-shaped; **invite production** now has its isolated
+> managed-DB/Key Vault/host landing zone, but still requires operator-owned
+> third-party secrets, full Spring/Alertmanager/backup runtime acceptance, exact-SHA
+> CI, and external exposure proof. Hosted-beta remains single-host
+> Compose (container Postgres, Kafka RF=1). Public production additionally requires
+> ZR HA, Kafka RF≥3, secrets manager + rotation, and CD with rollback.
 
 ---
 
@@ -110,18 +123,31 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
 - **Topology — cost-aware compromise.** The architectural invariant is *no shared schema, no
   cross-service table access, separate credentials* — **not necessarily separate servers**. For
   production:
-  - **Recommended:** 1–2 **managed Postgres clusters** hosting **9 logical databases** with **9
-    distinct roles**, each role granted only its own database. This preserves database-per-service
-    isolation (separate DB + separate creds, no cross-DB grants) at a fraction of the cost of 9
-    managed instances.
+  - **Decision (PP-01A):** provider and topology are frozen in
+    [`adr/ADR-PP-01A-managed-postgresql.md`](adr/ADR-PP-01A-managed-postgresql.md)
+    (**ACCEPTED WITH CONDITIONS**). Primary: **Azure Database for PostgreSQL Flexible Server**;
+    approved alternate: **AWS RDS for PostgreSQL**. Default: **2** managed clusters (core +
+    parking/PostGIS) hosting **10 logical databases** with **10 distinct roles**, each role
+    granted only its own database. One shared cluster remains a controlled exception only.
+    PP-01A closes the **architecture decision** only — **PP-01 implementation remains open**;
+    next work is **PP-01B** (IaC offline authoring under `infra/terraform/` via
+    **PP-01B-IAC-01**; contract [`pp-01b-iac-contract.md`](pp-01b-iac-contract.md);
+    Azure Mode B remains HOLD; PP-01B is not complete; no apply authorized).
+    ([`pp-01b-spike-registry.md`](pp-01b-spike-registry.md)). PP-01A does **not** close public
+    production NO-GO and does **not** authorize municipal production enablement.
+  - **Recommended (historical cost-aware framing):** 1–2 **managed Postgres clusters** hosting
+    **10 logical databases** with **10 distinct roles**, each role granted only its own database.
+    This preserves database-per-service isolation (separate DB + separate creds, no cross-DB
+    grants) at a fraction of the cost of 10 managed instances.
   - **parking** must run on a cluster whose provider supports the **`postgis` extension** (AWS RDS,
-    Aiven, Supabase, Crunchy, Neon all do). If the chosen managed provider can't enable PostGIS on a
-    shared cluster, isolate **parking on its own PostGIS-capable instance** and co-locate the rest.
+    Aiven, Supabase, Crunchy, Neon all do; Azure Flexible Server subject to extension validation).
+    If the chosen managed provider can't enable PostGIS on a shared cluster, isolate **parking on
+    its own PostGIS-capable instance** and co-locate the rest (frozen default in ADR-PP-01A).
   - Keep separate instances only where load profiles diverge sharply (e.g. analytics write-heavy).
 - **Backups + PITR.** Enable provider automated backups with **Point-In-Time Recovery** (WAL
   archiving), retention ≥ 7 days (beta) / ≥ 30 days (prod).
   - **VPS beta interim — implemented; restore drill automated.** `scripts/backup-databases.sh`
-    (nightly cron) dumps all nine service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
+    (nightly cron) dumps all ten service DBs (timestamped gzip; optional AES-256 + offsite via `mc`),
     `scripts/restore-database.sh` performs a guarded single-DB restore, and
     `scripts/verify-backup.sh` proves a dump is restorable by restoring into a **disposable temp
     database** (no live-data risk). The end-to-end **restore drill is now a single script**
@@ -134,11 +160,49 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
     (applying the real `V*.sql` migrations first when the schema is absent). This proves
     restorability on real postgres/postgis images on every run. **Still recommended before relying
     on it in production:** run the drill once **on the actual VPS host** against the live data path,
-    and verify a dump pulled back from the **offsite** copy (`BACKUP_MC_DEST`), not just the local
-    file. Runbook in `docker/README.md`.
-  - **RPO/RTO (beta):** RPO ≈ 24h (nightly logical dumps; no point-in-time recovery between dumps —
-    shorten the interval to reduce it); RTO ≈ minutes per DB. Managed PITR + Multi-AZ failover is
-    still required for public production (logical dumps are a stop-gap, not HA).
+    and verify a dump pulled back from the **offsite** copy (Azure Blob / `BACKUP_MC_DEST`), not just the local
+    file. Isolated offsite protocol: `scripts/restore-drill-offsite.sh`. Runbook in `docs/operations/backup-runbook.md`.
+  - **RPO/RTO (beta, after PROD-BACKUP-OFFSITE-01):** RPO remains **cadence-bound** (nightly ≈ 24h;
+    no PITR / WAL archive). Offsite Azure Blob does **not** create PITR. Isolated restore-drill RTO
+    is minutes for 10 logical DBs + MinIO object checksum; live hosted-beta restore RTO is unproven
+    (emergency procedure documented, not executed against live). **Managed PITR is proven** on a
+    disposable Azure Flexible Server (PP-01; new-server restore, ~8 min on a tiny dataset — not a
+    production RTO guarantee). **Zone-redundant HA is DEFERRED** for first invite rollout and
+    remains required before broad public GO ([ADR-PP-01A](adr/ADR-PP-01A-managed-postgresql.md)).
+  - **PROD-READINESS-02 alerting / paging (PROD-ALERTING-01) — CLOSED.** Operator Slack
+    `#parkio-alert` received exactly one FIRING and one RESOLVED for
+    `ParkioAlertingAcceptanceTest` on `5b48b0c78ce7ec8256677a2b326a9b0ef6a609ae`
+    (human-confirmed; resolved copy is status-aware). Secret remains GitHub Actions
+    `PARKIO_ALERT_SLACK_WEBHOOK_URL` (never committed). Azure hosted-beta Alertmanager is still
+    disabled (`azure-disabled-observability`); paging proof used the isolated operator stack.
+    Parkio is **not** production-ready: other blockers remain.
+  - **PROD-READINESS-02 USER-DATA ERASURE (PRIV-001) — CLOSED** for the
+    implemented coordinator + participant + restore-replay design on `api`.
+    Implementation SHA `233a168fe6be759df6c9daf3fc48857643df17f3` had exact-SHA
+    green: Backend CI, Backend integration, Security CI, Backup Restore Drill
+    (pre-erasure dump + post-erasure ledger replay; restored user not ACTIVE),
+    Observability Validation. Runtime flag remains **off**
+    (`PARKIO_ACCOUNT_ERASURE_ENABLED=false`). Hosted-beta public deletion was
+    not enabled.     See `docs/architecture/priv-001-account-data-erasure.md`.
+    Parkio is **not** overall production-ready.
+  - **PROD-READINESS-02 managed PostgreSQL + PITR (PP-01) — PITR CLOSED; HA DEFERRED WITH ACCEPTED RISK; REMOTELY CERTIFIED.**
+    Disposable Flexible Server empty-schema Flyway + real PITR restore + PRIV-001 tombstone
+    replay after restore: [pp-01-managed-postgresql-pitr-ha.md](pp-01-managed-postgresql-pitr-ha.md).
+    Azure PITR evidence SHA `69c5a70`; exact-SHA blocking CI green on
+    `34ac678` (CI-TRUST-SHADOW-01 trust-shadow concurrency fix; pre-existing,
+    outside PP-01 DB diff). Hosted-beta was **not** migrated. Public production remains **NO-GO**.
+  - **PROD-READINESS-02 backup blockers (PROD-BACKUP-OFFSITE-01):**
+    - **B. OFFSITE — PARTIALLY CLOSED.** Encrypted stamp uploads to Azure Blob (`rg-parkio-backups`,
+      westeurope, separate from francecentral VM). CI protocol uses ephemeral MinIO (same GHA VM —
+      not a failure-domain proof). Real Azure acceptance is `workflow_dispatch` `azure_offsite`.
+      Hosted-beta cron is **not** yet running `BACKUP_PRODUCTION_MODE=1` on the VM (no production
+      deploy in this package).
+    - **C. ENCRYPTION — CLOSED** for production-intended mode: `BACKUP_PRODUCTION_MODE=1` fail-closes
+      if the passphrase is absent (no silent plaintext). Dev/CI remain optional. MinIO mirror is
+      **not** client-side encrypted; Azure SSE + TLS apply.
+    - **D. MINIO RESTORE — PARTIALLY CLOSED.** Isolated MinIO object restore from offsite-retrieved
+      stamp is proven in CI. Live hosted-beta MinIO restore is **not** executed; `restore-hosted-beta.sh`
+      refuses live bucket overwrite unless `PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes`.
   - **Test the restore** (and the *offsite* copy, not just the local file) before relying on it.
 - **Migrations.** Already Flyway-owned, `validate` at runtime. Run migrations as a **pre-deploy
   step** (init container / deploy job) — never let two app replicas race migrations on boot. Gate
@@ -403,10 +467,13 @@ metric catalogue exists. **Missing: async/Kafka trace propagation and fully stru
 application logs.**
 
 - **Prometheus + Alertmanager**: Prometheus evaluates `docker/prometheus/alerts.yml` and sends
-  alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta should set
-  `PARKIO_ALERT_SLACK_WEBHOOK_URL` so critical/warning alerts notify Slack. Prometheus,
-  Alertmanager, and Grafana are loopback-only in the hosted-beta overlay; access through an
-  SSH tunnel, not the public proxy.
+  alerts to `alertmanager:9093`. Local/dev uses a no-op receiver. Hosted beta / production-intended
+  paging requires `PARKIO_ALERT_SLACK_WEBHOOK_URL` or `PARKIO_ALERT_WEBHOOK_URL` (never committed).
+  Isolated catcher delivery is proven in CI (`scripts/alerting-acceptance.sh`). Operator Slack
+  paging is proven on `5b48b0c` (`scripts/alerting-operator-acceptance.sh`; human FIRING/RESOLVED).
+  Prometheus, Alertmanager, and Grafana are
+  loopback-only in the hosted-beta overlay; access through an SSH tunnel, not the public proxy.
+  See `docs/operations/alerting.md`.
 - **Kafka exporter**: `parkio-kafka-exporter` scrapes the private broker at `kafka:9092`.
   Prometheus alerts on exporter health, visible broker count, service consumer lag, sustained
   lag, and retained `parkio.dlt.*` offset depth. DLT depth is broker-side retained offset depth,
@@ -598,12 +665,12 @@ OIDC federation to the cloud provider where possible.
 | Public exposure | all service ports mapped | gateway-only; drop `8081–8089` | gateway-only; backends private | **Blocker** |
 | Secrets | git-ignored `.env` | unique strong values, off-repo | secrets manager + **rotation** *(zero-downtime rotation now implemented for JWT keys + gateway secret)* | High |
 | JWT/issuer/aud/CORS | dev defaults | set real values per env | set + verified; **key rotation runbook (done — `docker/README.md`)** | **Blocker** |
-| Postgres durability | single node, volume only | **automated backups + CI-proven restore drill** *(`scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`, the drill asserting data + parking PostGIS survive a real restore in `backup-restore-drill.yml`; run once on the VPS + verify the offsite copy before relying on it)* | managed PITR + Multi-AZ failover | **Blocker** |
+| Postgres durability | single node, volume only | **automated backups + CI-proven restore drill** *(`scripts/backup-databases.sh` + `restore-database.sh` + `verify-backup.sh` + `restore-drill.sh`, the drill asserting data + parking PostGIS survive a real restore in `backup-restore-drill.yml`; run once on the VPS + verify the offsite copy before relying on it)* | managed PITR **proven on disposable Flexible Server** (PP-01); Multi-AZ HA **deferred** | **PITR closed / HA deferred** |
 | Kafka durability | 1 broker, RF=1, ISR=1 | documented risk; backups of source-of-truth (outbox in DB) | managed RF≥3, `min.insync.replicas=2` | High (beta) / **Blocker** (prod) |
 | Object storage | single MinIO | private bucket + signed URLs (already) + backup | managed S3-compatible, versioning, lifecycle, CORS | High |
 | Redis | no auth/TLS | acceptable on private net | managed Redis + AUTH + TLS | Medium |
 | Migrations in deploy | run on app boot | gated pre-deploy step | gated, backward-compatible (expand/contract) | High |
-| Observability: alerts | none | alert on dead-letter + service-down + 5xx | full alert set + on-call | High |
+| Observability: alerts | rules + Alertmanager + operator Slack FIRING/RESOLVED proven (`5b48b0c`; Azure AM still disabled) | alert on dead-letter + service-down + 5xx + backup/offsite | full alert set + on-call destination proven | High |
 | Tracing | OTel spans → Tempo (HTTP path, 100% sampling) | same + tuned sampling | + async/Kafka propagation, tail sampling, object-storage Tempo | Medium |
 | Log aggregation | Loki/Promtail in local compose | Loki/Promtail with 7-day retention | centralized logs + structured JSON + managed/provider retention | High (prod) |
 | CD pipeline | none (CI only) | manual deploy ok | build→stage→smoke→approve→prod + rollback | High (prod) |
@@ -744,9 +811,10 @@ OIDC federation to the cloud provider where possible.
   the source of truth for produced events is the **transactional outbox in Postgres** (relay re-publishes),
   and consumers are idempotent — so DB backups substantially bound the blast radius. Still, treat
   RF≥3 as a **public-prod blocker**.
-- **Shared managed Postgres cluster for 9 logical DBs.** Saves cost but is a shared failure domain and
-  shared connection budget. *Mitigation:* separate roles/DBs (isolation preserved), PgBouncer, and
-  split out hot DBs (parking/analytics) if load demands.
+- **Shared managed Postgres cluster for 10 logical DBs.** Saves cost but is a shared failure domain and
+  shared connection budget. *Mitigation:* ADR-PP-01A defaults to **two** clusters (parking/PostGIS
+  isolated); separate roles/DBs (isolation preserved), PgBouncer, and split out hot DBs
+  (parking/analytics) if load demands. One-cluster use requires the ADR exception contract.
 - **10 JVMs are memory-hungry.** Beta on one VPS may be RAM-bound. *Mitigated (P1.5):* per-container
   `mem_limit` ceilings are now set with heap pinned to 65 % of each limit and `ExitOnOutOfMemoryError`;
   total ceilings ≈ 15.8 GB → 24 GB host recommended (16 GB minimum). See

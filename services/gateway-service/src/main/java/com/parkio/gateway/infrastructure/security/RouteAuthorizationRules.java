@@ -75,8 +75,9 @@ public class RouteAuthorizationRules {
                 // admin-only platform-analytics rule (first match wins). Ownership is
                 // enforced in analytics-service.
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/analytics/users/**"), Type.AUTHENTICATED, Set.of()),
-                // Raw beta waitlist export contains email PII and is ADMIN-only.
+                // Raw beta waitlist export and operator visibility contain email PII — ADMIN-only.
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/waitlist/export"), Type.REQUIRE_ROLES, ADMIN_ONLY),
+                new Rule(null, parser.parse("/api/v1/waitlist/admin/**"), Type.REQUIRE_ROLES, ADMIN_ONLY),
                 // Dedicated administration API (auth-service). SUPER_ADMIN-only
                 // privilege mutations are enforced inside the service.
                 new Rule(null, parser.parse("/api/v1/admin/**"), Type.REQUIRE_ROLES, ADMIN_ONLY),

@@ -13,6 +13,9 @@ export interface ConfirmModalProps {
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional quiet tertiary action (e.g. closed-registration info). */
+  tertiaryLabel?: string;
+  onTertiary?: () => void;
   confirmVariant?: ButtonVariant;
   loading?: boolean;
 }
@@ -26,6 +29,8 @@ export function ConfirmModal({
   cancelLabel,
   onConfirm,
   onCancel,
+  tertiaryLabel,
+  onTertiary,
   confirmVariant = 'primary',
   loading,
 }: ConfirmModalProps) {
@@ -65,6 +70,14 @@ export function ConfirmModal({
           ) : null}
           <View style={styles.actions}>
             <Button label={confirmLabel} variant={confirmVariant} onPress={onConfirm} loading={loading} />
+            {tertiaryLabel && onTertiary ? (
+              <Button
+                label={tertiaryLabel}
+                variant="ghost"
+                onPress={onTertiary}
+                disabled={loading}
+              />
+            ) : null}
             <Button label={cancelLabel} variant="ghost" onPress={onCancel} disabled={loading} />
           </View>
         </Animated.View>

@@ -12,16 +12,18 @@ async function bootstrap() {
     { initFrontendErrorReporting },
     { registerServiceWorker },
     { initI18n },
-  ] =
-    await Promise.all([
-      import('./App'),
-      import('./app/runtime'),
-      import('./observability/errorReporting'),
-      import('./pwa/registerServiceWorker'),
-      import('./i18n'),
-    ]);
+    { initProductAnalytics },
+  ] = await Promise.all([
+    import('./App'),
+    import('./app/runtime'),
+    import('./observability/errorReporting'),
+    import('./pwa/registerServiceWorker'),
+    import('./i18n'),
+    import('./services/productAnalytics'),
+  ]);
 
   await initI18n();
+  await initProductAnalytics();
   const runtime = createWebAppRuntime();
   initFrontendErrorReporting(() => runtime.authStore.getState().isAuthenticated);
   registerServiceWorker();

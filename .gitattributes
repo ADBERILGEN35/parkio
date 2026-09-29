@@ -31,6 +31,11 @@ gradlew text eol=lf
 *.cmd text eol=crlf
 gradlew.bat text eol=crlf
 
+# MapLibre vendor JS/CSS are hashed in tests. text=auto + Windows
+# core.autocrlf rewrote maplibre-gl.js to CRLF and failed PA-05 SHA checks.
+frontend/apps/mobile-v2/src/features/map/vendor/maplibre-gl.js text eol=lf
+frontend/apps/mobile-v2/src/features/map/vendor/maplibre-gl.css text eol=lf
+
 # Binary assets — never diff or normalize.
 *.png binary
 *.jpg binary
