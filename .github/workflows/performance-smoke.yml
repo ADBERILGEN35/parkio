@@ -10,9 +10,6 @@ on:
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/performance-smoke.yml"
       - "benchmarks/scripts/**"
-  schedule:
-    - cron: "17 6 * * 2"
-
 permissions:
   contents: read
   packages: read
