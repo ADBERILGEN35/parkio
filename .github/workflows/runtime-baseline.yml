@@ -11,8 +11,6 @@ on:
           - BASELINE_CI
           - STAGING_BASELINE
         default: SMOKE
-  schedule:
-    - cron: "12 6 * * 4"
 
 permissions:
   contents: read
