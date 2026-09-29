@@ -369,6 +369,32 @@ class CrashRestartTests(RelayCase):
         self.assertEqual(row["status"], STATUS_DELIVERY_UNKNOWN)
         self.assertEqual(row["attempts"], MAX_ATTEMPTS)
 
+    def test_sigkill_during_first_send_leaves_unsent_message_uncharged(self) -> None:
+        """Only the message on the wire may consume an attempt."""
+        self.env["PARKIO_SLACK_BIZ_LEASE_SECONDS"] = "60"  # no reclaim in this test
+        self.slack.default = "hang"
+        on_wire = self.enqueue()
+        unsent = self.enqueue()
+        self.run_worker_process(kill_after_request=1)
+        self.assertEqual(self.slack.request_count, 1)
+
+        row = self.status(unsent)
+        self.assertEqual(row["attempts"], 0, "never sent, must not be charged")
+        self.assertEqual(row["status"], STATUS_QUEUED)
+        self.assertIsNone(row["lease_until"])
+        on_wire_row = self.status(on_wire)
+        self.assertEqual((on_wire_row["status"], on_wire_row["attempts"]), (STATUS_IN_FLIGHT, 1))
+
+        # Restart: the unsent message goes out at once, as its first attempt.
+        self.slack.default = "ok"
+        self.assertEqual(self.run_worker_process(), 0, self.last_stderr)
+        row = self.status(unsent)
+        self.assertEqual((row["status"], row["attempts"]), (STATUS_DELIVERED, 1))
+        # The possibly-sent one keeps its lease and its counted attempt.
+        on_wire_row = self.status(on_wire)
+        self.assertEqual((on_wire_row["status"], on_wire_row["attempts"]), (STATUS_IN_FLIGHT, 1))
+        self.assertEqual(self.slack.request_count, 2)
+
     def test_sigkill_mid_send_counts_attempts_across_restarts(self) -> None:
         """Hard crash after the request reached Slack; outcome unknowable."""
         self.slack.default = "hang"
@@ -443,6 +469,16 @@ class PreservedBehaviourTests(RelayCase):
         self.assertEqual(row["status"], STATUS_DELIVERED)
         self.assertEqual(row["attempts"], 1)
         self.assertEqual(self.slack.request_count, 1)
+
+    def test_batch_limit_is_respected_and_rest_stays_uncharged(self) -> None:
+        ids = [self.enqueue() for _ in range(3)]
+        self.worker().process_once(limit=2)
+        rows = [self.status(i) for i in ids]
+        self.assertEqual(
+            [(r["status"], r["attempts"]) for r in rows],
+            [(STATUS_DELIVERED, 1), (STATUS_DELIVERED, 1), (STATUS_QUEUED, 0)],
+        )
+        self.assertEqual(self.slack.request_count, 2)
 
     def test_transient_retry_then_success(self) -> None:
         self.slack.script = ["http_503"]

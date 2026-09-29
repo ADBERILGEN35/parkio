@@ -4,8 +4,9 @@ Ambiguous outcomes (request may have been accepted, response lost) use a
 bounded retry policy with documented duplicate risk. They are NEVER recorded
 as confirmed delivery. After exhaustion → delivery_unknown (operator-visible).
 
-Attempts are counted durably at claim time, so the max_attempts budget holds
-across unexpected exceptions, process crashes and expired-lease reclaim.
+Attempts are counted durably when a row is claimed, immediately before its
+own send, so the max_attempts budget holds across unexpected exceptions,
+process crashes and expired-lease reclaim, and unsent rows are never charged.
 """
 
 from __future__ import annotations
@@ -79,14 +80,15 @@ class DeliveryWorker:
         if self._lock_held:
             self.store.heartbeat_worker_lock(self.worker_id)
 
-        # Claim under short DB transaction; network I/O happens after return
-        items = self.store.claim_batch(
-            worker_id=self.worker_id,
-            limit=limit,
-            max_attempts=self.config.max_attempts,
-        )
-        for item in items:
-            self._process_item(item)
+        # Pick the batch, then lease + charge one row at a time right before
+        # its send (short committed transaction; network I/O outside it), so a
+        # crash mid-batch never charges rows that were not sent.
+        for row_id in self.store.due_ids(
+            limit=limit, max_attempts=self.config.max_attempts
+        ):
+            item = self.store.claim_one(row_id, worker_id=self.worker_id)
+            if item is not None:
+                self._process_item(item)
         return self.stats
 
     def _process_item(self, item: QueueItem) -> None:
