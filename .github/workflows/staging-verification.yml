@@ -12,8 +12,6 @@ on:
       - "docs/operations/wp-06-02*.md"
       - "services/gateway-service/src/main/resources/application.yml"
       - ".github/workflows/staging-verification.yml"
-  schedule:
-    - cron: "47 5 * * 3"
   workflow_dispatch:
     inputs:
       run_restore:
