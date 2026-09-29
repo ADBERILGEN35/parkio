@@ -18,8 +18,11 @@ on:
       - "scripts/restore-isolated-fixture.sh"
       - "scripts/lib/restore-*.py"
       - "scripts/lib/restore-safe-preflight.sh"
+      - "scripts/lib/recovery_evidence_contract.py"
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-recovery-evidence-contract.py"
+      - "scripts/test-recovery-evidence-pg-share-lock.py"
       - "scripts/test-restore-isolated-fixture.sh"
       - "scripts/test-restore-isolated-teardown.sh"
       - "scripts/test-restore-isolated-topology.py"
@@ -88,6 +91,8 @@ jobs:
       - name: Helper unit tests (synthetic fixtures)
         run: |
           python3 scripts/test_restore_readiness.py
+          python3 scripts/test-recovery-evidence-contract.py
+          python3 scripts/test-recovery-evidence-pg-share-lock.py
           bash scripts/test-restore-safe-preflight.sh
           bash scripts/test-restore-isolated-teardown.sh
 
