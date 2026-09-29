@@ -9,9 +9,10 @@
 #
 # Usage:
 #   scripts/restore-database.sh <service> <dump-file> [--yes] [--env-file <path>]
-#                [--recovery-cutoff <ISO-8601-UTC>] [--isolated-fixture]
+#                [--recovery-cutoff <ISO-8601-UTC>] [--isolated-fixture] [--isolated-ticket FILE]
 # Standalone production apply is BLOCKED: this path does not replay erasures
-# and has no verified coverage evidence.
+# and has no verified coverage evidence. --isolated-fixture does not
+# self-authorize; a destination-bound orchestrator ticket is required.
 #
 #   <service>    one of: auth gateway user parking media gamification notification moderation
 #                analytics ai-validation
@@ -119,34 +120,46 @@ if ! parkio_restore_preflight_done; then
   fi
 fi
 
-# ---- resolve service -> container:user:db ----
-# Mirrors docker/docker-compose.yml container_name + POSTGRES_* env (defaults match .env.example).
-resolve() {
-  case "$1" in
-    auth)          echo "parkio-postgres-auth:${POSTGRES_AUTH_USER:-parkio_auth}:${POSTGRES_AUTH_DB:-parkio_auth}" ;;
-    gateway)       echo "parkio-postgres-gateway:${POSTGRES_GATEWAY_USER:-parkio_gateway}:${POSTGRES_GATEWAY_DB:-parkio_gateway}" ;;
-    user)          echo "parkio-postgres-user:${POSTGRES_USER_USER:-parkio_user}:${POSTGRES_USER_DB:-parkio_user}" ;;
-    parking)       echo "parkio-postgres-parking:${POSTGRES_PARKING_USER:-parkio_parking}:${POSTGRES_PARKING_DB:-parkio_parking}" ;;
-    media)         echo "parkio-postgres-media:${POSTGRES_MEDIA_USER:-parkio_media}:${POSTGRES_MEDIA_DB:-parkio_media}" ;;
-    gamification)  echo "parkio-postgres-gamification:${POSTGRES_GAMIFICATION_USER:-parkio_gamification}:${POSTGRES_GAMIFICATION_DB:-parkio_gamification}" ;;
-    notification)  echo "parkio-postgres-notification:${POSTGRES_NOTIFICATION_USER:-parkio_notification}:${POSTGRES_NOTIFICATION_DB:-parkio_notification}" ;;
-    moderation)    echo "parkio-postgres-moderation:${POSTGRES_MODERATION_USER:-parkio_moderation}:${POSTGRES_MODERATION_DB:-parkio_moderation}" ;;
-    analytics)     echo "parkio-postgres-analytics:${POSTGRES_ANALYTICS_USER:-parkio_analytics}:${POSTGRES_ANALYTICS_DB:-parkio_analytics}" ;;
-    ai-validation) echo "parkio-postgres-ai-validation:${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}:${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}" ;;
-    *) return 1 ;;
-  esac
-}
-
-if ! TRIPLE="$(resolve "${SERVICE}")"; then
-  echo "ERROR: unknown service '${SERVICE}'." >&2
-  echo "       Valid: auth gateway user parking media gamification notification moderation analytics ai-validation" >&2
-  exit 2
-fi
-IFS=":" read -r CONTAINER USER_NAME DB_NAME <<< "${TRIPLE}"
-
-if ! docker inspect "${CONTAINER}" >/dev/null 2>&1; then
-  echo "ERROR: container '${CONTAINER}' not found / not running." >&2
-  exit 1
+# Isolated apply uses ticket identities after live re-inspect. Production
+# names are only resolved on the blocked production path and must never be
+# used as a fallback from --isolated-fixture.
+APPLY_REF=""
+if parkio_restore_isolated_fixture_ok; then
+  DEST_JSON="$(parkio_restore_isolated_postgres_json "${SERVICE}")" || {
+    echo "ERROR: isolated ticket does not authorize postgres service '${SERVICE}'." >&2
+    exit 2
+  }
+  CONTAINER="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["containerName"])' <<<"${DEST_JSON}")"
+  APPLY_REF="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["containerId"])' <<<"${DEST_JSON}")"
+  USER_NAME="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["user"])' <<<"${DEST_JSON}")"
+  DB_NAME="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["database"])' <<<"${DEST_JSON}")"
+else
+  resolve() {
+    case "$1" in
+      auth)          echo "parkio-postgres-auth:${POSTGRES_AUTH_USER:-parkio_auth}:${POSTGRES_AUTH_DB:-parkio_auth}" ;;
+      gateway)       echo "parkio-postgres-gateway:${POSTGRES_GATEWAY_USER:-parkio_gateway}:${POSTGRES_GATEWAY_DB:-parkio_gateway}" ;;
+      user)          echo "parkio-postgres-user:${POSTGRES_USER_USER:-parkio_user}:${POSTGRES_USER_DB:-parkio_user}" ;;
+      parking)       echo "parkio-postgres-parking:${POSTGRES_PARKING_USER:-parkio_parking}:${POSTGRES_PARKING_DB:-parkio_parking}" ;;
+      media)         echo "parkio-postgres-media:${POSTGRES_MEDIA_USER:-parkio_media}:${POSTGRES_MEDIA_DB:-parkio_media}" ;;
+      gamification)  echo "parkio-postgres-gamification:${POSTGRES_GAMIFICATION_USER:-parkio_gamification}:${POSTGRES_GAMIFICATION_DB:-parkio_gamification}" ;;
+      notification)  echo "parkio-postgres-notification:${POSTGRES_NOTIFICATION_USER:-parkio_notification}:${POSTGRES_NOTIFICATION_DB:-parkio_notification}" ;;
+      moderation)    echo "parkio-postgres-moderation:${POSTGRES_MODERATION_USER:-parkio_moderation}:${POSTGRES_MODERATION_DB:-parkio_moderation}" ;;
+      analytics)     echo "parkio-postgres-analytics:${POSTGRES_ANALYTICS_USER:-parkio_analytics}:${POSTGRES_ANALYTICS_DB:-parkio_analytics}" ;;
+      ai-validation) echo "parkio-postgres-ai-validation:${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}:${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}" ;;
+      *) return 1 ;;
+    esac
+  }
+  if ! TRIPLE="$(resolve "${SERVICE}")"; then
+    echo "ERROR: unknown service '${SERVICE}'." >&2
+    echo "       Valid: auth gateway user parking media gamification notification moderation analytics ai-validation" >&2
+    exit 2
+  fi
+  IFS=":" read -r CONTAINER USER_NAME DB_NAME <<< "${TRIPLE}"
+  APPLY_REF="${CONTAINER}"
+  if ! docker inspect "${CONTAINER}" >/dev/null 2>&1; then
+    echo "ERROR: container '${CONTAINER}' not found / not running." >&2
+    exit 1
+  fi
 fi
 
 # ---- decoder pipeline based on file suffix ----
@@ -201,7 +214,7 @@ else
     exit 1
   fi
 fi
-if ! parkio_restore_check_client_compat "${PROFILE_FILE}" "${SERVICE}" "${CONTAINER}" "${USER_NAME}" "${DB_NAME}"; then
+if ! parkio_restore_check_client_compat "${PROFILE_FILE}" "${SERVICE}" "${APPLY_REF}" "${USER_NAME}" "${DB_NAME}"; then
   echo "ERROR: dump-client / restore-client / target-server compatibility failed; nothing was applied." >&2
   rm -f "${PROFILE_FILE}"
   exit 1
@@ -212,7 +225,7 @@ rm -f "${PROFILE_FILE}"
 echo "Restoring ${SERVICE} ..."
 
 if decode | maybe_gunzip \
-    | docker exec -i "${CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${USER_NAME}" -d "${DB_NAME}" >/dev/null; then
+    | docker exec -i "${APPLY_REF}" psql -v ON_ERROR_STOP=1 -U "${USER_NAME}" -d "${DB_NAME}" >/dev/null; then
   echo "Restore of '${SERVICE}' completed successfully."
 else
   echo "ERROR: restore of '${SERVICE}' FAILED. The database may be partially restored." >&2

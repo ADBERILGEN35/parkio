@@ -5,31 +5,45 @@
 #
 # Production refusals are not bypassed by PARKIO_RESTORE_ISOLATED_DRILL or
 # PARKIO_RESTORE_PREFLIGHT_DONE alone. Isolation requires --isolated-fixture
-# plus a validated ticket that binds the selected stamp.
+# plus a destination-bound ticket issued by restore-isolated-fixture.sh after
+# it has created the allowed targets. A CLI flag, env var, container name or
+# marker file is not isolation proof.
+
+parkio_restore_isolated_inspect_py() {
+  echo "${ROOT}/scripts/lib/restore-isolated-inspect.py"
+}
 
 parkio_restore_isolated_fixture_ok() {
   case "${PARKIO_RESTORE_ISOLATED_FIXTURE:-0}" in
     1|true|yes|on|TRUE|YES|ON) ;;
     *) return 1 ;;
   esac
+  if [ "${PARKIO_PG_MODE:-docker}" = "managed" ]; then
+    return 1
+  fi
   local ticket="${PARKIO_RESTORE_ISOLATED_TICKET:-}"
   if [ -z "${ticket}" ] || [ ! -f "${ticket}" ]; then
     return 1
   fi
-  grep -qx 'parkio-isolated-fixture=1' "${ticket}" || return 1
-  local ticket_stamp
-  ticket_stamp="$(grep '^stamp=' "${ticket}" | head -1 | sed 's/^stamp=//')"
-  if [ -z "${ticket_stamp}" ]; then
+  if [ -z "${PARKIO_RESTORE_STAMP_DIR:-}" ]; then
     return 1
   fi
-  if [ -n "${PARKIO_RESTORE_STAMP_DIR:-}" ]; then
-    local want
-    want="$(parkio_restore_realpath "${PARKIO_RESTORE_STAMP_DIR}")"
-    if [ "$(parkio_restore_realpath "${ticket_stamp}")" != "${want}" ]; then
-      return 1
-    fi
-  fi
-  return 0
+  python3 "$(parkio_restore_isolated_inspect_py)" \
+    --ticket "${ticket}" --stamp "${PARKIO_RESTORE_STAMP_DIR}"
+}
+
+parkio_restore_isolated_postgres_json() {
+  python3 "$(parkio_restore_isolated_inspect_py)" \
+    --ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+    --stamp "${PARKIO_RESTORE_STAMP_DIR}" \
+    --resolve-postgres "$1"
+}
+
+parkio_restore_isolated_minio_json() {
+  python3 "$(parkio_restore_isolated_inspect_py)" \
+    --ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+    --stamp "${PARKIO_RESTORE_STAMP_DIR}" \
+    --resolve-minio
 }
 
 # Env flags alone are not isolation or preflight proof.
@@ -45,32 +59,26 @@ parkio_restore_preflight_done() {
   parkio_restore_isolated_fixture_ok
 }
 
-parkio_restore_issue_isolated_ticket() {
-  local stamp="$1"
-  local ticket
-  ticket="$(mktemp "${TMPDIR:-/tmp}/parkio-isolated-fixture.XXXXXX")"
-  {
-    echo "parkio-isolated-fixture=1"
-    echo "stamp=$(parkio_restore_realpath "${stamp}")"
-  } > "${ticket}"
-  chmod 600 "${ticket}"
-  PARKIO_RESTORE_ISOLATED_FIXTURE=1
-  PARKIO_RESTORE_ISOLATED_TICKET="${ticket}"
-  export PARKIO_RESTORE_ISOLATED_FIXTURE PARKIO_RESTORE_ISOLATED_TICKET
-}
-
 parkio_restore_accept_isolated_fixture() {
   local stamp="$1"
   case "${PARKIO_RESTORE_ISOLATED_FIXTURE:-0}" in
     1|true|yes|on|TRUE|YES|ON) ;;
     *) return 0 ;;
   esac
-  if [ -z "${PARKIO_RESTORE_ISOLATED_TICKET:-}" ]; then
-    parkio_restore_issue_isolated_ticket "${stamp}"
-    return 0
+  if [ "${PARKIO_PG_MODE:-docker}" = "managed" ]; then
+    echo "ERROR: isolated-fixture restore does not support PARKIO_PG_MODE=managed." >&2
+    return 2
+  fi
+  PARKIO_RESTORE_STAMP_DIR="$(parkio_restore_realpath "${stamp}")"
+  export PARKIO_RESTORE_STAMP_DIR
+  if [ -z "${PARKIO_RESTORE_ISOLATED_TICKET:-}" ] || [ ! -f "${PARKIO_RESTORE_ISOLATED_TICKET}" ]; then
+    echo "ERROR: --isolated-fixture does not authorize restore." >&2
+    echo "A destination-bound ticket from scripts/restore-isolated-fixture.sh is required." >&2
+    echo "The restore entrypoint will not issue its own isolation exception." >&2
+    return 2
   fi
   if ! parkio_restore_isolated_fixture_ok; then
-    echo "ERROR: isolated-fixture ticket is missing or does not match the selected stamp." >&2
+    echo "ERROR: isolated-fixture ticket failed live destination checks for stamp ${PARKIO_RESTORE_STAMP_DIR}." >&2
     return 2
   fi
 }

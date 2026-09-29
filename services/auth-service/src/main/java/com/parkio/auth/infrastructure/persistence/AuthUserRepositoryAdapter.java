@@ -46,6 +46,11 @@ public class AuthUserRepositoryAdapter implements AuthUserRepository {
     }
 
     @Override
+    public Optional<AuthUser> findByIdForUpdate(UUID id) {
+        return jpa.findByIdForUpdate(id).map(AuthPersistenceMapper::toDomain);
+    }
+
+    @Override
     public Optional<AuthUser> findByEmail(String email) {
         return jpa.findByEmail(email).map(AuthPersistenceMapper::toDomain);
     }

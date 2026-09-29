@@ -3,6 +3,10 @@
 Ambiguous outcomes (request may have been accepted, response lost) use a
 bounded retry policy with documented duplicate risk. They are NEVER recorded
 as confirmed delivery. After exhaustion → delivery_unknown (operator-visible).
+
+Attempts are counted durably when a row is claimed, immediately before its
+own send, so the max_attempts budget holds across unexpected exceptions,
+process crashes and expired-lease reclaim, and unsent rows are never charged.
 """
 
 from __future__ import annotations
@@ -76,13 +80,27 @@ class DeliveryWorker:
         if self._lock_held:
             self.store.heartbeat_worker_lock(self.worker_id)
 
-        # Claim under short DB transaction; network I/O happens after return
-        items = self.store.claim_batch(worker_id=self.worker_id, limit=limit)
-        for item in items:
-            self._process_item(item)
+        # Pick the batch, then lease + charge one row at a time right before
+        # its send (short committed transaction; network I/O outside it), so a
+        # crash mid-batch never charges rows that were not sent.
+        for row_id in self.store.due_ids(
+            limit=limit, max_attempts=self.config.max_attempts
+        ):
+            item = self.store.claim_one(row_id, worker_id=self.worker_id)
+            if item is not None:
+                self._process_item(item)
         return self.stats
 
     def _process_item(self, item: QueueItem) -> None:
+        try:
+            self._deliver(item)
+        except Exception as exc:  # noqa: BLE001 - one item must not stop the batch
+            # Where it failed is unknown (maybe after Slack accepted the post),
+            # so it is ambiguous, never delivered. Store errors raised here
+            # propagate; the counted claim and lease reclaim still bound them.
+            self._handle_ambiguous(item, f"worker_exception:{type(exc).__name__}")
+
+    def _deliver(self, item: QueueItem) -> None:
         webhook = self.config.webhook_for_route(item.event.route)
         if not webhook:
             self.store.mark_dead(item, reason="no_webhook_for_route")
@@ -112,13 +130,12 @@ class DeliveryWorker:
             return
 
         # Transient / rate-limited — no duplicate risk beyond at-least-once
-        attempts_after = item.attempts + 1
-        if attempts_after >= self.config.max_attempts:
+        if item.attempts >= self.config.max_attempts:
             self.store.mark_dead(item, reason=f"exhausted:{result.detail}")
             self.stats.dead += 1
             return
 
-        delay = self._compute_delay(attempts_after, result.retry_after_seconds)
+        delay = self._compute_delay(item.attempts, result.retry_after_seconds)
         self.store.mark_retry(item, error=result.detail, delay_seconds=delay)
         self.stats.retried += 1
 
@@ -129,8 +146,7 @@ class DeliveryWorker:
         Bounded retry with duplicate risk: Slack may already have the message.
         Never classify as confirmed delivery. After max attempts → delivery_unknown.
         """
-        attempts_after = item.attempts + 1
-        if attempts_after >= self.config.max_attempts:
+        if item.attempts >= self.config.max_attempts:
             self.store.mark_delivery_unknown(
                 item,
                 reason=f"ambiguous_exhausted:{detail}",
@@ -139,7 +155,7 @@ class DeliveryWorker:
             return
 
         delay = self._compute_delay(
-            attempts_after, self.config.ambiguous_retry_base_seconds
+            item.attempts, self.config.ambiguous_retry_base_seconds
         )
         self.store.mark_retry(
             item,

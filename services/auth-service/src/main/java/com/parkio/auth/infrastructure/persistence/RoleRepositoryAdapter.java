@@ -22,4 +22,9 @@ public class RoleRepositoryAdapter implements RoleRepository {
     public Optional<Role> findByName(RoleName name) {
         return jpa.findByName(name).map(AuthPersistenceMapper::toDomain);
     }
+
+    @Override
+    public Optional<Role> findByNameForUpdate(RoleName name) {
+        return jpa.findByNameForUpdate(name).map(AuthPersistenceMapper::toDomain);
+    }
 }

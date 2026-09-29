@@ -11,8 +11,10 @@
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 #
 # Production path is BLOCKED before decrypt or apply: a manifest timestamp
-# is not verified coverage. --isolated-fixture is the only supported
-# synthetic path. Env flags alone do not bypass. Does not start applications.
+# is not verified coverage. --isolated-fixture plus a destination-bound
+# ticket from restore-isolated-fixture.sh is the only supported synthetic
+# path. The CLI flag does not self-authorize. Env flags alone do not bypass.
+# Does not start applications.
 #
 set -euo pipefail
 
@@ -133,6 +135,21 @@ fi
 
 restore_databases() {
   local svc dump
+  if [ "$DRY_RUN" -ne 1 ]; then
+    if ! parkio_restore_isolated_fixture_ok; then
+      echo "ERROR: production restore cannot apply databases without verified coverage." >&2
+      return 3
+    fi
+    while IFS= read -r svc; do
+      [ -z "${svc}" ] && continue
+      svc="${svc//$'\r'/}"
+      python3 -c 'import json,sys; t=json.load(open(sys.argv[1],encoding="utf-8")); sys.exit(0 if sys.argv[2] in (t.get("postgres") or {}) else 2)' \
+        "${PARKIO_RESTORE_ISOLATED_TICKET}" "${svc}" || {
+        echo "ERROR: isolated ticket does not authorize manifest postgres service '${svc}'." >&2
+        return 2
+      }
+    done < <(jq -r '.databases[]' "${MANIFEST}")
+  fi
   while IFS= read -r svc; do
     [ -z "${svc}" ] && continue
     svc="${svc//$'\r'/}"
@@ -151,10 +168,6 @@ restore_databases() {
     echo "Restoring database '${svc}' from ${dump} ..."
     local args=(--yes)
     if [ -n "${ENV_FILE}" ]; then args+=(--env-file "${ENV_FILE}"); fi
-    if ! parkio_restore_isolated_fixture_ok; then
-      echo "ERROR: production restore cannot apply databases without verified coverage." >&2
-      return 3
-    fi
     args+=(--isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}")
     PARKIO_RESTORE_PREFLIGHT_DONE=1 \
     PARKIO_RESTORE_ISOLATED_FIXTURE=1 \
@@ -164,7 +177,6 @@ restore_databases() {
 }
 
 restore_minio() {
-  local restore_bucket="${MINIO_RESTORE_BUCKET:-${BUCKET}}"
   local stage=""
   local mirror_src=""
   local cleanup_stage=0
@@ -197,40 +209,49 @@ restore_minio() {
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: would mirror ${mirror_src} -> local/${restore_bucket}"
+    echo "DRY-RUN: would mirror ${mirror_src} -> isolated MinIO destination (apply skipped)"
     if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 0
   fi
+  if ! parkio_restore_isolated_fixture_ok; then
+    echo "ERROR: MinIO apply requires a destination-bound isolated-fixture ticket." >&2
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
+    return 3
+  fi
+  local dest_json restore_bucket minio_container network endpoint minio_user minio_password
+  dest_json="$(parkio_restore_isolated_minio_json)" || {
+    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
+    return 2
+  }
+  restore_bucket="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["bucket"])' <<<"${dest_json}")"
+  minio_container="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["containerName"])' <<<"${dest_json}")"
+  network="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["networkId"])' <<<"${dest_json}")"
+  endpoint="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["endpoint"])' <<<"${dest_json}")"
+  minio_user="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["user"])' <<<"${dest_json}")"
+  minio_password="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])' <<<"${dest_json}")"
   if [ ! -d "${mirror_src}" ]; then
     echo "ERROR: MinIO mirror not found: ${mirror_src}" >&2
     if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
     return 1
   fi
-  if [ "${restore_bucket}" = "${BUCKET}" ] && [ "${PARKIO_ALLOW_LIVE_MINIO_RESTORE:-}" != "yes" ]; then
-    echo "ERROR: refusing to overwrite live bucket '${BUCKET}'." >&2
-    echo "Set MINIO_RESTORE_BUCKET to an isolated bucket, or PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes after operator confirmation." >&2
-    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
-    return 2
-  fi
-  local network mc_image minio_container
-  minio_container="${PARKIO_MINIO_CONTAINER:-parkio-minio}"
-  network="$(parkio_backup_backend_network "${minio_container}")"
+  local mc_image
   mc_image="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
-  docker run --rm \
+  MSYS_NO_PATHCONV=1 docker run --rm \
     --network "${network}" \
-    --entrypoint /bin/sh \
+    --entrypoint sh \
     -v "${mirror_src}:/restore:ro" \
-    -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
-    -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}" \
+    -e "MINIO_ROOT_USER=${minio_user}" \
+    -e "MINIO_ROOT_PASSWORD=${minio_password}" \
     -e "BUCKET=${restore_bucket}" \
+    -e "ENDPOINT=${endpoint}" \
     "${mc_image}" \
     -c '
       set -eu
-      mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+      mc alias set local "$ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
       mc mb -p "local/${BUCKET}" >/dev/null 2>&1 || true
       mc mirror --overwrite /restore "local/${BUCKET}"
     '
-  echo "MinIO restore completed from ${mirror_src} -> ${restore_bucket}"
+  echo "MinIO restore completed from ${mirror_src} -> ${minio_container}/${restore_bucket}"
   if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
 }
 
@@ -246,15 +267,24 @@ fi
 
 replay_erasure_ledger() {
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: would replay ${DEST_DIR}/erasure-tombstones.json into auth"
+    echo "DRY-RUN: would replay ${DEST_DIR}/erasure-tombstones.json into isolated auth"
     return 0
   fi
+  if ! parkio_restore_isolated_fixture_ok; then
+    echo "ERROR: erasure replay requires a destination-bound isolated-fixture ticket." >&2
+    return 3
+  fi
+  local dest_json auth_ref auth_user auth_db
+  dest_json="$(parkio_restore_isolated_postgres_json auth)" || return 2
+  auth_ref="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["containerId"])' <<<"${dest_json}")"
+  auth_user="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["user"])' <<<"${dest_json}")"
+  auth_db="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["database"])' <<<"${dest_json}")"
   local ledger="${PARKIO_RESTORE_MERGED_LEDGER:-${DEST_DIR}/erasure-tombstones.json}"
   PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER="${PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER:-1}" \
     parkio_replay_erasure_tombstones "${ledger}" \
-      "${PARKIO_POSTGRES_AUTH_CONTAINER:-parkio-postgres-auth}" \
-      "${POSTGRES_AUTH_USER:-parkio_auth}" \
-      "${POSTGRES_AUTH_DB:-parkio_auth}"
+      "${auth_ref}" \
+      "${auth_user}" \
+      "${auth_db}"
   echo "Erasure ledger replayed; do not serve traffic until auth POST /internal/erasure/replay (or Kafka) finishes participant erase."
 }
 

@@ -192,7 +192,7 @@ describe('AccountPreparingPage', () => {
   });
 
   it('keeps profile-save failure visible until lifecycle completion triggers the boundary redirect', async () => {
-    setPendingProfile({ displayName: 'New Driver' });
+    setPendingProfile({ displayName: 'New Driver' }, meUser.id);
     server.use(
       http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(meUser)),
       http.patch(`${API_BASE}/users/me`, () =>
@@ -242,8 +242,9 @@ describe('AccountPreparingPage', () => {
 
   it('PATCHes in-memory phone without ever persisting it to sessionStorage', async () => {
     let patchBody: Record<string, unknown> | null = null;
-    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' }, meUser.id);
     expect(JSON.parse(sessionStorage.getItem('parkio.pendingProfile')!)).toEqual({
+      ownerUserId: meUser.id,
       displayName: 'New Driver',
       needsPhoneReentry: true,
     });
@@ -268,7 +269,7 @@ describe('AccountPreparingPage', () => {
   });
 
   it('asks for phone re-entry after reload when phone was lost from memory', async () => {
-    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' });
+    setPendingProfile({ displayName: 'New Driver', phoneNumber: '5551234567' }, meUser.id);
     // Simulate reload: memory gone, non-sensitive re-entry flag remains.
     resetPendingProfileMemoryForTests();
 

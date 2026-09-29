@@ -13,7 +13,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
-import { getPendingProfile } from '@/auth/pendingProfile';
+import { getPendingProfileFor } from '@/auth/pendingProfile';
 import {
   AUTH_RETURN_QUERY_PARAM,
   sanitizeInternalRedirect,
@@ -65,7 +65,9 @@ export function LoginPage() {
       setSession(result.accessToken, result.user);
       trackProductEvent('auth_login_api_succeeded');
       showSuccess(t('auth:login.success'));
-      if (getPendingProfile()) {
+      // Only the account that registered the pending fields may resume preparation;
+      // another account's pending data is discarded here.
+      if (getPendingProfileFor(result.user.id)) {
         beginProvisioning();
         navigate('/preparing');
       } else {

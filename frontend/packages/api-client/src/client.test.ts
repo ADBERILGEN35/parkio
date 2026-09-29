@@ -10,6 +10,7 @@ import {
 import { CORRELATION_HEADER } from './correlation';
 import { UnauthorizedError } from './errors';
 import { MemoryTokenStorage } from './token-storage';
+import { createUsersApi } from './users';
 
 const BASE = 'http://api.test/api/v1';
 
@@ -184,6 +185,128 @@ describe('401 refresh behavior', () => {
       expect(refresh).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('per-request auth binding', () => {
+  interface Attempt {
+    authorization: string | null;
+    body: unknown;
+  }
+
+  /** PATCH /users/me accepted only for `validToken`; every attempt is recorded. */
+  function patchEndpoint(validToken: string) {
+    const attempts: Attempt[] = [];
+    server.use(
+      http.patch(`${BASE}/users/me`, async ({ request }) => {
+        const authorization = request.headers.get('authorization');
+        attempts.push({ authorization, body: await request.json() });
+        if (authorization !== `Bearer ${validToken}`) {
+          return HttpResponse.json(apiErrorBody('INVALID_TOKEN'), { status: 401 });
+        }
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    return attempts;
+  }
+
+  it('stamps the bound token even when storage switched to another identity', async () => {
+    const attempts = patchEndpoint('token-a');
+    const { client, storage } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    const pending = createUsersApi(client).updateMyProfileAs(
+      { accessToken: 'token-a' },
+      { displayName: 'A' },
+    );
+    // Before the (asynchronous) request interceptor runs.
+    storage.setTokens({ accessToken: 'token-b' });
+    await pending;
+
+    expect(attempts).toEqual([{ authorization: 'Bearer token-a', body: { displayName: 'A' } }]);
+  });
+
+  it('keeps unbound requests on the token present when the interceptor runs', async () => {
+    const attempts = patchEndpoint('token-b');
+    const { client, storage } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    const pending = createUsersApi(client).updateMyProfile({ displayName: 'X' });
+    storage.setTokens({ accessToken: 'token-b' });
+    await pending;
+
+    expect(attempts.map((a) => a.authorization)).toEqual(['Bearer token-b']);
+  });
+
+  it('never retries a bound request without allowRetry, but still syncs the refreshed token', async () => {
+    const attempts = patchEndpoint('token-b2');
+    const { client, storage, onAuthFailure } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    const refresh = vi.fn(async () => 'token-b2');
+    setRefreshHandler(refresh);
+
+    await expect(
+      createUsersApi(client).updateMyProfileAs(
+        { accessToken: 'token-a' },
+        { displayName: 'A' },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(attempts.map((a) => a.authorization)).toEqual(['Bearer token-a']);
+    expect(storage.getAccessToken()).toBe('token-b2');
+    // The refreshed session is valid; this is not a hard logout.
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it('does not retry when allowRetry rejects the refreshed session', async () => {
+    const attempts = patchEndpoint('token-b2');
+    const { client, storage } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    setRefreshHandler(async () => 'token-b2');
+    const allowRetry = vi.fn(() => false);
+
+    await expect(
+      createUsersApi(client).updateMyProfileAs(
+        { accessToken: 'token-a', allowRetry },
+        { displayName: 'A' },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+
+    expect(allowRetry).toHaveBeenCalledWith('token-b2');
+    expect(attempts.map((a) => a.authorization)).toEqual(['Bearer token-a']);
+  });
+
+  it('retries once under the refreshed token when allowRetry confirms the identity', async () => {
+    const attempts = patchEndpoint('token-a2');
+    const { client, storage } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    setRefreshHandler(async () => 'token-a2');
+
+    await expect(
+      createUsersApi(client).updateMyProfileAs(
+        { accessToken: 'token-a', allowRetry: () => true },
+        { displayName: 'A' },
+      ),
+    ).resolves.toEqual({ ok: true });
+
+    expect(attempts).toEqual([
+      { authorization: 'Bearer token-a', body: { displayName: 'A' } },
+      { authorization: 'Bearer token-a2', body: { displayName: 'A' } },
+    ]);
+  });
+
+  it('still hard-logs-out a bound request when refresh fails', async () => {
+    patchEndpoint('never');
+    const { client, storage, onAuthFailure } = makeClient();
+    storage.setTokens({ accessToken: 'token-a' });
+    setRefreshHandler(async () => null);
+
+    await expect(
+      createUsersApi(client).updateMyProfileAs(
+        { accessToken: 'token-a', allowRetry: () => true },
+        { displayName: 'A' },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('refreshSession single-flight coordinator', () => {

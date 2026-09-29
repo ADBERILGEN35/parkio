@@ -186,9 +186,11 @@ public class AdminApplicationService {
 
     public void revokeAllSessions(UUID actorId, Set<String> actorRoles, UUID targetId, String reason) {
         AdminAuthority.requireAdmin(actorRoles);
-        AuthUser target = requireUser(targetId);
+        AuthUser target = requireUserForUpdate(targetId);
         ensureCanManageTarget(actorRoles, target);
         Instant now = clock.instant();
+        target.bumpSessionEpoch();
+        authUsers.save(target);
         int revoked = refreshTokens.revokeAllActiveForUser(
                 target.id(), RefreshTokenRevocationReason.ADMIN_REVOKED, now);
         recordSuccess(
@@ -233,15 +235,19 @@ public class AdminApplicationService {
 
     public void grantRole(UUID actorId, Set<String> actorRoles, UUID targetId, RoleName roleName, String reason) {
         AdminAuthority.requireAdmin(actorRoles);
-        AuthUser target = requireUser(targetId);
-        ensureCanManageTarget(actorRoles, target);
         validateRoleChange(actorRoles, roleName, true);
+        // All SUPER_ADMIN population changes take this lock before the user lock.
+        // In particular, two concurrent removals must not both pass the last-admin count.
+        Role role = roleName == RoleName.SUPER_ADMIN
+                ? requireRoleForUpdate(roleName)
+                : requireRole(roleName);
+        AuthUser target = requireUserForUpdate(targetId);
+        ensureCanManageTarget(actorRoles, target);
         if (target.hasRole(roleName)) {
             throw new AuthException(AuthErrorCode.CONFLICT, "User already has role " + roleName.name());
         }
-        Role role = roles.findByName(roleName)
-                .orElseThrow(() -> new AuthException(AuthErrorCode.CONFLICT, "Role not seeded: " + roleName.name()));
         target.grantRole(role);
+        target.bumpSessionEpoch();
         authUsers.save(target);
         recordSuccess(
                 actorId,
@@ -254,16 +260,20 @@ public class AdminApplicationService {
 
     public void revokeRole(UUID actorId, Set<String> actorRoles, UUID targetId, RoleName roleName, String reason) {
         AdminAuthority.requireAdmin(actorRoles);
-        AuthUser target = requireUser(targetId);
-        ensureCanManageTarget(actorRoles, target);
         validateRoleChange(actorRoles, roleName, false);
         if (roleName == RoleName.SUPER_ADMIN) {
-            ensureNotLastSuperAdmin();
+            requireRoleForUpdate(roleName);
         }
+        AuthUser target = requireUserForUpdate(targetId);
+        ensureCanManageTarget(actorRoles, target);
         if (!target.hasRole(roleName)) {
             throw new AuthException(AuthErrorCode.CONFLICT, "User does not have role " + roleName.name());
         }
+        if (roleName == RoleName.SUPER_ADMIN) {
+            ensureNotLastSuperAdmin();
+        }
         target.revokeRole(roleName);
+        target.bumpSessionEpoch();
         authUsers.save(target);
         recordSuccess(
                 actorId,
@@ -295,8 +305,10 @@ public class AdminApplicationService {
 
     public void bootstrapSuperAdmin(String email) {
         String normalized = AuthUser.normalizeEmail(email);
-        AuthUser user = authUsers.findByEmail(normalized)
+        Role superAdminRole = requireRoleForUpdate(RoleName.SUPER_ADMIN);
+        AuthUser existing = authUsers.findByEmail(normalized)
                 .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND, "User must exist before bootstrap."));
+        AuthUser user = requireUserForUpdate(existing.id());
         long superAdminCount = authUsers.countByRole(RoleName.SUPER_ADMIN);
         if (superAdminCount > 0) {
             if (user.hasRole(RoleName.SUPER_ADMIN)) {
@@ -310,9 +322,8 @@ public class AdminApplicationService {
                     AuthErrorCode.INVALID_ADMIN_ACTION,
                     "User must be ACTIVE and email-verified before bootstrap.");
         }
-        Role superAdminRole = roles.findByName(RoleName.SUPER_ADMIN)
-                .orElseThrow(() -> new AuthException(AuthErrorCode.CONFLICT, "SUPER_ADMIN role is not seeded"));
         user.grantRole(superAdminRole);
+        user.bumpSessionEpoch();
         authUsers.save(user);
         recordBootstrapSuccess(user);
         log.info("Bootstrapped SUPER_ADMIN for user {}", user.id());
@@ -320,6 +331,21 @@ public class AdminApplicationService {
 
     private AuthUser requireUser(UUID userId) {
         return authUsers.findById(userId).orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+    }
+
+    private AuthUser requireUserForUpdate(UUID userId) {
+        return authUsers.findByIdForUpdate(userId)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
+    }
+
+    private Role requireRole(RoleName roleName) {
+        return roles.findByName(roleName)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.CONFLICT, "Role not seeded: " + roleName.name()));
+    }
+
+    private Role requireRoleForUpdate(RoleName roleName) {
+        return roles.findByNameForUpdate(roleName)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.CONFLICT, "Role not seeded: " + roleName.name()));
     }
 
     private void ensureCanManageTarget(Set<String> actorRoles, AuthUser target) {

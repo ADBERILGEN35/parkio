@@ -79,7 +79,8 @@ RUN set -e; \
     node apps/web/scripts/verify-bundle-env.mjs ${args}
 
 # ---- runtime stage ----
-FROM nginx:1.30.5-alpine3.24 AS runtime
+# linux/amd64 digest of nginx:1.30.5-alpine3.24 (Hub tag still ships libexpat 2.8.4-r0).
+FROM nginx:1.30.5-alpine3.24@sha256:8f84ed99befc3891b8f329c5c202785278a2cfb7c25107d57fb2a134a3117433 AS runtime
 
 ARG IMAGE_VERSION=0.0.1-SNAPSHOT
 ARG IMAGE_REVISION=unknown
@@ -93,6 +94,11 @@ LABEL org.opencontainers.image.title="parkio-web" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \
       org.opencontainers.image.revision="${IMAGE_REVISION}" \
       org.opencontainers.image.created="${IMAGE_CREATED}"
+
+# CVE-2026-93990: Alpine v3.24 main has expat/libexpat 2.8.5-r0; this nginx
+# digest still installs 2.8.4-r0. Smallest runtime-layer remediation on the
+# same nginx 1.30.5 / Alpine 3.24 line. Not a framework or base-image bump.
+RUN apk add --no-cache --upgrade 'libexpat>=2.8.5-r0'
 
 COPY frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html

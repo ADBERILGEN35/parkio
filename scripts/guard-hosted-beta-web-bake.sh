@@ -83,6 +83,16 @@ require_kv "$AZURE_EX" VITE_PUBLIC_EXPLORE_ENABLED true
 require_kv "$AZURE_EX" VITE_API_BASE_URL 'https://api.parkio.dev/api/v1'
 require_kv "$AZURE_EX" VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED false
 
+RELEASE_YML=".github/workflows/release.yml"
+require_file "$RELEASE_YML"
+if grep -q "VERIFY_REQUIRE_PUBLIC_EXPLORE=true" "$RELEASE_YML" \
+  && grep -q "VERIFY_REQUIRE_MUNICIPAL={0}" "$RELEASE_YML" \
+  && grep -q "steps.web_bake.outputs.vite_web_municipal_discovery_enabled" "$RELEASE_YML"; then
+  ok "release.yml verifies public Explore and municipal from the bake output"
+else
+  bad "release.yml must pass VERIFY_REQUIRE_PUBLIC_EXPLORE=true and VERIFY_REQUIRE_MUNICIPAL from the bake municipal value"
+fi
+
 # Effective pin image + overlay precedence (comments cannot satisfy this).
 set +e
 pin_out="$("$NODE" --input-type=module <<'JS'

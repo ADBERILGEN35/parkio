@@ -5,6 +5,7 @@
 #   * run_waitlist_acceptance.py      — waitlist confirmation family (PR #74)
 #   * run_acceptance.py               — Y03 families (PR #54)
 #   * run_reliability_acceptance.py   — Y03A delivery reliability (PR #54)
+#   * test_ambiguous_delivery.py      — U07 malformed response / crash-restart bounds
 # plus static checks of the Civo relay package (shell syntax, systemd unit
 # verification) and the production Compose integration (synthetic env only).
 #
@@ -65,6 +66,10 @@ jobs:
       - name: Y03A reliability acceptance
         working-directory: scripts
         run: python slack_biz/run_reliability_acceptance.py
+
+      - name: U07 ambiguous-response / crash-restart regressions
+        working-directory: scripts
+        run: python -m unittest -v slack_biz.test_ambiguous_delivery
 
       - name: Civo relay package static checks
         run: |

@@ -1,7 +1,7 @@
 # Recovery evidence contract (isolated design)
 
 Draft only. Not production enablement, host install, or F-03 closure.
-Baseline: merged #109 `2877ec81`. #104 remains HOLD at `c24f4f3d` and is
+Integration baseline: `api` at `0a5d1de` (after #121 destination binding). #104 remains HOLD at `c24f4f3d` and is
 not modified.
 
 `verifiedCoverage` stays **false** on the production restore path. A JSON
@@ -210,7 +210,8 @@ consumer watermark. `verifiedCoverage` stays false.
 ## 6. Production path
 
 `parkio_restore_refuse_unverified_production` is unchanged. Isolated
-fixtures may continue to use `--isolated-fixture`. This package does
+fixtures require #121's destination-bound orchestrator ticket; the CLI
+`--isolated-fixture` flag alone cannot authorize any apply. This package does
 **not** set `verifiedCoverage=true` and does not add an evidence-file
 bypass.
 
