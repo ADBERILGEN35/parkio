@@ -81,18 +81,36 @@ function waitPgReady(containerId, timeoutMs = 120_000) {
       try {
         execFileSync(
           'docker',
-          ['exec', containerId, 'pg_isready', '-U', 'csrf', '-d', 'parkio_auth'],
+          ['exec', containerId, 'pg_isready', '-U', 'csrf', '-d', 'postgres'],
           { stdio: 'ignore' },
         );
-        resolve();
-        return;
-      } catch {
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error(`timeout waiting for Postgres ready in ${containerId}`));
+        const exists = execFileSync(
+          'docker',
+          [
+            'exec',
+            containerId,
+            'psql',
+            '-U',
+            'csrf',
+            '-d',
+            'postgres',
+            '-tAc',
+            "SELECT 1 FROM pg_database WHERE datname='parkio_auth'",
+          ],
+          { encoding: 'utf8' },
+        ).trim();
+        if (exists === '1') {
+          resolve();
           return;
         }
-        setTimeout(tryOnce, 500);
+      } catch {
+        /* retry */
       }
+      if (Date.now() - start > timeoutMs) {
+        reject(new Error(`timeout waiting for Postgres parkio_auth in ${containerId}`));
+        return;
+      }
+      setTimeout(tryOnce, 500);
     };
     tryOnce();
   });
@@ -165,22 +183,15 @@ function reverseProxy(tls, listenPort, targetPort, edgeFile, edgeLabel) {
  * (allow-list, not request echo of arbitrary Origin). Isolates auth Origin guard
  * from gateway CORS. Not production.
  */
-function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret, reflectOrigins) {
+/**
+ * Lab-only auth-direct front on api.parkio.test (same host, different port):
+ * stamps X-Gateway-Auth and proxies to auth. No CORS headers — browser JS may see
+ * status 0; auth Origin proof is the server capture + session probe (simple POST
+ * avoids preflight). Production allowlists unchanged.
+ */
+function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
   return listenHttps(listenPort, tls, (req, res) => {
     const requestOrigin = req.headers.origin || '';
-    // Use the allow-list entry itself as ACAO (not the raw header) so CORS is not
-    // an open reflector. Lab origins only; production allowlists unchanged.
-    const matchedOrigin = reflectOrigins.find((o) => o === requestOrigin) || null;
-    const corsHeaders = matchedOrigin
-      ? {
-          'access-control-allow-origin': matchedOrigin,
-          'access-control-allow-credentials': 'true',
-          'access-control-allow-headers':
-            req.headers['access-control-request-headers'] || 'content-type,x-parkio-client',
-          'access-control-allow-methods': 'GET,POST,OPTIONS',
-          vary: 'Origin',
-        }
-      : {};
     if (req.method === 'OPTIONS') {
       appendEdge(edgeFile, {
         edge: 'auth-direct',
@@ -190,8 +201,9 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret, ref
         contentType: null,
         hasCookie: Boolean(req.headers.cookie),
       });
-      res.writeHead(matchedOrigin ? 204 : 403, corsHeaders);
-      res.end();
+      // No ACAO — JSON preflight must not be mistaken for auth Origin proof.
+      res.writeHead(403, { 'content-type': 'text/plain' });
+      res.end('lab auth-direct does not answer CORS preflight');
       return;
     }
     const chunks = [];
@@ -223,13 +235,12 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret, ref
           headers,
         },
         (uRes) => {
-          const outHeaders = { ...uRes.headers, ...corsHeaders };
-          res.writeHead(uRes.statusCode || 502, outHeaders);
+          res.writeHead(uRes.statusCode || 502, uRes.headers);
           uRes.pipe(res);
         },
       );
       uReq.on('error', (err) => {
-        res.writeHead(502, { 'content-type': 'text/plain', ...corsHeaders });
+        res.writeHead(502, { 'content-type': 'text/plain' });
         res.end(String(err));
       });
       if (body.length) uReq.write(body);
@@ -401,7 +412,7 @@ async function main() {
         '-U',
         'csrf',
         '-d',
-        'parkio_auth',
+        'postgres',
         '-c',
         'CREATE DATABASE parkio_gateway;',
       ],
@@ -507,13 +518,7 @@ async function main() {
     console.log('gateway ready');
 
     servers.push(await reverseProxy(tls, API_PORT, GATEWAY_PORT, edgeFile, 'gateway-tls'));
-    servers.push(
-      await authDirectProxy(tls, AUTH_DIRECT_PORT, AUTH_PORT, edgeFile, GATEWAY_SECRET, [
-        appOrigin,
-        evilOrigin,
-        crossOrigin,
-      ]),
-    );
+    servers.push(await authDirectProxy(tls, AUTH_DIRECT_PORT, AUTH_PORT, edgeFile, GATEWAY_SECRET));
     servers.push(await staticPage(tls, APP_PORT, apiOrigin, 'app'));
     servers.push(await staticPage(tls, EVIL_PORT, apiOrigin, 'evil'));
     servers.push(await staticPage(tls, CROSS_PORT, apiOrigin, 'cross'));

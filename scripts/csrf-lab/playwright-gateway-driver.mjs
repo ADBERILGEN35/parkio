@@ -289,20 +289,17 @@ async function main() {
     assertNoMutation(baseline, probe(attackRaw), 'siblingLogoutSimple');
 
     // --- auth Origin isolation (lab auth-direct; gateway CORS bypassed) ---
+    // Simple form POST avoids CORS preflight; browser may not read the response
+    // without ACAO — proof is auth capture 403 + unchanged session.
     since = nowIso();
     const originIsolateRefresh = await evilPage.evaluate(
-      async ({ api }) => window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, api }),
+      async ({ api }) => window.__parkio.callSimple('/api/v1/auth/refresh-token', { api }),
       { api: apiAuthDirectOrigin },
     );
     outcome.checks.authOriginIsolateRefresh = originIsolateRefresh;
     if (originIsolateRefresh.status === 200) {
       throw new Error(
         `auth Origin isolate refresh MUST NOT succeed: ${JSON.stringify(originIsolateRefresh)}`,
-      );
-    }
-    if (originIsolateRefresh.status !== 403) {
-      throw new Error(
-        `auth Origin isolate expected HTTP 403 from auth, got ${originIsolateRefresh.status}: ${JSON.stringify(originIsolateRefresh)}`,
       );
     }
     const isolateAttr = attribute('authOriginIsolateRefresh', {
@@ -323,24 +320,24 @@ async function main() {
 
     since = nowIso();
     const originIsolateLogout = await evilPage.evaluate(
-      async ({ api }) => window.__parkio.call('/api/v1/auth/logout', { body: {}, api }),
+      async ({ api }) => window.__parkio.callSimple('/api/v1/auth/logout', { api }),
       { api: apiAuthDirectOrigin },
     );
     outcome.checks.authOriginIsolateLogout = originIsolateLogout;
     if (originIsolateLogout.status === 200 || originIsolateLogout.status === 204) {
       throw new Error(`auth Origin isolate logout MUST NOT succeed: ${JSON.stringify(originIsolateLogout)}`);
     }
-    if (originIsolateLogout.status !== 403) {
-      throw new Error(
-        `auth Origin isolate logout expected 403, got ${originIsolateLogout.status}: ${JSON.stringify(originIsolateLogout)}`,
-      );
-    }
-    attribute('authOriginIsolateLogout', {
+    const isolateLogoutAttr = attribute('authOriginIsolateLogout', {
       origin: evilOrigin,
       pathIncludes: ['logout'],
       sinceTs: since,
       browserStatus: originIsolateLogout.status,
     });
+    if (!isolateLogoutAttr.reachedAuth || !isolateLogoutAttr.authStatuses.includes(403)) {
+      throw new Error(
+        `auth Origin isolate logout must reach auth with 403: ${JSON.stringify(isolateLogoutAttr)}`,
+      );
+    }
     assertNoMutation(baseline, probe(attackRaw), 'authOriginIsolateLogout');
 
     // --- cross-site JSON ---
