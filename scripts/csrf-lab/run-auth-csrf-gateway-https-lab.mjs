@@ -272,21 +272,22 @@ window.__parkio = {
       return { status: 0, networkError: String(err), json: null, acao: null, acac: null, mode: 'json' };
     }
   },
-  // Browser-sendable "simple" request: form-urlencoded avoids CORS preflight.
+  // Browser-sendable "simple" request: no custom Content-Type (avoids CORS
+  // preflight and avoids form-urlencoded → @RequestBody conversion 500s
+  // before auth Origin validation).
   async callSimple(path, { api } = {}) {
     try {
       const response = await fetch((api || this.api) + path, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: '',
       });
       const text = await response.text();
       return { status: response.status, text: text.slice(0, 200), networkError: null,
         acao: response.headers.get('access-control-allow-origin'),
-        mode: 'simple-form' };
+        mode: 'simple-no-content-type' };
     } catch (err) {
-      return { status: 0, networkError: String(err), text: null, acao: null, mode: 'simple-form' };
+      return { status: 0, networkError: String(err), text: null, acao: null, mode: 'simple-no-content-type' };
     }
   }
 };
