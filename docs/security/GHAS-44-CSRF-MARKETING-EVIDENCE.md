@@ -153,9 +153,11 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 | Drift | Fast-forward only; history preserved; no rebase/force-push |
 | `CookieCsrfGuardHttpIntegrationTest` (#125) | PASS |
 | Direct-auth Chromium IT (flag unset) | Aborted (Assumption) — not claimed as pass |
+| Direct-auth Chromium CI | PASS on tip (dedicated job; see CI IDs in PR report) |
 | `CorsConfigTest` sibling case | PASS |
 | Gateway HTTPS lab locally | **Not run** — Docker engine unavailable on agent |
-| Gateway HTTPS lab CI | Workflow added; terminal status read after push |
-| GHAS alerts #2–#4, #7 | Still **open** |
+| Gateway HTTPS lab CI | Iterating: (1) seed DNS → loopback HTTP; (2) Postgres `pg_isready` before `CREATE DATABASE` |
+| GHAS alerts #2–#4 | Still open on umbrella #44 GHAS comparison (`most_recent_instance.state=open`); leave open |
+| GHAS alert #7 | Still **open** (`java/spring-disabled-csrf-protection`); leave open |
 | #104 / #118 / #119 | Untouched |
 | Merge / dismiss / publish / deploy / production | **None** |

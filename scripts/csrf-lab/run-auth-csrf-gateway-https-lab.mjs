@@ -73,6 +73,31 @@ function waitPort(port, host = '127.0.0.1', timeoutMs = 180_000) {
   });
 }
 
+/** Port open ≠ Postgres accepting queries; wait for pg_isready before CREATE DATABASE. */
+function waitPgReady(containerId, timeoutMs = 120_000) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const tryOnce = () => {
+      try {
+        execFileSync(
+          'docker',
+          ['exec', containerId, 'pg_isready', '-U', 'csrf', '-d', 'parkio_auth'],
+          { stdio: 'ignore' },
+        );
+        resolve();
+        return;
+      } catch {
+        if (Date.now() - start > timeoutMs) {
+          reject(new Error(`timeout waiting for Postgres ready in ${containerId}`));
+          return;
+        }
+        setTimeout(tryOnce, 500);
+      }
+    };
+    tryOnce();
+  });
+}
+
 function dockerRun(args) {
   return execFileSync('docker', ['run', '-d', '--rm', ...args], { encoding: 'utf8' }).trim();
 }
@@ -248,7 +273,8 @@ async function main() {
     containers.push(dockerRun(['-p', `${REDIS_PORT}:6379`, 'redis:7-alpine']));
     await waitPort(PG_PORT);
     await waitPort(REDIS_PORT);
-    // Create gateway DB
+    await waitPgReady(containers[0]);
+    // Create gateway DB (after pg_isready — port-open alone races init)
     execFileSync(
       'docker',
       [
