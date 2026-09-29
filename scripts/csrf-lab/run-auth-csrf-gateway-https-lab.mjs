@@ -161,16 +161,19 @@ function reverseProxy(tls, listenPort, targetPort, edgeFile, edgeLabel) {
 
 /**
  * Lab-only auth-direct front on api.parkio.test (same host, different port):
- * stamps X-Gateway-Auth, reflects CORS for any Origin so browser JS can observe
- * auth status. Isolates auth Origin guard from gateway CORS. Not production.
+ * stamps X-Gateway-Auth and reflects CORS only for the disposable lab origins
+ * (allow-list, not request echo of arbitrary Origin). Isolates auth Origin guard
+ * from gateway CORS. Not production.
  */
-function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
+function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret, reflectOrigins) {
   return listenHttps(listenPort, tls, (req, res) => {
-    const origin = req.headers.origin || '';
-    // Reflect concrete Origin only — never ACAO=* with credentials (CodeQL / browser rules).
-    const corsHeaders = origin
+    const requestOrigin = req.headers.origin || '';
+    // Use the allow-list entry itself as ACAO (not the raw header) so CORS is not
+    // an open reflector. Lab origins only; production allowlists unchanged.
+    const matchedOrigin = reflectOrigins.find((o) => o === requestOrigin) || null;
+    const corsHeaders = matchedOrigin
       ? {
-          'access-control-allow-origin': origin,
+          'access-control-allow-origin': matchedOrigin,
           'access-control-allow-credentials': 'true',
           'access-control-allow-headers':
             req.headers['access-control-request-headers'] || 'content-type,x-parkio-client',
@@ -183,11 +186,11 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
         edge: 'auth-direct',
         method: 'OPTIONS',
         path: req.url,
-        origin: origin || null,
+        origin: requestOrigin || null,
         contentType: null,
         hasCookie: Boolean(req.headers.cookie),
       });
-      res.writeHead(origin ? 204 : 403, corsHeaders);
+      res.writeHead(matchedOrigin ? 204 : 403, corsHeaders);
       res.end();
       return;
     }
@@ -199,7 +202,7 @@ function authDirectProxy(tls, listenPort, authPort, edgeFile, gatewaySecret) {
         edge: 'auth-direct',
         method: req.method,
         path: req.url,
-        origin: origin || null,
+        origin: requestOrigin || null,
         contentType: req.headers['content-type'] || null,
         hasCookie: Boolean(req.headers.cookie),
         cookieNames: (req.headers.cookie || '')
@@ -504,7 +507,13 @@ async function main() {
     console.log('gateway ready');
 
     servers.push(await reverseProxy(tls, API_PORT, GATEWAY_PORT, edgeFile, 'gateway-tls'));
-    servers.push(await authDirectProxy(tls, AUTH_DIRECT_PORT, AUTH_PORT, edgeFile, GATEWAY_SECRET));
+    servers.push(
+      await authDirectProxy(tls, AUTH_DIRECT_PORT, AUTH_PORT, edgeFile, GATEWAY_SECRET, [
+        appOrigin,
+        evilOrigin,
+        crossOrigin,
+      ]),
+    );
     servers.push(await staticPage(tls, APP_PORT, apiOrigin, 'app'));
     servers.push(await staticPage(tls, EVIL_PORT, apiOrigin, 'evil'));
     servers.push(await staticPage(tls, CROSS_PORT, apiOrigin, 'cross'));
