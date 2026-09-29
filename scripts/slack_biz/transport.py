@@ -7,6 +7,7 @@ message referencing the same fingerprint (thread update = DEFERRED).
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import urllib.error
@@ -105,6 +106,17 @@ class SlackWebhookTransport:
                 None,
                 None,
                 f"url_error:{reason_s}",
+            )
+        except http.client.HTTPException as exc:
+            # BadStatusLine / IncompleteRead / LineTooLong etc. are not OSError,
+            # so urlopen does not wrap them. The request was written before the
+            # response failed to parse: Slack may have posted it.
+            return TransportResult(
+                TransportClass.AMBIGUOUS,
+                None,
+                None,
+                f"malformed_response:{type(exc).__name__}",
+                ambiguous=True,
             )
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as exc:
             return TransportResult(
