@@ -160,11 +160,12 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 
 | Item | Result |
 |---|---|
-| Continuation from tip | `031d08ffc1baf6afa4a3d78b783a82bab393c037` on base `822828a5208e9445fc97f73c4540aaa867654fce` |
-| Lab filter packaging | Moved to `src/csrfLab`; `assertCsrfLabAbsentFromBootJar` required in CI |
-| Session assertions | Malicious sibling/cross/auth-isolate cases probe Postgres refresh + epoch before/after |
-| Layer attribution | Edge JSONL + auth capture; auth Origin isolate must `reachedAuth` + 403 |
-| Simple requests | Form-urlencoded sibling/cross covered alongside JSON/preflight |
+| Continuation from tip | `031d08ff` → head `f2809e1156b29d371c154aa97d8ff0ec0f8b5089` on base `822828a5…` |
+| Lab filter packaging | Moved to `src/csrfLab`; CI verified absent from bootJar |
+| Gateway HTTPS CI | **PASS** — run `36539541839` (session probes + layer attribution + auth Origin isolate 403) |
+| Direct-auth Chromium CI | **PASS** — run `36539541524` |
+| Exact-head checks | 22 success, 4 skipped, 0 failed |
+| Session mutations on malicious cases | **None** (no `security_defect`) |
 | GHAS #2–#4 / #7 | Still open; not dismissed |
 | #104 / #118 / #119 | Untouched |
 | Merge / dismiss / publish / deploy / production | **None** |
