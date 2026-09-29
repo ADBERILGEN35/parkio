@@ -391,7 +391,9 @@ public class AccountErasureApplicationService {
                 completeLocal(request);
             }
         };
-        if (requiresNew != null && !TransactionSynchronizationManager.isActualTransactionActive()) {
+        // afterCommit may still expose the completed transaction on this thread.
+        // Always use a fresh transaction so COMPLETE is committed after a retry.
+        if (requiresNew != null) {
             requiresNew.executeWithoutResult(status -> work.run());
         } else {
             work.run();
