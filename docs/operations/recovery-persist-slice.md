@@ -121,6 +121,24 @@ Crash after record write and before the frontier `expectedThrough`
 advance leaves the request `PENDING_DURABLE`. Durable acknowledgement
 is not granted. Recovery still uses the previous frontier.
 
+## Model-to-Java boundary
+
+The signed pending-record sequence and `frontier/expected-through.json`
+exist only in the isolated Python model. The Java
+`DurableErasureRecordStore` has `putIfAbsent` and `findByRequestId`;
+`durableEvidenceSatisfied` checks the request and user identities of a
+found record. It does not verify the record digest, signed sequence,
+producer, database identity, publication receipt, or expected frontier.
+Java's `DURABLY_RECORDED` status therefore does **not** certify the
+Python recovery boundary or off-host durability. Do not enable the Java
+flag or claim a production durable ACK from this adapter contract.
+
+The Spring-context PostgreSQL test also exercises the public retry path
+when the first after-commit put fails and all participant ACKs arrive
+before the user retries. Completion after that retry must be committed
+in a fresh transaction; a callback running after commit can still have
+transaction state bound to its thread.
+
 ## Java remaining (not built in this slice)
 
 - `persistDurableRecord` is the retry entrypoint. `ErasureStuckGaugeJob`
