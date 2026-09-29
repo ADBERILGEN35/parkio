@@ -11,10 +11,6 @@ on:
       - "benchmarks/scripts/wait-http-ready.mjs"
       - "benchmarks/scripts/wait-tempo-ready.mjs"
       - "benchmarks/scripts/ci-result-integrity.test.mjs"
-  schedule:
-    # Weekly runtime drift check, after the security and backup jobs.
-    - cron: "41 5 * * 1"
-
 permissions:
   contents: read
   packages: read
