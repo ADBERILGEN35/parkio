@@ -10,9 +10,11 @@ and send loses the ACK.
 This contract reuses each service's existing transactional outbox and relay and
 auth's existing Kafka ACK consumer. It adds no new framework, table or topic.
 
-Status: **gamification** (pilot, #132) and **user** use the outbox ACK. The other
-six participants still send HTTP ACKs inside their transaction until their own
-U05 subtasks land.
+Status: **gamification** (pilot, #132) and **user** (#133) are merged. The other
+six participants implement the same contract in separate PRs: parking (#137),
+moderation (#135), notification (#140), ai-validation (#139),
+analytics (#138) and media (#141). Until each merges, that participant
+still sends its HTTP ACK inside its transaction.
 
 ## Participant side
 
@@ -113,21 +115,58 @@ Per participant subtask:
    failure → retried by a fresh relay; duplicate and replayed delivery. Give
    the real-broker test producer a realistic `max.block.ms` (first send to a
    not-yet-created topic can exceed a couple of seconds).
-5. Media must additionally cover object-storage delete before `SUCCESS`.
+5. Media must additionally cover object-storage delete before `SUCCESS`
+   (see "Media: two-phase erase" below).
+6. Inspect the full erase scope, not only the handler's statements: copies of
+   the user id inside JSON/text columns, ids derived from the user id, and
+   uniqueness constraints that make a sentinel rewrite skip or fail a row. A
+   whole-schema residue scan in the IT (every uuid/text/json column, excluding
+   the tombstone and the ACK outbox row) catches these.
 
-### Participant inventory (api `554333e6`, 2026-09-30; updated for user)
+## Participant specifics
 
-| Participant | `outbox_events` + `uq_outbox_events_event_id` | Outbox relay | ACK today |
-|-------------|-----------------------------------------------|--------------|-----------|
-| user | yes | `UserOutboxRelay` | **outbox** (`ErasureAckOutbox` port) |
-| parking | yes | `ParkingOutboxRelay` | HTTP inside tx |
-| media | yes | `MediaOutboxRelay` | HTTP inside tx (+ object delete) |
-| moderation | yes | `ModerationOutboxRelay` | HTTP inside tx |
-| gamification | yes | `GamificationOutboxRelay` | **outbox (this pilot)** |
-| notification | yes | `NotificationOutboxRelay` | HTTP inside tx |
-| analytics | yes (table only) | **none** | HTTP inside tx |
-| ai-validation | yes | `AiValidationOutboxRelay` | HTTP inside tx |
+- **moderation (V14):** `uq_user_reports_reporter_target_reason` and
+  `uq_appeals_case_user` are partial unique indexes that exempt the erased-user
+  sentinel, so identity rewrites are unconditional. The former `NOT EXISTS`
+  guards left the real user id behind when the sentinel already held an
+  equivalent row, and a reporter's reports against two erased users failed the
+  second erase. Real-user uniqueness is unchanged.
+- **parking:** the shadow ledgers serialize the subject into JSON
+  (`trust_ledger`, `trust_snapshot`, `fraud_evaluation_ledger`,
+  `pending_reward_ledger`); anonymization rewrites the id there too. A trust
+  snapshot's id is derived from its subject, so the user's snapshot is re-keyed
+  to the sentinel-derived id, or deleted when the sentinel already has one.
+- **analytics (V10):** analytics had the outbox table but no relay; it now has
+  `AnalyticsOutboxRelay` (same shape as the other relays, DLQ columns via V10)
+  and publishes only erasure ACKs.
+- **media (V14): two-phase erase.**
+  1. One short transaction: tombstone, soft-delete of the user's media
+     metadata, idempotency records, and a durable `media_erasure_jobs` row keyed
+     by the ACK event id (reopened on redelivery). No storage I/O, no ACK.
+  2. After commit, `MediaObjectErasureWorker` deletes every soft-deleted object
+     of the user outside any transaction (an absent object counts as deleted),
+     records `media_files.object_deleted_at`, and only when none remains queues
+     the ACK in one short transaction that locks the job and re-checks. Failures
+     leave the job pending with attempts, last error and exponential backoff; a
+     scheduled, leased poll (`parkio.media.erasure-worker.*`) retries due jobs.
+     Metrics: `parkio.media.erasure.jobs.pending`,
+     `parkio.media.erasure.object.delete.failed`.
 
-Five of the remaining six can follow the pilot steps unchanged. Analytics has
-the table but no relay (and no appender in `src/main`), so its subtask must add
-a relay, mirroring the others, before step 1.
+### Participant inventory (target state once the participant PRs merge)
+
+| Participant | ACK path | Relay | PR |
+|-------------|----------|-------|----|
+| user | outbox (`ErasureAckOutbox` port) | `UserOutboxRelay` | #133 (merged) |
+| parking | outbox + ledger JSON scrub | `ParkingOutboxRelay` | #137 |
+| media | outbox after confirmed object deletion | `MediaOutboxRelay` | #141 |
+| moderation | outbox + sentinel-exempt uniqueness (V14) | `ModerationOutboxRelay` | #135 |
+| gamification | outbox (pilot) | `GamificationOutboxRelay` | #132 (merged) |
+| notification | outbox | `NotificationOutboxRelay` | #140 |
+| analytics | outbox | `AnalyticsOutboxRelay` (new, V10) | #138 |
+| ai-validation | outbox | `AiValidationOutboxRelay` | #139 |
+
+Retained by design (PRIV-001): the tombstone, the ACK outbox payload (carries
+`authUserId` per the auth contract; published rows are purged by retention),
+staff/operator audit ids, and soft-deleted media metadata (`owner_user_id`,
+checksum, perceptual hash). Whether media metadata must be hard-deleted is an
+open policy question (the PRIV-001 matrix and per-service table disagree).
