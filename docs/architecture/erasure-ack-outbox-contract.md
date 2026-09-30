@@ -109,4 +109,19 @@ Per participant subtask:
    retried by a fresh relay; duplicate and replayed delivery.
 5. Media must additionally cover object-storage delete before `SUCCESS`.
 
-Participants without an outbox table need one before step 1.
+### Participant inventory (api `554333e6`, 2026-09-30)
+
+| Participant | `outbox_events` + `uq_outbox_events_event_id` | Outbox relay | ACK today |
+|-------------|-----------------------------------------------|--------------|-----------|
+| user | yes | `UserOutboxRelay` | HTTP inside tx |
+| parking | yes | `ParkingOutboxRelay` | HTTP inside tx |
+| media | yes | `MediaOutboxRelay` | HTTP inside tx (+ object delete) |
+| moderation | yes | `ModerationOutboxRelay` | HTTP inside tx |
+| gamification | yes | `GamificationOutboxRelay` | **outbox (this pilot)** |
+| notification | yes | `NotificationOutboxRelay` | HTTP inside tx |
+| analytics | yes (table only) | **none** | HTTP inside tx |
+| ai-validation | yes | `AiValidationOutboxRelay` | HTTP inside tx |
+
+Six of the remaining seven can follow the pilot steps unchanged. Analytics has
+the table but no relay (and no appender in `src/main`), so its subtask must add
+a relay, mirroring the others, before step 1.
