@@ -392,7 +392,7 @@ public class AccountErasureApplicationService {
     }
 
     public void processWorkerReconcileClaim(ErasureDurableWorkerClaim claim) {
-        if (workerRepository == null || !durableRecordingEnabled) {
+        if (workerRepository == null || !durableRecordingEnabled || requiresNew == null) {
             return;
         }
         DurableEvidence evidence = readDurableEvidenceOutsideTransaction(claim.requestId());
@@ -400,52 +400,47 @@ public class AccountErasureApplicationService {
             workerRepository.releaseClaim(claim.requestId(), claim.claimToken(), clock.instant());
             return;
         }
-        Instant asOf = clock.instant();
-        if (!workerRepository.claimStillActive(claim.requestId(), claim.claimToken(), asOf)) {
-            return;
-        }
-        long success;
-        if (requiresNew != null) {
-            Long counted = requiresNew.execute(status ->
-                    acks.countByErasureRequestIdAndStatus(claim.requestId(), "SUCCESS"));
-            success = counted == null ? 0L : counted;
-        } else {
-            success = acks.countByErasureRequestIdAndStatus(claim.requestId(), "SUCCESS");
-        }
-        if (success < participants.size()) {
-            workerRepository.releaseClaim(claim.requestId(), claim.claimToken(), asOf);
-            return;
-        }
-        Instant completedAt = clock.instant();
-        int completed = workerRepository.markCompleteIfClaimed(
-                claim.requestId(), claim.claimToken(), asOf, completedAt);
-        if (completed == 0) {
-            return;
-        }
-        finishUserErasureOutsideClaim(claim.authUserId(), claim.requestId(), completedAt);
-    }
-
-    private void finishUserErasureOutsideClaim(UUID authUserId, UUID requestId, Instant completedAt) {
-        Runnable work = () -> {
+        requiresNew.executeWithoutResult(tx -> {
             detachCachedErasureRows();
-            AuthUser user = users.findById(authUserId).orElse(null);
+            ErasureRequestEntity request = requests.findById(claim.requestId()).orElse(null);
+            if (request == null
+                    || !claim.requestId().equals(request.getId())
+                    || !claim.authUserId().equals(request.getAuthUserId())
+                    || "COMPLETE".equals(request.getStatus())) {
+                return;
+            }
+            Instant requestedAt = request.getRequestedAt();
+            detachCachedErasureRows();
+            Instant now = clock.instant();
+            if (!workerRepository.claimStillActive(claim.requestId(), claim.claimToken(), now)) {
+                return;
+            }
+            long success = acks.countByErasureRequestIdAndStatus(claim.requestId(), "SUCCESS");
+            if (success < participants.size()) {
+                workerRepository.releaseClaim(claim.requestId(), claim.claimToken(), clock.instant());
+                return;
+            }
+            AuthUser user = users.findById(claim.authUserId()).orElse(null);
+            if (user != null && !claim.authUserId().equals(user.id())) {
+                tx.setRollbackOnly();
+                return;
+            }
+            Instant mutationTime = clock.instant();
+            int completed = workerRepository.markCompleteIfClaimed(
+                    claim.requestId(), claim.claimToken(), mutationTime, mutationTime);
+            if (completed == 0) {
+                tx.setRollbackOnly();
+                return;
+            }
             if (user != null) {
                 String tombstoneEmail = "erased-" + user.id() + "@invalid.localhost";
                 String replacementHash = passwordHasher.hash(UUID.randomUUID().toString());
-                user.finishErasure(tombstoneEmail, replacementHash, completedAt);
+                user.finishErasure(tombstoneEmail, replacementHash, mutationTime);
                 users.save(user);
             }
-            ErasureRequestEntity request = requests.findById(requestId).orElse(null);
-            if (request != null) {
-                metrics.completed(Duration.between(request.getRequestedAt(), completedAt));
-            }
-            log.info("erasure completed requestId={} service=auth status=COMPLETE", requestId);
-        };
-        if (requiresNew != null) {
-            requiresNew.executeWithoutResult(status -> work.run());
-        } else {
-            work.run();
-        }
+            metrics.completed(Duration.between(requestedAt, mutationTime));
+            log.info("erasure completed requestId={} service=auth status=COMPLETE", claim.requestId());
+        });
     }
 
     private void persistDurableRecordNow(UUID requestId) {

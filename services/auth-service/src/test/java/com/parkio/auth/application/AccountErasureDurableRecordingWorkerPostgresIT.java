@@ -197,7 +197,79 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
 
         worker.tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
         assertThat(store.lastFindSawActiveTransaction()).isFalse();
+    }
+
+    @Test
+    void anonymizationFailureRollsBackCompleteAndRetryFinishesBoth() {
+        AuthUser user = newUser();
+        ErasureDurableWorkerClaim claim = claimedDurablyRecorded(user);
+        when(passwordHasher.hash(any()))
+                .thenThrow(new RuntimeException("anonymize failed"))
+                .thenReturn("replacement-hash");
+
+        assertThatThrownBy(() -> erasure.processWorkerReconcileClaim(claim))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("anonymize failed");
+        assertThat(status(claim.requestId())).isEqualTo("IN_PROGRESS");
+        assertThat(user.status()).isNotEqualTo(AuthUserStatus.ERASED);
+
+        erasure.processWorkerReconcileClaim(claim);
+        assertThat(status(claim.requestId())).isEqualTo("COMPLETE");
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
+    }
+
+    @Test
+    void expiredOrReclaimedClaimCannotCompleteRequest() {
+        AuthUser user = newUser();
+        ErasureDurableWorkerClaim claim = claimedDurablyRecorded(user);
+        jdbc.update(
+                """
+                UPDATE erasure_requests
+                SET durable_worker_claim_expires_at = ?
+                WHERE id = ?
+                """,
+                Timestamp.from(NOW.minusSeconds(5)),
+                claim.requestId());
+        erasure.processWorkerReconcileClaim(claim);
+        assertThat(status(claim.requestId())).isEqualTo("IN_PROGRESS");
+        assertThat(user.status()).isNotEqualTo(AuthUserStatus.ERASED);
+
+        UUID newer = UUID.randomUUID();
+        List<ErasureDurableWorkerClaim> reclaimed =
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), newer);
+        assertThat(reclaimed).hasSize(1);
+        erasure.processWorkerReconcileClaim(claim);
+        assertThat(status(claim.requestId())).isEqualTo("IN_PROGRESS");
+
+        erasure.processWorkerReconcileClaim(reclaimed.get(0));
+        assertThat(status(claim.requestId())).isEqualTo("COMPLETE");
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
+    }
+
+    private ErasureDurableWorkerClaim claimedDurablyRecorded(AuthUser user) {
+        store.failNextPuts(1);
+        UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        erasure.handleAcknowledgement(ack(requestId, user.id()));
+        store.putIfAbsent(
+                com.parkio.auth.application.port.DurableErasureRecord.of(requestId, user.id(), NOW));
+        jdbc.update(
+                """
+                UPDATE erasure_requests
+                SET durable_recording_status = 'DURABLY_RECORDED',
+                    durable_retry_next_at = NULL,
+                    durable_worker_claim_token = NULL,
+                    durable_worker_claim_expires_at = NULL
+                WHERE id = ?
+                """,
+                requestId);
+        entityManager.clear();
+        List<ErasureDurableWorkerClaim> claims =
+                workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), UUID.randomUUID());
+        assertThat(claims).hasSize(1);
+        assertThat(claims.get(0).requestId()).isEqualTo(requestId);
+        return claims.get(0);
     }
 
     @Test

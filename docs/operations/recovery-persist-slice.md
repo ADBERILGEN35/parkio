@@ -162,8 +162,11 @@ transaction state bound to its thread.
   abandons a pending erasure. Identity conflicts stay blocked and
   observable via `last_error_code`. Successful persist clears retry delay
   so `DURABLY_RECORDED` reconciliation remains eligible when ACKs arrive.
-  Worker COMPLETE uses a claim-guarded JDBC update so lease/version bumps
-  cannot lose to stale JPA entities; user tombstone finish runs afterward.
+  Worker COMPLETE and final auth-user anonymization commit in one short
+  database transaction after store evidence was read outside it. Lease
+  checks use fresh time at mutation. A failed user update rolls back
+  COMPLETE. Capped backoff never abandons a pending erasure; there is no
+  year-9999 retry cutoff. JDBC updates still bump `@Version`.
 - `persistDurableRecord` remains an explicit retry entrypoint.
   `ErasureStuckGaugeJob` still only counts stuck requests.
 
