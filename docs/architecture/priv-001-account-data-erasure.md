@@ -34,7 +34,7 @@ Payload: `eventId`, `erasureRequestId`, `authUserId`, `occurredAt` (no email).
 Participants ack over HTTP or, once migrated to the U05 ACK outbox, over Kafka
 `UserErasureAcknowledged` published from a committed outbox row
 ([erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). Migrated so
-far: `gamification`.
+far: `gamification`, `user`.
 Incomplete work stays `FAILED_RETRYING` / `IN_PROGRESS`. Never mark `COMPLETE`
 without every participant `SUCCESS` ack.
 
@@ -70,10 +70,10 @@ Kafka retries. Sentinel: `00000000-0000-4000-8000-000000000001`.
 
 **Known defect (U05):** that HTTP ACK is sent inside the erase transaction, so a
 rollback or commit failure after it leaves auth with a false `SUCCESS`.
-`gamification` instead appends the ACK to its outbox in the erase transaction
-and its relay publishes it after commit
+`gamification` and `user` instead append the ACK to their outbox in the erase
+transaction and their relay publishes it after commit
 ([erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)); the other
-seven participants are tracked by their own U05 subtasks.
+six participants are tracked by their own U05 subtasks.
 
 | Service | Group | Local action |
 |---------|-------|----------------|

@@ -24,6 +24,8 @@ public interface OutboxEventJpaRepository extends JpaRepository<OutboxEventEntit
             """, nativeQuery = true)
     List<OutboxEventEntity> findUnpublishedBatchForUpdate(@Param("limit") int limit);
 
+    boolean existsByEventId(UUID eventId);
+
     /**
      * Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT).
      * Excludes dead-lettered rows — those are no longer relayable and are tracked

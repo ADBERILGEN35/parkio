@@ -4,6 +4,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.user.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.user.domain.event.UserProfileCreatedEvent;
 import com.parkio.user.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.user.infrastructure.persistence.entity.OutboxEventEntity;
@@ -165,9 +166,18 @@ public class UserOutboxRelay {
         return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
-    /** user-service owns one outbound topic; {@code UserProfileCreated} maps to it. */
+    /**
+     * user-service owns one outbound topic; {@code UserProfileCreated} maps to it. Erasure ACKs go
+     * to the auth-owned {@code parkio.privacy.erasure} topic, where the coordinator consumes them.
+     */
     static String topicFor(String aggregateType) {
-        return UserProfileCreatedEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.USER_PROFILE : null;
+        if (UserProfileCreatedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.USER_PROFILE;
+        }
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
+        }
+        return null;
     }
 
     private EventEnvelope toEnvelope(OutboxEventEntity row) {

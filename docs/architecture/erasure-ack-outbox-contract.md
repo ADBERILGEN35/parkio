@@ -10,8 +10,9 @@ and send loses the ACK.
 This contract reuses each service's existing transactional outbox and relay and
 auth's existing Kafka ACK consumer. It adds no new framework, table or topic.
 
-Status: **gamification is the pilot**. The other seven participants still send
-HTTP ACKs inside their transaction until their own U05 subtasks land.
+Status: **gamification** (pilot, #132) and **user** use the outbox ACK. The other
+six participants still send HTTP ACKs inside their transaction until their own
+U05 subtasks land.
 
 ## Participant side
 
@@ -102,18 +103,23 @@ Per participant subtask:
 
 1. Append the ACK event to that service's outbox in the erase transaction, with
    the `eventId` derivation above; remove the in-transaction HTTP ACK call.
-2. Make the service's outbox append skip an existing `eventId`.
+2. Make the service's outbox append skip an existing `eventId`. Where the
+   existing outbox port is typed to one domain event (user-service), add a
+   dedicated ACK port/adapter over the same `outbox_events` table instead of
+   widening that port.
 3. Route `AccountErasure` rows to `parkio.privacy.erasure` in the relay.
 4. Add a PostgreSQL + Kafka IT mirroring `AccountErasureAckOutboxPostgresIT`
-   (gamification): commit failure → no row and no record; publisher failure →
-   retried by a fresh relay; duplicate and replayed delivery.
+   (gamification, user): commit failure → no row and no record; publisher
+   failure → retried by a fresh relay; duplicate and replayed delivery. Give
+   the real-broker test producer a realistic `max.block.ms` (first send to a
+   not-yet-created topic can exceed a couple of seconds).
 5. Media must additionally cover object-storage delete before `SUCCESS`.
 
-### Participant inventory (api `554333e6`, 2026-09-30)
+### Participant inventory (api `554333e6`, 2026-09-30; updated for user)
 
 | Participant | `outbox_events` + `uq_outbox_events_event_id` | Outbox relay | ACK today |
 |-------------|-----------------------------------------------|--------------|-----------|
-| user | yes | `UserOutboxRelay` | HTTP inside tx |
+| user | yes | `UserOutboxRelay` | **outbox** (`ErasureAckOutbox` port) |
 | parking | yes | `ParkingOutboxRelay` | HTTP inside tx |
 | media | yes | `MediaOutboxRelay` | HTTP inside tx (+ object delete) |
 | moderation | yes | `ModerationOutboxRelay` | HTTP inside tx |
@@ -122,6 +128,6 @@ Per participant subtask:
 | analytics | yes (table only) | **none** | HTTP inside tx |
 | ai-validation | yes | `AiValidationOutboxRelay` | HTTP inside tx |
 
-Six of the remaining seven can follow the pilot steps unchanged. Analytics has
+Five of the remaining six can follow the pilot steps unchanged. Analytics has
 the table but no relay (and no appender in `src/main`), so its subtask must add
 a relay, mirroring the others, before step 1.
