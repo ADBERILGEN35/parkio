@@ -25,6 +25,8 @@ public class KafkaTopicsConfig {
 
     public static final String USER_PROFILE = "parkio.user.profile";
     public static final String DLT_USER = "parkio.dlt.user";
+    /** Owned and provisioned by auth-service; user-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

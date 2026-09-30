@@ -47,6 +47,33 @@ class UserOutboxRelayTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void routesErasureAckToPrivacyErasureTopicKeyedByRequestId() {
+        UUID eventId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        String payload = "{\"eventId\":\"" + eventId + "\",\"erasureRequestId\":\"" + requestId
+                + "\",\"authUserId\":\"" + UUID.randomUUID() + "\",\"serviceName\":\"user\","
+                + "\"status\":\"SUCCESS\",\"occurredAt\":\"2026-06-09T12:00:00Z\"}";
+        OutboxEventEntity row = new OutboxEventEntity(UUID.randomUUID(), eventId, "AccountErasure", requestId,
+                "UserErasureAcknowledged", payload, OCCURRED_AT, false);
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
+
+        relay.publishPending();
+
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, Object> sent = captor.getValue();
+        assertThat(sent.topic()).isEqualTo("parkio.privacy.erasure");
+        assertThat(sent.key()).isEqualTo(requestId.toString());
+        EventEnvelope envelope = (EventEnvelope) sent.value();
+        assertThat(envelope.eventType()).isEqualTo("UserErasureAcknowledged");
+        assertThat(envelope.payload().get("serviceName").asText()).isEqualTo("user");
+        assertThat(row.isPublished()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void buildsEnvelopeAndHeadersAndPublishesKeyedByAuthUserId() {
         UUID eventId = UUID.randomUUID();
         UUID authUserId = UUID.randomUUID();

@@ -1,7 +1,8 @@
 package com.parkio.user.application;
 
 import com.parkio.user.application.event.UserErasureRequestedEvent;
-import com.parkio.user.infrastructure.client.AuthErasureAckClient;
+import com.parkio.user.application.port.ErasureAckOutbox;
+import com.parkio.user.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.user.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.user.infrastructure.persistence.entity.UserProfileEntity;
 import com.parkio.user.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
@@ -25,8 +26,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Erases this service's profile graph and records the SUCCESS ACK in the transactional outbox
+ * within the same transaction. Nothing is sent to auth from here: {@code UserOutboxRelay}
+ * publishes the ACK only after the row has committed, and retries until the broker acks it
+ * (docs/architecture/erasure-ack-outbox-contract.md).
+ */
 @Service
 public class AccountErasureHandler {
+
+    public static final String SERVICE_NAME = "user";
 
     private static final Logger log = LoggerFactory.getLogger(AccountErasureHandler.class);
 
@@ -42,7 +51,7 @@ public class AccountErasureHandler {
     private final UserTrustScoreHistoryJpaRepository trustHistory;
     private final PendingUserStatusEventJpaRepository pendingStatus;
     private final ErasedUserTombstoneJpaRepository tombstones;
-    private final AuthErasureAckClient ackClient;
+    private final ErasureAckOutbox ackOutbox;
     private final Clock clock;
 
     public AccountErasureHandler(
@@ -58,7 +67,7 @@ public class AccountErasureHandler {
             UserTrustScoreHistoryJpaRepository trustHistory,
             PendingUserStatusEventJpaRepository pendingStatus,
             ErasedUserTombstoneJpaRepository tombstones,
-            AuthErasureAckClient ackClient,
+            ErasureAckOutbox ackOutbox,
             Clock clock) {
         this.profiles = profiles;
         this.savedPlaces = savedPlaces;
@@ -72,7 +81,7 @@ public class AccountErasureHandler {
         this.trustHistory = trustHistory;
         this.pendingStatus = pendingStatus;
         this.tombstones = tombstones;
-        this.ackClient = ackClient;
+        this.ackOutbox = ackOutbox;
         this.clock = clock;
     }
 
@@ -80,10 +89,19 @@ public class AccountErasureHandler {
     public void handle(UserErasureRequestedEvent event) {
         UUID authUserId = event.authUserId();
         eraseLocal(authUserId);
-        UUID ackEventId = UUID.nameUUIDFromBytes(
-                (event.erasureRequestId() + ":user").getBytes(StandardCharsets.UTF_8));
-        ackClient.acknowledge(ackEventId, event.erasureRequestId(), authUserId, "SUCCESS");
-        log.info("erasure completed requestId={} service=user status=SUCCESS", event.erasureRequestId());
+        ackOutbox.append(new UserErasureAcknowledgedEvent(
+                ackEventId(event), event.erasureRequestId(), authUserId, SERVICE_NAME, "SUCCESS", clock.instant()));
+        log.info("erasure committed requestId={} service=user status=SUCCESS_QUEUED", event.erasureRequestId());
+    }
+
+    /**
+     * One ACK per consumed request event: a redelivery of the same request event maps to the same
+     * outbox row (appended once), while a coordinator replay, which carries a new request eventId,
+     * queues a fresh ACK. Auth deduplicates ACKs by eventId and keys them by (request, service).
+     */
+    static UUID ackEventId(UserErasureRequestedEvent event) {
+        String key = event.eventId() + ":" + event.erasureRequestId() + ":" + SERVICE_NAME + ":ack";
+        return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8));
     }
 
     private void eraseLocal(UUID authUserId) {

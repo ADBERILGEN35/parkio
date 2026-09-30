@@ -1,13 +1,17 @@
 package com.parkio.user.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.user.application.event.UserErasureRequestedEvent;
-import com.parkio.user.infrastructure.client.AuthErasureAckClient;
+import com.parkio.user.application.port.ErasureAckOutbox;
+import com.parkio.user.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.user.infrastructure.persistence.entity.UserProfileEntity;
 import com.parkio.user.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.user.infrastructure.persistence.jpa.FavouriteDestinationJpaRepository;
@@ -24,11 +28,14 @@ import com.parkio.user.infrastructure.persistence.jpa.UserVehicleProfileJpaRepos
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -49,7 +56,7 @@ class AccountErasureHandlerTest {
     @Mock private UserTrustScoreHistoryJpaRepository trustHistory;
     @Mock private PendingUserStatusEventJpaRepository pendingStatus;
     @Mock private ErasedUserTombstoneJpaRepository tombstones;
-    @Mock private AuthErasureAckClient ackClient;
+    @Mock private ErasureAckOutbox ackOutbox;
 
     private AccountErasureHandler handler;
 
@@ -58,7 +65,7 @@ class AccountErasureHandlerTest {
         handler = new AccountErasureHandler(
                 profiles, savedPlaces, favouriteParking, favouriteDestinations,
                 recentDestinations, recentParking, preferences, vehicles, trustProfiles,
-                trustHistory, pendingStatus, tombstones, ackClient,
+                trustHistory, pendingStatus, tombstones, ackOutbox,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -77,8 +84,14 @@ class AccountErasureHandlerTest {
         verify(savedPlaces).deleteByUserProfileId(profileId);
         verify(favouriteParking).deleteByUserProfileId(profileId);
         verify(recentDestinations).deleteByUserProfileId(profileId);
-        verify(profiles).deleteById(profileId);
-        verify(ackClient).acknowledge(any(), eq(requestId), eq(authUserId), eq("SUCCESS"));
+        InOrder order = inOrder(profiles, ackOutbox);
+        order.verify(profiles).deleteById(profileId);
+        ArgumentCaptor<UserErasureAcknowledgedEvent> ack = ArgumentCaptor.forClass(UserErasureAcknowledgedEvent.class);
+        order.verify(ackOutbox).append(ack.capture());
+        assertThat(ack.getValue().erasureRequestId()).isEqualTo(requestId);
+        assertThat(ack.getValue().authUserId()).isEqualTo(authUserId);
+        assertThat(ack.getValue().serviceName()).isEqualTo("user");
+        assertThat(ack.getValue().status()).isEqualTo("SUCCESS");
     }
 
     @Test
@@ -90,7 +103,39 @@ class AccountErasureHandlerTest {
         handler.handle(new UserErasureRequestedEvent(UUID.randomUUID(), requestId, authUserId, NOW));
 
         verify(savedPlaces, never()).deleteByUserProfileId(any());
-        verify(ackClient).acknowledge(any(), eq(requestId), eq(authUserId), eq("SUCCESS"));
+        verify(ackOutbox).append(any());
         verify(tombstones).save(any());
+    }
+
+    @Test
+    void redeliveredRequestDerivesSameAckEventIdAndReplayDerivesNewOne() {
+        UUID authUserId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        when(profiles.findByAuthUserId(authUserId)).thenReturn(Optional.empty());
+        UserErasureRequestedEvent event = new UserErasureRequestedEvent(UUID.randomUUID(), requestId, authUserId, NOW);
+        UserErasureRequestedEvent replay = new UserErasureRequestedEvent(UUID.randomUUID(), requestId, authUserId, NOW);
+
+        handler.handle(event);
+        handler.handle(event);
+        handler.handle(replay);
+
+        ArgumentCaptor<UserErasureAcknowledgedEvent> acks = ArgumentCaptor.forClass(UserErasureAcknowledgedEvent.class);
+        verify(ackOutbox, times(3)).append(acks.capture());
+        List<UUID> ids = acks.getAllValues().stream().map(UserErasureAcknowledgedEvent::eventId).toList();
+        assertThat(ids.get(0)).isEqualTo(ids.get(1));
+        assertThat(ids.get(2)).isNotEqualTo(ids.get(0));
+        verify(tombstones, times(3)).save(any());
+    }
+
+    @Test
+    void failedEraseQueuesNoAck() {
+        UUID authUserId = UUID.randomUUID();
+        when(profiles.findByAuthUserId(authUserId)).thenThrow(new IllegalStateException("db down"));
+
+        assertThatThrownBy(() -> handler.handle(
+                new UserErasureRequestedEvent(UUID.randomUUID(), UUID.randomUUID(), authUserId, NOW)))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(ackOutbox, never()).append(any());
     }
 }
