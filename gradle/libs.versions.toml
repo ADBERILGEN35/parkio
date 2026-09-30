@@ -9,7 +9,7 @@ minio = "8.6.0"
 # Bouncy Castle arrives transitively through the MinIO client. MinIO 8.6.0 resolves
 # bcprov 1.81, which Trivy blocks as CRITICAL (CVE-2025-14813). 1.81.1 is the patch
 # release for that line. See docs/operations/security-findings-2026-07-25.md.
-bouncycastle = "1.81.1"
+bouncycastle = "1.85"
 # springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
 springdoc = "2.8.17"
 # Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
