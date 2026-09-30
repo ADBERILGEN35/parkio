@@ -12,6 +12,8 @@ listed="$(grep -vE '^[[:space:]]*#' "$FILES" || true)"
 printf '%s\n' "$listed" | grep -q 'waitlist-ops-inbox.yml' && fail "activation overlay is inside compose.production.files"
 printf '%s\n' "$listed" | grep -q 'civo-alertmanager.yml' && fail "Civo overlay is inside the shared production file list"
 grep -q "$OVERLAY" "$ROOT/scripts/parkio-prod-compose.sh" || fail "parkio-prod-compose.sh does not append the Civo overlay"
+grep -q "grep -qx 'docker/docker-compose.azure-hosted-beta.yml'" "$ROOT/scripts/parkio-prod-compose.sh" \
+  || fail "wrapper appends the Civo overlay for every file list"
 test -f "$ROOT/$OVERLAY" || fail "missing $OVERLAY"
 
 azure="$(awk '/azure-hosted-beta\)/,/;;/' "$ROOT/scripts/lib/deploy-common.sh")"
@@ -71,3 +73,18 @@ if value.lower() not in {"true", "1", "yes"}:
     raise SystemExit("FAIL: PARKIO_ALERT_REQUIRE_RECEIVER is not enabled")
 print("canonical Civo render: alertmanager present, loki/promtail/tempo absent, receiver required")
 PY
+
+# A caller-supplied file list that is not the hosted-beta production set must
+# still render. The web-map guard fixtures depend on that.
+fixdir="$ROOT/docker/.alerting-acceptance-receipts"
+mkdir -p "$fixdir"
+cat >"$fixdir/civo-guard-fixture.yml" <<'EOF'
+services:
+  web:
+    image: busybox:1.36
+EOF
+printf '%s\n' 'docker/.alerting-acceptance-receipts/civo-guard-fixture.yml' >"$fixdir/files.list"
+services="$(PARKIO_ENV_FILE="$ENV_FILE" PARKIO_COMPOSE_FILES_LIST="$fixdir/files.list" \
+  bash "$ROOT/scripts/parkio-prod-compose.sh" config --services)"
+printf '%s\n' "$services" | grep -qx web || fail "custom file list did not render its web service"
+printf '%s\n' "$services" | grep -qx alertmanager && fail "custom file list grew an Alertmanager service"

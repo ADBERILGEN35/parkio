@@ -20,15 +20,17 @@ while IFS= read -r line || [ -n "$line" ]; do
   [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
   ARGS+=(-f "$ROOT/$line")
 done < "$FILES_LIST"
-# Canonical Civo observability activation. Alertmanager leaves
-# azure-disabled-observability only on this path. Loki, Promtail and Tempo
-# stay disabled. Azure deploy-common.sh does not call this wrapper.
-CIVO_ALERTMANAGER_FILE="$ROOT/docker/docker-compose.civo-alertmanager.yml"
-if [ ! -f "$CIVO_ALERTMANAGER_FILE" ]; then
-  echo "ERROR: missing canonical Civo Alertmanager overlay $CIVO_ALERTMANAGER_FILE" >&2
-  exit 1
+# Canonical Civo observability activation. Append only when this invocation
+# uses the hosted-beta production file list. A caller-supplied list, including
+# the web-map guard fixtures, must not grow an Alertmanager service.
+if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
+  CIVO_ALERTMANAGER_FILE="$ROOT/docker/docker-compose.civo-alertmanager.yml"
+  if [ ! -f "$CIVO_ALERTMANAGER_FILE" ]; then
+    echo "ERROR: missing canonical Civo Alertmanager overlay $CIVO_ALERTMANAGER_FILE" >&2
+    exit 1
+  fi
+  ARGS+=(-f "$CIVO_ALERTMANAGER_FILE")
 fi
-ARGS+=(-f "$CIVO_ALERTMANAGER_FILE")
 # Optional recovery: PARKIO_GMP_RECOVERY=1 appends host-local prior-image overlay when present.
 if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
   recovery="$ROOT/docker/docker-compose.gmp-recovery-prior.yml"
