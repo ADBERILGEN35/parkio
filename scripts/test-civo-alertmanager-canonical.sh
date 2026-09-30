@@ -86,5 +86,10 @@ EOF
 printf '%s\n' 'docker/.alerting-acceptance-receipts/civo-guard-fixture.yml' >"$fixdir/files.list"
 services="$(PARKIO_ENV_FILE="$ENV_FILE" PARKIO_COMPOSE_FILES_LIST="$fixdir/files.list" \
   bash "$ROOT/scripts/parkio-prod-compose.sh" config --services)"
-printf '%s\n' "$services" | grep -qx web || fail "custom file list did not render its web service"
-printf '%s\n' "$services" | grep -qx alertmanager && fail "custom file list grew an Alertmanager service"
+if ! printf '%s\n' "$services" | grep -qx web; then
+  fail "custom file list did not render its web service"
+fi
+if printf '%s\n' "$services" | grep -qx alertmanager; then
+  fail "custom file list grew an Alertmanager service"
+fi
+echo "custom file list left Alertmanager out"
