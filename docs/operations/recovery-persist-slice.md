@@ -1,0 +1,184 @@
+# Isolated persist-before-ACK slice
+
+Draft implementation. #118 is merged to `api` (`bec7a4c6`); this stacked
+branch still needs integration with current `api` before any merge decision.
+#104 remains HOLD and is not imported.
+
+This slice implements persist-before-COMPLETE in isolated Python **and**
+wires the same default-off flag into auth-service. Production defaults
+keep `parkio.privacy.account-erasure.durable-recording-enabled=false`.
+When the flag is off, `completeLocal` still completes from participant
+ACKs only. When the flag is on, COMPLETE requires durable evidence for
+that request plus every required participant ACK.
+
+`verifiedCoverage` stays false. Restore-hosted-beta refusal is unchanged.
+
+## Public vs internal status
+
+| Surface | Values |
+|---|---|
+| Public API | `IN_PROGRESS` until `COMPLETE` (unchanged) |
+| Internal recording | `NULL` (flag off), `PENDING_DURABLE`, or `DURABLY_RECORDED` |
+
+V24 adds `erasure_requests.durable_recording_status`. Existing V21 rows
+are not rewritten. Public `status` is unchanged.
+
+## Expected boundary (missing tail)
+
+Recovery does **not** treat a contiguous listed prefix, or the maximum
+sequence returned by listing, as completeness.
+
+The independently durable expected boundary is the signed store object
+`frontier/expected-through.json`:
+
+- `expectedThrough` advances only after a record is published.
+- `highestReserved` advances when a sequence reservation is allocated.
+- Concurrent reservations use if-not-exists sequence markers; the
+  frontier is overwritten monotonically under the coordinator lock.
+- An abandoned reservation (sequence allocated, record never published)
+  does not increase `expectedThrough`. If a later sequence publishes,
+  `1..expectedThrough` contains a hole and recovery is `BLOCKED`.
+- Total loss of local high-water / coordinator memory is irrelevant:
+  recovery reads only the store frontier and published records.
+- If the frontier is missing, completeness cannot be established:
+  verdict `UNKNOWN`.
+- If the frontier is present and any `1..expectedThrough` record is
+  missing, verdict `BLOCKED`.
+
+## Auth lifecycle (flag on)
+
+`requestDeletion` still commits tombstone, request, revoke, and outbox
+in one auth TX and still returns public `IN_PROGRESS`. External persist
+runs **after commit** (or immediately when no TX is active). The status
+column is then marked `DURABLY_RECORDED` in a short new TX.
+
+Arrival orders:
+
+1. Durable record first, then participant ACKs → COMPLETE on last ACK.
+2. Participant ACKs first, then durable record → COMPLETE on persist
+   retry. ACKs alone cannot COMPLETE.
+
+If the after-commit put fails, the already committed deletion request returns
+public `IN_PROGRESS` while the row remains `PENDING_DURABLE`; the failure is
+logged for operator action. A 503 would incorrectly suggest the request did
+not commit. An explicit `persistDurableRecord` retry still reports its own
+failure to its caller. No automatic retry exists, so this response change
+does not make pending rows recover by themselves. Enabled without a
+`DurableErasureRecordStore` bean fails before mutation with
+`DURABLE_RECORDING_UNAVAILABLE`. There is no local-directory production
+adapter and no silent fallback.
+
+The Java ITs use a test-only in-memory adapter plus disposable
+PostgreSQL. They prove integration behavior, not off-host WORM.
+
+## What this store is
+
+`IsolatedVersionedStore` is a directory with if-not-exists puts. It can
+outlive an application process in the same filesystem. That is
+**process-crash-local** persistence. It is **not** off-host durability
+and **not** WORM. A local container volume does not change that class.
+Do not use it as a production durability provider.
+
+## External store requirements (not provisioned)
+
+Do not create Azure resources or set immutability from this slice. The
+existing Azure storage account is only a **future candidate**.
+
+Required properties, not a selected production config:
+
+1. Not on the primary application host.
+2. Conditional write (`If-None-Match` / if-not-exists) for
+   `records/{erasureRequestId}.json`.
+3. Conditional write for the signed frontier
+   `frontier/expected-through.json` so `expectedThrough` cannot silently
+   move backwards.
+4. List-by-prefix for `records/`, `sequences/`, `checkpoints/`,
+   `frontier/`.
+5. Versioning so an overwrite cannot silently replace a record.
+6. Deletion resistance (object lock / legal hold / equivalent) before
+   any production enablement.
+7. Least-privilege identity: put/get/list only on the erasure prefix.
+8. Clock independence: consumers order by signed `sequence` and the
+   signed frontier, not blob last-modified.
+9. Operator recovery after total local-state loss must still read the
+   frontier from this store; listing max is not a substitute.
+
+Until those exist, recovery after true primary-host loss cannot be
+certified. `certifiedOffHostWorm` stays false. Do not set
+`PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED=true` in production.
+
+## What an old but valid signed frontier proves
+
+HMAC validity plus monotonic fields prove only that **some** trusted
+producer signed that `expectedThrough` / `highestReserved` pair for that
+`databaseIdentity`. They do **not** prove the frontier is the latest
+write, and they do **not** prevent restoring an older copy of
+`frontier/expected-through.json` or rolling back the entire visible
+directory/store snapshot.
+
+If that older frontier is the only trusted boundary, recovery accepts
+only `1..expectedThrough` from **that** file. A higher listing max is
+not certified. If no trusted latest boundary exists (missing frontier,
+untrusted producer, or unrestorable store), the verdict stays
+`UNKNOWN` or `BLOCKED`. Do not invent completeness from listing.
+
+Crash after record write and before the frontier `expectedThrough`
+advance leaves the request `PENDING_DURABLE`. Durable acknowledgement
+is not granted. Recovery still uses the previous frontier.
+
+## Model-to-Java boundary
+
+The signed pending-record sequence and `frontier/expected-through.json`
+exist only in the isolated Python model. The Java
+`DurableErasureRecordStore` has `putIfAbsent` and `findByRequestId`;
+`durableEvidenceSatisfied` checks the request and user identities of a
+found record. It does not verify the record digest, signed sequence,
+producer, database identity, publication receipt, or expected frontier.
+Java's `DURABLY_RECORDED` status therefore does **not** certify the
+Python recovery boundary or off-host durability. Do not enable the Java
+flag or claim a production durable ACK from this adapter contract.
+
+The Spring-context PostgreSQL test also exercises the public retry path
+when the first after-commit put fails and all participant ACKs arrive
+before the user retries. Completion after that retry must be committed
+in a fresh transaction; a callback running after commit can still have
+transaction state bound to its thread.
+
+## Java durable-recording worker (default off)
+
+- `ErasureDurableRecordingWorker` is scheduled only when
+  `parkio.privacy.account-erasure.durable-recording-retry-worker-enabled`
+  is true **and** durable recording is enabled with a store bean present.
+  Otherwise the tick is a no-op and performs zero external puts.
+- Retry metadata lives in PostgreSQL (`durable_retry_*`, worker lease
+  columns via Flyway V25). Claims use `FOR UPDATE SKIP LOCKED` with a
+  lease token; store I/O (reads and writes) runs outside database
+  transactions. Completion re-enters a short transaction and revalidates
+  request identity, ACKs, terminal state, and claim ownership before
+  mutating. JDBC claim/retry updates bump `@Version` so stale JPA entities
+  cannot overwrite a newer claim.
+- The worker retries `PENDING_DURABLE` rows (including `FAILED_RETRYING`
+  participant status) with capped exponential backoff and never silently
+  abandons a pending erasure. Identity conflicts stay blocked and
+  observable via `last_error_code`. Successful persist clears retry delay
+  so `DURABLY_RECORDED` reconciliation remains eligible when ACKs arrive.
+  Worker COMPLETE and final auth-user anonymization commit in one short
+  database transaction after store evidence was read outside it. Lease
+  checks use fresh time at mutation. A failed user update rolls back
+  COMPLETE. Capped backoff never abandons a pending erasure; there is no
+  year-9999 retry cutoff. JDBC updates still bump `@Version`.
+- `persistDurableRecord` remains an explicit retry entrypoint.
+  `ErasureStuckGaugeJob` still only counts stuck requests.
+
+## Java remaining (not built in this slice)
+- There is no production `DurableErasureRecordStore` adapter. The
+  in-memory store is test-only. A local directory must not be wired
+  under `src/main`.
+- Java records bind `erasureRequestId` + `authUserId` + `erasedAt`.
+  They do not carry Python `databaseIdentity`.
+- `PROPAGATION_NOT_SUPPORTED` is not a commit proof. Persist is invoked
+  from `afterCommit` (the erasure TX has already committed). The
+  template only unbinds leftover Spring transaction thread-locals so
+  the put is not enlisted in a persistence context. If persist is
+  called while a live TX has synchronizations, it is deferred; if a
+  live TX has no synchronizations, it is refused.

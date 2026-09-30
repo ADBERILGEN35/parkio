@@ -9,11 +9,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.auth.application.port.AuthUserRepository;
+import com.parkio.auth.application.port.DurableErasureRecord;
+import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.InboxEventRepository;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
 import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenRepository;
+import com.parkio.auth.application.support.InMemoryDurableErasureRecordStore;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.EmailLocale;
@@ -33,6 +36,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +47,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @ExtendWith(MockitoExtension.class)
 class AccountErasureApplicationServiceTest {
@@ -225,5 +231,238 @@ class AccountErasureApplicationServiceTest {
 
         assertThat(request.getStatus()).isEqualTo("IN_PROGRESS");
         verify(users, never()).save(any());
+    }
+
+    @Test
+    void enabledWithoutProviderFailsExplicitly() {
+        service = new AccountErasureApplicationService(
+                users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
+                requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
+                Clock.fixed(NOW, ZoneOffset.UTC), true, PARTICIPANTS, true,
+                (DurableErasureRecordStore) null, null, null, (PlatformTransactionManager) null);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        verify(outbox, never()).append(any(UserErasureRequestedEvent.class));
+    }
+
+    @Test
+    void flagOffCompletesWithoutDurableEvidence() {
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(passwordHasher.hash(any())).thenReturn("replacement-hash");
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        var view = service.requestDeletion(user.id(), "pw");
+        ErasureRequestEntity row = requestRows.get(view.erasureRequestId());
+        assertThat(view.status()).isEqualTo("IN_PROGRESS");
+        assertThat(row.getDurableRecordingStatus()).isNull();
+
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), view.erasureRequestId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("COMPLETE");
+    }
+
+    @Test
+    void persistFailureDoesNotComplete() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        store.failNextPuts(1);
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
+        assertThat(store.size()).isZero();
+
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), row.getId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void persistThenParticipantAckCompletes() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(passwordHasher.hash(any())).thenReturn("replacement-hash");
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        var view = service.requestDeletion(user.id(), "pw");
+        ErasureRequestEntity row = requestRows.get(view.erasureRequestId());
+        assertThat(view.status()).isEqualTo("IN_PROGRESS");
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("DURABLY_RECORDED");
+        assertThat(store.findByRequestId(view.erasureRequestId())).isPresent();
+
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), view.erasureRequestId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("COMPLETE");
+        assertThat(user.status().name()).isEqualTo("ERASED");
+    }
+
+    @Test
+    void participantAckThenPersistCompletes() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        store.failNextPuts(1);
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(passwordHasher.hash(any())).thenReturn("replacement-hash");
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), row.getId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+
+        service.persistDurableRecord(row.getId());
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("DURABLY_RECORDED");
+        assertThat(row.getStatus()).isEqualTo("COMPLETE");
+    }
+
+    @Test
+    void persistRetryAfterRestartIsIdempotent() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        store.failNextPuts(1);
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(0L);
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        AccountErasureApplicationService restarted = durableService(store);
+        restarted.persistDurableRecord(row.getId());
+        restarted.persistDurableRecord(row.getId());
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("DURABLY_RECORDED");
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void completedRequestDeletionDoesNotReopenOrDuplicate() {
+        UUID requestId = UUID.randomUUID();
+        ErasureRequestEntity existing = new ErasureRequestEntity(requestId, user.id(), "COMPLETE", NOW);
+        existing.markDurablyRecorded();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id()))
+                .thenReturn(Optional.of(existing));
+
+        var view = service.requestDeletion(user.id(), "pw");
+        assertThat(view.erasureRequestId()).isEqualTo(requestId);
+        assertThat(view.status()).isEqualTo("COMPLETE");
+        verify(outbox, never()).append(any(UserErasureRequestedEvent.class));
+        verify(requests, never()).save(any(ErasureRequestEntity.class));
+    }
+
+    @Test
+    void storeEvidenceCompletesEvenIfColumnStillPending() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(passwordHasher.hash(any())).thenReturn("replacement-hash");
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        store.failNextPuts(1);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        store.putIfAbsent(DurableErasureRecord.of(row.getId(), user.id(), row.getRequestedAt()));
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
+
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), row.getId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("COMPLETE");
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("DURABLY_RECORDED");
+    }
+
+    @Test
+    void crashAfterStorePutBeforeStatusUpdateIsRecoverable() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(0L);
+
+        store.failNextPuts(1);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        store.putIfAbsent(DurableErasureRecord.of(row.getId(), user.id(), row.getRequestedAt()));
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
+
+        service.persistDurableRecord(row.getId());
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("DURABLY_RECORDED");
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void mismatchedStoreIdentityDoesNotSatisfyDurableEvidence() {
+        InMemoryDurableErasureRecordStore store = new InMemoryDurableErasureRecordStore();
+        service = durableService(store);
+        stubRequestPersistence();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(inbox.tryClaim(any(), eq(UserErasureAcknowledgedEvent.TYPE), eq(NOW))).thenReturn(true);
+        when(acks.countByErasureRequestIdAndStatus(any(), eq("SUCCESS"))).thenReturn(1L);
+
+        store.failNextPuts(1);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw"))
+                .isInstanceOf(AuthException.class);
+        ErasureRequestEntity row = requestRows.values().iterator().next();
+        store.putIfAbsent(DurableErasureRecord.of(row.getId(), UUID.randomUUID(), row.getRequestedAt()));
+
+        service.handleAcknowledgement(new UserErasureAcknowledgedEvent(
+                UUID.randomUUID(), row.getId(), user.id(), "user", "SUCCESS", NOW));
+        assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(row.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
+    }
+
+    private final Map<UUID, ErasureRequestEntity> requestRows = new HashMap<>();
+
+    private AccountErasureApplicationService durableService(DurableErasureRecordStore store) {
+        return new AccountErasureApplicationService(
+                users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
+                requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
+                Clock.fixed(NOW, ZoneOffset.UTC), true, PARTICIPANTS, true, store, null, null, null);
+    }
+
+    private void stubRequestPersistence() {
+        when(requests.save(any(ErasureRequestEntity.class))).thenAnswer(inv -> {
+            ErasureRequestEntity row = inv.getArgument(0);
+            requestRows.put(row.getId(), row);
+            return row;
+        });
+        when(requests.findById(any())).thenAnswer(inv -> Optional.ofNullable(requestRows.get(inv.getArgument(0))));
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(any())).thenAnswer(inv ->
+                requestRows.values().stream()
+                        .filter(row -> row.getAuthUserId().equals(inv.getArgument(0)))
+                        .findFirst());
     }
 }
