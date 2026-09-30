@@ -25,6 +25,8 @@ public class KafkaTopicsConfig {
 
     public static final String GAMIFICATION_SCORE = "parkio.gamification.score";
     public static final String DLT_GAMIFICATION = "parkio.dlt.gamification";
+    /** Owned and provisioned by auth-service; gamification only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

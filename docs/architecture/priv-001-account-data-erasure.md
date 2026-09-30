@@ -31,7 +31,10 @@ Coordinator: **auth-service**. It does not write other service databases.
 
 Outbox event `UserErasureRequested` → Kafka `parkio.privacy.erasure` (14d).
 Payload: `eventId`, `erasureRequestId`, `authUserId`, `occurredAt` (no email).
-Participants ack over HTTP (and optionally Kafka `UserErasureAcknowledged`).
+Participants ack over HTTP or, once migrated to the U05 ACK outbox, over Kafka
+`UserErasureAcknowledged` published from a committed outbox row
+([erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). Migrated so
+far: `gamification`.
 Incomplete work stays `FAILED_RETRYING` / `IN_PROGRESS`. Never mark `COMPLETE`
 without every participant `SUCCESS` ack.
 
@@ -64,6 +67,13 @@ acks upsert by `(erasure_request_id, service_name)`.
 Each participant inserts `erased_user_tombstones` first, then mutates its own DB,
 then `POST /internal/erasure/acks` with `X-Gateway-Auth`. HTTP failure throws so
 Kafka retries. Sentinel: `00000000-0000-4000-8000-000000000001`.
+
+**Known defect (U05):** that HTTP ACK is sent inside the erase transaction, so a
+rollback or commit failure after it leaves auth with a false `SUCCESS`.
+`gamification` instead appends the ACK to its outbox in the erase transaction
+and its relay publishes it after commit
+([erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)); the other
+seven participants are tracked by their own U05 subtasks.
 
 | Service | Group | Local action |
 |---------|-------|----------------|

@@ -1,8 +1,11 @@
 package com.parkio.gamification.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -34,5 +37,17 @@ class OutboxEventAppenderAdapterTest {
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
         verify(jpa).save(captor.capture());
         assertThat(captor.getValue().getEventId()).isEqualTo(eventId);
+    }
+
+    @Test
+    void eventIdAlreadyInOutboxIsNotAppendedAgain() {
+        UUID eventId = UUID.randomUUID();
+        when(jpa.existsByEventId(eventId)).thenReturn(true);
+
+        adapter.append(new PointsEarnedEvent(
+                eventId, UUID.randomUUID(), 25L, PointSourceType.PARKING_VERIFIED, 25L,
+                UUID.randomUUID(), Instant.parse("2026-06-08T12:00:00Z")));
+
+        verify(jpa, never()).save(any());
     }
 }
