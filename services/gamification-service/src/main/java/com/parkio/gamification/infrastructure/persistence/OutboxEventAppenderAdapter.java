@@ -14,7 +14,9 @@ import org.springframework.stereotype.Component;
  * Writes domain events into the transactional outbox. Because the surrounding use
  * case is transactional, this insert commits atomically with the state change
  * (ai-context/06). {@code GamificationOutboxRelay} publishes unpublished
- * rows to Kafka.
+ * rows to Kafka. An event whose eventId is already in the outbox is not appended again, so a
+ * redelivered command that re-derives the same eventId stays a no-op instead of tripping the
+ * {@code uq_outbox_events_event_id} index and rolling back the caller.
  */
 @Component
 public class OutboxEventAppenderAdapter implements OutboxEventAppender {
@@ -29,6 +31,9 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
 
     @Override
     public void append(GamificationEvent event) {
+        if (jpa.existsByEventId(event.eventId())) {
+            return;
+        }
         OutboxEventEntity entity = new OutboxEventEntity(
                 UUID.randomUUID(),
                 event.eventId(),

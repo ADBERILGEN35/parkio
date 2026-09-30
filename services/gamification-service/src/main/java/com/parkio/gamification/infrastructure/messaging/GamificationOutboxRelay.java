@@ -5,6 +5,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.gamification.domain.event.GamificationEvent;
+import com.parkio.gamification.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.gamification.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.gamification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.gamification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -166,9 +167,18 @@ public class GamificationOutboxRelay {
         return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
-    /** All gamification score events share one topic. */
+    /**
+     * All gamification score events share one topic. Erasure ACKs go to the auth-owned
+     * {@code parkio.privacy.erasure} topic, where the coordinator consumes them.
+     */
     static String topicFor(String aggregateType) {
-        return GamificationEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.GAMIFICATION_SCORE : null;
+        if (GamificationEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.GAMIFICATION_SCORE;
+        }
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
+        }
+        return null;
     }
 
     private EventEnvelope toEnvelope(OutboxEventEntity row) {
