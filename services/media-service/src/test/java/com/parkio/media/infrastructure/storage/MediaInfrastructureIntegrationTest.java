@@ -1,16 +1,11 @@
 package com.parkio.media.infrastructure.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
 import com.parkio.media.application.AccountErasureHandler;
 import com.parkio.media.application.event.UserErasureRequestedEvent;
 import com.parkio.media.application.port.MediaStoragePort.StoredObject;
 import com.parkio.media.domain.MediaFile;
-import com.parkio.media.infrastructure.client.AuthErasureAckClient;
 import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
 import com.parkio.media.infrastructure.persistence.mapper.MediaPersistenceMapper;
 import io.minio.BucketExistsArgs;
@@ -32,7 +27,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -112,8 +106,6 @@ class MediaInfrastructureIntegrationTest {
     @Autowired
     private MediaFileJpaRepository mediaFiles;
 
-    @MockBean
-    private AuthErasureAckClient ackClient;
 
     @BeforeEach
     void ensureBucketExists() throws Exception {
@@ -205,7 +197,11 @@ class MediaInfrastructureIntegrationTest {
         erasureHandler.handle(event);
         assertThat(listObjectNames()).doesNotContain(objectKey);
         erasureHandler.handle(event);
-        verify(ackClient, times(2)).acknowledge(any(), any(), eq(owner), eq("SUCCESS"));
+        // U05: the ACK is queued in the outbox once the object is confirmed gone; redelivery adds none.
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM outbox_events
+                WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?
+                """, Long.class, event.erasureRequestId())).isEqualTo(1);
     }
 
     private java.util.List<String> listObjectNames() throws Exception {
