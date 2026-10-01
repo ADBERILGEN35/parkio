@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import com.parkio.parking.infrastructure.persistence.ParkingMigrationHistory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Tag;
@@ -36,7 +37,7 @@ class TrustShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "trust_ledger")).isTrue();
             assertThat(tableExists(connection, "trust_snapshot")).isTrue();
             assertThat(columnExists(connection, "trust_snapshot", "version")).isTrue();
@@ -65,7 +66,7 @@ class TrustShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "trust_ledger")).isTrue();
             assertThat(tableExists(connection, "trust_snapshot")).isTrue();
             assertThat(foreignKeyExists(connection, "trust_ledger", "fk_trust_ledger_outcome")).isTrue();

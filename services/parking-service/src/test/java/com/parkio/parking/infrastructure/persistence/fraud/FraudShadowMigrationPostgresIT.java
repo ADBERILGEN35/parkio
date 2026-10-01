@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import com.parkio.parking.infrastructure.persistence.ParkingMigrationHistory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Tag;
@@ -60,7 +61,7 @@ class FraudShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "fraud_evaluation_ledger")).isTrue();
             assertThat(foreignKeyExists(connection, "fraud_evaluation_ledger", "fk_fraud_evaluation_ledger_outcome")).isTrue();
         }
