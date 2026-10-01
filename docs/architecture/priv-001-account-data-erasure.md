@@ -33,9 +33,11 @@ Outbox event `UserErasureRequested` → Kafka `parkio.privacy.erasure` (14d).
 Payload: `eventId`, `erasureRequestId`, `authUserId`, `occurredAt` (no email).
 Participants ack over Kafka `UserErasureAcknowledged`, published only from an
 outbox row committed with the local erase (U05,
-[erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). Merged:
-`gamification`, `user`; the other six are in review (see the contract's
-inventory) and until merged still ack over HTTP inside their transaction.
+[erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). The
+contract's rollout status separates source merge, deployment and production
+acceptance. On `api` `efbdfa5a` only `gamification` and `user` are merged; the
+other six are draft PRs and their code on `api` still acks over HTTP inside the
+erase transaction.
 Incomplete work stays `FAILED_RETRYING` / `IN_PROGRESS`. Never mark `COMPLETE`
 without every participant `SUCCESS` ack.
 
@@ -65,23 +67,39 @@ acks upsert by `(erasure_request_id, service_name)`.
 
 ## Per-service handlers
 
-Each participant inserts `erased_user_tombstones` first, then mutates its own DB,
-and in the same transaction queues its `SUCCESS` ACK in its outbox; the relay
-publishes it after commit (media: only after every stored object is confirmed
-deleted, see the contract). A failure rolls back erase and ACK together, so the
-consumer retries. Sentinel: `00000000-0000-4000-8000-000000000001`.
+With U05, each participant inserts `erased_user_tombstones` first, then mutates
+its own DB, and queues its `SUCCESS` ACK in its outbox in the same transaction;
+the relay publishes the ACK after commit. A failure rolls back the erase and the
+ACK together, so the consumer retries. Media is the exception: it acks only
+after every stored version of the user's objects is confirmed gone and its
+metadata deleted (see the contract). Sentinel:
+`00000000-0000-4000-8000-000000000001`.
 
-Erasure is complete only when no copy of the user id remains outside the
-tombstone and the ACK outbox row: JSON copies (parking shadow ledgers) and
-user-derived ids (parking trust snapshot ids) are rewritten, and sentinel
-rewrites never skip rows (moderation V14 exempts the sentinel from reporter and
-appellant uniqueness).
+**Known defect (U05), until each participant's PR merges:** the participants
+not yet merged (see the contract's rollout status) still send
+`POST /internal/erasure/acks` inside the erase transaction. A rollback or commit
+failure after that call leaves auth with a false `SUCCESS`.
+
+Each erase targets every copy of the user id in the participant's product tables:
+- JSON copies are rewritten (parking shadow ledgers).
+- User-derived ids are rewritten (parking trust snapshot ids).
+- Sentinel rewrites never skip rows: moderation V14 exempts the sentinel from
+  reporter and appellant uniqueness.
+
+Some copies still remain after `SUCCESS`:
+- the tombstone;
+- the ACK row and earlier event copies in the outbox and on Kafka, until the
+  existing transport retention removes them;
+- sentinel-rewritten shared facts, which no longer hold the user id.
+
+The contract's "What remains after SUCCESS" lists them and how each IT checks
+them.
 
 | Service | Group | Local action |
 |---------|-------|----------------|
 | user | `parkio.user.erasure` | Hard-delete profile, places, favourites, recents, prefs, vehicle, trust projection |
 | parking | `parkio.parking.erasure` | Hard-delete sessions, search/view logs, verifications, idempotency rows; spots retained with sentinel owner and `media_id` null; trust/fraud/reward subject ids anonymized |
-| media | `parkio.media.erasure` | Soft-delete metadata for `owner_user_id` (one transaction, with a durable erasure job); then delete every stored object outside the transaction and ack only after all are confirmed deleted or absent (retried with backoff) |
+| media | `parkio.media.erasure` | One transaction hides (soft-deletes) the user's media and opens a durable erasure job. Then, outside it: remove every stored version and delete marker of each object, confirm with a fresh listing, and delete that media row and its validation results; empty the `media/<userId>/` key namespace; ack and drop the job only when nothing is left. Retried with backoff; an object that cannot be confirmed gone (object lock, another bucket) keeps it pending |
 | moderation | `parkio.moderation.erasure` | Retain cases/reports/appeals/violations; rewrite reporter/owner/target-USER ids to sentinel. Staff `moderator_id` on decisions left as audit |
 | gamification | `parkio.gamification.erasure` | Delete progress/trust/contribution snapshots; anonymize `point_transactions` |
 | notification | `parkio.notification.erasure` | Delete tokens, prefs, notifications, delivery attempts |

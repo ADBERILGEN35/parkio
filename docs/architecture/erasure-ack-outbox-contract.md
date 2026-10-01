@@ -8,13 +8,32 @@ exists. An `afterCommit` callback is not enough either: a crash between commit
 and send loses the ACK.
 
 This contract reuses each service's existing transactional outbox and relay and
-auth's existing Kafka ACK consumer. It adds no new framework, table or topic.
+auth's existing Kafka ACK consumer. It adds no new framework or topic. Two
+participants add schema: media adds `media_erasure_jobs` (V14) for object
+deletion that is still pending, and analytics adds DLQ columns to its existing
+outbox for its new relay (V10).
 
-Status: **gamification** (pilot, #132) and **user** (#133) are merged. The other
-six participants implement the same contract in separate PRs: parking (#137),
-moderation (#135), notification (#140), ai-validation (#139),
-analytics (#138) and media (#141). Until each merges, that participant
-still sends its HTTP ACK inside its transaction.
+## Rollout status (`api` `efbdfa5a`, 2026-10-01)
+
+Source merge, deployment and production acceptance are separate states. This
+table records the source state of `api`; the PR that merges last updates it.
+
+| Participant | PR | Source on `api` | Deployed | Production acceptance |
+|-------------|----|-----------------|----------|-----------------------|
+| gamification | #132 | merged (`1146211f`) | not established | not run |
+| user | #133 | merged (`5e417266`) | not established | not run |
+| moderation | #135 | draft, not merged | no | not run |
+| parking | #137 | draft, not merged | no | not run |
+| analytics | #138 | draft, not merged | no | not run |
+| ai-validation | #139 | draft, not merged | no | not run |
+| notification | #140 | draft, not merged | no | not run |
+| media | #141 | draft, not merged | no | not run |
+
+"Not established": the repository holds no evidence that an image built from
+the merged source runs anywhere. Deployment pins and the PRIV-001A runtime
+acceptance are tracked outside this document. Until a participant's PR merges,
+its code on `api` still sends the HTTP ACK inside its erase transaction (the U05
+defect).
 
 ## Participant side
 
@@ -84,6 +103,11 @@ participant: missing, `FAILED`, unknown status, duplicate and replayed ACKs.
 
 - **Erase fails permanently:** no ACK row, so no `SUCCESS`; the request stays
   `IN_PROGRESS` and the `AccountErasureStuck` alert fires.
+- **Media objects cannot be confirmed gone** (storage outage, object-lock
+  retention, an object in another bucket): the media job stays pending and
+  retries with backoff, with no attempt cap; no `SUCCESS`, the request stays
+  `IN_PROGRESS`, `AccountErasureStuck` fires and
+  `parkio.media.erasure.jobs.pending` stays above zero.
 - **ACK row cannot be published:** asynchronous broker failures count toward
   `parkio.kafka.relay.max-attempts`; the row is then dead-lettered
   (`parkio.outbox.deadlettered`) and can be redriven. The request stays
@@ -116,12 +140,12 @@ Per participant subtask:
    the real-broker test producer a realistic `max.block.ms` (first send to a
    not-yet-created topic can exceed a couple of seconds).
 5. Media must additionally cover object-storage delete before `SUCCESS`
-   (see "Media: two-phase erase" below).
+   (see media under "Participant specifics").
 6. Inspect the full erase scope, not only the handler's statements: copies of
    the user id inside JSON/text columns, ids derived from the user id, and
    uniqueness constraints that make a sentinel rewrite skip or fail a row. A
-   whole-schema residue scan in the IT (every uuid/text/json column, excluding
-   the tombstone and the ACK outbox row) catches these.
+   whole-schema residue scan in the IT (every uuid/text/json column) catches
+   these; see "What remains after SUCCESS" for what each scan may exclude.
 
 ## Participant specifics
 
@@ -139,34 +163,84 @@ Per participant subtask:
 - **analytics (V10):** analytics had the outbox table but no relay; it now has
   `AnalyticsOutboxRelay` (same shape as the other relays, DLQ columns via V10)
   and publishes only erasure ACKs.
-- **media (V14): two-phase erase.**
-  1. One short transaction: tombstone, soft-delete of the user's media
-     metadata, idempotency records, and a durable `media_erasure_jobs` row keyed
-     by the ACK event id (reopened on redelivery). No storage I/O, no ACK.
-  2. After commit, `MediaObjectErasureWorker` deletes every soft-deleted object
-     of the user outside any transaction (an absent object counts as deleted),
-     records `media_files.object_deleted_at`, and only when none remains queues
-     the ACK in one short transaction that locks the job and re-checks. Failures
-     leave the job pending with attempts, last error and exponential backoff; a
-     scheduled, leased poll (`parkio.media.erasure-worker.*`) retries due jobs.
-     Metrics: `parkio.media.erasure.jobs.pending`,
-     `parkio.media.erasure.object.delete.failed`.
+- **media (V14): two-phase erase; metadata deleted.** PRIV-001's policy
+  matrix says "User-owned media: delete metadata + object storage"; the old
+  handler only soft-deleted the rows, which kept `owner_user_id`, the object
+  key (it embeds the user id), checksum and perceptual hash. Now:
+  1. One short transaction, with no storage I/O and no ACK: tombstone,
+     soft-delete of the user's media rows (no longer served), the user's
+     idempotency records, and a `media_erasure_jobs` row keyed by the ACK event
+     id (reopened on redelivery). The job holds the request id and user id only
+     while work is pending.
+  2. After commit, `MediaObjectErasureWorker` works outside any transaction. For
+     each media row of the user it lists every version and delete marker of
+     exactly that key (an unversioned bucket lists its one object) and removes
+     each by version id. It then requires a fresh listing, backed by a HEAD, to
+     be empty. A delete call that returns normally is not taken as proof. Only
+     then does a short transaction delete that row and its validation results.
+     Once every row is gone, the worker empties the owner key namespace
+     `media/<userId>/` the same way. That removes objects of uploads whose row
+     never committed.
+  3. One short transaction locks the job and re-checks that the user owns no
+     media row. It deletes late idempotency records, queues the ACK and deletes
+     the job. No media metadata and no job state outlives `SUCCESS`.
 
-### Participant inventory (target state once the participant PRs merge)
+  Never `SUCCESS` while an object cannot be confirmed gone: a version the store
+  refuses to remove (object lock or retention), an object in a bucket other
+  than the configured one, an object still listed after its delete, or a
+  storage outage. Every failed attempt is recorded on the job, whether an
+  object failure or an unexpected one such as a failed ACK append: `attempts`,
+  `last_error` and an exponential backoff. A scheduled, leased poll
+  (`parkio.media.erasure-worker.*`) retries due jobs, and one attempt stops
+  taking new objects after `attempt-budget-ms`, which bounds the consumer
+  thread. Metrics: `parkio.media.erasure.jobs.pending`,
+  `parkio.media.erasure.object.delete.failed`,
+  `parkio.media.erasure.attempt.failed`.
+
+  Storage topology: the checked-in Compose bucket is unversioned
+  (`docker/docker-compose.yml`, `minio-setup`), while
+  `production-readiness.md` recommends versioning. The delete works by version,
+  so enabled and suspended versioning are handled, and an object-lock bucket
+  fails closed while a retention period holds. The deployed bucket mode is not
+  recorded in the repository; check it at rollout.
+
+### Participant inventory
 
 | Participant | ACK path | Relay | PR |
 |-------------|----------|-------|----|
-| user | outbox (`ErasureAckOutbox` port) | `UserOutboxRelay` | #133 (merged) |
+| user | outbox (`ErasureAckOutbox` port) | `UserOutboxRelay` | #133 |
 | parking | outbox + ledger JSON scrub | `ParkingOutboxRelay` | #137 |
-| media | outbox after confirmed object deletion | `MediaOutboxRelay` | #141 |
+| media | outbox after every stored version is confirmed gone; metadata deleted | `MediaOutboxRelay` | #141 |
 | moderation | outbox + sentinel-exempt uniqueness (V14) | `ModerationOutboxRelay` | #135 |
-| gamification | outbox (pilot) | `GamificationOutboxRelay` | #132 (merged) |
+| gamification | outbox (pilot) | `GamificationOutboxRelay` | #132 |
 | notification | outbox | `NotificationOutboxRelay` | #140 |
 | analytics | outbox | `AnalyticsOutboxRelay` (new, V10) | #138 |
 | ai-validation | outbox | `AiValidationOutboxRelay` | #139 |
 
-Retained by design (PRIV-001): the tombstone, the ACK outbox payload (carries
-`authUserId` per the auth contract; published rows are purged by retention),
-staff/operator audit ids, and soft-deleted media metadata (`owner_user_id`,
-checksum, perceptual hash). Whether media metadata must be hard-deleted is an
-open policy question (the PRIV-001 matrix and per-service table disagree).
+## What remains after SUCCESS
+
+| Data | Where | Why | Until |
+|------|-------|-----|-------|
+| `auth_user_id`, `erased_at` | `erased_user_tombstones` (each participant) | Resurrection prevention (PRIV-001) | Tombstone retention, longer than backup retention |
+| ACK row (`erasureRequestId`, `authUserId`) | participant `outbox_events` | Auth's ACK contract | Published rows: the existing outbox retention (`RetentionCleanupJob`, P7D, [kafka-transport.md](kafka-transport.md)) |
+| Event copies written before the erase, e.g. `MediaUploaded` (`ownerUserId`, object key, checksum) | participant `outbox_events`, Kafka topics | Event transport, not product state | The same outbox retention; topic retention (Kafka records are not erased) |
+| Sentinel-rewritten shared facts (spots, moderation records, point transactions, AI requests) | participant tables | PRIV-001 matrix: retain, identities → sentinel | Retained, without the user id |
+| Staff `moderator_id` on decisions | moderation | Audit (PRIV-001) | Retained |
+
+Only media has pending state between its commit and its `SUCCESS`: the job and
+the soft-deleted rows hold the user id and object keys. They are needed to
+finish the erasure and are deleted before the ACK.
+
+Transport retention predates U05 and applies to every service; U05 adds no
+retention period and changes none. PRIV-001's policy matrix does not mention
+transport copies yet. The privacy policy owner has to confirm that they are
+acceptable until the transport retention removes them.
+
+How the per-service ITs check this (whole-schema residue scan, every
+uuid/text/json column):
+
+- media: excludes only this erasure's ACK row, and also proves that the
+  retention job removes the published transport rows;
+- moderation, parking, analytics, ai-validation and notification: exclude the
+  tombstone table and the whole `outbox_events` table;
+- gamification and user (merged): no whole-schema scan.
