@@ -40,6 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,8 +67,9 @@ import reactor.core.publisher.Mono;
  * JWKS validation, session-epoch and account-status lookups, route filters and Netty
  * routing — against a loopback stub. Downstream 4xx/5xx pass through unchanged, transport
  * failures surface as 5xx/504 rather than {@code 401 INVALID_TOKEN} (which clients answer
- * with a token refresh and a replay), and genuine authentication and revocation failures
- * keep their codes. Only the Redis rate limiter is stubbed (it admits every request).
+ * with a token refresh and a replay), and genuine authentication, revocation and
+ * account-status outcomes keep their codes. Only the Redis rate limiter is stubbed (it
+ * admits every request).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = GatewayServiceApplication.class)
 @AutoConfigureWebTestClient(timeout = "PT30S")
@@ -88,6 +90,8 @@ class AuthenticatedDownstreamFailureHttpIT {
     private static final String JWKS_JSON;
     private static final AtomicInteger epochStatus = new AtomicInteger(200);
     private static final AtomicLong currentEpoch = new AtomicLong(0);
+    private static final AtomicInteger statusLookupStatus = new AtomicInteger(200);
+    private static final AtomicReference<String> accountStatus = new AtomicReference<>("ACTIVE");
     private static final AtomicInteger downstreamCalls = new AtomicInteger();
     private static final Map<String, String> downstreamHeaders = new ConcurrentHashMap<>();
 
@@ -162,6 +166,8 @@ class AuthenticatedDownstreamFailureHttpIT {
                 .thenReturn(Mono.just(new RateLimiter.Response(true, Map.of())));
         epochStatus.set(200);
         currentEpoch.set(0);
+        statusLookupStatus.set(200);
+        accountStatus.set("ACTIVE");
         downstreamCalls.set(0);
         downstreamHeaders.clear();
     }
@@ -250,6 +256,22 @@ class AuthenticatedDownstreamFailureHttpIT {
         assertThat(downstreamCalls).hasValue(1);
     }
 
+    @Test
+    void inactiveAndUnverifiableAccountsKeepTheirCodes() {
+        accountStatus.set("SUSPENDED");
+        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.code").isEqualTo("ACCOUNT_NOT_ACTIVE");
+
+        accountStatus.set("ACTIVE");
+        statusLookupStatus.set(500);
+        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+                .expectStatus().isEqualTo(503)
+                .expectBody().jsonPath("$.code").isEqualTo("USER_STATUS_UNAVAILABLE");
+
+        assertThat(downstreamCalls).hasValue(0);
+    }
+
     private void assertNoAuthenticationErrorOrLeak(String body, String token) {
         assertThat(body).isNotBlank()
                 .doesNotContain("INVALID_TOKEN")
@@ -313,7 +335,8 @@ class AuthenticatedDownstreamFailureHttpIT {
             respond(exchange, epochStatus.get(),
                     "{\"userId\":\"" + segments[4] + "\",\"sessionEpoch\":" + currentEpoch.get() + "}");
         } else if (path.startsWith("/internal/users/") && path.endsWith("/status")) {
-            respond(exchange, 200, "{\"userId\":\"" + segments[3] + "\",\"status\":\"ACTIVE\"}");
+            respond(exchange, statusLookupStatus.get(),
+                    "{\"userId\":\"" + segments[3] + "\",\"status\":\"" + accountStatus.get() + "\"}");
         } else {
             downstream(exchange, path, segments);
         }
