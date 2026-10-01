@@ -11,9 +11,10 @@ import java.util.List;
 public interface MediaStoragePort {
 
     /**
-     * Stores the content under the given key, in exactly one request, and returns where it landed.
-     * Throws {@link WriteNotAppliedException} only when the store certainly did not apply the
-     * write; any other failure leaves its outcome unknown (the store may still apply it later).
+     * Stores the content under the given key, in one request whose body is transmitted at most
+     * once, and returns where it landed. Throws {@link WriteNotAppliedException} only when the store
+     * certainly did not apply the write; any other failure leaves its outcome unknown (the store may
+     * still apply that one transmission later).
      */
     StoredObject store(String objectKey, byte[] content, String contentType);
 
@@ -39,17 +40,18 @@ public interface MediaStoragePort {
     String generatePresignedGetUrl(String objectKey, Duration ttl);
 
     /**
-     * Stored versions and delete markers of exactly {@code objectKey} in {@code bucket}, at most one
-     * listing page per call (an unversioned bucket reports its one object; more may follow a full
-     * page). Keys that merely share the prefix are not included. Empty means the key is confirmed
-     * absent. Account erasure only: the adapter fails for any bucket other than its configured one,
-     * where it cannot confirm absence.
+     * Stored versions and delete markers of exactly {@code objectKey} in {@code bucket}, from one
+     * listing request (plus a HEAD when the listing is empty); more may follow once these are
+     * removed (an unversioned bucket reports its one object). Keys that merely share the prefix are
+     * neither included nor paged through. Empty means the key is confirmed absent. Account erasure
+     * only: the adapter fails for any bucket other than its configured one, where it cannot confirm
+     * absence.
      */
     List<StoredVersion> versionsOf(String bucket, String objectKey);
 
     /**
-     * Stored versions and delete markers under {@code prefix} in the configured bucket, at most one
-     * listing page per call (no per-key HEAD). Empty means nothing is stored under the prefix.
+     * Stored versions and delete markers under {@code prefix} in the configured bucket, from one
+     * listing request (one page; no per-key HEAD). Empty means nothing is stored under the prefix.
      */
     List<StoredVersion> versionsUnder(String prefix);
 
@@ -60,9 +62,10 @@ public interface MediaStoragePort {
     void removeVersion(StoredVersion version);
 
     /**
-     * The store certainly did not apply a write: it answered with a client error (4xx), or the
-     * request never left the client (no connection could be opened). Any other failure, including
-     * a timeout or a 5xx reply, leaves the outcome unknown.
+     * The store certainly did not apply a write: no attempt sent any byte of its body, or the store
+     * answered its only transmission with a client error (4xx). Any other failure, including a
+     * timeout, a 5xx or 3xx reply, or a failure of a later attempt after the body was sent, leaves
+     * the outcome unknown.
      */
     final class WriteNotAppliedException extends RuntimeException {
         public WriteNotAppliedException(String message, Throwable cause) {

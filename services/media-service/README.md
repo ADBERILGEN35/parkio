@@ -56,9 +56,10 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
   owner's erasure fence (a PostgreSQL advisory lock per owner) and answer
   **`403 ACCOUNT_ERASED`** once the owner's erasure has started, without storing or
   recording anything. Each upload records its PUT in `media_object_writes` before sending
-  it; a PUT whose outcome is unknown keeps an erasure of the owner pending until its object
-  is observed. Object deletes remove every version by id (never a key-only delete). See
-  `docs/architecture/erasure-ack-outbox-contract.md` (media).
+  it, and the storage client transmits a request body at most once (no follow-up, no retry
+  once sent, no redirect, no proxy); a PUT whose outcome is unknown keeps an erasure of the
+  owner pending until its object is observed. Object deletes remove every version by id
+  (never a key-only delete). See `docs/architecture/erasure-ack-outbox-contract.md` (media).
 - **Storage internals are hidden:** responses never contain `bucketName`,
   `objectKey` or `checksum`, and no access URL is ever persisted.
 

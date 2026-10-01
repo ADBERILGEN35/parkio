@@ -15,10 +15,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,16 +41,20 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the owner key namespace the same way. A delete call that returns normally is not taken as
  * proof: a version listed again after its delete fails the attempt.
  *
- * <p>The attempt checks its deadline ({@code attempt-budget-ms}) before every storage call, so it
- * ends at most one storage call (bounded by the storage call timeout) after the budget, leaving
- * the remaining work pending and durable. The lease must outlast that (checked at startup).
+ * <p>The attempt checks its deadline ({@code attempt-budget-ms}) before every storage call: one
+ * delete, or one listing request (an exact-key lookup adds a HEAD when it lists nothing), each
+ * request bounded by the storage call timeout. It therefore ends within two call timeouts after
+ * the budget, leaving the remaining work pending and durable. The lease must outlast that
+ * (checked at startup).
  *
- * <p>Recorded object writes of the user ({@code media_object_writes}, V16) are settled next. An
- * upload records its PUT before sending it; a PUT whose outcome is unknown may still be applied by
- * the store at any later time, and no documented bound limits when. Such a write is settled only
- * once its object has been observed (and removed): until then the job stays pending, records why,
- * and is retried with backoff. A write the store confirmed is settled once its object is confirmed
- * gone.
+ * <p>Recorded object writes of the user ({@code media_object_writes}, V16) are settled next, all
+ * of them, a batch at a time. An upload records its PUT before sending it, and the storage client
+ * transmits that PUT once; a PUT whose outcome is unknown may still be applied by the store at any
+ * later time, and no documented bound limits when. Such a write is settled only once its object
+ * (a version, not a delete marker) has been observed and removed: until then the job stays
+ * pending, records why, and is retried with backoff. Every observation is committed before the
+ * object it saw is removed, in the namespace sweep as here, so a failure or restart in between
+ * never loses it. A write the store confirmed is settled once its object is confirmed gone.
  *
  * <p>The SUCCESS ACK is queued in one transaction that first takes the owner's erasure fence
  * exclusively (no media write transaction of the owner can be open or admitted), then requires
@@ -79,7 +81,7 @@ public class MediaObjectErasureWorker {
     /** Result of settling one recorded object write. */
     private enum WriteProgress { SETTLED, OUTCOME_UNKNOWN, BUDGET_SPENT }
 
-    /** Recorded writes looked at per attempt; more stay recorded and keep SUCCESS blocked. */
+    /** Recorded writes read per database query; an attempt goes through every batch. */
     static final int WRITE_BATCH = 100;
 
     /** Time the lease keeps for the database work after the last storage call. */
@@ -249,19 +251,13 @@ public class MediaObjectErasureWorker {
         }
         if (failures == 0 && !budgetSpent) {
             // Uploads whose row never committed (a failed upload whose cleanup also failed) left
-            // their objects under the same owner-namespaced keys. A write of unknown outcome whose
-            // object turns up here is recorded as applied before the object is removed, so that
-            // observation is not lost.
-            Map<String, ObjectWrite> unknownByKey = new HashMap<>();
-            for (ObjectWrite write : jobs.unsettledWrites(job.authUserId(), WRITE_BATCH)) {
-                if (!write.applied()) {
-                    unknownByKey.put(write.objectKey(), write);
-                }
-            }
+            // their objects under the same owner-namespaced keys. An object found here proves that
+            // every recorded write of its key was applied; that is committed before the object is
+            // removed, whichever of the user's writes it is.
             String prefix = MediaApplicationService.objectKeyPrefix(job.authUserId());
             try {
                 budgetSpent = eraseVersions(() -> storage.versionsUnder(prefix), deadline,
-                        version -> recordObserved(unknownByKey.remove(version.objectKey())))
+                        version -> recordObserved(job.authUserId(), version))
                         == Progress.BUDGET_SPENT;
             } catch (RuntimeException e) {
                 failures++;
@@ -271,22 +267,31 @@ public class MediaObjectErasureWorker {
         }
         int outcomeUnknown = 0;
         if (failures == 0 && !budgetSpent) {
-            for (ObjectWrite write : jobs.unsettledWrites(job.authUserId(), WRITE_BATCH)) {
-                try {
-                    WriteProgress progress = settle(write, deadline);
-                    if (progress == WriteProgress.BUDGET_SPENT) {
-                        budgetSpent = true;
-                        break;
+            UUID after = null;
+            batches:
+            while (true) {
+                List<ObjectWrite> batch = jobs.unsettledWrites(job.authUserId(), after, WRITE_BATCH);
+                for (ObjectWrite write : batch) {
+                    after = write.writeId();
+                    try {
+                        WriteProgress progress = settle(job.authUserId(), write, deadline);
+                        if (progress == WriteProgress.BUDGET_SPENT) {
+                            budgetSpent = true;
+                            break batches;
+                        }
+                        if (progress == WriteProgress.OUTCOME_UNKNOWN) {
+                            outcomeUnknown++;
+                        }
+                    } catch (RuntimeException e) {
+                        failures++;
+                        objectFailures.increment();
+                        if (firstFailure == null) {
+                            firstFailure = "object write " + write.writeId() + ": " + reasonOf(e);
+                        }
                     }
-                    if (progress == WriteProgress.OUTCOME_UNKNOWN) {
-                        outcomeUnknown++;
-                    }
-                } catch (RuntimeException e) {
-                    failures++;
-                    objectFailures.increment();
-                    if (firstFailure == null) {
-                        firstFailure = "object write " + write.writeId() + ": " + reasonOf(e);
-                    }
+                }
+                if (batch.size() < WRITE_BATCH) {
+                    break;
                 }
             }
         }
@@ -377,18 +382,20 @@ public class MediaObjectErasureWorker {
 
     /**
      * Settles one recorded write of the user. A write of unknown outcome is settled only once its
-     * object has been observed: that proves the request was applied, and a request applies at most
-     * once (one PUT per upload, no client retries, a fresh key per upload). Until then it stays.
+     * object has been observed: that proves its PUT was applied, and that PUT cannot apply again (an
+     * upload sends one PUT, transmitted once, under a fresh key). A delete marker is no such object:
+     * a delete made it. Until then the write stays.
      */
-    private WriteProgress settle(ObjectWrite write, Instant deadline) {
+    private WriteProgress settle(UUID owner, ObjectWrite write, Instant deadline) {
         if (!write.applied()) {
             if (expired(deadline)) {
                 return WriteProgress.BUDGET_SPENT;
             }
-            if (storage.versionsOf(write.bucket(), write.objectKey()).isEmpty()) {
+            if (storage.versionsOf(write.bucket(), write.objectKey()).stream().allMatch(StoredVersion::deleteMarker)) {
                 return WriteProgress.OUTCOME_UNKNOWN;
             }
-            tx.executeWithoutResult(status -> jobs.markWriteApplied(write.writeId(), clock.instant()));
+            tx.executeWithoutResult(status ->
+                    jobs.markObserved(owner, write.bucket(), write.objectKey(), clock.instant()));
         }
         if (eraseVersions(() -> storage.versionsOf(write.bucket(), write.objectKey()), deadline)
                 == Progress.BUDGET_SPENT) {
@@ -398,9 +405,11 @@ public class MediaObjectErasureWorker {
         return WriteProgress.SETTLED;
     }
 
-    private void recordObserved(ObjectWrite write) {
-        if (write != null) {
-            tx.executeWithoutResult(status -> jobs.markWriteApplied(write.writeId(), clock.instant()));
+    /** An object version (not a delete marker) under the user's key: its writes were applied; committed first. */
+    private void recordObserved(UUID owner, StoredVersion version) {
+        if (!version.deleteMarker()) {
+            tx.executeWithoutResult(status ->
+                    jobs.markObserved(owner, version.bucket(), version.objectKey(), clock.instant()));
         }
     }
 

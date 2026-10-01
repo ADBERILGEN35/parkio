@@ -41,6 +41,11 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
             return new Reply(status, Map.of("Location", SAME_TARGET), "", false);
         }
 
+        /** No reply at all: the request is read in full and the connection then stays silent. */
+        public static Reply none() {
+            return new Reply(0, Map.of(), "", false);
+        }
+
         /** A plain success with an ETag (a PUT or HEAD the store accepted). */
         public static Reply ok() {
             return new Reply(200, Map.of("ETag", "\"0123456789abcdef0123456789abcdef\""), "", false);
@@ -124,6 +129,12 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
                 requestLines.add(requestLine);
                 bodySizes.add(body.length);
                 Reply reply = next();
+                if (reply.status() == 0) {
+                    while (in.read() != -1) {
+                        // silent until the client gives up
+                    }
+                    return;
+                }
                 if (reply.refuseConnectionsFirst()) {
                     server.close();
                 }

@@ -4,20 +4,16 @@ import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.infrastructure.config.MediaProperties;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
-import io.minio.ListObjectsArgs;
 import io.minio.ObjectWriteArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
-import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import io.minio.messages.Item;
+import io.minio.messages.ListVersionsResult;
 import java.io.ByteArrayInputStream;
-import java.net.ConnectException;
-import java.net.NoRouteToHostException;
-import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -26,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -46,12 +43,14 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
 
     private final MinioClient internalClient;
     private final MinioClient presignClient;
+    private final VersionListingClient listing;
     private final String bucket;
     private final int listingPageSize;
 
     public MinioMediaStorageAdapter(
             @Qualifier("internalMinioClient") MinioClient internalClient,
             @Qualifier("presignMinioClient") MinioClient presignClient,
+            VersionListingClient listing,
             MediaProperties properties,
             @Value("${parkio.media.erasure-worker.listing-page-size:100}") int listingPageSize) {
         if (listingPageSize < 1 || listingPageSize > 1000) {
@@ -59,15 +58,16 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         }
         this.internalClient = internalClient;
         this.presignClient = presignClient;
+        this.listing = listing;
         this.bucket = properties.getStorage().getBucket();
         this.listingPageSize = listingPageSize;
     }
 
     /**
-     * One PutObject request: the part size is at least the content length, so the SDK never splits
-     * the upload into a multipart upload (whose parts would be stored data outside any listing of
-     * objects), and the body is streamed, for which the MinIO SDK turns connection retries off: a
-     * failed PUT is never resent behind the caller's back.
+     * One PutObject request, transmitted once: the part size is at least the content length, so the
+     * SDK never splits the upload into a multipart upload (whose parts would be stored data outside
+     * any listing of objects), and the storage client's {@link SingleTransmissionInterceptor} never
+     * sends the body a second time (no follow-up after a reply, no retry after sending).
      */
     @Override
     public StoredObject store(String objectKey, byte[] content, String contentType) {
@@ -89,20 +89,23 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     }
 
     /**
-     * A client-error reply (4xx) means the store rejected this request. A failure to open the
-     * connection means no byte of it was sent (the PUT is not retried, so this was its only
-     * attempt). Everything else, timeouts and 5xx replies included, may have been applied.
+     * Whether the write certainly was not applied, judged from evidence about every transmission of
+     * the call rather than from its last reply: no attempt started to send the body (the single-
+     * transmission guard's {@code BodyNotSentException}), or the store answered the only
+     * transmission of the guarded body with a client error (4xx) and no follow-up request was made.
+     * Anything else may have been applied: a timeout, a broken connection, a 5xx or 3xx reply, a
+     * failed connection after an earlier attempt, a reply without the guard's evidence.
      */
     static boolean definitelyNotApplied(Exception failure) {
-        if (failure instanceof ErrorResponseException rejected && rejected.response() != null) {
-            int status = rejected.response().code();
-            return status >= 400 && status < 500;
-        }
         for (Throwable cause = failure; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
-            if (cause instanceof ConnectException || cause instanceof UnknownHostException
-                    || cause instanceof NoRouteToHostException) {
+            if (cause instanceof SingleTransmissionInterceptor.BodyNotSentException) {
                 return true;
             }
+        }
+        if (failure instanceof ErrorResponseException rejected && rejected.response() != null) {
+            Response reply = rejected.response();
+            return reply.code() >= 400 && reply.code() < 500 && reply.priorResponse() == null
+                    && SingleTransmissionInterceptor.sentAtMostOnce(reply.request());
         }
         return false;
     }
@@ -164,16 +167,19 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     }
 
     /**
-     * Lists versions and delete markers (ListObjectVersions), so a versioned bucket's older
-     * versions are never mistaken for absence; at most one page ({@code listing-page-size}
-     * entries, one request) per call. An empty listing is backed by a HEAD: an object the listing
-     * missed is still reported, never confirmed absent.
+     * Versions and delete markers of exactly the key, so a versioned bucket's older versions are
+     * never mistaken for absence, from one ListObjectVersions request with the key as prefix. Keys
+     * are listed in order and a key sorts before every longer key it prefixes, so the key's own
+     * entries come first: the page holds all of them unless they fill it (then the rest follow once
+     * these are removed), and keys that only share the prefix are never paged through. An empty
+     * listing is backed by a HEAD: an object the listing missed is still reported, never confirmed
+     * absent.
      */
     @Override
     public List<StoredVersion> versionsOf(String objectBucket, String objectKey) {
         requireConfiguredBucket(objectBucket);
         try {
-            List<StoredVersion> versions = list(objectKey, objectKey::equals);
+            List<StoredVersion> versions = page(objectKey, objectKey::equals);
             if (versions.isEmpty()) {
                 currentVersionId(objectKey).ifPresent(versionId ->
                         versions.add(new StoredVersion(bucket, objectKey, versionId, false)));
@@ -184,10 +190,11 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         }
     }
 
+    /** One ListObjectVersions request: the first {@code listing-page-size} entries under the prefix. */
     @Override
     public List<StoredVersion> versionsUnder(String prefix) {
         try {
-            return list(prefix, key -> key.startsWith(prefix));
+            return page(prefix, key -> key.startsWith(prefix));
         } catch (Exception e) {
             throw new MediaStorageException("Failed to list media object versions", e);
         }
@@ -208,22 +215,18 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         }
     }
 
-    /** At most one page of matching entries: the iterator fetches the next page lazily, so stopping here bounds the call. */
-    private List<StoredVersion> list(String prefix, Predicate<String> matches) throws Exception {
+    /** The matching entries of one listing page: exactly one request, whatever the page holds. */
+    private List<StoredVersion> page(String prefix, Predicate<String> matches) throws Exception {
+        ListVersionsResult page = listing.firstPage(bucket, prefix, listingPageSize);
         List<StoredVersion> versions = new ArrayList<>();
-        for (Result<Item> result : internalClient.listObjects(ListObjectsArgs.builder()
-                .bucket(bucket)
-                .prefix(prefix)
-                .includeVersions(true)
-                .recursive(true)
-                .maxKeys(listingPageSize)
-                .build())) {
-            Item item = result.get();
+        for (Item item : page.contents()) {
             if (matches.test(item.objectName())) {
                 versions.add(new StoredVersion(bucket, item.objectName(), item.versionId(), item.isDeleteMarker()));
-                if (versions.size() == listingPageSize) {
-                    break;
-                }
+            }
+        }
+        for (Item marker : page.deleteMarkers()) {
+            if (matches.test(marker.objectName())) {
+                versions.add(new StoredVersion(bucket, marker.objectName(), marker.versionId(), true));
             }
         }
         return versions;

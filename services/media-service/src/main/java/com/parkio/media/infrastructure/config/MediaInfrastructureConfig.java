@@ -5,7 +5,11 @@ import com.parkio.media.application.MediaUploadConstraints;
 import com.parkio.media.application.port.MediaScanner;
 import com.parkio.media.infrastructure.scanner.ClamavMediaScanner;
 import com.parkio.media.infrastructure.scanner.NoOpMediaScanner;
+import com.parkio.media.infrastructure.storage.SingleTransmissionInterceptor;
+import com.parkio.media.infrastructure.storage.VersionListingClient;
+import io.minio.MinioAsyncClient;
 import io.minio.MinioClient;
+import java.net.Proxy;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Set;
@@ -61,6 +65,23 @@ public class MediaInfrastructureConfig {
         return buildMinioClient(publicEndpoint, storage);
     }
 
+    /**
+     * Version listings for account erasure against the internal endpoint, one ListObjectVersions
+     * request per call (the SDK's listing iterator would request further pages on its own).
+     */
+    @Bean
+    public VersionListingClient versionListingClient(MediaProperties properties) {
+        MediaProperties.Storage storage = properties.getStorage();
+        MinioAsyncClient.Builder builder = MinioAsyncClient.builder()
+                .endpoint(storage.getEndpoint())
+                .credentials(storage.getAccessKey(), storage.getSecretKey())
+                .httpClient(minioHttpClient(storage));
+        if (StringUtils.hasText(storage.getRegion())) {
+            builder.region(storage.getRegion());
+        }
+        return new VersionListingClient(builder.build());
+    }
+
     private static MinioClient buildMinioClient(String endpoint, MediaProperties.Storage storage) {
         MinioClient.Builder builder = MinioClient.builder()
                 .endpoint(endpoint)
@@ -73,12 +94,16 @@ public class MediaInfrastructureConfig {
     }
 
     /**
-     * Every timeout must be positive: OkHttp reads 0 as "no timeout". OkHttp's default connection
-     * recovery stays on for this client: trying a host's other addresses, replacing stale pooled
-     * connections. Repeating a listing, a HEAD or a version-specific DELETE is harmless. The upload
-     * PUT is never resent: the MinIO SDK turns this recovery off per call for PUT/POST bodies that
-     * are not byte arrays, and uploads stream their body (U05 object write ledger;
-     * {@code MediaDelayedObjectWriteIT} checks one PUT request per upload).
+     * Every timeout must be positive: OkHttp reads 0 as "no timeout".
+     *
+     * <p>U05 object write ledger: a request body is sent at most once. The
+     * {@link SingleTransmissionInterceptor} makes every body one-shot, so OkHttp sends no follow-up
+     * (503 with {@code Retry-After: 0}, 307/308, 408, 421, authentication) and no retry once a body
+     * went out; redirects are not followed at all (a 301/302/303 would turn the PUT into a GET whose
+     * reply says nothing about the PUT), and no proxy is used (an HTTP intermediary may repeat a
+     * request). OkHttp's connection recovery stays on otherwise: listings, HEAD and version-specific
+     * DELETEs still try a host's other addresses and replace stale pooled connections, and repeating
+     * them is harmless. (For the upload PUT the MinIO SDK turns that recovery off per call.)
      */
     static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
         requirePositive("connect-timeout", storage.getConnectTimeout());
@@ -90,6 +115,10 @@ public class MediaInfrastructureConfig {
                 .readTimeout(storage.getReadTimeout())
                 .writeTimeout(storage.getWriteTimeout())
                 .callTimeout(storage.getCallTimeout())
+                .addInterceptor(new SingleTransmissionInterceptor())
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .proxy(Proxy.NO_PROXY)
                 .build();
     }
 

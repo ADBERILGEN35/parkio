@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
 /**
@@ -157,17 +158,28 @@ public class MediaErasureJobStore {
         return count == null ? 0 : count;
     }
 
-    /** The user's recorded object writes that are not settled yet, oldest first. */
-    public List<ObjectWrite> unsettledWrites(UUID authUserId, int limit) {
+    /**
+     * Up to {@code limit} of the user's recorded object writes, in write id order, after
+     * {@code afterWriteId} ({@code null}: from the first), so a caller can go through all of them.
+     */
+    public List<ObjectWrite> unsettledWrites(UUID authUserId, UUID afterWriteId, int limit) {
+        RowMapper<ObjectWrite> write = (rs, i) -> new ObjectWrite(
+                rs.getObject("id", UUID.class), rs.getString("bucket_name"), rs.getString("object_key"),
+                "APPLIED".equals(rs.getString("state")));
+        if (afterWriteId == null) {
+            return jdbc.query("""
+                    SELECT id, bucket_name, object_key, state FROM media_object_writes
+                    WHERE owner_user_id = ?
+                    ORDER BY id
+                    LIMIT ?
+                    """, write, authUserId, limit);
+        }
         return jdbc.query("""
                 SELECT id, bucket_name, object_key, state FROM media_object_writes
-                WHERE owner_user_id = ?
-                ORDER BY created_at, id
+                WHERE owner_user_id = ? AND id > ?
+                ORDER BY id
                 LIMIT ?
-                """, (rs, i) -> new ObjectWrite(
-                        rs.getObject("id", UUID.class), rs.getString("bucket_name"), rs.getString("object_key"),
-                        "APPLIED".equals(rs.getString("state"))),
-                authUserId, limit);
+                """, write, authUserId, afterWriteId, limit);
     }
 
     public long countUnsettledWrites(UUID authUserId) {
@@ -183,10 +195,16 @@ public class MediaErasureJobStore {
         return count == null ? 0 : count;
     }
 
-    /** Records that the write's object was observed: that request has been applied and cannot apply again. */
-    public void markWriteApplied(UUID writeId, Instant now) {
-        jdbc.update("UPDATE media_object_writes SET state = 'APPLIED', updated_at = ? WHERE id = ?",
-                Timestamp.from(now), writeId);
+    /**
+     * Records that an object of the user's key was observed: every write of that key whose outcome
+     * was unknown has been applied, and cannot apply again (an upload transmits its PUT once, under
+     * a fresh key). Must commit before that object is removed, or the evidence would be lost with it.
+     */
+    public int markObserved(UUID authUserId, String bucket, String objectKey, Instant now) {
+        return jdbc.update("""
+                UPDATE media_object_writes SET state = 'APPLIED', updated_at = ?
+                WHERE owner_user_id = ? AND bucket_name = ? AND object_key = ? AND state = 'PENDING'
+                """, Timestamp.from(now), authUserId, bucket, objectKey);
     }
 
     /** Forgets a write whose object was applied and is now confirmed gone. */

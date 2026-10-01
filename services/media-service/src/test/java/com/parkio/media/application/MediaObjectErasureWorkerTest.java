@@ -319,13 +319,13 @@ class MediaObjectErasureWorkerTest {
         ObjectWrite write = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(jobs.unsettledWrites(eq(owner), any(), anyInt())).thenReturn(List.of(write));
         when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of());
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
 
         verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("1 object write(s) of unknown outcome"), any(), any());
-        verify(jobs, never()).markWriteApplied(any(), any());
+        verify(jobs, never()).markObserved(any(), any(), any(), any());
         verify(jobs, never()).forgetWrite(any());
         verify(jobs, never()).holdOwner(any());
         verify(ackOutbox, never()).append(any());
@@ -337,14 +337,14 @@ class MediaObjectErasureWorkerTest {
         StoredVersion late = new StoredVersion(BUCKET, write.objectKey(), "v9", false);
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(jobs.unsettledWrites(eq(owner), any(), anyInt())).thenReturn(List.of(write));
         when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of(late), List.of(late), List.of());
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
 
         InOrder order = inOrder(jobs, storage, ackOutbox);
-        order.verify(jobs).markWriteApplied(write.writeId(), NOW);
+        order.verify(jobs).markObserved(owner, BUCKET, write.objectKey(), NOW);
         order.verify(storage).removeVersion(late);
         order.verify(jobs).forgetWrite(write.writeId());
         order.verify(jobs).countUnsettledWrites(owner);
@@ -356,33 +356,94 @@ class MediaObjectErasureWorkerTest {
         ObjectWrite write = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "rolled-back.jpg", true);
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(jobs.unsettledWrites(eq(owner), any(), anyInt())).thenReturn(List.of(write));
         when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of());
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
 
         verify(jobs).forgetWrite(write.writeId());
-        verify(jobs, never()).markWriteApplied(any(), any());
+        verify(jobs, never()).markObserved(any(), any(), any(), any());
     }
 
     @Test
-    void theNamespaceSweepRecordsAWriteOfUnknownOutcomeAsAppliedBeforeRemovingItsObject() {
-        ObjectWrite unknown = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
-        ObjectWrite observed = new ObjectWrite(unknown.writeId(), BUCKET, unknown.objectKey(), true);
-        StoredVersion late = new StoredVersion(BUCKET, unknown.objectKey(), "null", false);
+    void theNamespaceSweepCommitsWhatItObservedBeforeRemovingTheObject() {
+        ObjectWrite observed = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", true);
+        StoredVersion late = new StoredVersion(BUCKET, observed.objectKey(), "null", false);
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
-        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(unknown), List.of(observed));
         when(storage.versionsUnder(namespace)).thenReturn(List.of(late), List.of());
-        when(storage.versionsOf(BUCKET, unknown.objectKey())).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), any(), anyInt())).thenReturn(List.of(observed));
+        when(storage.versionsOf(BUCKET, observed.objectKey())).thenReturn(List.of());
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
 
-        InOrder order = inOrder(jobs, storage);
-        order.verify(jobs).markWriteApplied(unknown.writeId(), NOW);
+        // By key, from the database: whichever of the user's writes this object belongs to.
+        InOrder order = inOrder(jobs, storage, transactions);
+        order.verify(jobs).markObserved(owner, BUCKET, late.objectKey(), NOW);
+        order.verify(transactions).commit(any());
         order.verify(storage).removeVersion(late);
-        order.verify(jobs).forgetWrite(unknown.writeId());
+        order.verify(jobs).forgetWrite(observed.writeId());
+    }
+
+    @Test
+    void anObservationSurvivesARemovalThatFails() {
+        StoredVersion late = new StoredVersion(BUCKET, namespace + "late.jpg", "null", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of(late));
+        doThrow(new IllegalStateException("store unavailable")).when(storage).removeVersion(late);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        InOrder order = inOrder(jobs, transactions, storage);
+        order.verify(jobs).markObserved(owner, BUCKET, late.objectKey(), NOW);
+        order.verify(transactions).commit(any());
+        order.verify(storage).removeVersion(late);
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("key namespace"), any(), any());
+        verify(jobs, never()).forgetWrite(any());
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void aDeleteMarkerIsNotAnObservationOfAWrite() {
+        ObjectWrite unknown = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
+        StoredVersion marker = new StoredVersion(BUCKET, unknown.objectKey(), "m1", true);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of(marker), List.of());
+        when(jobs.unsettledWrites(eq(owner), any(), anyInt())).thenReturn(List.of(unknown));
+        when(storage.versionsOf(BUCKET, unknown.objectKey())).thenReturn(List.of(marker));
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(storage).removeVersion(marker);
+        verify(jobs, never()).markObserved(any(), any(), any(), any());
+        verify(jobs, never()).forgetWrite(any());
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("1 object write(s) of unknown outcome"), any(), any());
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void everyRecordedWriteIsSettledBatchAfterBatch() {
+        List<ObjectWrite> first = new java.util.ArrayList<>();
+        for (int i = 0; i < MediaObjectErasureWorker.WRITE_BATCH; i++) {
+            first.add(new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "applied-" + i, true));
+        }
+        ObjectWrite last = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "observed.jpg", false);
+        StoredVersion late = new StoredVersion(BUCKET, last.objectKey(), "null", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), eq(null), anyInt())).thenReturn(first);
+        when(jobs.unsettledWrites(eq(owner), eq(first.get(first.size() - 1).writeId()), anyInt())).thenReturn(List.of(last));
+        when(storage.versionsOf(eq(BUCKET), anyString())).thenReturn(List.of());
+        when(storage.versionsOf(BUCKET, last.objectKey())).thenReturn(List.of(late), List.of(late), List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        verify(jobs).markObserved(owner, BUCKET, last.objectKey(), NOW);
+        verify(storage).removeVersion(late);
+        verify(jobs).forgetWrite(last.writeId());
+        verify(jobs, org.mockito.Mockito.times(MediaObjectErasureWorker.WRITE_BATCH + 1)).forgetWrite(any());
     }
 
     @Test
