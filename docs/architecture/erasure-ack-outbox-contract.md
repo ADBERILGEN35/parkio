@@ -201,14 +201,17 @@ Per participant subtask:
     not document that it abandons a PUT then.
   - **Client retries.** One upload call can transmit its PUT more than once
     without the caller seeing it. OkHttp 4.12 (`RetryAndFollowUpInterceptor`)
-    has two such paths:
+    has three such paths:
     - *recovery*: after a failed attempt it may send the request again on a new
       connection, even once the body was sent, unless the body is one-shot;
-    - *follow-ups*: after a reply it may send the request again on its own, the
-      body included: a 503 with `Retry-After: 0`, a 307 or 308 redirect, a 408,
-      a 421, an authentication challenge (401/407). A 301, 302 or 303 turns the
-      PUT into a GET whose reply then stands for the PUT. Only a one-shot body
-      stops these follow-ups.
+    - *follow-ups that resend the body*: a 503 with `Retry-After: 0`, a 408, a
+      421 on a coalesced HTTP/2 connection, a 307 or 308 redirect, and an
+      authentication challenge (401/407) when an authenticator is configured.
+      OkHttp skips each of these when the request body is one-shot;
+    - *redirects that drop the body*: a 301, 302 or 303 turns the PUT into a
+      GET, whose reply then stands for the PUT. That GET has no body, so a
+      one-shot body does not stop it; only a client that follows no redirects
+      does.
 
     The MinIO Java SDK 8.6.0 turns off only recovery, and only for PUT/POST
     bodies that are not byte arrays (S3Base, "Issue #924"). Its request body is
@@ -248,28 +251,38 @@ Per participant subtask:
          multipart upload.
        - The storage client's single-transmission guard
          (`SingleTransmissionInterceptor`) makes every request body one-shot.
-         OkHttp then sends no follow-up and no retry once the body went out.
-         The client follows no redirect and uses no proxy.
+         OkHttp then does not send the body again: no recovery once the body
+         went out, and none of the follow-ups that resend it.
+       - Redirects are stopped separately. The client is built with
+         `followRedirects(false)` and `followSslRedirects(false)`, so it
+         follows no 3xx reply, including a 301, 302 or 303 that would turn the
+         PUT into a GET. It also uses no proxy (`Proxy.NO_PROXY`).
        - Each upload uses a fresh key.
 
-       Regression tests run the production client against each reply after
-       which OkHttp may repeat a request (`MediaObjectWriteRetryIT`,
-       `StorageClientSingleTransmissionTest`). Each sees one transmission:
-       - 503 with `Retry-After: 0`, 307, 308, 301, 302 and 303 were repeated
-         (or replaced by a GET) before the guard;
-       - 401 and 408 were not: no authenticator is configured, and the SDK's
-         per-call setting already blocked the 408 retry;
-       - after a reply, no second connection is opened either.
+       Regression tests run the production client and SDK against scripted
+       replies (`MediaObjectWriteRetryIT`, `StorageClientSingleTransmissionTest`).
+       Each sees one transmission:
+       - without these settings, a 503 with `Retry-After: 0`, a 307 and a 308
+         resent the PUT with its body, and a 301, 302 and 303 replaced it with a
+         GET;
+       - a 401 and a 408 were not resent even before: no authenticator is
+         configured, and the SDK's per-call setting already blocked the 408
+         retry;
+       - after a reply, no second connection is opened.
 
-       A PUT whose connection breaks after sending is also sent once
-       (`MediaDelayedObjectWriteIT`).
+       A 407 proxy challenge and a 421 on a coalesced HTTP/2 connection were
+       checked against the OkHttp source only, with no runtime test. Without a
+       proxy, OkHttp treats a 407 as a protocol error, and it skips a 421
+       follow-up for a one-shot body. A PUT whose connection breaks after
+       sending is also sent once (`MediaDelayedObjectWriteIT`).
 
-       A connection that never carried the body may still be retried. Listings,
-       HEAD and version-specific deletes keep OkHttp's recovery: falling back
-       to a host's other addresses and replacing stale pooled connections.
-       Repeating them is harmless. For the PUT the SDK turns that recovery off,
-       so an upload to a host whose first address refuses fails with nothing
-       sent.
+       A request without a body is not guarded. Listings, HEAD and
+       version-specific deletes keep OkHttp's recovery (falling back to a
+       host's other addresses, replacing stale pooled connections) and its
+       follow-ups for a 503 with `Retry-After: 0` or a 408, so one such call
+       can transmit its request more than once. Repeating them is harmless.
+       For the PUT the SDK turns recovery off, so an upload to a host whose
+       first address refuses fails with nothing sent.
      - **Confirmed.** When the store confirms the PUT, the write becomes
        `APPLIED`, and the committed media row takes over from it. It is deleted
        with that row.
@@ -299,15 +312,16 @@ Per participant subtask:
   4. **Phase 2.** `MediaObjectErasureWorker` claims the job (a `claim_token`
      plus a lease end in `next_attempt_at`) and works outside any transaction.
      - **Media rows.** For each media row it lists the versions and delete
-       markers of exactly that key. Each lookup is one ListObjectVersions
-       request with the key as prefix. Keys are listed in order, and a key
+       markers of exactly that key. Each lookup fetches one page: one
+       ListObjectVersions call with the key as prefix (see "Bounded attempts"
+       for what one call means on the wire). Keys are listed in order, and a key
        sorts before every longer key it prefixes, so the key's own entries come
        first. Keys that only share the prefix are never paged through. The
        worker removes each entry by version id until a fresh listing is empty;
        for a key, an empty listing is backed by a HEAD. Then a short
        transaction deletes the row and its validation results.
      - **Owner namespace.** It then empties `media/<userId>/` the same way, one
-       listing request per page. An orphan's absence there rests on the prefix
+       listing call per page. An orphan's absence there rests on the prefix
        listing alone, with no HEAD, because no key is known for it.
        - An object version found there proves that every recorded write of its
          key was applied. A delete marker proves nothing: a delete made it.
@@ -366,17 +380,28 @@ Per participant subtask:
 
   **Bounded attempts.** An attempt checks its deadline (`attempt-budget-ms`,
   60 s) before every storage call.
-  - A storage call is one delete or one listing. A listing is exactly one
-    ListObjectVersions request of at most `listing-page-size` entries; the
-    SDK's listing iterator, which requests further pages on its own, is not
-    used. An exact-key lookup adds a HEAD when it lists nothing.
-  - Each request is bounded by the end-to-end `call-timeout` (15 s). OkHttp's
-    own recovery within a request stays inside that timeout.
-  - So the attempt's storage work ends at most two requests (a key listing and
-    its HEAD) after the budget.
-  - With a configured region (default `us-east-1`) the SDK makes no region
-    lookup. Without one, the first request per bucket adds a GetBucketLocation
-    request, which is then cached.
+  - A storage call is one delete or one listing. A listing fetches exactly one
+    page of at most `listing-page-size` entries: one SDK ListObjectVersions
+    invocation, which is one OkHttp call. The SDK's listing iterator, which
+    starts a new call for each further page on its own, is not used. An
+    exact-key lookup adds a HEAD call when it lists nothing.
+  - One OkHttp call is not one HTTP transmission. Listing, HEAD and DELETE
+    requests have no body. Within one call, OkHttp may send such a request
+    again after a failed attempt, or as a follow-up to a 503 with
+    `Retry-After: 0`, a 408, or a 421 on a coalesced HTTP/2 connection. An
+    independent review reproduced it: one listing call sent two GETs after a
+    503 with `Retry-After: 0`.
+  - Each call is bounded by the end-to-end `call-timeout` (15 s), including
+    every transmission and follow-up within it. OkHttp: "If the call requires
+    redirects or retries all must complete within one timeout period."
+  - With a configured region (default `us-east-1`), the storage work left when
+    the budget runs out is at most two calls, a key listing and its HEAD, each
+    within `call-timeout`. This is what the startup rule below reserves. No
+    bound on the number of transmissions is claimed, and database work is not
+    covered.
+  - Without a configured region, the SDK adds a GetBucketLocation call for a
+    bucket it has not cached yet, and after a region redirect it repeats a HEAD
+    with a fresh lookup. The two-call bound then does not hold.
   - Progress needs no listing marker: the next listing starts afresh and shows
     what is left after the removals. A version listed again after its removal
     fails the attempt.
