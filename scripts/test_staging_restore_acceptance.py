@@ -11,6 +11,7 @@ anything, download artifacts, or validate artifact contents.
 
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -32,11 +33,67 @@ def workflow():
     return yaml.load(RECEIVER.read_text(), Loader=yaml.BaseLoader)
 
 
-def actions_shell(script, cwd, env):
-    """Run a workflow `run` step the way Actions does: bash -eo pipefail."""
-    return subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
-        cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+def _declared_shell(owner):
+    defaults = owner.get("defaults") if isinstance(owner, dict) else None
+    run = defaults.get("run") if isinstance(defaults, dict) else None
+    if isinstance(run, dict):
+        return run.get("shell")
+    return None
+
+
+def effective_shell(document, job, step):
+    """Shell Actions uses for this step.
+
+    Step shell wins, then the job default, then the workflow default. An omitted
+    shell on Linux is ``bash -e {0}``. The name ``bash`` is the documented
+    pipefail template. ``{0}`` is the step script file, not ``bash -c``.
+    """
+    chosen = step.get("shell")
+    if chosen is None:
+        chosen = _declared_shell(job)
+    if chosen is None:
+        chosen = _declared_shell(document)
+    if chosen is None:
+        return "bash -e {0}"
+    if chosen == "bash":
+        return "bash --noprofile --norc -eo pipefail {0}"
+    if chosen == "sh":
+        return "sh -e {0}"
+    if "{0}" not in chosen:
+        return chosen + " {0}"
+    return chosen
+
+
+def actions_shell(script, cwd, env, shell):
+    """Run a workflow step with the shell that step actually selects."""
+    with tempfile.TemporaryDirectory(prefix="parkio-u08-step-") as directory:
+        script_path = Path(directory) / "step.sh"
+        script_path.write_text(script)
+        command = shlex.split(shell.replace("{0}", str(script_path)))
+        return subprocess.run(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True)
+
+
+def effective_compose_project(args, env_project):
+    """Project Compose would use: the last -p/--project-name, else the process env.
+
+    A CLI name overrides COMPOSE_PROJECT_NAME. Equivalent flags that name the
+    run-specific project stay valid.
+    """
+    project = env_project
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in ("-p", "--project-name") and index + 1 < len(args):
+            project = args[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--project-name="):
+            project = arg.split("=", 1)[1]
+        elif arg.startswith("-p") and arg != "-p" and not arg.startswith("--"):
+            project = arg[2:]
+        index += 1
+    return project
 
 
 def pipeline_step(restore):
@@ -137,6 +194,9 @@ class StagingRestoreAcceptanceTest(unittest.TestCase):
         pipeline = pipeline_step(restore)
         self.assertNotIn("if", pipeline)
         self.assertNotIn("continue-on-error", pipeline)
+        document = workflow()
+        self.assertEqual(effective_shell(document, restore, pipeline), "bash -e {0}")
+        self.assertEqual(effective_shell(document, restore, teardown), "bash -e {0}")
         self.assertNotIn("|| true", pipeline["run"])
         self.assertIn("./scripts/staging/run-verification-pipeline.sh", pipeline["run"])
         upload = [s for s in restore["steps"] if s.get("name") == "Upload operational evidence"]
@@ -151,25 +211,25 @@ class StagingRestoreAcceptanceTest(unittest.TestCase):
     def test_restore_pipeline_runs_and_propagates_failure(self):
         restore = self.jobs["restore-evidence"]
         pipeline = pipeline_step(restore)
-        succeeded = self._run_pipeline(pipeline["run"], exit_code=0)
+        succeeded = self._run_pipeline(restore, pipeline, exit_code=0)
         self.assertEqual(succeeded.returncode, 0, succeeded.stderr)
-        failed = self._run_pipeline(pipeline["run"], exit_code=1)
+        failed = self._run_pipeline(restore, pipeline, exit_code=1)
         self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
 
     def test_project_scoped_volume_cleanup_on_both_paths(self):
         restore = self.jobs["restore-evidence"]
         teardown = teardown_step(restore)
         project = restore["env"]["COMPOSE_PROJECT_NAME"]
-        primary = self._run_cleanup(teardown["run"], project, fail=set())
+        primary = self._run_cleanup(restore, teardown, project, fail=set())
         self.assertEqual(primary.returncode, 0, primary.stderr)
         self._assert_volume_cleanup(primary.calls, project, expected=1)
-        fallback = self._run_cleanup(teardown["run"], project, fail={1})
+        fallback = self._run_cleanup(restore, teardown, project, fail={1})
         self.assertEqual(fallback.returncode, 0, fallback.stderr)
         self._assert_volume_cleanup(fallback.calls, project, expected=2)
-        both_fail = self._run_cleanup(teardown["run"], project, fail={1, 2})
+        both_fail = self._run_cleanup(restore, teardown, project, fail={1, 2})
         self.assertNotEqual(both_fail.returncode, 0, both_fail.stdout + both_fail.stderr)
 
-    def _run_pipeline(self, script, exit_code):
+    def _run_pipeline(self, job, step, exit_code):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for relative in ("scripts/staging/lib/helper.sh", "scripts/tool.sh"):
@@ -178,10 +238,10 @@ class StagingRestoreAcceptanceTest(unittest.TestCase):
                 path.write_text("#!/bin/sh\n")
             pipeline = root / "scripts/staging/run-verification-pipeline.sh"
             pipeline.write_text("#!/bin/sh\necho ran\nexit \"$PIPELINE_EXIT\"\n")
-            env = dict(os.environ, PIPELINE_EXIT=str(exit_code))
-            return actions_shell(script, root, env)
+            env = self._step_env(job, step, {"PIPELINE_EXIT": str(exit_code)})
+            return actions_shell(step["run"], root, env, effective_shell(workflow(), job, step))
 
-    def _run_cleanup(self, script, project, fail):
+    def _run_cleanup(self, job, step, project, fail):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             calls = root / "calls"
@@ -199,18 +259,33 @@ class StagingRestoreAcceptanceTest(unittest.TestCase):
                 "exit 0\n"
             )
             stub.chmod(0o755)
-            env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
-                       COMPOSE_PROJECT_NAME=project, CLEANUP_CALLS=str(calls),
-                       CLEANUP_FAIL=fail_list)
-            result = actions_shell(script, root, env)
+            env = self._step_env(job, step, {
+                "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                "COMPOSE_PROJECT_NAME": project,
+                "CLEANUP_CALLS": str(calls),
+                "CLEANUP_FAIL": fail_list,
+            })
+            # Step env is applied before the harness keys, then the run-specific
+            # project is restored unless the step itself overrides it.
+            step_project = (step.get("env") or {}).get("COMPOSE_PROJECT_NAME")
+            env["COMPOSE_PROJECT_NAME"] = step_project if step_project is not None else project
+            result = actions_shell(step["run"], root, env, effective_shell(workflow(), job, step))
             result.calls = calls.read_text().splitlines() if calls.exists() else []
             return result
+
+    def _step_env(self, job, step, extra):
+        env = dict(os.environ)
+        for source in (job.get("env") or {}, step.get("env") or {}):
+            env.update(source)
+        env.update(extra)
+        return env
 
     def _assert_volume_cleanup(self, lines, project, expected):
         self.assertEqual(len(lines), expected * 2)
         for index in range(expected):
-            self.assertEqual(lines[index * 2], project)
+            env_project = lines[index * 2]
             args = lines[index * 2 + 1].split()
+            self.assertEqual(effective_compose_project(args, env_project), project)
             self.assertIn("compose", args)
             self.assertIn("down", args)
             self.assertIn("-v", args)
