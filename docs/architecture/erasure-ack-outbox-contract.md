@@ -10,10 +10,10 @@ and send loses the ACK.
 This contract reuses each service's existing transactional outbox and relay and
 auth's existing Kafka ACK consumer. It adds no new framework or topic. Two
 participants add schema: media adds `media_erasure_jobs` (V14) for object
-deletion that is still pending, and analytics adds DLQ columns to its existing
-outbox for its new relay (V10).
+deletion that is still pending and a claim token on it (V15), and analytics adds
+DLQ columns to its existing outbox for its new relay (V10).
 
-## Rollout status (`api` `efbdfa5a`, 2026-10-01)
+## Rollout status (`api` `9dd3f485`, 2026-10-01)
 
 Source merge, deployment and production acceptance are separate states. This
 table records the source state of `api`; the PR that merges last updates it.
@@ -163,46 +163,130 @@ Per participant subtask:
 - **analytics (V10):** analytics had the outbox table but no relay; it now has
   `AnalyticsOutboxRelay` (same shape as the other relays, DLQ columns via V10)
   and publishes only erasure ACKs.
-- **media (V14): two-phase erase; metadata deleted.** PRIV-001's policy
-  matrix says "User-owned media: delete metadata + object storage"; the old
-  handler only soft-deleted the rows, which kept `owner_user_id`, the object
-  key (it embeds the user id), checksum and perceptual hash. Now:
-  1. One short transaction, with no storage I/O and no ACK: tombstone,
-     soft-delete of the user's media rows (no longer served), the user's
-     idempotency records, and a `media_erasure_jobs` row keyed by the ACK event
-     id (reopened on redelivery). The job holds the request id and user id only
-     while work is pending.
-  2. After commit, `MediaObjectErasureWorker` works outside any transaction. For
-     each media row of the user it lists every version and delete marker of
-     exactly that key (an unversioned bucket lists its one object) and removes
-     each by version id. It then requires a fresh listing, backed by a HEAD, to
-     be empty. A delete call that returns normally is not taken as proof. Only
-     then does a short transaction delete that row and its validation results.
-     Once every row is gone, the worker empties the owner key namespace
-     `media/<userId>/` the same way. That removes objects of uploads whose row
-     never committed.
-  3. One short transaction locks the job and re-checks that the user owns no
-     media row. It deletes late idempotency records, queues the ACK and deletes
-     the job. No media metadata and no job state outlives `SUCCESS`.
+- **media (V14, V15): owner write fence, two-phase erase, metadata deleted.**
+  PRIV-001's policy matrix says "User-owned media: delete metadata + object
+  storage"; the old handler only soft-deleted the rows, which kept
+  `owner_user_id`, the object key (it embeds the user id), checksum and
+  perceptual hash. Now:
+  1. **Owner write fence.** Every write path for a user's media starts by
+     joining that user's fence: upload, claimed-region update and owner delete.
+     The fence is a PostgreSQL transaction-scoped advisory lock (class `MED1`,
+     key = hash of the user id) taken shared. Under it the write reads the
+     user's tombstone. If the tombstone exists, the write is refused with
+     `ACCOUNT_ERASED` (HTTP 403) before it stores anything. Its transaction,
+     the idempotency claim included, rolls back. An admitted write holds the
+     fence until its transaction ends. For an upload that covers the scan, the
+     object write, and the commit of the row, validation results and
+     `MediaUploaded` event. The erasure takes the same lock exclusively. There
+     is no in-memory lock: PostgreSQL releases it on commit, rollback or a lost
+     connection. Two users whose keys collide only wait for each other; the
+     tombstone check is per user.
+  2. **Phase 1.** One short transaction, with no storage I/O and no ACK. It takes
+     the fence exclusively first, so it waits for every write already admitted
+     (an upload in the middle of its object write included) to commit or roll
+     back. It then writes the tombstone, soft-deletes the user's media rows (no
+     longer served), deletes the user's idempotency records, and opens a
+     `media_erasure_jobs` row keyed by the ACK event id (on redelivery the row
+     is kept and attempted again). From its commit on, every media write of the
+     user is refused.
+     The job holds the request id and user id only while work is pending.
+  3. **Phase 2.** `MediaObjectErasureWorker` claims the job and works outside any
+     transaction. The claim is a fresh `claim_token` plus a lease end in
+     `next_attempt_at`. For each media row of the user it lists the versions and
+     delete markers of exactly that key, one page (`listing-page-size`, 100) per
+     storage call; an unversioned bucket lists its one object. It removes each
+     by version id and lists again until a fresh listing is empty. For a key,
+     an empty listing is backed by a HEAD. A version listed again after its
+     delete returned normally fails the attempt. Only then does a short
+     transaction delete that row and its validation results. Once every row is
+     gone, the worker empties the owner key namespace `media/<userId>/` with the
+     same page-by-page delete. That removes objects of uploads whose row never
+     committed. Unlike a key, an orphan's absence rests on the fresh prefix
+     listing alone: there is no per-key HEAD, because no key is known for it.
+  4. **Completion.** One transaction:
+     - takes the fence exclusively;
+     - requires that this attempt still holds its claim and that the lease has
+       not expired (`claim_token` matches, `next_attempt_at` > now, row locked);
+     - re-checks that the user owns no media row;
+     - then deletes late idempotency records, queues the ACK and deletes the
+       job.
 
-  Never `SUCCESS` while an object cannot be confirmed gone: a version the store
-  refuses to remove (object lock or retention), an object in a bucket other
-  than the configured one, an object still listed after its delete, or a
-  storage outage. Every failed attempt is recorded on the job, whether an
-  object failure or an unexpected one such as a failed ACK append: `attempts`,
-  `last_error` and an exponential backoff. A scheduled, leased poll
-  (`parkio.media.erasure-worker.*`) retries due jobs, and one attempt stops
-  taking new objects after `attempt-budget-ms`, which bounds the consumer
-  thread. Metrics: `parkio.media.erasure.jobs.pending`,
-  `parkio.media.erasure.object.delete.failed`,
-  `parkio.media.erasure.attempt.failed`.
+     An attempt whose claim expired or was taken over by another instance's poll
+     never queues the ACK. A stale attempt cannot record a retry or release on
+     the job either.
+
+  **What `SUCCESS` means for media.** A media `SUCCESS` is queued only when both
+  hold at its commit:
+  - the user owns no media row, no media write of the user is in flight, and
+    none can be admitted any more;
+  - the worker removed every listed version of each of the user's keys and of
+    the owner namespace, and saw a fresh empty listing afterwards (HEAD-backed
+    for keys).
+
+  No media metadata and no job state of the user outlives `SUCCESS`, apart from
+  the tombstone and the transport copies listed below. Never `SUCCESS` while an
+  object cannot be confirmed gone. That covers:
+  - a version the store refuses to remove (object lock or retention);
+  - an object in a bucket other than the configured one;
+  - an object still listed after its delete;
+  - a storage outage.
+
+  Every failed attempt is recorded on the job, whether an object failure or an
+  unexpected one such as a failed ACK append: `attempts`, `last_error` and an
+  exponential backoff. A scheduled poll (`parkio.media.erasure-worker.*`)
+  claims due jobs and jobs whose claim expired.
+
+  **Bounded attempts.** An attempt checks its deadline (`attempt-budget-ms`,
+  60 s) before every storage call:
+  - Each storage call is bounded by the storage client's end-to-end
+    `parkio.media.storage.call-timeout` (15 s) and returns at most one listing
+    page.
+  - So the attempt's storage work ends at most two storage calls (a key listing
+    and its HEAD) after the budget.
+  - The service refuses to start unless `lease-ms` >= `attempt-budget-ms` + 2 x
+    `call-timeout` + 10 s. The defaults give 120 s >= 100 s.
+  - An attempt that reaches its budget releases its claim and keeps its
+    progress: removed versions and deleted rows stay deleted. No failure is
+    counted and the next poll continues.
+
+  Database statements are not on the budget: the fence wait, the row deletes and
+  the completion transaction. A slow completion can run past the lease, but its
+  lease check then refuses to finalize. The Kafka consumer thread runs phase 1
+  and one immediate attempt. Phase 1 can wait for the user's in-flight writes,
+  each bounded by its own scan and storage timeouts.
+
+  Metrics:
+  - `parkio.media.erasure.jobs.pending`
+  - `parkio.media.erasure.object.delete.failed`
+  - `parkio.media.erasure.attempt.failed`
+  - `parkio.media.erasure.attempt.budget_exhausted`
+
+  **Known limitations (media).**
+  - **Late object writes.** A storage write the client abandoned at its call
+    timeout can still complete on the store later. The upload failed and
+    released the fence, and its cleanup delete may have run first. If the late
+    write lands after the namespace sweep, that object outlives `SUCCESS`
+    unnoticed. The client side is bounded by `call-timeout`; the store side is
+    not.
+  - **H2.** The fence is PostgreSQL-only. On the H2 database of the context
+    tests only the tombstone check runs. Every deployed profile uses
+    PostgreSQL.
+  - **Stuck jobs.** There is no terminal attempt cap. A job that can never be
+    confirmed, such as an object under a retention lock, retries with capped
+    backoff. The request stays `IN_PROGRESS`, `AccountErasureStuck` fires and
+    the pending gauge stays above zero; `last_error` holds the cause. How
+    operators resolve a stuck job is an open decision.
+  - **V14 edited in place.** V14 changed after its first review, while no
+    release contains it. Check at rollout that no database applied an earlier
+    V14.
 
   Storage topology: the checked-in Compose bucket is unversioned
   (`docker/docker-compose.yml`, `minio-setup`), while
   `production-readiness.md` recommends versioning. The delete works by version,
   so enabled and suspended versioning are handled, and an object-lock bucket
-  fails closed while a retention period holds. The deployed bucket mode is not
-  recorded in the repository; check it at rollout.
+  fails closed while a retention period holds. The deployed bucket mode and the
+  service's bucket permissions (version listing and deletion) are not recorded
+  in the repository; check them at rollout.
 
 ### Participant inventory
 
@@ -210,7 +294,7 @@ Per participant subtask:
 |-------------|----------|-------|----|
 | user | outbox (`ErasureAckOutbox` port) | `UserOutboxRelay` | #133 |
 | parking | outbox + ledger JSON scrub | `ParkingOutboxRelay` | #137 |
-| media | outbox after every stored version is confirmed gone; metadata deleted | `MediaOutboxRelay` | #141 |
+| media | outbox after every stored version is confirmed gone, under the owner write fence and a live claim; metadata deleted | `MediaOutboxRelay` | #141 |
 | moderation | outbox + sentinel-exempt uniqueness (V14) | `ModerationOutboxRelay` | #135 |
 | gamification | outbox (pilot) | `GamificationOutboxRelay` | #132 |
 | notification | outbox | `NotificationOutboxRelay` | #140 |
@@ -226,6 +310,7 @@ Per participant subtask:
 | Event copies written before the erase, e.g. `MediaUploaded` (`ownerUserId`, object key, checksum) | participant `outbox_events`, Kafka topics | Event transport, not product state | The same outbox retention; topic retention (Kafka records are not erased) |
 | Sentinel-rewritten shared facts (spots, moderation records, point transactions, AI requests) | participant tables | PRIV-001 matrix: retain, identities → sentinel | Retained, without the user id |
 | Staff `moderator_id` on decisions | moderation | Audit (PRIV-001) | Retained |
+| A media object whose write the store completed after the client's timeout and after the namespace sweep | media bucket | Known limitation (media, late object writes), not by design | Not removed by this erasure |
 
 Only media has pending state between its commit and its `SUCCESS`: the job and
 the soft-deleted rows hold the user id and object keys. They are needed to
