@@ -70,14 +70,18 @@ import reactor.core.publisher.Mono;
  * with a token refresh and a replay), and genuine authentication, revocation and
  * account-status outcomes keep their codes. Only the Redis rate limiter is stubbed (it
  * admits every request).
+ *
+ * <p>Every test signs in as fresh identities, and so does every request whose outcome must
+ * come from a new lookup. The gateway caches resolved epochs and statuses per user and
+ * compares wall-clock instants, so a zero cache TTL does not isolate requests if the host
+ * clock steps backwards: an epoch or status cached by an earlier request would then answer
+ * instead of the stub.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = GatewayServiceApplication.class)
 @AutoConfigureWebTestClient(timeout = "PT30S")
 @ActiveProfiles("test")
 class AuthenticatedDownstreamFailureHttpIT {
 
-    private static final String USER_ID = "33333333-3333-3333-3333-333333333333";
-    private static final String ADMIN_ID = "44444444-4444-4444-4444-444444444444";
     private static final String CORRELATION_ID = "u11-downstream-failure";
     // Also bounds the routing client's first connection (pool set-up): generous enough that a
     // slow machine's cold start is never mistaken for a downstream timeout.
@@ -160,6 +164,9 @@ class AuthenticatedDownstreamFailureHttpIT {
     @Value("${parkio.gateway.internal-secret}")
     private String internalSecret;
 
+    private String userId;
+    private String adminId;
+
     @BeforeEach
     void resetStub() {
         when(redisRateLimiter.isAllowed(anyString(), anyString()))
@@ -170,17 +177,19 @@ class AuthenticatedDownstreamFailureHttpIT {
         accountStatus.set("ACTIVE");
         downstreamCalls.set(0);
         downstreamHeaders.clear();
+        userId = freshId();
+        adminId = freshId();
     }
 
     @Test
     void authenticatedRequestReachesTheDownstreamWithTheVerifiedIdentity() {
-        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+        get("/api/v1/gamification/profile", token(userId, 0, RoleName.USER))
                 .expectStatus().isOk()
-                .expectBody().jsonPath("$.userId").isEqualTo(USER_ID);
+                .expectBody().jsonPath("$.userId").isEqualTo(userId);
 
         assertThat(downstreamCalls).hasValue(1);
         assertThat(downstreamHeaders)
-                .containsEntry(GatewayHeaders.USER_ID, USER_ID)
+                .containsEntry(GatewayHeaders.USER_ID, userId)
                 .containsEntry(GatewayHeaders.USER_ROLES, "USER")
                 .containsEntry(GatewayHeaders.GATEWAY_AUTH, internalSecret);
     }
@@ -188,7 +197,7 @@ class AuthenticatedDownstreamFailureHttpIT {
     @ParameterizedTest(name = "downstream {0} {1} passes through")
     @CsvSource({"403, BADGE_NOT_OWNED", "404, BADGE_NOT_FOUND", "500, INTERNAL_ERROR", "503, SERVICE_UNAVAILABLE"})
     void downstreamErrorResponsesPassThroughUnchanged(int status, String code) {
-        get("/api/v1/gamification/respond/" + status + "/" + code, token(USER_ID, 0, RoleName.USER))
+        get("/api/v1/gamification/respond/" + status + "/" + code, token(userId, 0, RoleName.USER))
                 .expectStatus().isEqualTo(status)
                 .expectBody()
                 .jsonPath("$.code").isEqualTo(code)
@@ -199,7 +208,7 @@ class AuthenticatedDownstreamFailureHttpIT {
 
     @Test
     void refusedDownstreamConnectionSurfacesAsServerErrorNotInvalidToken() {
-        String token = token(USER_ID, 0, RoleName.USER);
+        String token = token(userId, 0, RoleName.USER);
 
         String body = get("/api/v1/notifications", token)
                 .expectStatus().isEqualTo(500)
@@ -211,7 +220,7 @@ class AuthenticatedDownstreamFailureHttpIT {
 
     @Test
     void downstreamResponseTimeoutSurfacesAsGatewayTimeoutNotInvalidToken() {
-        String token = token(USER_ID, 0, RoleName.USER);
+        String token = token(userId, 0, RoleName.USER);
 
         String body = get("/api/v1/gamification/slow", token)
                 .expectStatus().isEqualTo(504)
@@ -226,7 +235,7 @@ class AuthenticatedDownstreamFailureHttpIT {
         webTestClient.get().uri("/api/v1/gamification/profile").exchange()
                 .expectStatus().isUnauthorized()
                 .expectBody().jsonPath("$.code").isEqualTo("MISSING_TOKEN");
-        for (String rejected : List.of("not.a.jwt", expiredToken(USER_ID), forgedToken(USER_ID))) {
+        for (String rejected : List.of("not.a.jwt", expiredToken(userId), forgedToken(userId))) {
             get("/api/v1/gamification/profile", rejected)
                     .expectStatus().isUnauthorized()
                     .expectBody().jsonPath("$.code").isEqualTo("INVALID_TOKEN");
@@ -238,34 +247,38 @@ class AuthenticatedDownstreamFailureHttpIT {
     @Test
     void revokedAndUnverifiableSessionsKeepTheirCodes() {
         currentEpoch.set(1);
-        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+        get("/api/v1/gamification/profile", token(userId, 0, RoleName.USER))
                 .expectStatus().isUnauthorized()
                 .expectBody().jsonPath("$.code").isEqualTo("TOKEN_REVOKED");
-        get("/api/v1/admin/users", token(ADMIN_ID, 0, RoleName.ADMIN))
+        get("/api/v1/admin/users", token(adminId, 0, RoleName.ADMIN))
                 .expectStatus().isUnauthorized()
                 .expectBody().jsonPath("$.code").isEqualTo("TOKEN_REVOKED");
 
+        // A current admin token whose epoch nothing has cached yet; an unavailable lookup is
+        // never cached, so the same admin's next request asks auth-service again.
+        String recoveringAdminId = freshId();
         epochStatus.set(500);
-        get("/api/v1/admin/users", token(ADMIN_ID, 1, RoleName.ADMIN))
+        get("/api/v1/admin/users", token(recoveringAdminId, 1, RoleName.ADMIN))
                 .expectStatus().isEqualTo(503)
                 .expectBody().jsonPath("$.code").isEqualTo("SESSION_EPOCH_UNAVAILABLE");
         assertThat(downstreamCalls).hasValue(0);
 
         epochStatus.set(200);
-        get("/api/v1/admin/users", token(ADMIN_ID, 1, RoleName.ADMIN)).expectStatus().isOk();
+        get("/api/v1/admin/users", token(recoveringAdminId, 1, RoleName.ADMIN)).expectStatus().isOk();
         assertThat(downstreamCalls).hasValue(1);
     }
 
     @Test
     void inactiveAndUnverifiableAccountsKeepTheirCodes() {
         accountStatus.set("SUSPENDED");
-        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+        get("/api/v1/gamification/profile", token(userId, 0, RoleName.USER))
                 .expectStatus().isForbidden()
                 .expectBody().jsonPath("$.code").isEqualTo("ACCOUNT_NOT_ACTIVE");
 
+        // Another account, so the SUSPENDED status cached above cannot answer for it.
         accountStatus.set("ACTIVE");
         statusLookupStatus.set(500);
-        get("/api/v1/gamification/profile", token(USER_ID, 0, RoleName.USER))
+        get("/api/v1/gamification/profile", token(freshId(), 0, RoleName.USER))
                 .expectStatus().isEqualTo(503)
                 .expectBody().jsonPath("$.code").isEqualTo("USER_STATUS_UNAVAILABLE");
 
@@ -289,6 +302,10 @@ class AuthenticatedDownstreamFailureHttpIT {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(GatewayHeaders.CORRELATION_ID, CORRELATION_ID)
                 .exchange();
+    }
+
+    private static String freshId() {
+        return UUID.randomUUID().toString();
     }
 
     private static String token(String userId, long epoch, RoleName role) {
