@@ -7,6 +7,7 @@ import com.parkio.parking.application.port.TrustSnapshotWritePort;
 import com.parkio.parking.application.trust.TrustShadowFailureStage;
 import com.parkio.parking.application.trust.TrustShadowProcessingResult;
 import com.parkio.parking.application.trust.ValidatedOutcomeForTrust;
+import com.parkio.parking.trust.CanonicalTrustOrderException;
 import com.parkio.parking.trust.TrustEngine;
 import com.parkio.parking.trust.TrustEvaluation;
 import com.parkio.parking.trust.TrustEvaluationContext;
@@ -20,6 +21,10 @@ import com.parkio.parking.trust.ValidatedTrustEvidenceFactory;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -71,7 +76,12 @@ public class TrustShadowApplicationService {
                             eligibleEvidence.subject(),
                             eligibleEvidence.domain(),
                             context));
-            TrustEvaluation evaluation = engine.evaluate(previous, evidence, context);
+            TrustEvaluation evaluation;
+            try {
+                evaluation = engine.evaluate(previous, evidence, context);
+            } catch (CanonicalTrustOrderException ex) {
+                return appendBehindCommittedHead(candidate, evidence, context, started);
+            }
             TrustLedgerEntry entry = new TrustLedgerEntry(
                     deterministicId("trust-ledger|" + evidence.evidenceId()),
                     deterministicId("trust-evaluation|" + evidence.evidenceId()),
@@ -126,6 +136,91 @@ public class TrustShadowApplicationService {
             }
             return TrustShadowProcessingResult.failed(candidate.outcomeRecord().recordId(), stage);
         }
+    }
+
+    /**
+     * A later evaluation already committed. Append this older evidence and replace the snapshot
+     * with a fold of the ledger in evaluatedAt order so the earlier update is not dropped.
+     */
+    private TrustShadowProcessingResult appendBehindCommittedHead(
+            ValidatedOutcomeForTrust candidate,
+            TrustEvidence evidence,
+            TrustEvaluationContext context,
+            long started) {
+        List<TrustLedgerEntry> existing = ledger.findBySubject(evidence.subject());
+        List<CanonicalStep> steps = new ArrayList<>(existing.size() + 1);
+        for (TrustLedgerEntry entry : existing) {
+            steps.add(new CanonicalStep(entry.evaluatedAt(), entry.ledgerEntryId(), entry.evidence(), false));
+        }
+        UUID incomingLedgerId = deterministicId("trust-ledger|" + evidence.evidenceId());
+        steps.add(new CanonicalStep(context.evaluatedAt(), incomingLedgerId, evidence, true));
+        steps.sort(Comparator.comparing(CanonicalStep::evaluatedAt).thenComparing(CanonicalStep::ledgerEntryId));
+
+        TrustSnapshot cursor = engine.initialSnapshot(
+                evidence.subject(),
+                evidence.domain(),
+                new TrustEvaluationContext(
+                        steps.get(0).evaluatedAt(),
+                        TrustPolicyConfig.POLICY_VERSION,
+                        TrustSnapshotSchemaVersion.V1));
+        TrustSnapshot previousForIncoming = null;
+        TrustEvaluation incomingEvaluation = null;
+        for (CanonicalStep step : steps) {
+            TrustEvaluationContext stepContext = step.incoming()
+                    ? context
+                    : new TrustEvaluationContext(
+                            step.evaluatedAt(),
+                            TrustPolicyConfig.POLICY_VERSION,
+                            TrustSnapshotSchemaVersion.V1);
+            TrustEvaluation folded = engine.evaluate(cursor, step.evidence(), stepContext);
+            if (step.incoming()) {
+                previousForIncoming = cursor;
+                incomingEvaluation = folded;
+            }
+            cursor = folded.resultingSnapshot();
+        }
+        Objects.requireNonNull(previousForIncoming, "previousForIncoming");
+        Objects.requireNonNull(incomingEvaluation, "incomingEvaluation");
+        TrustLedgerEntry entry = new TrustLedgerEntry(
+                incomingLedgerId,
+                deterministicId("trust-evaluation|" + evidence.evidenceId()),
+                evidence.subject(),
+                evidence.domain(),
+                TrustPolicyConfig.POLICY_VERSION,
+                TrustSnapshotSchemaVersion.V1,
+                evidence.attributionMappingVersion(),
+                evidence.sourceOutcomeRecordId(),
+                evidence.evidenceId(),
+                evidence.evidenceGroupId(),
+                evidence.evidenceType(),
+                evidence.contributionRole(),
+                evidence.attributionQuality(),
+                evidence.eligibility(),
+                incomingEvaluation.direction(),
+                incomingEvaluation.resultingSnapshot().level(),
+                incomingEvaluation.evaluatedAt(),
+                clock.instant(),
+                evidence,
+                previousForIncoming,
+                incomingEvaluation);
+        ledger.append(entry);
+        snapshotWrites.upsert(cursor);
+        Duration duration = Duration.ofNanos(System.nanoTime() - started);
+        observer.recordUpdateSuccess(incomingEvaluation, duration);
+        var replay = replayer.replay(entry);
+        if (replay.identical()) {
+            observer.recordReplaySuccess(replay);
+        } else {
+            observer.recordReplayMismatch(replay);
+        }
+        return TrustShadowProcessingResult.appended(candidate.outcomeRecord().recordId());
+    }
+
+    private record CanonicalStep(
+            Instant evaluatedAt,
+            UUID ledgerEntryId,
+            TrustEvidence evidence,
+            boolean incoming) {
     }
 
     private static TrustShadowFailureStage classifyFailure(RuntimeException ex) {
