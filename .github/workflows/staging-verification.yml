@@ -12,6 +12,9 @@ on:
       - "docs/operations/wp-06-02*.md"
       - "services/gateway-service/src/main/resources/application.yml"
       - ".github/workflows/staging-verification.yml"
+      - ".github/workflows/scheduled-restore-drills.yml"
+      - "scripts/test_scheduled_staging_dispatch.py"
+      - "scripts/test_staging_restore_acceptance.py"
   workflow_dispatch:
     inputs:
       run_restore:
@@ -44,6 +47,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
+
+      - name: Check scheduled staging dispatch and restore acceptance contracts
+        run: |
+          python3 -m pip install PyYAML==6.0.2
+          python3 -m unittest scripts.test_scheduled_staging_dispatch scripts.test_staging_restore_acceptance
 
       - name: Fail closed on fork PRs needing private MinIO
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
@@ -179,3 +187,43 @@ jobs:
           docker compose --env-file docker/.env \
             -f docker/docker-compose.yml -f docker/docker-compose.apps.yml down -v || \
           docker compose --env-file docker/.env -f docker/docker-compose.yml down -v
+
+  # U08: this check runs only when a restore was requested. Unrequested structural-only
+  # runs skip the job, so the check is not a green "restore succeeded" result. When a
+  # restore was requested, always() still starts the job if restore-evidence failed,
+  # was skipped, or was cancelled; the step then fails unless that result is success.
+  # The request expression does not read needs.*, so restore-evidence's own if cannot
+  # turn a requested restore into an unrequested run. Job success means the dependency
+  # result was success. It does not download or validate the evidence artifact.
+  restore-acceptance:
+    name: Requested restore executed and succeeded
+    needs: restore-evidence
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_restore)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require an executed, successful restore when one was requested
+        env:
+          RESTORE_REQUESTED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_restore) }}
+          RESTORE_RESULT: ${{ needs.restore-evidence.result }}
+        run: |
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "restore requested: ${RESTORE_REQUESTED}; restore-evidence result: ${RESTORE_RESULT:-<none>}"
+          case "${RESTORE_REQUESTED}" in
+            false)
+              echo "Restore not requested: structural-only run. It is not restore evidence." | tee -a "${summary}"
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "::error::Cannot tell whether a restore was requested ('${RESTORE_REQUESTED}')."
+              exit 1
+              ;;
+          esac
+          if [ "${RESTORE_RESULT:-}" != success ]; then
+            echo "::error::Restore was requested but restore-evidence finished as '${RESTORE_RESULT:-<none>}'. A skipped, cancelled or failed restore is not restore evidence."
+            exit 1
+          fi
+          echo "Restore requested; restore-evidence executed and succeeded." | tee -a "${summary}"
