@@ -226,10 +226,20 @@ Per participant subtask:
   2. **Object write ledger (V16).** An upload records its PUT in
      `media_object_writes` as `PENDING` before sending it, in a transaction of
      its own that survives the upload's rollback or a crash.
-     - **One request per upload.** The PUT is a single request: the part size
-       is at least the content length, so there is no multipart upload. The
-       storage client never retries on its own. Each upload uses a fresh key.
-       So a write applies at most once.
+     - **One request per upload.** The PUT is a single request:
+       - the part size is at least the content length, so there is no
+         multipart upload;
+       - the body is streamed, and the MinIO SDK turns connection retries off
+         for such PUTs, so the client never resends it;
+       - each upload uses a fresh key.
+
+       A regression test checks that a PUT whose connection breaks after
+       sending is sent exactly once. Other storage calls keep OkHttp's
+       connection recovery: listings, HEAD and version-specific deletes, which
+       are harmless to repeat. Turning recovery off for the whole client also
+       stops falling back to a host's other addresses; in CI, `localhost`
+       resolved to `::1` first and calls failed. So a write applies at most
+       once.
      - **Confirmed.** When the store confirms the PUT, the write becomes
        `APPLIED`, and the committed media row takes over from it. It is deleted
        with that row.
@@ -348,7 +358,8 @@ Per participant subtask:
     decided here.
   - **Topology assumptions.** "Observed once" settles a write only if a
     request is applied at most once. That needs a single PUT per upload, no
-    client retries, and a fresh key per upload, which the code enforces. It
+    client resend of the PUT, and a fresh key per upload. The code and the
+    MinIO SDK enforce these, and a regression test checks them. It
     also needs a network path that does not duplicate or retry requests. The
     supported deployment connects media-service directly to MinIO; any proxy
     or load balancer in between must be checked at rollout.
