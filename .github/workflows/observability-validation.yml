@@ -11,6 +11,10 @@ on:
       - "docker/grafana/**"
       - "docker/docker-compose.yml"
       - "docker/docker-compose.alerting-acceptance.yml"
+      - "docker/docker-compose.civo-alertmanager.yml"
+      - "docker/compose.production.files"
+      - "scripts/parkio-prod-compose.sh"
+      - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/restore-database.sh"
@@ -47,6 +51,10 @@ on:
       - "docker/grafana/**"
       - "docker/docker-compose.yml"
       - "docker/docker-compose.alerting-acceptance.yml"
+      - "docker/docker-compose.civo-alertmanager.yml"
+      - "docker/compose.production.files"
+      - "scripts/parkio-prod-compose.sh"
+      - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/restore-database.sh"
@@ -231,6 +239,8 @@ jobs:
           cp docker/.env.example docker/.env.ci-obs
           docker compose --env-file docker/.env.ci-obs -f docker/docker-compose.yml config --quiet
           docker compose -f docker/docker-compose.alerting-acceptance.yml config --quiet
+          chmod +x scripts/test-civo-alertmanager-canonical.sh
+          ./scripts/test-civo-alertmanager-canonical.sh
 
       - name: Bash syntax checks
         run: |
@@ -242,7 +252,9 @@ jobs:
             scripts/test-backup-azure-sas-minio-encryption.sh \
             scripts/test-backup-production-fail-closed.sh \
             scripts/test-backup-complete-gate.sh \
-            scripts/test-restore-safe-preflight.sh
+            scripts/test-restore-safe-preflight.sh \
+            scripts/test-civo-alertmanager-canonical.sh \
+            scripts/parkio-prod-compose.sh
           for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
             scripts/restore-database.sh scripts/lib/restore-safe-preflight.sh \
             scripts/lib/backup-common.sh scripts/observability-validate.sh scripts/alerting-acceptance.sh \
@@ -250,7 +262,9 @@ jobs:
             scripts/test-backup-azure-sas-minio-encryption.sh \
             scripts/test-backup-production-fail-closed.sh \
             scripts/test-backup-complete-gate.sh \
-            scripts/test-restore-safe-preflight.sh; do
+            scripts/test-restore-safe-preflight.sh \
+            scripts/test-civo-alertmanager-canonical.sh \
+            scripts/parkio-prod-compose.sh; do
             bash -n "$f"
           done
           python3 -m py_compile scripts/alerting-acceptance-receiver.py scripts/ci/alertmanager-slack-mock.py
