@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.parkio.parking.application.port.TrustLedgerPort;
 import com.parkio.parking.application.port.TrustShadowObserverPort;
 import com.parkio.parking.application.port.TrustSnapshotReadPort;
+import com.parkio.parking.application.port.TrustSnapshotRevision;
 import com.parkio.parking.application.port.TrustSnapshotWritePort;
 import com.parkio.parking.application.trust.TrustShadowFailureStage;
 import com.parkio.parking.application.trust.TrustShadowProcessingResult;
@@ -267,6 +268,7 @@ class TrustShadowApplicationServiceTest {
 
     private static final class RecordingSnapshots implements TrustSnapshotReadPort, TrustSnapshotWritePort {
         private TrustSnapshot current;
+        private long version;
 
         @Override
         public Optional<TrustSnapshot> findBySubjectAndDomain(TrustSubject subject, TrustDomain domain) {
@@ -275,7 +277,25 @@ class TrustShadowApplicationServiceTest {
         }
 
         @Override
-        public void upsert(TrustSnapshot snapshot) {
+        public Optional<TrustSnapshotRevision> findRevision(TrustSubject subject, TrustDomain domain) {
+            return findBySubjectAndDomain(subject, domain)
+                    .map(snapshot -> new TrustSnapshotRevision(snapshot, version));
+        }
+
+        @Override
+        public void upsert(TrustSnapshot snapshot, Long expectedVersion) {
+            if (current == null) {
+                if (expectedVersion != null) {
+                    throw new com.parkio.parking.application.TrustShadowProjectionConflictException(
+                            "missing", new IllegalStateException("missing"));
+                }
+                version = 0L;
+            } else if (expectedVersion == null || version != expectedVersion) {
+                throw new com.parkio.parking.application.TrustShadowProjectionConflictException(
+                        "conflict", new IllegalStateException("conflict"));
+            } else {
+                version = expectedVersion + 1;
+            }
             this.current = snapshot;
         }
     }

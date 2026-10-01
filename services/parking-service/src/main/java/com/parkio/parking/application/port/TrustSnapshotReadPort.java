@@ -9,5 +9,7 @@ import java.util.Optional;
 public interface TrustSnapshotReadPort {
 
     Optional<TrustSnapshot> findBySubjectAndDomain(TrustSubject subject, TrustDomain domain);
+
+    Optional<TrustSnapshotRevision> findRevision(TrustSubject subject, TrustDomain domain);
 }
 
