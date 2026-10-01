@@ -539,6 +539,52 @@ class WaitlistControllerTest {
                                 .endsWith("@invalid.local"));
     }
 
+    /** CL-F34: page * size overflowed int into a negative OFFSET, which the database rejects. */
+    @Test
+    void adminListFarBeyondTheLastPageIsEmptyNotAServerError() {
+        postAccepted("page-overflow@parkio.dev");
+
+        webTestClient.get()
+                .uri("/api/v1/waitlist/admin?page=" + Integer.MAX_VALUE + "&size=100")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.content.length()").isEqualTo(0)
+                .jsonPath("$.totalElements").isEqualTo(1)
+                .jsonPath("$.page").isEqualTo(Integer.MAX_VALUE);
+    }
+
+    /** CL-F34: rows with the same created_at keep one order across pages (id breaks the tie). */
+    @Test
+    void adminListPagesRowsWithEqualCreationTimesInIdOrder() {
+        java.sql.Timestamp createdAt = java.sql.Timestamp.from(Instant.parse("2026-09-01T10:00:00Z"));
+        List<UUID> ids = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            UUID id = UUID.fromString("00000000-0000-4000-8000-00000000000" + i);
+            ids.add(id);
+            jdbcTemplate.update("""
+                    INSERT INTO waitlist_interest (id, email, email_hash, consent_timestamp, source, ip_hash, created_at)
+                    VALUES (?, ?, ?, ?, 'parkio.dev-landing', 'ip-hash', ?)
+                    """, id, "tie-" + i + "@parkio.dev", "tie-hash-" + i, createdAt, createdAt);
+        }
+
+        List<String> paged = new java.util.ArrayList<>();
+        for (int page = 0; page < 3; page++) {
+            String body = webTestClient.get()
+                    .uri("/api/v1/waitlist/admin?page=" + page + "&size=2")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                    .exchange()
+                    .expectStatus().isOk()
+                    .expectBody(String.class).returnResult().getResponseBody();
+            com.jayway.jsonpath.JsonPath.<List<String>>read(body, "$.content[*].id").forEach(paged::add);
+        }
+
+        // Database uuid order is unsigned (the canonical hex string order), not UUID.compareTo.
+        List<String> expected = ids.stream().map(UUID::toString).sorted(java.util.Comparator.reverseOrder()).toList();
+        org.assertj.core.api.Assertions.assertThat(paged).containsExactlyElementsOf(expected);
+    }
+
     @Test
     void adminListEmptyStateIsUsable() {
         webTestClient.get()
