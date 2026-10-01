@@ -436,7 +436,7 @@ class ManagedParkingFlywayBaselineIT {
     /**
      * STATE D on a database that has never been migrated — no history table at all. Flyway's
      * supported {@code baseline()} operation, run by the unprivileged migration role, writes its own
-     * BASELINE marker and {@code migrate()} then applies V2…V40. V1 is never executed.
+     * BASELINE marker and {@code migrate()} then applies V2…V41. V1 is never executed.
      */
     @Test
     void stateD_explicitBaselineOnACleanManagedDatabase_skipsV1AndReachesHead() throws Exception {
