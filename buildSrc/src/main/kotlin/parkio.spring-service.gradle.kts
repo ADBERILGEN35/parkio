@@ -32,6 +32,13 @@ repositories {
 }
 
 val springCloudVersion: String = project.findProperty("springCloudVersion") as String
+val tomcatVersion: String = project.findProperty("tomcatVersion") as String
+val nettyVersion: String = project.findProperty("nettyVersion") as String
+
+// Official Spring Boot BOM override keys. Every service image resolves the same
+// patched Tomcat and Netty artifacts without a Boot or Cloud upgrade.
+extra["tomcat.version"] = tomcatVersion
+extra["netty.version"] = nettyVersion
 
 dependencyManagement {
     imports {
