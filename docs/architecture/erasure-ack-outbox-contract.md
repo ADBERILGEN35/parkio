@@ -199,10 +199,27 @@ Per participant subtask:
     MinIO documents an upper bound on when an accepted PUT completes. Go's HTTP
     server cancels a request's context when the client disconnects; MinIO does
     not document that it abandons a PUT then.
-  - **Client retries.** OkHttp silently retries a request whose body it
-    buffered after some connection failures, even once the request was sent
-    (`RetryAndFollowUpInterceptor.recover`). The MinIO Java SDK 8.6.0 turns
-    this off only for PUT/POST bodies that are not byte arrays.
+  - **Client retries.** One upload call can transmit its PUT more than once
+    without the caller seeing it. OkHttp 4.12 (`RetryAndFollowUpInterceptor`)
+    has two such paths:
+    - *recovery*: after a failed attempt it may send the request again on a new
+      connection, even once the body was sent, unless the body is one-shot;
+    - *follow-ups*: after a reply it may send the request again on its own, the
+      body included: a 503 with `Retry-After: 0`, a 307 or 308 redirect, a 408,
+      a 421, an authentication challenge (401/407). A 301, 302 or 303 turns the
+      PUT into a GET whose reply then stands for the PUT. Only a one-shot body
+      stops these follow-ups.
+
+    The MinIO Java SDK 8.6.0 turns off only recovery, and only for PUT/POST
+    bodies that are not byte arrays (S3Base, "Issue #924"). Its request body is
+    not one-shot: it re-reads the buffered part. The SDK itself repeats no PUT;
+    its only own retry is a second HEAD after a region redirect, which a
+    configured region (default `us-east-1`) never triggers. The upload code
+    calls the store once per upload; the idempotency wrapper runs the upload at
+    most once per request. An independent review showed the consequence: a 503
+    with `Retry-After: 0`, then a 403 to the resent PUT. The 403 was read as a
+    rejection, the write was forgotten, and `SUCCESS` was queued while the first
+    transmission could still be applied.
 
   Conclusion: no finite time bound makes a PUT of unknown outcome harmless.
   Media does not wait out a time window. It records such writes and keeps
@@ -226,29 +243,50 @@ Per participant subtask:
   2. **Object write ledger (V16).** An upload records its PUT in
      `media_object_writes` as `PENDING` before sending it, in a transaction of
      its own that survives the upload's rollback or a crash.
-     - **One request per upload.** The PUT is a single request:
-       - the part size is at least the content length, so there is no
-         multipart upload;
-       - the body is streamed, and the MinIO SDK turns connection retries off
-         for such PUTs, so the client never resends it;
-       - each upload uses a fresh key.
+     - **One PUT per upload, transmitted at most once.**
+       - The part size is at least the content length, so there is no
+         multipart upload.
+       - The storage client's single-transmission guard
+         (`SingleTransmissionInterceptor`) makes every request body one-shot.
+         OkHttp then sends no follow-up and no retry once the body went out.
+         The client follows no redirect and uses no proxy.
+       - Each upload uses a fresh key.
 
-       A regression test checks that a PUT whose connection breaks after
-       sending is sent exactly once. Other storage calls keep OkHttp's
-       connection recovery: listings, HEAD and version-specific deletes, which
-       are harmless to repeat. Turning recovery off for the whole client also
-       stops falling back to a host's other addresses; in CI, `localhost`
-       resolved to `::1` first and calls failed. So a write applies at most
-       once.
+       Regression tests run the production client against each reply after
+       which OkHttp may repeat a request (`MediaObjectWriteRetryIT`,
+       `StorageClientSingleTransmissionTest`). Each sees one transmission:
+       - 503 with `Retry-After: 0`, 307, 308, 301, 302 and 303 were repeated
+         (or replaced by a GET) before the guard;
+       - 401 and 408 were not: no authenticator is configured, and the SDK's
+         per-call setting already blocked the 408 retry;
+       - after a reply, no second connection is opened either.
+
+       A PUT whose connection breaks after sending is also sent once
+       (`MediaDelayedObjectWriteIT`).
+
+       A connection that never carried the body may still be retried. Listings,
+       HEAD and version-specific deletes keep OkHttp's recovery: falling back
+       to a host's other addresses and replacing stale pooled connections.
+       Repeating them is harmless. For the PUT the SDK turns that recovery off,
+       so an upload to a host whose first address refuses fails with nothing
+       sent.
      - **Confirmed.** When the store confirms the PUT, the write becomes
        `APPLIED`, and the committed media row takes over from it. It is deleted
        with that row.
      - **Rolled back.** If the upload rolls back, its cleanup deletes the
        object and then forgets the write.
-     - **Rejected.** A write the store definitively did not apply is forgotten
-       at once: a 4xx reply, or a connection that never opened.
+     - **Rejected.** A write the store certainly did not apply is forgotten at
+       once. The adapter judges this from the guard's evidence about every
+       transmission of the call, never from the last reply alone. A write
+       counts as rejected in two cases only:
+       - no attempt sent any byte of the body;
+       - the store answered the body's only transmission with a 4xx, and no
+         follow-up request was made.
+
+       A reply to a later request, or a failed later connection, never counts.
      - **Unknown.** Every other failure leaves the write `PENDING` with an
-       unknown outcome: a timeout, a broken connection, a 5xx reply, a crash.
+       unknown outcome: a timeout, a broken connection after sending, a 5xx or
+       3xx reply, a crash.
   3. **Phase 1.** One short transaction, with no storage I/O and no ACK.
      - It takes the fence exclusively first, so it waits for every admitted
        write transaction to commit or roll back.
@@ -261,19 +299,28 @@ Per participant subtask:
   4. **Phase 2.** `MediaObjectErasureWorker` claims the job (a `claim_token`
      plus a lease end in `next_attempt_at`) and works outside any transaction.
      - **Media rows.** For each media row it lists the versions and delete
-       markers of exactly that key, one page per storage call. It removes each
-       by version id until a fresh listing is empty; for a key, an empty listing
-       is backed by a HEAD. Then a short transaction deletes the row and its
-       validation results.
-     - **Owner namespace.** It then empties `media/<userId>/` the same way. An
-       orphan's absence there rests on the prefix listing alone, with no HEAD,
-       because no key is known for it. A `PENDING` write whose object turns up
-       in that listing is first recorded as `APPLIED`, so the observation is
-       not lost.
-     - **Ledger entries.** Last, it settles the user's ledger entries:
+       markers of exactly that key. Each lookup is one ListObjectVersions
+       request with the key as prefix. Keys are listed in order, and a key
+       sorts before every longer key it prefixes, so the key's own entries come
+       first. Keys that only share the prefix are never paged through. The
+       worker removes each entry by version id until a fresh listing is empty;
+       for a key, an empty listing is backed by a HEAD. Then a short
+       transaction deletes the row and its validation results.
+     - **Owner namespace.** It then empties `media/<userId>/` the same way, one
+       listing request per page. An orphan's absence there rests on the prefix
+       listing alone, with no HEAD, because no key is known for it.
+       - An object version found there proves that every recorded write of its
+         key was applied. A delete marker proves nothing: a delete made it.
+       - Before the version is removed, the worker commits that observation for
+         all of the user's `PENDING` writes of that key (by user and key, in
+         the database).
+       - A failure or restart between the two steps keeps the observation.
+     - **Ledger entries.** Last, it goes through all of the user's ledger
+       entries, 100 per query:
        - an `APPLIED` write is forgotten once its key is confirmed empty;
-       - a `PENDING` write is settled only once its object has been observed:
-         the worker records it as `APPLIED`, removes it, then forgets it;
+       - a `PENDING` write is settled only once an object version of its key
+         has been observed: the worker commits it as `APPLIED`, removes the
+         object, then forgets the write;
        - while a `PENDING` write's object has never been seen, the attempt
          queues no `SUCCESS`. It records "N object write(s) of unknown
          outcome; SUCCESS waits until each is observed" on the job and retries
@@ -303,7 +350,8 @@ Per participant subtask:
   - every PUT the user's uploads ever sent is accounted for:
     - committed with a row that the erasure deleted after removing its
       versions;
-    - or rejected by the store;
+    - or rejected by the store: no byte of it was sent, or its only
+      transmission got a 4xx;
     - or applied, with its object observed and removed;
   - the worker removed every listed version of each of the user's keys and of
     the owner namespace, and saw a fresh empty listing afterwards (HEAD-backed
@@ -318,9 +366,20 @@ Per participant subtask:
 
   **Bounded attempts.** An attempt checks its deadline (`attempt-budget-ms`,
   60 s) before every storage call.
-  - Each storage call is bounded by the end-to-end `call-timeout` (15 s) and
-    returns at most one listing page. So the attempt's storage work ends at
-    most two storage calls (a key listing and its HEAD) after the budget.
+  - A storage call is one delete or one listing. A listing is exactly one
+    ListObjectVersions request of at most `listing-page-size` entries; the
+    SDK's listing iterator, which requests further pages on its own, is not
+    used. An exact-key lookup adds a HEAD when it lists nothing.
+  - Each request is bounded by the end-to-end `call-timeout` (15 s). OkHttp's
+    own recovery within a request stays inside that timeout.
+  - So the attempt's storage work ends at most two requests (a key listing and
+    its HEAD) after the budget.
+  - With a configured region (default `us-east-1`) the SDK makes no region
+    lookup. Without one, the first request per bucket adds a GetBucketLocation
+    request, which is then cached.
+  - Progress needs no listing marker: the next listing starts afresh and shows
+    what is left after the removals. A version listed again after its removal
+    fails the attempt.
   - The service refuses to start unless all of these hold:
     - `attempt-budget-ms` > 0;
     - `lease-ms` > 0;
@@ -356,13 +415,21 @@ Per participant subtask:
 
     How operators may resolve such a write is an open decision. It is not
     decided here.
-  - **Topology assumptions.** "Observed once" settles a write only if a
-    request is applied at most once. That needs a single PUT per upload, no
-    client resend of the PUT, and a fresh key per upload. The code and the
-    MinIO SDK enforce these, and a regression test checks them. It
-    also needs a network path that does not duplicate or retry requests. The
-    supported deployment connects media-service directly to MinIO; any proxy
-    or load balancer in between must be checked at rollout.
+  - **Topology assumptions.** "Observed once" settles a write only if its PUT
+    is applied at most once.
+    - The client side is enforced and tested: one PUT per upload, transmitted
+      at most once (the guard; no redirect; no proxy), and a fresh key per
+      upload.
+    - The network path cannot be enforced by the client. HTTP treats PUT as
+      idempotent, so a proxy, load balancer or service-mesh retry policy may
+      repeat it, and that would break the assumption.
+    - The supported deployment connects media-service directly to MinIO. Any
+      intermediary in between, and its retry behaviour, must be checked at
+      rollout.
+  - **PUT address fallback.** The MinIO SDK turns OkHttp's recovery off for
+    the PUT. An upload to a host whose first address refuses the connection
+    therefore fails (nothing sent, recorded as rejected) instead of trying
+    the host's next address. Other storage calls keep the fallback.
   - **H2.** The fence is PostgreSQL-only. On the H2 database of the context
     tests only the tombstone check runs. Every deployed profile uses
     PostgreSQL.

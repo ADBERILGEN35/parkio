@@ -77,9 +77,10 @@ after three conditions hold:
 - every object write the user's uploads sent is accounted for.
 
 Its owner write fence refuses uploads and other media writes once the erasure
-has started. A PUT whose outcome is unknown keeps the erasure pending until its
-object is observed, and no time limit settles it. The contract records the
-exact guarantee and its known limitations. Sentinel:
+has started. Each upload's PUT is transmitted at most once. A PUT whose
+outcome is unknown keeps the erasure pending until its object is observed, and
+no time limit settles it. The contract records the exact guarantee and its
+known limitations, including the network-path assumption. Sentinel:
 `00000000-0000-4000-8000-000000000001`.
 
 **Known defect (U05), until each participant's PR merges:** the participants
