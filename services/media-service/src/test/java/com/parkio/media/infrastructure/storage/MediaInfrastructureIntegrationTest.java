@@ -106,7 +106,6 @@ class MediaInfrastructureIntegrationTest {
     @Autowired
     private MediaFileJpaRepository mediaFiles;
 
-
     @BeforeEach
     void ensureBucketExists() throws Exception {
         if (!minio.bucketExists(BucketExistsArgs.builder().bucket(BUCKET).build())) {

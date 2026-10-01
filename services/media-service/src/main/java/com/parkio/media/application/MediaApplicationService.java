@@ -405,7 +405,12 @@ public class MediaApplicationService {
     private static String generateObjectKey(UUID ownerUserId, String contentType) {
         String extension = EXTENSION_BY_CONTENT_TYPE.getOrDefault(contentType, "");
         // Owner id (a UUID) namespaces the key; the filename is never user-derived.
-        return "media/" + ownerUserId + "/" + UUID.randomUUID() + extension;
+        return objectKeyPrefix(ownerUserId) + UUID.randomUUID() + extension;
+    }
+
+    /** The key namespace of every object stored for the owner (account erasure sweeps it). */
+    static String objectKeyPrefix(UUID ownerUserId) {
+        return "media/" + ownerUserId + "/";
     }
 
     private static final class StoredUploadCleanup {

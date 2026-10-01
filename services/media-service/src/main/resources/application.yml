@@ -149,9 +149,11 @@ parkio:
     # old and new secret overlap with no downtime. Empty when no rotation is in progress.
     internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
   media:
-    # U05 account erasure, phase 2: stored objects are deleted outside the metadata transaction
-    # and the SUCCESS ACK is queued only once every object is confirmed; pending jobs are retried
-    # with exponential backoff (base..max) by this poll. Disabling it stops retries (no SUCCESS).
+    # U05 account erasure, phase 2: every stored version of the user's objects is removed outside
+    # the metadata transaction and confirmed gone by a fresh listing before the media row is
+    # deleted; the SUCCESS ACK is queued (and the job deleted) only once nothing of the user is
+    # left. Pending jobs are retried with exponential backoff (base..max) by this poll; one attempt
+    # stops taking new objects after attempt-budget-ms. Disabling it stops retries (no SUCCESS).
     erasure-worker:
       enabled: ${PARKIO_MEDIA_ERASURE_WORKER_ENABLED:true}
       poll-interval-ms: 30000
@@ -159,6 +161,7 @@ parkio:
       lease-ms: 120000
       base-backoff-ms: 5000
       max-backoff-ms: 900000
+      attempt-budget-ms: 60000
     # Application-level upload constraints.
     max-file-size: 10MB
     max-image-width: ${PARKIO_MEDIA_MAX_IMAGE_WIDTH:8000}

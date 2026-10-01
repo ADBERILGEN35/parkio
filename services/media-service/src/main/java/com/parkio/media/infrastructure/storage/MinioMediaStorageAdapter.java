@@ -4,13 +4,21 @@ import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.infrastructure.config.MediaProperties;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.Result;
+import io.minio.StatObjectArgs;
+import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
+import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -94,6 +102,88 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                     .build());
         } catch (Exception e) {
             throw new MediaStorageException("Failed to presign media object", e);
+        }
+    }
+
+    /**
+     * Lists versions and delete markers (ListObjectVersions), so a versioned bucket's older
+     * versions are never mistaken for absence. An empty listing is backed by a HEAD: an object the
+     * listing missed is still reported, never confirmed absent.
+     */
+    @Override
+    public List<StoredVersion> versionsOf(String objectBucket, String objectKey) {
+        requireConfiguredBucket(objectBucket);
+        try {
+            List<StoredVersion> versions = list(objectKey, objectKey::equals);
+            if (versions.isEmpty() && currentObjectExists(objectKey)) {
+                versions.add(new StoredVersion(bucket, objectKey, null, false));
+            }
+            return versions;
+        } catch (Exception e) {
+            throw new MediaStorageException("Failed to list media object versions", e);
+        }
+    }
+
+    @Override
+    public List<StoredVersion> versionsUnder(String prefix) {
+        try {
+            return list(prefix, key -> key.startsWith(prefix));
+        } catch (Exception e) {
+            throw new MediaStorageException("Failed to list media object versions", e);
+        }
+    }
+
+    /** Deletes by version id: a permanent delete, unlike a key-only delete on a versioned bucket. */
+    @Override
+    public void removeVersion(StoredVersion version) {
+        requireConfiguredBucket(version.bucket());
+        try {
+            internalClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(version.objectKey())
+                    .versionId(version.versionId())
+                    .build());
+        } catch (Exception e) {
+            throw new MediaStorageException("Failed to remove media object version", e);
+        }
+    }
+
+    private List<StoredVersion> list(String prefix, Predicate<String> matches) throws Exception {
+        List<StoredVersion> versions = new ArrayList<>();
+        for (Result<Item> result : internalClient.listObjects(ListObjectsArgs.builder()
+                .bucket(bucket)
+                .prefix(prefix)
+                .includeVersions(true)
+                .recursive(true)
+                .build())) {
+            Item item = result.get();
+            if (matches.test(item.objectName())) {
+                versions.add(new StoredVersion(bucket, item.objectName(), item.versionId(), item.isDeleteMarker()));
+            }
+        }
+        return versions;
+    }
+
+    private boolean currentObjectExists(String objectKey) throws Exception {
+        try {
+            internalClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
+            return true;
+        } catch (ErrorResponseException e) {
+            if ("NoSuchKey".equals(e.errorResponse().code())) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Every media row records its bucket, but this adapter reads and deletes only in its
+     * configured one; deleting the key there proves nothing about another bucket.
+     */
+    private void requireConfiguredBucket(String objectBucket) {
+        if (!bucket.equals(objectBucket)) {
+            throw new MediaStorageException("Object is stored in bucket '" + objectBucket
+                    + "', not the configured bucket '" + bucket + "'; its deletion cannot be confirmed", null);
         }
     }
 }

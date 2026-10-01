@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +20,7 @@ import com.parkio.media.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRep
 import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
 import com.parkio.media.infrastructure.persistence.mapper.MediaPersistenceMapper;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -27,27 +29,26 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
 class AccountErasureHandlerTest {
 
     private static final Instant NOW = Instant.parse("2026-08-14T09:00:00Z");
+    private static final Instant LEASE_END = NOW.plus(Duration.ofMinutes(2));
 
     private final ErasedUserTombstoneJpaRepository tombstones = mock(ErasedUserTombstoneJpaRepository.class);
     private final MediaFileJpaRepository mediaFiles = mock(MediaFileJpaRepository.class);
     private final MediaErasureJobStore jobs = mock(MediaErasureJobStore.class);
     private final MediaObjectErasureWorker objectEraser = mock(MediaObjectErasureWorker.class);
-    private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private AccountErasureHandler handler;
 
     @BeforeEach
     void setUp() {
         when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        handler = new AccountErasureHandler(tombstones, mediaFiles, jobs, objectEraser, jdbc, transactions,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        handler = new AccountErasureHandler(tombstones, mediaFiles, jobs, objectEraser, transactions,
+                Clock.fixed(NOW, ZoneOffset.UTC), 120_000);
     }
 
     @Test
@@ -64,11 +65,13 @@ class AccountErasureHandlerTest {
         order.verify(tombstones).save(any());
         ArgumentCaptor<MediaFileEntity> saved = ArgumentCaptor.forClass(MediaFileEntity.class);
         order.verify(mediaFiles).save(saved.capture());
-        order.verify(jobs).open(AccountErasureHandler.ackEventId(event), event.erasureRequestId(), owner, NOW);
+        order.verify(jobs).deleteIdempotencyRecords(owner);
+        // The immediate attempt holds the job's lease, so the poll does not run it concurrently.
+        order.verify(jobs).open(AccountErasureHandler.ackEventId(event), event.erasureRequestId(), owner, NOW,
+                LEASE_END);
         order.verify(transactions).commit(any());
         order.verify(objectEraser).process(AccountErasureHandler.ackEventId(event));
         assertThat(MediaPersistenceMapper.toDomain(saved.getValue()).isDeleted()).isTrue();
-        verify(jdbc).update("DELETE FROM idempotency_records WHERE user_id = ?", owner);
     }
 
     @Test
@@ -92,7 +95,7 @@ class AccountErasureHandlerTest {
                 .isInstanceOf(IllegalStateException.class);
 
         verify(transactions).rollback(any());
-        verify(jobs, never()).open(any(), any(), any(), any());
+        verify(jobs, never()).open(any(), any(), any(), any(), any());
         verify(objectEraser, never()).process(any());
     }
 
@@ -111,7 +114,7 @@ class AccountErasureHandlerTest {
         UUID first = AccountErasureHandler.ackEventId(event);
         UUID second = AccountErasureHandler.ackEventId(replay);
         assertThat(first).isNotEqualTo(second);
-        verify(jobs, org.mockito.Mockito.times(2)).open(eq(first), eq(requestId), eq(owner), any());
-        verify(jobs).open(eq(second), eq(requestId), eq(owner), any());
+        verify(jobs, times(2)).open(eq(first), eq(requestId), eq(owner), any(), any());
+        verify(jobs).open(eq(second), eq(requestId), eq(owner), any(), any());
     }
 }

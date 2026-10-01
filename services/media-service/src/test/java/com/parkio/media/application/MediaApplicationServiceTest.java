@@ -848,6 +848,22 @@ class MediaApplicationServiceTest {
             presignedKeys.add(objectKey);
             return "https://signed.example/" + objectKey + "?ttl=" + ttl;
         }
+
+        // Account erasure only (MediaObjectErasureWorker); MediaApplicationService never calls these.
+        @Override
+        public List<StoredVersion> versionsOf(String bucket, String objectKey) {
+            throw new UnsupportedOperationException("account erasure only");
+        }
+
+        @Override
+        public List<StoredVersion> versionsUnder(String prefix) {
+            throw new UnsupportedOperationException("account erasure only");
+        }
+
+        @Override
+        public void removeVersion(StoredVersion version) {
+            throw new UnsupportedOperationException("account erasure only");
+        }
     }
 
     private static final class FakeMediaScanner implements MediaScanner {
