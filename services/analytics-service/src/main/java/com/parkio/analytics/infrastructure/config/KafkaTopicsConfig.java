@@ -24,6 +24,8 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicsConfig {
 
     public static final String DLT_ANALYTICS = "parkio.dlt.analytics";
+    /** Owned and provisioned by auth-service; analytics-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 
