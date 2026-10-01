@@ -1,0 +1,9 @@
+# Canonical Civo observability activation.
+# Appended only by scripts/parkio-prod-compose.sh after compose.production.files.
+# Alertmanager starts with the default project and refuses to boot without a
+# Slack or generic webhook. Loki, Promtail and Tempo stay profile-disabled.
+services:
+  alertmanager:
+    profiles: !reset []
+    environment:
+      PARKIO_ALERT_REQUIRE_RECEIVER: "true"
