@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.parkio.parking.application.port.TrustLedgerPort;
 import com.parkio.parking.application.port.TrustShadowObserverPort;
 import com.parkio.parking.application.port.TrustSnapshotReadPort;
+import com.parkio.parking.application.port.TrustSnapshotRevision;
 import com.parkio.parking.application.port.TrustSnapshotWritePort;
 import com.parkio.parking.application.trust.TrustShadowFailureStage;
 import com.parkio.parking.application.trust.TrustShadowProcessingResult;
@@ -22,14 +23,19 @@ import com.parkio.parking.outcome.history.OutcomeHistoryRecord;
 import com.parkio.parking.outcome.policy.OutcomePolicyVersion;
 import com.parkio.parking.outcome.timeline.OutcomeTimeline;
 import com.parkio.parking.trust.TrustDomain;
+import com.parkio.parking.trust.TrustEngine;
+import com.parkio.parking.trust.TrustEvaluationContext;
 import com.parkio.parking.trust.TrustLedgerEntry;
+import com.parkio.parking.trust.TrustPolicyConfig;
 import com.parkio.parking.trust.TrustSnapshot;
+import com.parkio.parking.trust.TrustSnapshotSchemaVersion;
 import com.parkio.parking.trust.TrustSubject;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -96,6 +102,60 @@ class TrustShadowApplicationServiceTest {
         assertThat(ledger.entries).isEmpty();
     }
 
+    @Test
+    void earlierEvidenceBehindACommittedLaterEvaluationStaysInTheCanonicalSnapshot() {
+        RecordingLedger ledger = new RecordingLedger(false);
+        RecordingSnapshots snapshots = new RecordingSnapshots();
+        UUID reporter = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        TrustShadowApplicationService service = new TrustShadowApplicationService(
+                ledger,
+                snapshots,
+                snapshots,
+                TrustShadowObserverPort.noop(),
+                Clock.fixed(Instant.parse("2026-07-28T11:00:00Z"), ZoneOffset.UTC));
+
+        TrustShadowProcessingResult later = service.process(candidateAt(
+                reporter,
+                Instant.parse("2026-07-28T10:05:00Z"),
+                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1")));
+        TrustShadowProcessingResult earlier = service.process(candidateAt(
+                reporter,
+                Instant.parse("2026-07-28T10:00:00Z"),
+                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2")));
+
+        assertThat(later.status()).isEqualTo(TrustShadowProcessingResult.Status.APPENDED);
+        assertThat(earlier.status()).isEqualTo(TrustShadowProcessingResult.Status.APPENDED);
+        assertThat(ledger.entries).hasSize(2);
+        assertThat(snapshots.current).isEqualTo(canonicalSnapshot(ledger.entries));
+        assertThat(snapshots.current.lastEvaluatedAt()).isEqualTo(Instant.parse("2026-07-28T10:05:00Z"));
+        assertThat(snapshots.current.effectiveEvidenceCount()).isEqualTo(2);
+    }
+
+    private static TrustSnapshot canonicalSnapshot(List<TrustLedgerEntry> entries) {
+        List<TrustLedgerEntry> ordered = entries.stream()
+                .sorted(Comparator.comparing(TrustLedgerEntry::evaluatedAt)
+                        .thenComparing(TrustLedgerEntry::ledgerEntryId))
+                .toList();
+        TrustEngine engine = new TrustEngine();
+        TrustSnapshot snapshot = engine.initialSnapshot(
+                ordered.get(0).subject(),
+                ordered.get(0).domain(),
+                new TrustEvaluationContext(
+                        ordered.get(0).evaluatedAt(),
+                        TrustPolicyConfig.POLICY_VERSION,
+                        TrustSnapshotSchemaVersion.V1));
+        for (TrustLedgerEntry entry : ordered) {
+            snapshot = engine.evaluate(
+                    snapshot,
+                    entry.evidence(),
+                    new TrustEvaluationContext(
+                            entry.evaluatedAt(),
+                            TrustPolicyConfig.POLICY_VERSION,
+                            TrustSnapshotSchemaVersion.V1)).resultingSnapshot();
+        }
+        return snapshot;
+    }
+
     private static ValidatedOutcomeForTrust candidate(
             OutcomeClassification classification,
             OutcomeReason reason,
@@ -103,12 +163,36 @@ class TrustShadowApplicationServiceTest {
         return new ValidatedOutcomeForTrust(outcome(classification, reason, confidence), UUID.randomUUID());
     }
 
+    private static ValidatedOutcomeForTrust candidateAt(UUID reporter, Instant evaluatedAt, UUID recordId) {
+        return new ValidatedOutcomeForTrust(
+                outcomeAt(
+                        recordId,
+                        evaluatedAt,
+                        OutcomeClassification.CONFIRMED_CORRECT,
+                        OutcomeReason.MULTIPLE_AVAILABLE_VERIFICATIONS,
+                        95),
+                reporter);
+    }
+
     private static OutcomeHistoryRecord outcome(
             OutcomeClassification classification,
             OutcomeReason reason,
             int confidence) {
+        return outcomeAt(
+                UUID.randomUUID(),
+                Instant.parse("2026-07-28T10:00:00Z"),
+                classification,
+                reason,
+                confidence);
+    }
+
+    private static OutcomeHistoryRecord outcomeAt(
+            UUID recordId,
+            Instant evaluatedAt,
+            OutcomeClassification classification,
+            OutcomeReason reason,
+            int confidence) {
         Instant publishedAt = Instant.parse("2026-07-28T09:00:00Z");
-        Instant evaluatedAt = Instant.parse("2026-07-28T10:00:00Z");
         UUID spotId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         OutcomePolicyVersion policyVersion = OutcomePolicyVersion.of("outcome-policy-v1");
         OutcomeTimeline timeline = OutcomeTimeline.of(publishedAt, publishedAt.plus(Duration.ofMinutes(10)), List.of());
@@ -138,7 +222,7 @@ class TrustShadowApplicationServiceTest {
                 new OutcomeEvaluationContext(evaluatedAt, policyVersion, Duration.ofMinutes(10)),
                 evaluation);
         return new OutcomeHistoryRecord(
-                UUID.randomUUID(),
+                recordId,
                 UUID.randomUUID(),
                 spotId,
                 policyVersion,
@@ -184,6 +268,7 @@ class TrustShadowApplicationServiceTest {
 
     private static final class RecordingSnapshots implements TrustSnapshotReadPort, TrustSnapshotWritePort {
         private TrustSnapshot current;
+        private long version;
 
         @Override
         public Optional<TrustSnapshot> findBySubjectAndDomain(TrustSubject subject, TrustDomain domain) {
@@ -192,7 +277,25 @@ class TrustShadowApplicationServiceTest {
         }
 
         @Override
-        public void upsert(TrustSnapshot snapshot) {
+        public Optional<TrustSnapshotRevision> findRevision(TrustSubject subject, TrustDomain domain) {
+            return findBySubjectAndDomain(subject, domain)
+                    .map(snapshot -> new TrustSnapshotRevision(snapshot, version));
+        }
+
+        @Override
+        public void upsert(TrustSnapshot snapshot, Long expectedVersion) {
+            if (current == null) {
+                if (expectedVersion != null) {
+                    throw new com.parkio.parking.application.TrustShadowProjectionConflictException(
+                            "missing", new IllegalStateException("missing"));
+                }
+                version = 0L;
+            } else if (expectedVersion == null || version != expectedVersion) {
+                throw new com.parkio.parking.application.TrustShadowProjectionConflictException(
+                        "conflict", new IllegalStateException("conflict"));
+            } else {
+                version = expectedVersion + 1;
+            }
             this.current = snapshot;
         }
     }
