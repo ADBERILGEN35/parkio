@@ -6,10 +6,13 @@ import static org.mockito.Mockito.doThrow;
 import com.parkio.media.application.event.UserErasureRequestedEvent;
 import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.application.result.MediaUploadResult;
+import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import io.minio.SetBucketVersioningArgs;
 import io.minio.messages.VersioningConfiguration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.SoftAssertions;
@@ -105,6 +108,44 @@ class MediaDelayedObjectWriteVersionedIT extends DelayedObjectWriteITSupport {
         softly.assertThat(acks).as("media SUCCESS" + diagnostics(event)).isEqualTo(1);
         softly.assertThat(lateReply).as("the store received the delayed DELETE").startsWith("HTTP/1.1");
         softly.assertThat(afterLateDelete).as("versions and delete markers of the erased user after SUCCESS").isEmpty();
+        softly.assertAll();
+    }
+
+    /**
+     * A delete marker under a recorded write's key was made by a delete, not by that write's PUT
+     * (keys are fresh per upload; an older key-only delete or another client left it), so finding
+     * it says nothing about whether the PUT completed: SUCCESS waits until the PUT's object shows.
+     */
+    @Test
+    void aDeleteMarkerIsNoEvidenceThatARecordedPutCompleted() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String key = MediaApplicationService.objectKeyPrefix(owner) + UUID.randomUUID() + ".png";
+        UUID write = recordWrite(owner, key, "PENDING", Instant.now());
+        putDirect(key);
+        String earlierVersion = direct.listObjects(ListObjectsArgs.builder().bucket(BUCKET).prefix(key)
+                .includeVersions(true).build()).iterator().next().get().versionId();
+        direct.removeObject(RemoveObjectArgs.builder().bucket(BUCKET).object(key).build());
+        direct.removeObject(RemoveObjectArgs.builder().bucket(BUCKET).object(key).versionId(earlierVersion).build());
+        List<String> markerOnly = storedVersions(owner);
+
+        UserErasureRequestedEvent event = request(owner);
+        handler.handle(event);
+        retry(event, 3);
+        long acksBeforeThePutLands = ackRows(event);
+        String stateBeforeThePutLands = writeState(write);
+        putDirect(key);
+        retry(event, 5);
+
+        SoftAssertions softly = new SoftAssertions();
+        softly.assertThat(markerOnly).as("only a delete marker under the key").hasSize(1)
+                .allMatch(entry -> entry.endsWith("(delete marker)"));
+        softly.assertThat(acksBeforeThePutLands).as("media SUCCESS while the recorded PUT can still land").isZero();
+        softly.assertThat(stateBeforeThePutLands).as("the recorded write before its object showed").isEqualTo("PENDING");
+        softly.assertThat(ackRows(event)).as("media SUCCESS once the PUT's object was erased" + diagnostics(event))
+                .isEqualTo(1);
+        softly.assertThat(storedVersions(owner)).as("versions and delete markers of the erased user after SUCCESS")
+                .isEmpty();
+        softly.assertThat(recordedWrites(owner)).as("recorded writes of the erased user after SUCCESS").isZero();
         softly.assertAll();
     }
 

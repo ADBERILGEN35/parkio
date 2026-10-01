@@ -7,11 +7,14 @@ import com.parkio.media.infrastructure.idempotency.IdempotencyService;
 import com.parkio.media.infrastructure.idempotency.IdempotentResponse;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
 import io.minio.Result;
 import io.minio.messages.Item;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -149,6 +152,39 @@ abstract class DelayedObjectWriteITSupport {
                 SELECT COUNT(*) FROM outbox_events
                 WHERE aggregate_type = 'AccountErasure' AND event_type = 'UserErasureAcknowledged' AND aggregate_id = ?
                 """, event.erasureRequestId());
+    }
+
+    /** Recorded object writes of the owner ({@code media_object_writes}). */
+    long recordedWrites(UUID owner) {
+        return count("SELECT COUNT(*) FROM media_object_writes WHERE owner_user_id = ?", owner);
+    }
+
+    String writeState(UUID writeId) {
+        List<String> states = jdbc.queryForList("SELECT state FROM media_object_writes WHERE id = ?", String.class,
+                writeId);
+        return states.isEmpty() ? "settled" : states.get(0);
+    }
+
+    /** A recorded write as an upload leaves it (durable state of a crash, a retry or a large backlog). */
+    UUID recordWrite(UUID owner, String objectKey, String state, Instant at) {
+        UUID writeId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO media_object_writes (id, owner_user_id, bucket_name, object_key, state, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, writeId, owner, bucket(), objectKey, state, Timestamp.from(at), Timestamp.from(at));
+        return writeId;
+    }
+
+    /** Stores an object straight in MinIO, as a PUT the store applied would have. */
+    void putDirect(String objectKey) throws Exception {
+        byte[] body = png();
+        direct.putObject(PutObjectArgs.builder().bucket(bucket()).object(objectKey)
+                .stream(new ByteArrayInputStream(body), body.length, -1).contentType("image/png").build());
+    }
+
+    /** A fresh key in a fresh owner's namespace, as an upload generates it. */
+    static String freshKey() {
+        return MediaApplicationService.objectKeyPrefix(UUID.randomUUID()) + UUID.randomUUID() + ".png";
     }
 
     long count(String sql, Object... args) {
