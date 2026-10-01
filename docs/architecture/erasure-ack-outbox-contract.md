@@ -208,10 +208,10 @@ Per participant subtask:
       421 on a coalesced HTTP/2 connection, a 307 or 308 redirect, and an
       authentication challenge (401/407) when an authenticator is configured.
       OkHttp skips each of these when the request body is one-shot;
-    - *redirects that drop the body*: a 301, 302 or 303 turns the PUT into a
-      GET, whose reply then stands for the PUT. That GET has no body, so a
-      one-shot body does not stop it; only a client that follows no redirects
-      does.
+    - *redirects that drop the body*: a 300, 301, 302 or 303 turns the PUT
+      into a GET, whose reply then stands for the PUT. That GET has no body, so
+      a one-shot body does not stop it; only a client that follows no
+      redirects does.
 
     The MinIO Java SDK 8.6.0 turns off only recovery, and only for PUT/POST
     bodies that are not byte arrays (S3Base, "Issue #924"). Its request body is
@@ -255,8 +255,8 @@ Per participant subtask:
          went out, and none of the follow-ups that resend it.
        - Redirects are stopped separately. The client is built with
          `followRedirects(false)` and `followSslRedirects(false)`, so it
-         follows no 3xx reply, including a 301, 302 or 303 that would turn the
-         PUT into a GET. It also uses no proxy (`Proxy.NO_PROXY`).
+         follows no 3xx reply, including a 300, 301, 302 or 303 that would turn
+         the PUT into a GET. It also uses no proxy (`Proxy.NO_PROXY`).
        - Each upload uses a fresh key.
 
        Regression tests run the production client and SDK against scripted
@@ -270,17 +270,19 @@ Per participant subtask:
          retry;
        - after a reply, no second connection is opened.
 
-       A 407 proxy challenge and a 421 on a coalesced HTTP/2 connection were
-       checked against the OkHttp source only, with no runtime test. Without a
-       proxy, OkHttp treats a 407 as a protocol error, and it skips a 421
-       follow-up for a one-shot body. A PUT whose connection breaks after
-       sending is also sent once (`MediaDelayedObjectWriteIT`).
+       A 300, a 407 proxy challenge and a 421 on a coalesced HTTP/2 connection
+       were checked against the OkHttp source only, with no runtime test.
+       OkHttp handles a 300 in the same branch as a 301. Without a proxy, it
+       treats a 407 as a protocol error, and it skips a 421 follow-up for a
+       one-shot body. A PUT whose connection breaks after sending is also sent
+       once (`MediaDelayedObjectWriteIT`).
 
        A request without a body is not guarded. Listings, HEAD and
        version-specific deletes keep OkHttp's recovery (falling back to a
        host's other addresses, replacing stale pooled connections) and its
-       follow-ups for a 503 with `Retry-After: 0` or a 408, so one such call
-       can transmit its request more than once. Repeating them is harmless.
+       follow-ups for a 503 with `Retry-After: 0`, a 408, or a 421 on a
+       coalesced HTTP/2 connection, so one such call can transmit its request
+       more than once. Repeating them is harmless.
        For the PUT the SDK turns recovery off, so an upload to a host whose
        first address refuses fails with nothing sent.
      - **Confirmed.** When the store confirms the PUT, the write becomes
