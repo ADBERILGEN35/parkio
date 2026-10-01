@@ -66,7 +66,8 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     /**
      * One PutObject request: the part size is at least the content length, so the SDK never splits
      * the upload into a multipart upload (whose parts would be stored data outside any listing of
-     * objects), and the HTTP client never retries a request (see {@code MediaInfrastructureConfig}).
+     * objects), and the body is streamed, for which the MinIO SDK turns connection retries off: a
+     * failed PUT is never resent behind the caller's back.
      */
     @Override
     public StoredObject store(String objectKey, byte[] content, String contentType) {
@@ -89,7 +90,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
 
     /**
      * A client-error reply (4xx) means the store rejected this request. A failure to open the
-     * connection means no byte of it was sent (the client does not retry, so this was the only
+     * connection means no byte of it was sent (the PUT is not retried, so this was its only
      * attempt). Everything else, timeouts and 5xx replies included, may have been applied.
      */
     static boolean definitelyNotApplied(Exception failure) {

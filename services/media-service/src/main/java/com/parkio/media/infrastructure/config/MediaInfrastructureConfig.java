@@ -73,10 +73,12 @@ public class MediaInfrastructureConfig {
     }
 
     /**
-     * Every timeout must be positive: OkHttp reads 0 as "no timeout". Transparent retries are off:
-     * OkHttp may otherwise resend a request whose body it buffered after a connection failure, even
-     * once the request was sent, and an unseen second PUT could be applied after the first one's
-     * effects were erased (U05; see erasure-ack-outbox-contract.md, media).
+     * Every timeout must be positive: OkHttp reads 0 as "no timeout". OkHttp's default connection
+     * recovery stays on for this client: trying a host's other addresses, replacing stale pooled
+     * connections. Repeating a listing, a HEAD or a version-specific DELETE is harmless. The upload
+     * PUT is never resent: the MinIO SDK turns this recovery off per call for PUT/POST bodies that
+     * are not byte arrays, and uploads stream their body (U05 object write ledger;
+     * {@code MediaDelayedObjectWriteIT} checks one PUT request per upload).
      */
     static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
         requirePositive("connect-timeout", storage.getConnectTimeout());
@@ -88,7 +90,6 @@ public class MediaInfrastructureConfig {
                 .readTimeout(storage.getReadTimeout())
                 .writeTimeout(storage.getWriteTimeout())
                 .callTimeout(storage.getCallTimeout())
-                .retryOnConnectionFailure(false)
                 .build();
     }
 

@@ -70,7 +70,8 @@ abstract class DelayedObjectWriteITSupport {
         registry.add("spring.datasource.driver-class-name", POSTGRES::getDriverClassName);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         registry.add("spring.flyway.enabled", () -> "true");
-        registry.add("parkio.media.storage.endpoint", () -> "http://localhost:" + relay().port());
+        // The relay listens on the IPv4 loopback only; "localhost" may resolve to ::1 first (CI does).
+        registry.add("parkio.media.storage.endpoint", () -> "http://127.0.0.1:" + relay().port());
         registry.add("parkio.media.storage.public-endpoint", DelayedObjectWriteITSupport::minioEndpoint);
         registry.add("parkio.media.storage.access-key", () -> ACCESS_KEY);
         registry.add("parkio.media.storage.secret-key", () -> SECRET_KEY);

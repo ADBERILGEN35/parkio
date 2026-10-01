@@ -210,7 +210,8 @@ parkio:
       read-timeout: ${PARKIO_MEDIA_STORAGE_READ_TIMEOUT:10s}
       write-timeout: ${PARKIO_MEDIA_STORAGE_WRITE_TIMEOUT:10s}
       call-timeout: ${PARKIO_MEDIA_STORAGE_CALL_TIMEOUT:15s}
-      # All four timeouts must be positive (0 would mean "no timeout"); the client never retries.
+      # All four timeouts must be positive (0 would mean "no timeout"). Upload PUTs are never
+      # resent by the client (streamed body; the MinIO SDK turns connection retries off for them).
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

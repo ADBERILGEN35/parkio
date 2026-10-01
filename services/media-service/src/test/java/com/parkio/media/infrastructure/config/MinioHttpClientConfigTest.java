@@ -7,14 +7,20 @@ import java.time.Duration;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 
-/** The storage HTTP client never retries a request on its own, and every timeout is positive (0 = none). */
+/**
+ * Storage HTTP client: every timeout is positive (0 = none), and OkHttp's connection recovery stays
+ * on for idempotent requests (the upload PUT is kept to one request per call by the MinIO SDK, which
+ * {@code MediaDelayedObjectWriteIT} checks end to end).
+ */
 class MinioHttpClientConfigTest {
 
     @Test
-    void clientNeverRetriesARequestOnItsOwn() {
+    void clientKeepsConnectionRecoveryAndBoundsEveryCall() {
         OkHttpClient client = MediaInfrastructureConfig.minioHttpClient(new MediaProperties.Storage());
 
-        assertThat(client.retryOnConnectionFailure()).isFalse();
+        // Turning recovery off for the whole client would also stop falling back to a host's other
+        // address (CI: localhost resolved to ::1 first) and replacing stale pooled connections.
+        assertThat(client.retryOnConnectionFailure()).isTrue();
         assertThat(client.callTimeoutMillis()).isPositive();
     }
 
