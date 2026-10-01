@@ -517,9 +517,52 @@ class MediaAccountErasurePostgresMinioIT {
                 status -> jobs.open(jobId, event.erasureRequestId(), user, now, now));
         Instant leaseUntil = now.plus(Duration.ofMinutes(2));
 
-        assertThat(jobs.claimDue(100, now, leaseUntil)).contains(jobId);
-        assertThat(jobs.claimDue(100, now.plusSeconds(60), now.plusSeconds(180))).doesNotContain(jobId);
-        assertThat(jobs.claimDue(100, leaseUntil.plusSeconds(1), leaseUntil.plusSeconds(121))).contains(jobId);
+        assertThat(claimedIds(jobs.claimDue(100, now, leaseUntil))).contains(jobId);
+        assertThat(claimedIds(jobs.claimDue(100, now.plusSeconds(60), now.plusSeconds(180)))).doesNotContain(jobId);
+        assertThat(claimedIds(jobs.claimDue(100, leaseUntil.plusSeconds(1), leaseUntil.plusSeconds(121))))
+                .contains(jobId);
+    }
+
+    @Test
+    void onlyTheCurrentUnexpiredClaimMayFinalizeOrRecordProgress() {
+        UUID user = UUID.randomUUID();
+        UserErasureRequestedEvent event = request(user);
+        UUID jobId = AccountErasureHandler.ackEventId(event);
+        Instant now = Instant.now().minusSeconds(1);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> jobs.open(jobId, event.erasureRequestId(), user, now, now));
+        Instant leaseUntil = now.plus(Duration.ofMinutes(2));
+        UUID first = claimOf(jobs.claimDue(100, now, leaseUntil), jobId);
+
+        assertThat(jobs.claim(jobId, now.plusSeconds(1), now.plusSeconds(121))).as("held claim").isEmpty();
+        assertThat(lockClaim(jobId, first, now.plusSeconds(60))).as("live claim").isTrue();
+        assertThat(lockClaim(jobId, first, leaseUntil)).as("expired claim").isFalse();
+
+        Instant later = leaseUntil.plusSeconds(1);
+        UUID second = jobs.claim(jobId, later, later.plus(Duration.ofMinutes(2))).orElseThrow();
+        assertThat(lockClaim(jobId, first, later)).as("reclaimed claim").isFalse();
+        assertThat(jobs.release(jobId, first, later, later)).as("stale release").isFalse();
+        assertThat(jobs.scheduleRetry(jobId, first, "stale", later, later)).as("stale retry").isFalse();
+        assertThat(jdbc.queryForObject("SELECT attempts FROM media_erasure_jobs WHERE ack_event_id = ?", Integer.class,
+                jobId)).as("attempts untouched by the stale claim").isZero();
+        assertThat(lockClaim(jobId, second, later)).as("current claim").isTrue();
+        assertThat(jobs.scheduleRetry(jobId, second, "failed", later.plusSeconds(5), later)).isTrue();
+        assertThat(lockClaim(jobId, second, later)).as("released claim").isFalse();
+        assertThat(jobs.claim(jobId, later, later.plus(Duration.ofMinutes(2)))).as("unclaimed job in backoff")
+                .isPresent();
+    }
+
+    private boolean lockClaim(UUID jobId, UUID token, Instant now) {
+        return Boolean.TRUE.equals(new TransactionTemplate(transactionManager).execute(
+                status -> jobs.lockClaim(jobId, token, now)));
+    }
+
+    private static List<UUID> claimedIds(List<MediaErasureJobStore.Claim> claims) {
+        return claims.stream().map(MediaErasureJobStore.Claim::ackEventId).toList();
+    }
+
+    private static UUID claimOf(List<MediaErasureJobStore.Claim> claims, UUID jobId) {
+        return claims.stream().filter(claim -> claim.ackEventId().equals(jobId)).findFirst().orElseThrow().token();
     }
 
     private MediaObjectErasureWorker.Outcome awaitThenProcess(CountDownLatch start, UUID jobId) {

@@ -152,8 +152,12 @@ parkio:
     # U05 account erasure, phase 2: every stored version of the user's objects is removed outside
     # the metadata transaction and confirmed gone by a fresh listing before the media row is
     # deleted; the SUCCESS ACK is queued (and the job deleted) only once nothing of the user is
-    # left. Pending jobs are retried with exponential backoff (base..max) by this poll; one attempt
-    # stops taking new objects after attempt-budget-ms. Disabling it stops retries (no SUCCESS).
+    # left, under the owner's erasure fence and only by an attempt whose claim is still live.
+    # Pending jobs are retried with exponential backoff (base..max) by this poll. An attempt checks
+    # attempt-budget-ms before every storage call and lists listing-page-size entries per call, so
+    # it ends at most one storage call-timeout after its budget; the service refuses to start
+    # unless lease-ms >= attempt-budget-ms + 2 x storage call-timeout + 10s. Disabling the poll
+    # stops retries (no SUCCESS).
     erasure-worker:
       enabled: ${PARKIO_MEDIA_ERASURE_WORKER_ENABLED:true}
       poll-interval-ms: 30000
@@ -162,6 +166,7 @@ parkio:
       base-backoff-ms: 5000
       max-backoff-ms: 900000
       attempt-budget-ms: 60000
+      listing-page-size: 100
     # Application-level upload constraints.
     max-file-size: 10MB
     max-image-width: ${PARKIO_MEDIA_MAX_IMAGE_WIDTH:8000}

@@ -1,10 +1,12 @@
 package com.parkio.media.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -17,13 +19,13 @@ import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.StoredMedia;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import org.springframework.transaction.TransactionStatus;
 class MediaObjectErasureWorkerTest {
 
     private static final Instant NOW = Instant.parse("2026-08-14T09:00:00Z");
+    private static final Instant LEASE_END = NOW.plus(Duration.ofMinutes(2));
     private static final String BUCKET = "parkio-media";
 
     private final MediaErasureJobStore jobs = mock(MediaErasureJobStore.class);
@@ -45,6 +48,7 @@ class MediaObjectErasureWorkerTest {
     private final ErasureAckOutbox ackOutbox = mock(ErasureAckOutbox.class);
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final UUID jobId = UUID.randomUUID();
+    private final UUID token = UUID.randomUUID();
     private final UUID requestId = UUID.randomUUID();
     private final UUID owner = UUID.randomUUID();
     private final String namespace = "media/" + owner + "/";
@@ -54,11 +58,13 @@ class MediaObjectErasureWorkerTest {
     void setUp() {
         when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         worker = worker(Clock.fixed(NOW, ZoneOffset.UTC));
+        when(jobs.claim(eq(jobId), any(), any())).thenReturn(Optional.of(token));
         when(jobs.find(jobId)).thenReturn(Optional.of(new Job(jobId, requestId, owner, 0)));
+        when(jobs.lockClaim(eq(jobId), eq(token), any())).thenReturn(true);
     }
 
     @Test
-    void successAckIsQueuedOnlyAfterEveryVersionIsConfirmedGoneAndTheMetadataDeleted() {
+    void successAckIsQueuedOnlyAfterEveryVersionIsConfirmedGoneUnderTheOwnerFenceAndALiveClaim() {
         StoredMedia a = media("a.png");
         StoredMedia b = media("b.png");
         StoredVersion a1 = version(a, "v1", false);
@@ -69,11 +75,11 @@ class MediaObjectErasureWorkerTest {
         when(storage.versionsOf(BUCKET, a.objectKey())).thenReturn(List.of(a1, a2), List.of());
         when(storage.versionsOf(BUCKET, b.objectKey())).thenReturn(List.of(marker), List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of(orphan), List.of());
-        when(jobs.lock(jobId)).thenReturn(true);
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
 
+        verify(jobs).claim(jobId, NOW, LEASE_END);
         InOrder order = inOrder(storage, jobs, ackOutbox);
         order.verify(storage).removeVersion(a1);
         order.verify(storage).removeVersion(a2);
@@ -81,6 +87,9 @@ class MediaObjectErasureWorkerTest {
         order.verify(storage).removeVersion(marker);
         order.verify(jobs).deleteMedia(b.mediaId());
         order.verify(storage).removeVersion(orphan);
+        order.verify(jobs).holdOwner(owner);
+        order.verify(jobs).lockClaim(jobId, token, NOW);
+        order.verify(jobs).countMedia(owner);
         order.verify(jobs).deleteIdempotencyRecords(owner);
         order.verify(ackOutbox).append(any());
         order.verify(jobs).delete(jobId);
@@ -91,6 +100,43 @@ class MediaObjectErasureWorkerTest {
         assertThat(ack.getValue().authUserId()).isEqualTo(owner);
         assertThat(ack.getValue().serviceName()).isEqualTo("media");
         assertThat(ack.getValue().status()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void anExpiredOrReclaimedClaimNeverQueuesTheAck() {
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.lockClaim(eq(jobId), eq(token), any())).thenReturn(false);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(jobs).holdOwner(owner);
+        verify(jobs, never()).countMedia(any());
+        verify(ackOutbox, never()).append(any());
+        verify(jobs, never()).delete(any());
+    }
+
+    @Test
+    void aJobClaimedByAnotherAttemptIsLeftToIt() {
+        when(jobs.claim(eq(jobId), any(), any())).thenReturn(Optional.empty());
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(jobs, never()).remainingMedia(any());
+        verify(storage, never()).versionsUnder(anyString());
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void unknownJobIsLeftAlone() {
+        when(jobs.claim(eq(jobId), any(), any())).thenReturn(Optional.empty());
+        when(jobs.find(jobId)).thenReturn(Optional.empty());
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.NOT_PENDING);
+
+        verify(storage, never()).versionsOf(anyString(), anyString());
+        verify(storage, never()).removeVersion(any());
+        verify(ackOutbox, never()).append(any());
     }
 
     @Test
@@ -105,10 +151,78 @@ class MediaObjectErasureWorkerTest {
         verify(storage).removeVersion(a1);
         verify(jobs, never()).deleteMedia(any());
         verify(storage, never()).versionsUnder(anyString());
-        verify(jobs).scheduleRetry(eq(jobId), contains("still present after delete"),
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("still present after delete"),
                 eq(NOW.plus(Duration.ofSeconds(5))), eq(NOW));
         verify(ackOutbox, never()).append(any());
         verify(jobs, never()).delete(any());
+    }
+
+    @Test
+    void versionsAreListedPageByPageUntilAFreshListingIsEmpty() {
+        StoredMedia a = media("a.png");
+        StoredVersion a1 = version(a, "v1", false);
+        StoredVersion a2 = version(a, "v2", false);
+        StoredVersion a3 = version(a, "v3", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of(a));
+        when(storage.versionsOf(BUCKET, a.objectKey())).thenReturn(List.of(a1, a2), List.of(a3), List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        verify(storage).removeVersion(a1);
+        verify(storage).removeVersion(a2);
+        verify(storage).removeVersion(a3);
+        verify(jobs).deleteMedia(a.mediaId());
+    }
+
+    @Test
+    void anAttemptStopsAtItsDeadlineBeforeTheNextStorageCallAndKeepsTheJobDue() {
+        MutableClock clock = new MutableClock(NOW);
+        MediaObjectErasureWorker slow = worker(clock);
+        StoredMedia a = media("a.png");
+        List<StoredVersion> versions = List.of(version(a, "v1", false), version(a, "v2", false),
+                version(a, "v3", false), version(a, "v4", false), version(a, "v5", false));
+        when(jobs.remainingMedia(owner)).thenReturn(List.of(a));
+        when(storage.versionsOf(BUCKET, a.objectKey())).thenReturn(versions);
+        // Every delete takes 25 s: the 60 s budget allows three deletes, then the attempt stops.
+        doAnswer(invocation -> {
+            clock.advance(Duration.ofSeconds(25));
+            return null;
+        }).when(storage).removeVersion(any());
+
+        assertThat(slow.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(storage, org.mockito.Mockito.times(3)).removeVersion(any());
+        verify(jobs, never()).deleteMedia(any());
+        verify(storage, never()).versionsUnder(anyString());
+        verify(jobs).release(jobId, token, NOW.plusSeconds(75), NOW.plusSeconds(75));
+        verify(jobs, never()).scheduleRetry(any(), any(), anyString(), any(), any());
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void theOrphanNamespaceSweepAlsoStopsAtTheDeadline() {
+        MutableClock clock = new MutableClock(NOW);
+        MediaObjectErasureWorker slow = worker(clock);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        List<StoredVersion> orphans = List.of(
+                new StoredVersion(BUCKET, namespace + "1.png", "null", false),
+                new StoredVersion(BUCKET, namespace + "2.png", "null", false),
+                new StoredVersion(BUCKET, namespace + "3.png", "null", false),
+                new StoredVersion(BUCKET, namespace + "4.png", "null", false));
+        when(storage.versionsUnder(namespace)).thenReturn(orphans);
+        doAnswer(invocation -> {
+            clock.advance(Duration.ofSeconds(25));
+            return null;
+        }).when(storage).removeVersion(any());
+
+        assertThat(slow.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(storage, org.mockito.Mockito.times(3)).removeVersion(any());
+        verify(jobs).release(eq(jobId), eq(token), any(), any());
+        verify(jobs, never()).holdOwner(any());
+        verify(ackOutbox, never()).append(any());
     }
 
     @Test
@@ -127,7 +241,7 @@ class MediaObjectErasureWorkerTest {
 
         verify(jobs).deleteMedia(ok.mediaId());
         verify(jobs, never()).deleteMedia(broken.mediaId());
-        verify(jobs).scheduleRetry(eq(jobId), contains("media " + broken.mediaId()),
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("media " + broken.mediaId()),
                 eq(NOW.plus(Duration.ofSeconds(20))), eq(NOW));
         verify(ackOutbox, never()).append(any());
     }
@@ -136,12 +250,11 @@ class MediaObjectErasureWorkerTest {
     void mediaCommittedDuringTheAttemptKeepsTheJobPending() {
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.lock(jobId)).thenReturn(true);
         when(jobs.countMedia(owner)).thenReturn(1L);
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
 
-        verify(jobs).makeDue(jobId, NOW);
+        verify(jobs).release(jobId, token, NOW, NOW);
         verify(ackOutbox, never()).append(any());
         verify(jobs, never()).delete(any());
     }
@@ -150,7 +263,6 @@ class MediaObjectErasureWorkerTest {
     void unexpectedFailureIsRecordedOnTheJobWithBackoffAndQueuesNoAck() {
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.lock(jobId)).thenReturn(true);
         when(jobs.countMedia(owner)).thenReturn(0L);
         doThrow(new IllegalStateException("outbox insert failed")).when(ackOutbox).append(any());
 
@@ -158,7 +270,7 @@ class MediaObjectErasureWorkerTest {
 
         verify(transactions).rollback(any());
         verify(jobs, never()).delete(any());
-        verify(jobs).scheduleRetry(eq(jobId), eq("attempt failed: IllegalStateException: outbox insert failed"),
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), eq("attempt failed: IllegalStateException: outbox insert failed"),
                 eq(NOW.plus(Duration.ofSeconds(5))), eq(NOW));
     }
 
@@ -166,7 +278,7 @@ class MediaObjectErasureWorkerTest {
     void failureToRecordAFailedAttemptNeitherThrowsNorQueuesAnAck() {
         when(jobs.remainingMedia(owner)).thenThrow(new IllegalStateException("database down"));
         doThrow(new IllegalStateException("still down")).when(jobs)
-                .scheduleRetry(any(), anyString(), any(), any());
+                .scheduleRetry(any(), any(), anyString(), any(), any());
 
         assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
 
@@ -175,63 +287,29 @@ class MediaObjectErasureWorkerTest {
     }
 
     @Test
-    void unknownJobIsLeftAlone() {
-        when(jobs.find(jobId)).thenReturn(Optional.empty());
-
-        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.NOT_PENDING);
-
-        verify(storage, never()).versionsOf(anyString(), anyString());
-        verify(storage, never()).removeVersion(any());
-        verify(ackOutbox, never()).append(any());
-    }
-
-    @Test
-    void anAttemptOverItsBudgetStopsTakingObjectsAndLeavesTheJobDue() {
-        // Every clock read advances 61s, past the 60s budget before the first object.
-        Clock ticking = new Clock() {
-            private Instant next = NOW;
-
-            @Override
-            public Instant instant() {
-                Instant current = next;
-                next = next.plusSeconds(61);
-                return current;
-            }
-
-            @Override
-            public ZoneId getZone() {
-                return ZoneOffset.UTC;
-            }
-
-            @Override
-            public Clock withZone(ZoneId zone) {
-                return this;
-            }
-        };
-        MediaObjectErasureWorker slow = worker(ticking);
-        when(jobs.remainingMedia(owner)).thenReturn(List.of(media("a.png")));
-
-        assertThat(slow.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
-
-        verify(jobs).makeDue(eq(jobId), any());
-        verify(storage, never()).removeVersion(any());
-        verify(storage, never()).versionsUnder(anyString());
-        verify(jobs, never()).scheduleRetry(any(), anyString(), any(), any());
-        verify(ackOutbox, never()).append(any());
-    }
-
-    @Test
-    void scheduledPollProcessesEveryClaimedJob() {
-        when(jobs.claimDue(20, NOW, NOW.plus(Duration.ofMinutes(2)))).thenReturn(List.of(jobId));
+    void scheduledPollProcessesEveryClaimedJobWithItsToken() {
+        when(jobs.claimDue(20, NOW, LEASE_END)).thenReturn(List.of(new Claim(jobId, token)));
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
-        when(jobs.lock(jobId)).thenReturn(true);
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         worker.processDue();
 
+        verify(jobs, never()).claim(any(), any(), any());
+        verify(jobs).lockClaim(jobId, token, NOW);
         verify(ackOutbox).append(any());
         verify(jobs).delete(jobId);
+    }
+
+    @Test
+    void aLeaseThatCannotOutlastTheBudgetAndTwoStorageCallsIsRejectedAtStartup() {
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions,
+                Clock.fixed(NOW, ZoneOffset.UTC), new SimpleMeterRegistry(), true, 20, 60_000, 5_000, 900_000, 60_000))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("lease-ms");
+        // budget 60 s + 2 x 15 s storage calls + 10 s margin = 100 s
+        new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, Clock.fixed(NOW, ZoneOffset.UTC),
+                new SimpleMeterRegistry(), true, 20, 100_000, 5_000, 900_000, 60_000);
     }
 
     @Test

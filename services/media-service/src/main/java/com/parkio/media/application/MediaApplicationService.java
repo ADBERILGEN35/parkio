@@ -3,6 +3,7 @@ package com.parkio.media.application;
 import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.MediaOwnerFence;
 import com.parkio.media.application.port.ImageNormalizationException;
 import com.parkio.media.application.port.ImageNormalizer;
 import com.parkio.media.application.port.MediaScanner;
@@ -73,6 +74,7 @@ public class MediaApplicationService {
     private final MediaRejectionRecorder rejectionRecorder;
     private final MediaUploadConstraints constraints;
     private final MediaAccessUrlPolicy accessUrlPolicy;
+    private final MediaOwnerFence ownerFence;
     private final Clock clock;
     private final Counter orphanCleanupAttempts;
     private final Counter orphanCleanupFailures;
@@ -86,6 +88,7 @@ public class MediaApplicationService {
                                    MediaRejectionRecorder rejectionRecorder,
                                    MediaUploadConstraints constraints,
                                    MediaAccessUrlPolicy accessUrlPolicy,
+                                   MediaOwnerFence ownerFence,
                                    Clock clock,
                                    MeterRegistry meterRegistry) {
         this.mediaFiles = mediaFiles;
@@ -97,6 +100,7 @@ public class MediaApplicationService {
         this.rejectionRecorder = rejectionRecorder;
         this.constraints = constraints;
         this.accessUrlPolicy = accessUrlPolicy;
+        this.ownerFence = ownerFence;
         this.clock = clock;
         this.orphanCleanupAttempts = Counter.builder("parkio.media.upload.orphan_cleanup_attempts")
                 .description("Upload-stored objects removed after downstream DB/outbox transaction failure")
@@ -119,11 +123,18 @@ public class MediaApplicationService {
      * be completed throws {@link MediaErrorCode#MEDIA_SCAN_UNAVAILABLE} (503) — the
      * upload fails closed and no media row is created. Other validation failures record
      * a {@code MediaRejected} event and throw as before.
+     *
+     * <p>Account erasure (U05): before anything else the upload joins its owner's erasure
+     * fence, which it holds through the object write until its transaction ends; an owner whose
+     * erasure tombstone exists is refused with {@link MediaErrorCode#ACCOUNT_ERASED} (403).
      */
     public MediaUploadResult upload(UploadMediaCommand command) {
         UUID ownerUserId = command.ownerUserId();
         byte[] content = command.content();
         String contentType = command.contentType();
+        // Before anything is recorded or stored: the owner's fence is held until this transaction
+        // ends, so an erasure waits for this upload, and an erased owner's upload stores nothing.
+        requireWritableOwner(ownerUserId);
 
         if (content == null || content.length == 0) {
             reject(ownerUserId, MediaValidationType.FILE_SIZE, "Empty file", null);
@@ -230,6 +241,7 @@ public class MediaApplicationService {
     /** Owner sets/replaces the claimed parking region annotation. */
     @Transactional
     public MediaFile setClaimedRegion(SetClaimedRegionCommand command) {
+        requireWritableOwner(command.ownerUserId());
         MediaFile media = requireActiveMedia(command.mediaId());
         if (!media.isOwnedBy(command.ownerUserId())) {
             throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "Only the media owner can update the claimed region.");
@@ -306,6 +318,9 @@ public class MediaApplicationService {
 
     /** Soft-deletes the media (owner only) and best-effort removes the stored object. */
     public void delete(UUID mediaId, UUID requesterUserId) {
+        // Fenced like every owner write: unfenced, its storage delete could reach a versioned bucket
+        // (as a new delete marker under the owner's key) after an erasure had confirmed the key empty.
+        requireWritableOwner(requesterUserId);
         MediaFile media = requireActiveMedia(mediaId);
         if (!media.isOwnedBy(requesterUserId)) {
             throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "You do not own this media.");
@@ -361,6 +376,17 @@ public class MediaApplicationService {
             throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
         }
         return media;
+    }
+
+    /**
+     * Joins the owner's erasure fence (U05) for the rest of the transaction and refuses the write
+     * once the owner's account is erased or being erased. Nothing about the refused request is
+     * recorded: an erased owner must not reappear in metadata or outbox events.
+     */
+    private void requireWritableOwner(UUID ownerUserId) {
+        if (!ownerFence.admitWrite(ownerUserId)) {
+            throw new MediaException(MediaErrorCode.ACCOUNT_ERASED, "This account is no longer active.");
+        }
     }
 
     private void recordPassed(UUID mediaId, MediaValidationType type, Instant now) {

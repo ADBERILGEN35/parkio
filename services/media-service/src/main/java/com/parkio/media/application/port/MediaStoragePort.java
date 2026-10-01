@@ -31,14 +31,18 @@ public interface MediaStoragePort {
     String generatePresignedGetUrl(String objectKey, Duration ttl);
 
     /**
-     * Every stored version and delete marker of exactly {@code objectKey} in {@code bucket}; an
-     * unversioned bucket reports its one object. Keys that merely share the prefix are not
-     * included. Empty means the key is confirmed absent. Account erasure only: the adapter fails
-     * for any bucket other than its configured one, where it cannot confirm absence.
+     * Stored versions and delete markers of exactly {@code objectKey} in {@code bucket}, at most one
+     * listing page per call (an unversioned bucket reports its one object; more may follow a full
+     * page). Keys that merely share the prefix are not included. Empty means the key is confirmed
+     * absent. Account erasure only: the adapter fails for any bucket other than its configured one,
+     * where it cannot confirm absence.
      */
     List<StoredVersion> versionsOf(String bucket, String objectKey);
 
-    /** Every stored version and delete marker under {@code prefix} in the configured bucket. */
+    /**
+     * Stored versions and delete markers under {@code prefix} in the configured bucket, at most one
+     * listing page per call (no per-key HEAD). Empty means nothing is stored under the prefix.
+     */
     List<StoredVersion> versionsUnder(String prefix);
 
     /**

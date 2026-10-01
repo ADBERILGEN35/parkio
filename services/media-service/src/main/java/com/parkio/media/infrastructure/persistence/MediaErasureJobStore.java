@@ -1,19 +1,22 @@
 package com.parkio.media.infrastructure.persistence;
 
+import com.parkio.media.application.port.MediaOwnerFence;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Durable state of media account erasure (V14): one {@code media_erasure_jobs} row per consumed
- * erase request event, kept only while the user's stored objects are not all confirmed gone, and
- * the user's remaining {@code media_files} rows, which are deleted one by one as their objects are
- * confirmed. Every method is a single statement, so outside a caller's transaction it commits on
- * its own.
+ * Durable state of media account erasure (V14, V15): one {@code media_erasure_jobs} row per
+ * consumed erase request event, kept only while the user's stored objects are not all confirmed
+ * gone, and the user's remaining {@code media_files} rows, which are deleted one by one as their
+ * objects are confirmed. An attempt works under a claim: a fresh token plus a lease end held in
+ * {@code next_attempt_at}; only the holder of an unexpired claim may finalize the job. Every
+ * method is a single statement, so outside a caller's transaction it commits on its own.
  */
 @Component
 public class MediaErasureJobStore {
@@ -21,9 +24,16 @@ public class MediaErasureJobStore {
     private static final int MAX_ERROR_LENGTH = 512;
 
     private final JdbcTemplate jdbc;
+    private final MediaOwnerFence ownerFence;
 
     public MediaErasureJobStore(JdbcTemplate jdbc) {
+        this(jdbc, new MediaOwnerFenceAdapter(jdbc));
+    }
+
+    @Autowired
+    public MediaErasureJobStore(JdbcTemplate jdbc, MediaOwnerFence ownerFence) {
         this.jdbc = jdbc;
+        this.ownerFence = ownerFence;
     }
 
     /**
@@ -33,24 +43,36 @@ public class MediaErasureJobStore {
     public record Job(UUID ackEventId, UUID erasureRequestId, UUID authUserId, int attempts) {
     }
 
+    /** A claim on a job: only its holder may record progress on the job or finalize it. */
+    public record Claim(UUID ackEventId, UUID token) {
+    }
+
     /** A media row of the user whose stored object is not yet confirmed gone. */
     public record StoredMedia(UUID mediaId, String bucket, String objectKey) {
     }
 
     /**
-     * Opens the job, or reopens it on redelivery (the metadata erase has just re-run in the same
-     * transaction). The first attempt holds it until {@code leaseUntil}, so a concurrent poll does
-     * not pick it up while that attempt runs. Must run inside the metadata erase transaction.
+     * Opens the job, or touches it on redelivery (the metadata erase has just re-run in the same
+     * transaction). The job starts unclaimed; {@code nextAttemptAt} keeps the scheduled poll away
+     * while the caller's own attempt claims it. Must run inside the metadata erase transaction.
      */
-    public void open(UUID ackEventId, UUID erasureRequestId, UUID authUserId, Instant now, Instant leaseUntil) {
+    public void open(UUID ackEventId, UUID erasureRequestId, UUID authUserId, Instant now, Instant nextAttemptAt) {
         jdbc.update("""
                 INSERT INTO media_erasure_jobs (ack_event_id, erasure_request_id, auth_user_id, attempts,
                     next_attempt_at, created_at, updated_at)
                 VALUES (?, ?, ?, 0, ?, ?, ?)
-                ON CONFLICT (ack_event_id) DO UPDATE
-                    SET next_attempt_at = EXCLUDED.next_attempt_at, updated_at = EXCLUDED.updated_at
-                """, ackEventId, erasureRequestId, authUserId, Timestamp.from(leaseUntil), Timestamp.from(now),
+                ON CONFLICT (ack_event_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+                """, ackEventId, erasureRequestId, authUserId, Timestamp.from(nextAttemptAt), Timestamp.from(now),
                 Timestamp.from(now));
+    }
+
+    /**
+     * Takes the user's erasure fence exclusively for the rest of the caller's transaction: waits
+     * for media writes already admitted and refuses new ones until it ends (see
+     * {@link MediaOwnerFence}). Call it before any other statement of that transaction.
+     */
+    public void holdOwner(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
     }
 
     public Optional<Job> find(UUID ackEventId) {
@@ -66,12 +88,27 @@ public class MediaErasureJobStore {
     }
 
     /**
-     * Claims up to {@code limit} due jobs by pushing their next attempt to {@code leaseUntil}, so
-     * concurrent instances skip them; the claim itself is one atomic statement.
+     * Claims the job for one attempt if nobody holds an unexpired claim on it (an unclaimed job in
+     * backoff may be claimed at once, as on a redelivery); empty if someone else holds it.
      */
-    public List<UUID> claimDue(int limit, Instant now, Instant leaseUntil) {
+    public Optional<UUID> claim(UUID ackEventId, Instant now, Instant leaseUntil) {
+        UUID token = UUID.randomUUID();
+        int claimed = jdbc.update("""
+                UPDATE media_erasure_jobs SET claim_token = ?, next_attempt_at = ?, updated_at = ?
+                WHERE ack_event_id = ? AND (claim_token IS NULL OR next_attempt_at <= ?)
+                """, token, Timestamp.from(leaseUntil), Timestamp.from(now), ackEventId, Timestamp.from(now));
+        return claimed == 1 ? Optional.of(token) : Optional.empty();
+    }
+
+    /**
+     * Claims up to {@code limit} due jobs (unclaimed and due, or with an expired claim) by giving
+     * them a fresh token and pushing their next attempt to {@code leaseUntil}, so concurrent
+     * instances skip them; the claim itself is one atomic statement.
+     */
+    public List<Claim> claimDue(int limit, Instant now, Instant leaseUntil) {
+        UUID token = UUID.randomUUID();
         return jdbc.queryForList("""
-                UPDATE media_erasure_jobs SET next_attempt_at = ?, updated_at = ?
+                UPDATE media_erasure_jobs SET claim_token = ?, next_attempt_at = ?, updated_at = ?
                 WHERE ack_event_id IN (
                     SELECT ack_event_id FROM media_erasure_jobs
                     WHERE next_attempt_at <= ?
@@ -79,7 +116,21 @@ public class MediaErasureJobStore {
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
                 RETURNING ack_event_id
-                """, UUID.class, Timestamp.from(leaseUntil), Timestamp.from(now), Timestamp.from(now), limit);
+                """, UUID.class, token, Timestamp.from(leaseUntil), Timestamp.from(now), Timestamp.from(now), limit)
+                .stream().map(id -> new Claim(id, token)).toList();
+    }
+
+    /**
+     * Locks the job if the claim is still held and unexpired at {@code now}; call inside the
+     * completion transaction, after {@link #holdOwner}. False if the claim expired or was taken over,
+     * or the job is gone.
+     */
+    public boolean lockClaim(UUID ackEventId, UUID token, Instant now) {
+        return !jdbc.queryForList("""
+                SELECT ack_event_id FROM media_erasure_jobs
+                WHERE ack_event_id = ? AND claim_token = ? AND next_attempt_at > ?
+                FOR UPDATE
+                """, UUID.class, ackEventId, token, Timestamp.from(now)).isEmpty();
     }
 
     /** Every media row the user still owns, whatever its status. */
@@ -109,31 +160,32 @@ public class MediaErasureJobStore {
         jdbc.update("DELETE FROM idempotency_records WHERE user_id = ?", authUserId);
     }
 
-    /** Locks the job row if it still exists; call inside the completion transaction. */
-    public boolean lock(UUID ackEventId) {
-        return !jdbc.queryForList(
-                "SELECT ack_event_id FROM media_erasure_jobs WHERE ack_event_id = ? FOR UPDATE",
-                UUID.class, ackEventId).isEmpty();
-    }
-
     /** Removes the finished job; call in the transaction that queues its SUCCESS ACK. */
     public void delete(UUID ackEventId) {
         jdbc.update("DELETE FROM media_erasure_jobs WHERE ack_event_id = ?", ackEventId);
     }
 
-    /** Counts a failed attempt and schedules the next one. */
-    public void scheduleRetry(UUID ackEventId, String error, Instant nextAttemptAt, Instant now) {
-        jdbc.update("""
+    /**
+     * Counts a failed attempt, releases the claim and schedules the next attempt; a no-op unless
+     * the caller still holds the claim (a stale attempt never overwrites a newer one's state).
+     */
+    public boolean scheduleRetry(UUID ackEventId, UUID token, String error, Instant nextAttemptAt, Instant now) {
+        return jdbc.update("""
                 UPDATE media_erasure_jobs
-                SET attempts = attempts + 1, last_error = ?, next_attempt_at = ?, updated_at = ?
-                WHERE ack_event_id = ?
-                """, truncate(error), Timestamp.from(nextAttemptAt), Timestamp.from(now), ackEventId);
+                SET attempts = attempts + 1, last_error = ?, next_attempt_at = ?, updated_at = ?, claim_token = NULL
+                WHERE ack_event_id = ? AND claim_token = ?
+                """, truncate(error), Timestamp.from(nextAttemptAt), Timestamp.from(now), ackEventId, token) == 1;
     }
 
-    /** Makes the job due again without counting a failed attempt. */
-    public void makeDue(UUID ackEventId, Instant now) {
-        jdbc.update("UPDATE media_erasure_jobs SET next_attempt_at = ?, updated_at = ? WHERE ack_event_id = ?",
-                Timestamp.from(now), Timestamp.from(now), ackEventId);
+    /**
+     * Releases the claim without counting a failed attempt and makes the job due at
+     * {@code nextAttemptAt}; a no-op unless the caller still holds the claim.
+     */
+    public boolean release(UUID ackEventId, UUID token, Instant nextAttemptAt, Instant now) {
+        return jdbc.update("""
+                UPDATE media_erasure_jobs SET claim_token = NULL, next_attempt_at = ?, updated_at = ?
+                WHERE ack_event_id = ? AND claim_token = ?
+                """, Timestamp.from(nextAttemptAt), Timestamp.from(now), ackEventId, token) == 1;
     }
 
     public long countPendingJobs() {

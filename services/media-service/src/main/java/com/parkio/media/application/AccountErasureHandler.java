@@ -24,9 +24,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * database commit alone does not prove the objects are gone, so SUCCESS is split in two phases
  * (docs/architecture/erasure-ack-outbox-contract.md):
  * <ol>
- *   <li>one short transaction: tombstone, soft-delete of the user's media (no longer served),
- *       idempotency records, and a durable {@code media_erasure_jobs} row — no storage I/O and no
- *       ACK;</li>
+ *   <li>one short transaction: the owner's erasure fence first (it waits for media writes of the
+ *       owner already admitted and refuses new ones; see {@code MediaOwnerFence}), then tombstone,
+ *       soft-delete of the user's media (no longer served), idempotency records, and a durable
+ *       {@code media_erasure_jobs} row — no storage I/O and no ACK. Once it commits, every later
+ *       media write of the owner is refused;</li>
  *   <li>after commit, {@link MediaObjectErasureWorker} removes every stored version of each object
  *       outside any transaction, deletes each media row once its object is confirmed gone, and
  *       queues the SUCCESS ACK (deleting the job) only when nothing of the user is left. A failed
@@ -67,12 +69,14 @@ public class AccountErasureHandler {
 
     /**
      * Commits the metadata erase with its durable job (rethrowing on failure so the consumer
-     * retries), then attempts the object phase once; that attempt holds the job's lease, and a
-     * failed or unfinished attempt is retried by the worker's poll.
+     * retries), then attempts the object phase once; the job is opened outside the poll's reach
+     * for the lease, the attempt claims it, and a failed or unfinished attempt is retried by the
+     * worker's poll.
      */
     public void handle(UserErasureRequestedEvent event) {
         UUID jobId = ackEventId(event);
         tx.executeWithoutResult(status -> {
+            jobs.holdOwner(event.authUserId());
             Instant now = clock.instant();
             eraseMetadata(event.authUserId(), now);
             jobs.open(jobId, event.erasureRequestId(), event.authUserId(), now, now.plus(lease));

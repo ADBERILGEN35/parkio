@@ -62,6 +62,8 @@ class AccountErasureHandlerTest {
         handler.handle(event);
 
         InOrder order = inOrder(tombstones, mediaFiles, jobs, transactions, objectEraser);
+        // The owner fence comes first: in-flight uploads finish before the tombstone exists.
+        order.verify(jobs).holdOwner(owner);
         order.verify(tombstones).save(any());
         ArgumentCaptor<MediaFileEntity> saved = ArgumentCaptor.forClass(MediaFileEntity.class);
         order.verify(mediaFiles).save(saved.capture());
@@ -95,6 +97,7 @@ class AccountErasureHandlerTest {
                 .isInstanceOf(IllegalStateException.class);
 
         verify(transactions).rollback(any());
+        verify(jobs).holdOwner(owner);
         verify(jobs, never()).open(any(), any(), any(), any(), any());
         verify(objectEraser, never()).process(any());
     }

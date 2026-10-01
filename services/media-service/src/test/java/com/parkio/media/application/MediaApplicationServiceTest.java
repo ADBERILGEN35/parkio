@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.media.application.command.UploadMediaCommand;
+import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.MediaOwnerFence;
 import com.parkio.media.application.port.MediaScanner;
 import com.parkio.media.application.port.MediaScannerUnavailableException;
 import com.parkio.media.application.port.MediaStoragePort;
@@ -12,6 +14,7 @@ import com.parkio.media.application.port.MediaValidationResultRepository;
 import com.parkio.media.application.port.OutboxEventAppender;
 import com.parkio.media.application.result.MediaAccessUrl;
 import com.parkio.media.application.result.MediaUploadResult;
+import com.parkio.media.domain.ClaimedRegion;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.domain.MediaStatus;
 import com.parkio.media.domain.MediaValidationOutcome;
@@ -65,6 +68,7 @@ class MediaApplicationServiceTest {
     private FakeMediaScanner scanner;
     private FakeOutboxEventAppender outbox;
     private SimpleMeterRegistry meterRegistry;
+    private FakeMediaOwnerFence ownerFence;
     private MediaApplicationService service;
 
     @BeforeEach
@@ -75,13 +79,78 @@ class MediaApplicationServiceTest {
         scanner = new FakeMediaScanner();
         outbox = new FakeOutboxEventAppender();
         meterRegistry = new SimpleMeterRegistry();
+        ownerFence = new FakeMediaOwnerFence();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
                 Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE, 1_000, 1_000, 1_000_000);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new MediaApplicationService(mediaFiles, validationResults, storage,
                 new ImageIoImageNormalizer(constraints), scanner, outbox,
                 new MediaRejectionRecorder(outbox), constraints,
-                new MediaAccessUrlPolicy(ACCESS_URL_TTL), clock, meterRegistry);
+                new MediaAccessUrlPolicy(ACCESS_URL_TTL), ownerFence, clock, meterRegistry);
+    }
+
+    @Test
+    void uploadJoinsTheOwnerFenceBeforeAnythingElse() {
+        UUID owner = UUID.randomUUID();
+
+        service.upload(jpeg(owner, new byte[]{41, 41, 41}));
+
+        assertThat(ownerFence.admitted).containsExactly(owner);
+    }
+
+    @Test
+    void uploadOfAnErasedOwnerIsRefusedWithoutStoringOrRecordingAnything() {
+        UUID owner = UUID.randomUUID();
+        ownerFence.erased.add(owner);
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{42, 42, 42})))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.ACCOUNT_ERASED);
+
+        assertThat(storage.objects).isEmpty();
+        assertThat(mediaFiles.byId).isEmpty();
+        assertThat(outbox.events).isEmpty();
+        assertThat(scanner.scanCount).isZero();
+    }
+
+    @Test
+    void emptyUploadOfAnErasedOwnerRecordsNoRejectionEvent() {
+        UUID owner = UUID.randomUUID();
+        ownerFence.erased.add(owner);
+
+        assertThatThrownBy(() -> service.upload(new UploadMediaCommand(owner, "image/jpeg", new byte[0])))
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.ACCOUNT_ERASED);
+
+        assertThat(outbox.events).isEmpty();
+    }
+
+    @Test
+    void deleteByAnErasedOwnerIsRefusedBeforeTouchingStorage() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{44, 44, 44}));
+        ownerFence.erased.add(owner);
+
+        assertThatThrownBy(() -> service.delete(uploaded.mediaId(), owner))
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.ACCOUNT_ERASED);
+
+        assertThat(storage.deleteAttempts).isZero();
+        assertThat(mediaFiles.byId.get(uploaded.mediaId()).isDeleted()).isFalse();
+    }
+
+    @Test
+    void claimedRegionUpdateOfAnErasedOwnerIsRefused() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{43, 43, 43}));
+        ownerFence.erased.add(owner);
+        SetClaimedRegionCommand command = new SetClaimedRegionCommand(
+                uploaded.mediaId(), owner, new ClaimedRegion(0.1, 0.1, 0.5, 0.5));
+
+        assertThatThrownBy(() -> service.setClaimedRegion(command))
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.ACCOUNT_ERASED);
     }
 
     private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
@@ -862,6 +931,22 @@ class MediaApplicationServiceTest {
 
         @Override
         public void removeVersion(StoredVersion version) {
+            throw new UnsupportedOperationException("account erasure only");
+        }
+    }
+
+    private static final class FakeMediaOwnerFence implements MediaOwnerFence {
+        private final List<UUID> admitted = new ArrayList<>();
+        private final Set<UUID> erased = new java.util.HashSet<>();
+
+        @Override
+        public boolean admitWrite(UUID ownerUserId) {
+            admitted.add(ownerUserId);
+            return !erased.contains(ownerUserId);
+        }
+
+        @Override
+        public void holdForErasure(UUID ownerUserId) {
             throw new UnsupportedOperationException("account erasure only");
         }
     }

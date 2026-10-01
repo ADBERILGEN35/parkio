@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,14 +37,20 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     private final MinioClient internalClient;
     private final MinioClient presignClient;
     private final String bucket;
+    private final int listingPageSize;
 
     public MinioMediaStorageAdapter(
             @Qualifier("internalMinioClient") MinioClient internalClient,
             @Qualifier("presignMinioClient") MinioClient presignClient,
-            MediaProperties properties) {
+            MediaProperties properties,
+            @Value("${parkio.media.erasure-worker.listing-page-size:100}") int listingPageSize) {
+        if (listingPageSize < 1 || listingPageSize > 1000) {
+            throw new IllegalArgumentException("parkio.media.erasure-worker.listing-page-size must be 1..1000");
+        }
         this.internalClient = internalClient;
         this.presignClient = presignClient;
         this.bucket = properties.getStorage().getBucket();
+        this.listingPageSize = listingPageSize;
     }
 
     @Override
@@ -107,8 +114,9 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
 
     /**
      * Lists versions and delete markers (ListObjectVersions), so a versioned bucket's older
-     * versions are never mistaken for absence. An empty listing is backed by a HEAD: an object the
-     * listing missed is still reported, never confirmed absent.
+     * versions are never mistaken for absence; at most one page ({@code listing-page-size}
+     * entries, one request) per call. An empty listing is backed by a HEAD: an object the listing
+     * missed is still reported, never confirmed absent.
      */
     @Override
     public List<StoredVersion> versionsOf(String objectBucket, String objectKey) {
@@ -148,6 +156,7 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         }
     }
 
+    /** At most one page of matching entries: the iterator fetches the next page lazily, so stopping here bounds the call. */
     private List<StoredVersion> list(String prefix, Predicate<String> matches) throws Exception {
         List<StoredVersion> versions = new ArrayList<>();
         for (Result<Item> result : internalClient.listObjects(ListObjectsArgs.builder()
@@ -155,10 +164,14 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
                 .prefix(prefix)
                 .includeVersions(true)
                 .recursive(true)
+                .maxKeys(listingPageSize)
                 .build())) {
             Item item = result.get();
             if (matches.test(item.objectName())) {
                 versions.add(new StoredVersion(bucket, item.objectName(), item.versionId(), item.isDeleteMarker()));
+                if (versions.size() == listingPageSize) {
+                    break;
+                }
             }
         }
         return versions;
