@@ -43,6 +43,29 @@ if grep -E '\|[[:space:]]*default\b' "${ROOT}/docker/alertmanager/render-config.
   exit 1
 fi
 
+echo "==> production path refuses a missing receiver"
+if docker run --rm \
+  -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
+  -e PARKIO_ALERT_REQUIRE_RECEIVER=true \
+  -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
+  --entrypoint /bin/sh \
+  "${AM_IMAGE}" \
+  -c '/etc/alertmanager/render-config.sh'; then
+  echo "ERROR: required receiver was missing and render-config.sh exited 0" >&2
+  exit 1
+fi
+
+echo "==> production path accepts a placeholder Slack receiver"
+docker run --rm \
+  -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
+  -e PARKIO_ALERT_REQUIRE_RECEIVER=true \
+  -e PARKIO_ALERT_SLACK_WEBHOOK_URL=https://example.invalid/hooks/test \
+  -e PARKIO_ALERT_SLACK_CHANNEL='#test' \
+  -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
+  --entrypoint /bin/sh \
+  "${AM_IMAGE}" \
+  -c '/etc/alertmanager/render-config.sh && amtool check-config /tmp/alertmanager.yml && grep -q "slack_configs:" /tmp/alertmanager.yml'
+
 echo "==> Alertmanager check-config (null receiver / no webhook)"
 docker run --rm \
   -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
