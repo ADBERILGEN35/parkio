@@ -28,6 +28,8 @@ public class KafkaTopicsConfig {
     /** Outward moderator actions (spot rejected, user suspended/restored). */
     public static final String MODERATION_ACTION = "parkio.moderation.action";
     public static final String DLT_MODERATION = "parkio.dlt.moderation";
+    /** Owned and provisioned by auth-service; moderation-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

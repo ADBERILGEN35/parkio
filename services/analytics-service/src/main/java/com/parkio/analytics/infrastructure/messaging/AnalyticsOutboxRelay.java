@@ -1,21 +1,13 @@
-package com.parkio.moderation.infrastructure.messaging;
+package com.parkio.analytics.infrastructure.messaging;
 
 import com.parkio.platform.messaging.EventEnvelope;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.parkio.moderation.domain.event.AppealCreatedEvent;
-import com.parkio.moderation.domain.event.AppealResolvedEvent;
-import com.parkio.moderation.domain.event.ModerationCaseOpenedEvent;
-import com.parkio.moderation.domain.event.ModerationCaseResolvedEvent;
-import com.parkio.moderation.domain.event.ParkingSpotApprovedByModeratorEvent;
-import com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent;
-import com.parkio.moderation.domain.event.UserRestoredEvent;
-import com.parkio.moderation.domain.event.UserSuspendedEvent;
-import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
-import com.parkio.moderation.infrastructure.config.KafkaTopicsConfig;
-import com.parkio.moderation.infrastructure.persistence.entity.OutboxEventEntity;
-import com.parkio.moderation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
+import com.parkio.analytics.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.analytics.infrastructure.config.KafkaTopicsConfig;
+import com.parkio.analytics.infrastructure.persistence.entity.OutboxEventEntity;
+import com.parkio.analytics.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -26,7 +18,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -44,34 +35,23 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * In-process transactional-outbox relay for moderation-service. Polls unpublished
- * {@code outbox_events} and publishes them by event type to two topics — case-lifecycle
- * events to {@code parkio.moderation.case} and outward moderator actions to
- * {@code parkio.moderation.action} — keyed by the aggregate id, marking each row
- * published only after the broker ack (ai-context/06, kafka-transport.md). At-least-once:
- * if the ack succeeds but the transaction does not commit, the row is re-sent and
- * consumers deduplicate by {@code eventId}. Rows are never deleted.
+ * In-process transactional-outbox relay for analytics-service. Polls unpublished
+ * {@code outbox_events}, wraps each in the transport envelope and publishes it keyed by the
+ * aggregate id, then marks the row published — only after the broker ack (ai-context/06,
+ * kafka-transport.md). At-least-once: if the ack succeeds but the transaction does not commit,
+ * the row is re-sent and consumers deduplicate by {@code eventId}. Rows are never deleted here.
  *
- * <p>Mirrors the other relays. Both moderator spot verdicts —
- * {@code ParkingSpotApprovedByModerator} (the only human exit from {@code PENDING_REVIEW})
- * and {@code ParkingSpotRejectedByModerator} — are outward actions on the action topic.
- * Per the loop-guard (kafka-transport.md), parking-service applies them to its own state
- * but must not re-emit {@code ParkingSpotRejected} in response. Disable with
+ * <p>Added for U05: analytics publishes only participant erasure ACKs (to the auth-owned
+ * {@code parkio.privacy.erasure} topic); any other aggregate type is unroutable and
+ * dead-letters after {@code max-attempts}. Mirrors the other services' relays. Disable with
  * {@code parkio.kafka.relay.enabled=false}.
  */
 @Component
 @ConditionalOnProperty(name = "parkio.kafka.relay.enabled", havingValue = "true", matchIfMissing = true)
-public class ModerationOutboxRelay {
+public class AnalyticsOutboxRelay {
 
-    private static final Logger log = LoggerFactory.getLogger(ModerationOutboxRelay.class);
+    private static final Logger log = LoggerFactory.getLogger(AnalyticsOutboxRelay.class);
     private static final int ENVELOPE_VERSION = 1;
-
-    private static final Set<String> CASE_TYPES = Set.of(
-            ModerationCaseOpenedEvent.TYPE, ModerationCaseResolvedEvent.TYPE,
-            AppealCreatedEvent.TYPE, AppealResolvedEvent.TYPE);
-    private static final Set<String> ACTION_TYPES = Set.of(
-            UserSuspendedEvent.TYPE, UserRestoredEvent.TYPE,
-            ParkingSpotApprovedByModeratorEvent.TYPE, ParkingSpotRejectedByModeratorEvent.TYPE);
 
     private final OutboxEventJpaRepository outbox;
     private final KafkaTemplate<String, Object> kafkaTemplate;
@@ -85,13 +65,13 @@ public class ModerationOutboxRelay {
     private final Timer publishTimer;
     private final DistributionSummary batchSizeSummary;
 
-    public ModerationOutboxRelay(OutboxEventJpaRepository outbox,
-                                 KafkaTemplate<String, Object> kafkaTemplate,
-                                 ObjectMapper objectMapper,
-                                 MeterRegistry registry,
-                                 @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
-                                 @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
-                                 @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
+    public AnalyticsOutboxRelay(OutboxEventJpaRepository outbox,
+                                   KafkaTemplate<String, Object> kafkaTemplate,
+                                   ObjectMapper objectMapper,
+                                   MeterRegistry registry,
+                                   @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
+                                   @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
+                                   @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
@@ -127,10 +107,10 @@ public class ModerationOutboxRelay {
         // running one at a time. Unroutable (poison) rows are failed without a send.
         List<InFlight> inFlight = new ArrayList<>(batch.size());
         for (OutboxEventEntity row : batch) {
-            String topic = topicFor(row.getEventType());
+            String topic = topicFor(row.getAggregateType());
             if (topic == null) {
                 // Unroutable row: deterministic poison, count it toward dead-lettering.
-                recordFailure(row, "No topic mapping for event type " + row.getEventType());
+                recordFailure(row, "No topic mapping for aggregate type " + row.getAggregateType());
                 continue;
             }
             EventEnvelope envelope = toEnvelope(row);
@@ -187,17 +167,11 @@ public class ModerationOutboxRelay {
         return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
-    /** Routes case-lifecycle events and outward moderator actions to their topics. */
-    static String topicFor(String eventType) {
+    /** Only erasure ACKs are published; they go to the auth-owned erasure topic. */
+    static String topicFor(String aggregateType) {
         // Erasure ACKs go to the auth-owned parkio.privacy.erasure topic (U05 ACK outbox).
-        if (UserErasureAcknowledgedEvent.TYPE.equals(eventType)) {
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
             return KafkaTopicsConfig.PRIVACY_ERASURE;
-        }
-        if (CASE_TYPES.contains(eventType)) {
-            return KafkaTopicsConfig.MODERATION_CASE;
-        }
-        if (ACTION_TYPES.contains(eventType)) {
-            return KafkaTopicsConfig.MODERATION_ACTION;
         }
         return null;
     }

@@ -1,0 +1,115 @@
+# Dispatch current scheduled work from the default branch onto api.
+#
+# GitHub only runs `on: schedule` from the default branch (master). master's
+# copies of backup/security/integration/runtime workflows are stale and do not
+# prove current api code. This dispatcher starts the workflows that live on api.
+#
+# Adding `push.branches: [api]` on those workflows does not fix schedules.
+# Do not change the default branch. Do not merge api into master.
+name: Scheduled restore drills
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+    - cron: "17 3 * * *"
+    - cron: "23 3 * * 1"
+    - cron: "41 4 * * 1"
+    - cron: "41 5 * * 1"
+    - cron: "47 5 * * 3"
+    - cron: "12 6 * * 4"
+    - cron: "17 6 * * 1"
+    - cron: "17 6 * * 2"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Optional single workflow file to dispatch (default: all scheduled api workflows)"
+        required: false
+        type: string
+      run_restore:
+        description: "Run staging restore when manually dispatching staging verification"
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch api scheduled workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start api workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ONLY: ${{ inputs.only }}
+          RUN_RESTORE: ${{ inputs.run_restore }}
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          allowed='backup-restore-drill.yml restore-drill-01-procedure.yml backend-integration.yml security-ci.yml supply-chain.yml runtime-validation.yml staging-verification.yml runtime-baseline.yml chaos-validation.yml performance-smoke.yml'
+          dispatch_one() {
+            local wf="$1"
+            case " $allowed " in
+              *" $wf "*) ;;
+              *)
+                echo "Refusing to dispatch '$wf'. Allowlisted scheduled api workflows only." >&2
+                exit 2
+                ;;
+            esac
+            echo "Dispatching $wf --ref api"
+            if [ "$wf" = staging-verification.yml ]; then
+              local restore="${2:-${RUN_RESTORE:-false}}"
+              case "$restore" in
+                true|false) ;;
+                *) echo "Invalid run_restore value: $restore" >&2; exit 2 ;;
+              esac
+              # gh 2.92.0 unmarshals --json values as strings and rejects a JSON boolean.
+              printf '{"run_restore":"%s"}\n' "$restore" | gh workflow run "$wf" --ref api --json
+            else
+              gh workflow run "$wf" --ref api
+            fi
+          }
+          if [ -n "${ONLY:-}" ]; then
+            dispatch_one "$ONLY"
+            exit 0
+          fi
+          # Monday 04:23 restore pair (existing).
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 4 * * 1" ]; then
+            dispatch_one backup-restore-drill.yml
+            dispatch_one restore-drill-01-procedure.yml
+          fi
+          # Nightly integration.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 3 * * *" ]; then
+            dispatch_one backend-integration.yml
+          fi
+          # Weekly security / supply-chain / runtime / staging / chaos / k6.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * 1" ]; then
+            dispatch_one security-ci.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 4 * * 1" ]; then
+            dispatch_one supply-chain.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 5 * * 1" ]; then
+            dispatch_one runtime-validation.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "47 5 * * 3" ]; then
+            if [ "$EVENT" = "schedule" ]; then
+              dispatch_one staging-verification.yml true
+            else
+              dispatch_one staging-verification.yml
+            fi
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "12 6 * * 4" ]; then
+            dispatch_one runtime-baseline.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 6 * * 1" ]; then
+            dispatch_one chaos-validation.yml
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 6 * * 2" ]; then
+            dispatch_one performance-smoke.yml
+          fi
+          echo "Dispatch complete"
