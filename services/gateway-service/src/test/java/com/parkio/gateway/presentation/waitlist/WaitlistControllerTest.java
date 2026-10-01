@@ -17,9 +17,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -31,6 +34,7 @@ import reactor.core.publisher.Mono;
 @SpringBootTest
 @AutoConfigureWebTestClient
 @ActiveProfiles("test")
+@ExtendWith(OutputCaptureExtension.class)
 class WaitlistControllerTest {
 
     @Autowired
@@ -363,6 +367,62 @@ class WaitlistControllerTest {
         org.assertj.core.api.Assertions.assertThat(lastVerificationToken.get()).isNotBlank();
     }
 
+    /**
+     * CL-F14.3: resend must not reveal whether an address has a PENDING row. Only a
+     * PENDING row reaches the provider, so during a provider outage a 503 for it next to
+     * a 202 for an unknown address was an existence oracle. Both now get the same 202;
+     * the failure is logged for operators and the row stays unsent, so a later resend
+     * delivers once the provider is back.
+     */
+    @Test
+    void resendDuringProviderOutageAnswersPendingAndUnknownAddressesAlike(CapturedOutput output) {
+        String pending = "resend-pending@parkio.dev";
+        String unknown = "resend-unknown@parkio.dev";
+        org.mockito.Mockito.doThrow(new RuntimeException("provider down"))
+                .when(emailSender)
+                .sendConfirmation(anyString(), anyString(), org.mockito.ArgumentMatchers.any(), anyString());
+        // Submit keeps its own contract: the row is saved and the failed send is a 503.
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(payload(pending))
+                .exchange()
+                .expectStatus().isEqualTo(503);
+
+        String pendingBody = resend(pending);
+        String unknownBody = resend(unknown);
+
+        org.assertj.core.api.Assertions.assertThat(pendingBody).isEqualTo(unknownBody);
+        // The pending address really did hit the failing provider (submit + resend).
+        org.mockito.Mockito.verify(emailSender, org.mockito.Mockito.times(2))
+                .sendConfirmation(org.mockito.ArgumentMatchers.eq(pending), anyString(),
+                        org.mockito.ArgumentMatchers.any(), anyString());
+        org.mockito.Mockito.verify(emailSender, org.mockito.Mockito.never())
+                .sendConfirmation(org.mockito.ArgumentMatchers.eq(unknown), anyString(),
+                        org.mockito.ArgumentMatchers.any(), anyString());
+        org.assertj.core.api.Assertions.assertThat(output)
+                .contains("Waitlist resend answered 202 after a failed confirmation delivery");
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT status FROM waitlist_interest WHERE email = ?", String.class, pending))
+                .isEqualTo("PENDING");
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM waitlist_interest WHERE email = ? AND verification_sent_at IS NULL",
+                        Integer.class, pending))
+                .isEqualTo(1);
+
+        // Provider recovers: the next resend delivers without waiting for a cooldown.
+        org.mockito.Mockito.doAnswer(invocation -> {
+            lastVerificationToken.set(invocation.getArgument(1));
+            return null;
+        }).when(emailSender).sendConfirmation(anyString(), anyString(), org.mockito.ArgumentMatchers.any(), anyString());
+        org.assertj.core.api.Assertions.assertThat(resend(pending)).isEqualTo(unknownBody);
+        org.assertj.core.api.Assertions.assertThat(lastVerificationToken.get()).isNotBlank();
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM waitlist_interest WHERE email = ? AND verification_sent_at IS NOT NULL",
+                        Integer.class, pending))
+                .isEqualTo(1);
+    }
+
     @Test
     void withdrawThenAllowsReregistration() {
         postAccepted("again@parkio.dev");
@@ -551,6 +611,18 @@ class WaitlistControllerTest {
                 .jsonPath("$.content.length()").isEqualTo(0)
                 .jsonPath("$.totalElements").isEqualTo(0)
                 .jsonPath("$.totalPages").isEqualTo(0);
+    }
+
+    private String resend(String email) {
+        return webTestClient.post()
+                .uri("/api/v1/waitlist/resend")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"email\":\"" + email + "\"}")
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
     }
 
     private void postAccepted(String email) {
