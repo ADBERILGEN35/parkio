@@ -71,11 +71,16 @@ With U05, each participant inserts `erased_user_tombstones` first, then mutates
 its own DB, and queues its `SUCCESS` ACK in its outbox in the same transaction;
 the relay publishes the ACK after commit. A failure rolls back the erase and the
 ACK together, so the consumer retries. Media is the exception. It acks only
-after every stored version of the user's objects is confirmed gone and its
-metadata deleted. Its owner write fence refuses uploads and other media writes
-once the erasure has started. The contract records the exact guarantee and its
-known limitations, such as a storage write that completes after its client
-timed out. Sentinel: `00000000-0000-4000-8000-000000000001`.
+after three conditions hold:
+- every stored version of the user's objects is confirmed gone;
+- its metadata is deleted;
+- every object write the user's uploads sent is accounted for.
+
+Its owner write fence refuses uploads and other media writes once the erasure
+has started. A PUT whose outcome is unknown keeps the erasure pending until its
+object is observed, and no time limit settles it. The contract records the
+exact guarantee and its known limitations. Sentinel:
+`00000000-0000-4000-8000-000000000001`.
 
 **Known defect (U05), until each participant's PR merges:** the participants
 not yet merged (see the contract's rollout status) still send

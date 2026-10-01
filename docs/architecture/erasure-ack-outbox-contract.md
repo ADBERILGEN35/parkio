@@ -9,9 +9,12 @@ and send loses the ACK.
 
 This contract reuses each service's existing transactional outbox and relay and
 auth's existing Kafka ACK consumer. It adds no new framework or topic. Two
-participants add schema: media adds `media_erasure_jobs` (V14) for object
-deletion that is still pending and a claim token on it (V15), and analytics adds
-DLQ columns to its existing outbox for its new relay (V10).
+participants add schema. Media adds three tables or columns:
+- `media_erasure_jobs` (V14) for object deletion that is still pending;
+- a claim token on it (V15);
+- the object write ledger `media_object_writes` (V16).
+
+Analytics adds DLQ columns to its existing outbox for its new relay (V10).
 
 ## Rollout status (`api` `9dd3f485`, 2026-10-01)
 
@@ -104,10 +107,14 @@ participant: missing, `FAILED`, unknown status, duplicate and replayed ACKs.
 - **Erase fails permanently:** no ACK row, so no `SUCCESS`; the request stays
   `IN_PROGRESS` and the `AccountErasureStuck` alert fires.
 - **Media objects cannot be confirmed gone** (storage outage, object-lock
-  retention, an object in another bucket): the media job stays pending and
-  retries with backoff, with no attempt cap; no `SUCCESS`, the request stays
-  `IN_PROGRESS`, `AccountErasureStuck` fires and
-  `parkio.media.erasure.jobs.pending` stays above zero.
+  retention, an object in another bucket), **or a media PUT of the user could
+  still be applied** (a write of unknown outcome whose object has not been
+  observed):
+  - the media job stays pending and retries with backoff, with no attempt cap;
+  - there is no `SUCCESS`, and the request stays `IN_PROGRESS`;
+  - `AccountErasureStuck` fires;
+  - `parkio.media.erasure.jobs.pending` stays above zero; for unknown-outcome
+    writes, `parkio.media.object_writes.outcome_unknown` does too.
 - **ACK row cannot be published:** asynchronous broker failures count toward
   `parkio.kafka.relay.max-attempts`; the row is then dead-lettered
   (`parkio.outbox.deadlettered`) and can be redriven. The request stays
@@ -163,128 +170,205 @@ Per participant subtask:
 - **analytics (V10):** analytics had the outbox table but no relay; it now has
   `AnalyticsOutboxRelay` (same shape as the other relays, DLQ columns via V10)
   and publishes only erasure ACKs.
-- **media (V14, V15): owner write fence, two-phase erase, metadata deleted.**
-  PRIV-001's policy matrix says "User-owned media: delete metadata + object
-  storage"; the old handler only soft-deleted the rows, which kept
-  `owner_user_id`, the object key (it embeds the user id), checksum and
-  perceptual hash. Now:
+- **media (V14–V16): owner write fence, object write ledger, two-phase erase,
+  metadata deleted.** PRIV-001's policy matrix says "User-owned media: delete
+  metadata + object storage". The old handler only soft-deleted the rows, which
+  kept `owner_user_id`, the object key (it embeds the user id), the checksum and
+  the perceptual hash.
+
+  **Storage write-completion contract.** The guarantee below rests on these
+  facts about PUT and DELETE requests to an S3-compatible store. Request
+  authentication, request acceptance, client timeout and server-side completion
+  are four different things:
+  - **Authentication and acceptance.** SigV4 bounds when a request may still be
+    *accepted*: AWS says a request "must reach AWS within five minutes of the
+    time stamp". MinIO RELEASE.2024-09-13T20-26-02Z rejects a request whose
+    `x-amz-date` is more than 15 minutes from its clock. It checks this once,
+    when the request is dispatched, before the handler reads the body
+    (`cmd/auth-handler.go`, `globalMaxSkewTime` in `cmd/globals.go`).
+    Nothing ties the completion of an accepted request to its signature date.
+    MinIO's own request deadline only limits time spent waiting in its queue.
+  - **Client timeout.** OkHttp's call timeout bounds how long *the client*
+    waits ("the entire call ... server processing, and reading the response
+    body"). It says nothing about what the server does. A request whose client
+    timed out, or whose connection broke after sending, may still be applied,
+    including after a delay in the network path. A TCP-relay test shows exactly
+    that.
+  - **Server-side completion.** S3 "never adds partial objects; if you receive
+    a success response, Amazon S3 added the entire object". Neither AWS nor
+    MinIO documents an upper bound on when an accepted PUT completes. Go's HTTP
+    server cancels a request's context when the client disconnects; MinIO does
+    not document that it abandons a PUT then.
+  - **Client retries.** OkHttp silently retries a request whose body it
+    buffered after some connection failures, even once the request was sent
+    (`RetryAndFollowUpInterceptor.recover`). The MinIO Java SDK 8.6.0 turns
+    this off only for PUT/POST bodies that are not byte arrays.
+
+  Conclusion: no finite time bound makes a PUT of unknown outcome harmless.
+  Media does not wait out a time window. It records such writes and keeps
+  `SUCCESS` blocked until each one is accounted for.
+
   1. **Owner write fence.** Every write path for a user's media starts by
      joining that user's fence: upload, claimed-region update and owner delete.
-     The fence is a PostgreSQL transaction-scoped advisory lock (class `MED1`,
-     key = hash of the user id) taken shared. Under it the write reads the
-     user's tombstone. If the tombstone exists, the write is refused with
-     `ACCOUNT_ERASED` (HTTP 403) before it stores anything. Its transaction,
-     the idempotency claim included, rolls back. An admitted write holds the
-     fence until its transaction ends. For an upload that covers the scan, the
-     object write, and the commit of the row, validation results and
-     `MediaUploaded` event. The erasure takes the same lock exclusively. There
-     is no in-memory lock: PostgreSQL releases it on commit, rollback or a lost
-     connection. Two users whose keys collide only wait for each other; the
-     tombstone check is per user.
-  2. **Phase 1.** One short transaction, with no storage I/O and no ACK. It takes
-     the fence exclusively first, so it waits for every write already admitted
-     (an upload in the middle of its object write included) to commit or roll
-     back. It then writes the tombstone, soft-deletes the user's media rows (no
-     longer served), deletes the user's idempotency records, and opens a
-     `media_erasure_jobs` row keyed by the ACK event id (on redelivery the row
-     is kept and attempted again). From its commit on, every media write of the
-     user is refused.
-     The job holds the request id and user id only while work is pending.
-  3. **Phase 2.** `MediaObjectErasureWorker` claims the job and works outside any
-     transaction. The claim is a fresh `claim_token` plus a lease end in
-     `next_attempt_at`. For each media row of the user it lists the versions and
-     delete markers of exactly that key, one page (`listing-page-size`, 100) per
-     storage call; an unversioned bucket lists its one object. It removes each
-     by version id and lists again until a fresh listing is empty. For a key,
-     an empty listing is backed by a HEAD. A version listed again after its
-     delete returned normally fails the attempt. Only then does a short
-     transaction delete that row and its validation results. Once every row is
-     gone, the worker empties the owner key namespace `media/<userId>/` with the
-     same page-by-page delete. That removes objects of uploads whose row never
-     committed. Unlike a key, an orphan's absence rests on the fresh prefix
-     listing alone: there is no per-key HEAD, because no key is known for it.
-  4. **Completion.** One transaction:
+     - The fence is a PostgreSQL transaction-scoped advisory lock (class
+       `MED1`, key = hash of the user id) taken shared.
+     - Under it the write reads the user's tombstone. If the tombstone exists,
+       the write is refused with `ACCOUNT_ERASED` (HTTP 403) before it stores
+       anything. Its transaction, the idempotency claim included, rolls back.
+     - An admitted write holds the fence until its transaction ends.
+     - The erasure takes the same lock exclusively. There is no in-memory lock:
+       PostgreSQL releases it on commit, rollback or a lost connection.
+     - Two users whose keys collide only wait for each other; the tombstone
+       check is per user.
+
+     The fence orders database transactions only. A storage request that
+     outlives its transaction is not covered by it; the next item covers that.
+  2. **Object write ledger (V16).** An upload records its PUT in
+     `media_object_writes` as `PENDING` before sending it, in a transaction of
+     its own that survives the upload's rollback or a crash.
+     - **One request per upload.** The PUT is a single request: the part size
+       is at least the content length, so there is no multipart upload. The
+       storage client never retries on its own. Each upload uses a fresh key.
+       So a write applies at most once.
+     - **Confirmed.** When the store confirms the PUT, the write becomes
+       `APPLIED`, and the committed media row takes over from it. It is deleted
+       with that row.
+     - **Rolled back.** If the upload rolls back, its cleanup deletes the
+       object and then forgets the write.
+     - **Rejected.** A write the store definitively did not apply is forgotten
+       at once: a 4xx reply, or a connection that never opened.
+     - **Unknown.** Every other failure leaves the write `PENDING` with an
+       unknown outcome: a timeout, a broken connection, a 5xx reply, a crash.
+  3. **Phase 1.** One short transaction, with no storage I/O and no ACK.
+     - It takes the fence exclusively first, so it waits for every admitted
+       write transaction to commit or roll back.
+     - It then writes the tombstone, soft-deletes the user's media rows (no
+       longer served), deletes the user's idempotency records, and opens a
+       `media_erasure_jobs` row keyed by the ACK event id. On redelivery the
+       row is kept and attempted again.
+     - From its commit on, every media write of the user is refused, and no new
+       ledger entry can appear for the user.
+  4. **Phase 2.** `MediaObjectErasureWorker` claims the job (a `claim_token`
+     plus a lease end in `next_attempt_at`) and works outside any transaction.
+     - **Media rows.** For each media row it lists the versions and delete
+       markers of exactly that key, one page per storage call. It removes each
+       by version id until a fresh listing is empty; for a key, an empty listing
+       is backed by a HEAD. Then a short transaction deletes the row and its
+       validation results.
+     - **Owner namespace.** It then empties `media/<userId>/` the same way. An
+       orphan's absence there rests on the prefix listing alone, with no HEAD,
+       because no key is known for it. A `PENDING` write whose object turns up
+       in that listing is first recorded as `APPLIED`, so the observation is
+       not lost.
+     - **Ledger entries.** Last, it settles the user's ledger entries:
+       - an `APPLIED` write is forgotten once its key is confirmed empty;
+       - a `PENDING` write is settled only once its object has been observed:
+         the worker records it as `APPLIED`, removes it, then forgets it;
+       - while a `PENDING` write's object has never been seen, the attempt
+         queues no `SUCCESS`. It records "N object write(s) of unknown
+         outcome; SUCCESS waits until each is observed" on the job and retries
+         with capped backoff.
+  5. **Completion.** One transaction:
      - takes the fence exclusively;
      - requires that this attempt still holds its claim and that the lease has
-       not expired (`claim_token` matches, `next_attempt_at` > now, row locked);
-     - re-checks that the user owns no media row;
+       not expired;
+     - re-checks that the user owns no media row and no ledger entry;
      - then deletes late idempotency records, queues the ACK and deletes the
        job.
 
-     An attempt whose claim expired or was taken over by another instance's poll
-     never queues the ACK. A stale attempt cannot record a retry or release on
-     the job either.
+     An expired or taken-over claim never finalizes, and cannot record a
+     retry or release.
 
-  **What `SUCCESS` means for media.** A media `SUCCESS` is queued only when both
-  hold at its commit:
-  - the user owns no media row, no media write of the user is in flight, and
-    none can be admitted any more;
+  Every storage delete removes versions by version id. That covers the
+  worker, the upload's rollback cleanup and the owner delete; the HEAD fallback
+  uses the current version id. So a delete that reaches the store late can only
+  remove data; it can never add a delete marker. AWS documents that a simple
+  DELETE in a versioning-enabled bucket inserts a delete marker. The tested
+  MinIO release added none for a key without versions.
+
+  **What `SUCCESS` means for media.** A media `SUCCESS` is queued only when
+  all of the following hold at its commit:
+  - the user owns no media row and no ledger entry;
+  - no media write transaction of the user is open, and none can be admitted;
+  - every PUT the user's uploads ever sent is accounted for:
+    - committed with a row that the erasure deleted after removing its
+      versions;
+    - or rejected by the store;
+    - or applied, with its object observed and removed;
   - the worker removed every listed version of each of the user's keys and of
     the owner namespace, and saw a fresh empty listing afterwards (HEAD-backed
     for keys).
 
-  No media metadata and no job state of the user outlives `SUCCESS`, apart from
-  the tombstone and the transport copies listed below. Never `SUCCESS` while an
-  object cannot be confirmed gone. That covers:
-  - a version the store refuses to remove (object lock or retention);
-  - an object in a bucket other than the configured one;
-  - an object still listed after its delete;
-  - a storage outage.
-
-  Every failed attempt is recorded on the job, whether an object failure or an
-  unexpected one such as a failed ACK append: `attempts`, `last_error` and an
-  exponential backoff. A scheduled poll (`parkio.media.erasure-worker.*`)
-  claims due jobs and jobs whose claim expired.
+  No media metadata, ledger entry or job state of the user outlives `SUCCESS`,
+  apart from the tombstone and the transport copies listed below. Never
+  `SUCCESS` while either of these holds:
+  - an object cannot be confirmed gone (object-lock retention, another bucket,
+    an object still listed after its delete, a storage outage);
+  - a PUT of the user could still be applied.
 
   **Bounded attempts.** An attempt checks its deadline (`attempt-budget-ms`,
-  60 s) before every storage call:
-  - Each storage call is bounded by the storage client's end-to-end
-    `parkio.media.storage.call-timeout` (15 s) and returns at most one listing
-    page.
-  - So the attempt's storage work ends at most two storage calls (a key listing
-    and its HEAD) after the budget.
-  - The service refuses to start unless `lease-ms` >= `attempt-budget-ms` + 2 x
-    `call-timeout` + 10 s. The defaults give 120 s >= 100 s.
-  - An attempt that reaches its budget releases its claim and keeps its
-    progress: removed versions and deleted rows stay deleted. No failure is
-    counted and the next poll continues.
-
-  Database statements are not on the budget: the fence wait, the row deletes and
-  the completion transaction. A slow completion can run past the lease, but its
-  lease check then refuses to finalize. The Kafka consumer thread runs phase 1
-  and one immediate attempt. Phase 1 can wait for the user's in-flight writes,
-  each bounded by its own scan and storage timeouts.
+  60 s) before every storage call.
+  - Each storage call is bounded by the end-to-end `call-timeout` (15 s) and
+    returns at most one listing page. So the attempt's storage work ends at
+    most two storage calls (a key listing and its HEAD) after the budget.
+  - The service refuses to start unless all of these hold:
+    - `attempt-budget-ms` > 0;
+    - `lease-ms` > 0;
+    - all four storage timeouts > 0 (OkHttp reads 0 as "no timeout");
+    - `lease-ms` >= `attempt-budget-ms` + 2 x `call-timeout` + 10 s. The
+      defaults give 120 s >= 100 s.
+  - A budget stop releases the claim and keeps the progress made so far; no
+    failure is counted.
+  - Database statements are not on the budget: the fence wait, row deletes,
+    ledger updates and the completion transaction. A late completion is
+    refused by the lease check.
+  - The Kafka consumer thread runs phase 1, which can wait for the user's
+    admitted write transactions, and one immediate attempt.
 
   Metrics:
   - `parkio.media.erasure.jobs.pending`
+  - `parkio.media.object_writes.outcome_unknown` (ledger entries of unknown
+    outcome, all users)
   - `parkio.media.erasure.object.delete.failed`
   - `parkio.media.erasure.attempt.failed`
   - `parkio.media.erasure.attempt.budget_exhausted`
 
   **Known limitations (media).**
-  - **Late object writes.** A storage write the client abandoned at its call
-    timeout can still complete on the store later. The upload failed and
-    released the fence, and its cleanup delete may have run first. If the late
-    write lands after the namespace sweep, that object outlives `SUCCESS`
-    unnoticed. The client side is bounded by `call-timeout`; the store side is
-    not.
+  - **A write of unknown outcome can block erasure indefinitely.** A `PENDING`
+    write whose object never appears keeps its owner's erasure pending. That
+    happens when the request was lost, or the process crashed between
+    recording and sending. No automated rule settles it, because no evidence
+    shows that the request can no longer be applied. It stays observable:
+    - the request stays `IN_PROGRESS`;
+    - `AccountErasureStuck` fires;
+    - the outcome-unknown gauge stays above zero;
+    - `last_error` says why.
+
+    How operators may resolve such a write is an open decision. It is not
+    decided here.
+  - **Topology assumptions.** "Observed once" settles a write only if a
+    request is applied at most once. That needs a single PUT per upload, no
+    client retries, and a fresh key per upload, which the code enforces. It
+    also needs a network path that does not duplicate or retry requests. The
+    supported deployment connects media-service directly to MinIO; any proxy
+    or load balancer in between must be checked at rollout.
   - **H2.** The fence is PostgreSQL-only. On the H2 database of the context
     tests only the tombstone check runs. Every deployed profile uses
     PostgreSQL.
   - **Stuck jobs.** There is no terminal attempt cap. A job that can never be
-    confirmed, such as an object under a retention lock, retries with capped
-    backoff. The request stays `IN_PROGRESS`, `AccountErasureStuck` fires and
-    the pending gauge stays above zero; `last_error` holds the cause. How
-    operators resolve a stuck job is an open decision.
+    confirmed retries with capped backoff (object-lock retention, another
+    bucket, a write of unknown outcome). The request stays `IN_PROGRESS` and
+    `AccountErasureStuck` fires. How operators resolve a stuck job is an open
+    decision.
   - **V14 edited in place.** V14 changed after its first review, while no
-    release contains it. Check at rollout that no database applied an earlier
-    V14.
+    release contained it. Check at rollout that no database applied an earlier
+    V14. V15 and V16 only add.
 
   Storage topology: the checked-in Compose bucket is unversioned
   (`docker/docker-compose.yml`, `minio-setup`), while
-  `production-readiness.md` recommends versioning. The delete works by version,
-  so enabled and suspended versioning are handled, and an object-lock bucket
-  fails closed while a retention period holds. The deployed bucket mode and the
+  `production-readiness.md` recommends versioning. Deletes work by version, so
+  enabled and suspended versioning are handled. An object-lock bucket fails
+  closed while a retention period holds. The deployed bucket mode and the
   service's bucket permissions (version listing and deletion) are not recorded
   in the repository; check them at rollout.
 
@@ -294,7 +378,7 @@ Per participant subtask:
 |-------------|----------|-------|----|
 | user | outbox (`ErasureAckOutbox` port) | `UserOutboxRelay` | #133 |
 | parking | outbox + ledger JSON scrub | `ParkingOutboxRelay` | #137 |
-| media | outbox after every stored version is confirmed gone, under the owner write fence and a live claim; metadata deleted | `MediaOutboxRelay` | #141 |
+| media | outbox after every stored version is confirmed gone and every recorded object write is accounted for, under the owner write fence and a live claim; metadata deleted | `MediaOutboxRelay` | #141 |
 | moderation | outbox + sentinel-exempt uniqueness (V14) | `ModerationOutboxRelay` | #135 |
 | gamification | outbox (pilot) | `GamificationOutboxRelay` | #132 |
 | notification | outbox | `NotificationOutboxRelay` | #140 |
@@ -310,11 +394,15 @@ Per participant subtask:
 | Event copies written before the erase, e.g. `MediaUploaded` (`ownerUserId`, object key, checksum) | participant `outbox_events`, Kafka topics | Event transport, not product state | The same outbox retention; topic retention (Kafka records are not erased) |
 | Sentinel-rewritten shared facts (spots, moderation records, point transactions, AI requests) | participant tables | PRIV-001 matrix: retain, identities → sentinel | Retained, without the user id |
 | Staff `moderator_id` on decisions | moderation | Audit (PRIV-001) | Retained |
-| A media object whose write the store completed after the client's timeout and after the namespace sweep | media bucket | Known limitation (media, late object writes), not by design | Not removed by this erasure |
 
-Only media has pending state between its commit and its `SUCCESS`: the job and
-the soft-deleted rows hold the user id and object keys. They are needed to
-finish the erasure and are deleted before the ACK.
+Only media has pending state between its commit and its `SUCCESS`:
+- the job;
+- the soft-deleted rows;
+- the user's object write ledger entries.
+
+They hold the user id and object keys. They are needed to finish the erasure
+and are deleted before the ACK. A PUT that could still be applied blocks
+`SUCCESS` instead of leaving an object behind it.
 
 Transport retention predates U05 and applies to every service; U05 adds no
 retention period and changes none. PRIV-001's policy matrix does not mention
