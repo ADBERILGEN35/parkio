@@ -13,7 +13,10 @@ const CONDITIONAL_RESENT_TR =
   'Bu adres hâlâ doğrulanmayı bekliyorsa gelen kutunuzdaki bağlantıyı kontrol edin. Zaten doğruladıysanız giriş yapın.';
 
 function renderCheckEmail(
-  entry: string | { pathname: string; state?: unknown } = '/check-email?email=verified@parkio.dev',
+  entry: string | { pathname: string; state?: unknown } = {
+    pathname: '/check-email',
+    state: { email: 'verified@parkio.dev' },
+  },
 ) {
   return renderWithProviders(
     <Routes>
@@ -51,7 +54,7 @@ describe('CheckEmailPage resend feedback', () => {
     );
 
     await withLocale('tr');
-    renderCheckEmail('/check-email?email=verified@parkio.dev');
+    renderCheckEmail({ pathname: '/check-email', state: { email: 'verified@parkio.dev' } });
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Doğrulamayı yeniden gönder' }));
 
