@@ -110,10 +110,13 @@ parkio_configure_deployment_profile() {
       PARKIO_DISABLED_SERVICES=()
       ;;
     azure-hosted-beta)
-      # gmp-release-pins.yml is last so digest-pinned gateway/media/parking win over
-      # docker-compose.images.yml tags. Production ops prefer scripts/parkio-prod-compose.sh
-      # (compose.production.files — no images.yml). Do not omit the pins overlay.
-      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.azure-hosted-beta.yml -f docker/docker-compose.gmp-release-pins.yml"
+      # The file set comes from docker/compose.production.files, the list
+      # scripts/parkio-prod-compose.sh also renders, so deploy and rollback cannot drop a
+      # pin or overlay production carries (CL-F12). One delta: docker-compose.images.yml
+      # follows docker-compose.apps.yml so deploy builds get immutable sha tags and OCI
+      # labels; every digest pin in the list comes later and still wins. The Civo
+      # Alertmanager activation overlay is appended only by scripts/parkio-prod-compose.sh.
+      PARKIO_COMPOSE_FILES="$(parkio_azure_compose_files)" || return 2
       PARKIO_RUNTIME_SERVICES=("${PARKIO_AZURE_RUNTIME_SERVICES[@]}")
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
@@ -175,6 +178,39 @@ parkio_configure_deployment_profile() {
 
   PARKIO_DEPLOYMENT_PROFILE="$requested"
   export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
+}
+
+# Prints the canonical production compose files (docker/compose.production.files, or
+# PARKIO_COMPOSE_FILES_LIST like scripts/parkio-prod-compose.sh), one path per line.
+parkio_production_compose_files() {
+  local list="${PARKIO_COMPOSE_FILES_LIST:-$(parkio_repo_root)/docker/compose.production.files}"
+  if [ ! -f "$list" ]; then
+    echo "ERROR: missing canonical production compose file list $list" >&2
+    return 2
+  fi
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    printf '%s\n' "$line"
+  done < "$list"
+}
+
+# The azure-hosted-beta (production) deploy/rollback file set as -f arguments: the
+# canonical production list with docker-compose.images.yml right after the apps overlay.
+parkio_azure_compose_files() {
+  local files="" file production_files
+  production_files="$(parkio_production_compose_files)" || return 2
+  while IFS= read -r file; do
+    files="${files} -f ${file}"
+    if [ "$file" = "docker/docker-compose.apps.yml" ]; then
+      files="${files} -f docker/docker-compose.images.yml"
+    fi
+  done <<< "$production_files"
+  if [[ "$files" != *" -f docker/docker-compose.images.yml"* ]]; then
+    echo "ERROR: canonical production list has no docker/docker-compose.apps.yml to build from" >&2
+    return 2
+  fi
+  printf '%s\n' "${files# }"
 }
 
 parkio_repo_root() {
