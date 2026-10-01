@@ -25,6 +25,10 @@ on:
         description: "Optional single workflow file to dispatch (default: all scheduled api workflows)"
         required: false
         type: string
+      run_restore:
+        description: "Run staging restore when manually dispatching staging verification"
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -41,6 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ONLY: ${{ inputs.only }}
+          RUN_RESTORE: ${{ inputs.run_restore }}
           EVENT: ${{ github.event_name }}
           CRON: ${{ github.event.schedule }}
         run: |
@@ -56,7 +61,17 @@ jobs:
                 ;;
             esac
             echo "Dispatching $wf --ref api"
-            gh workflow run "$wf" --ref api
+            if [ "$wf" = staging-verification.yml ]; then
+              local restore="${2:-${RUN_RESTORE:-false}}"
+              case "$restore" in
+                true|false) ;;
+                *) echo "Invalid run_restore value: $restore" >&2; exit 2 ;;
+              esac
+              # gh 2.92.0 unmarshals --json values as strings and rejects a JSON boolean.
+              printf '{"run_restore":"%s"}\n' "$restore" | gh workflow run "$wf" --ref api --json
+            else
+              gh workflow run "$wf" --ref api
+            fi
           }
           if [ -n "${ONLY:-}" ]; then
             dispatch_one "$ONLY"
@@ -82,7 +97,11 @@ jobs:
             dispatch_one runtime-validation.yml
           fi
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "47 5 * * 3" ]; then
-            dispatch_one staging-verification.yml
+            if [ "$EVENT" = "schedule" ]; then
+              dispatch_one staging-verification.yml true
+            else
+              dispatch_one staging-verification.yml
+            fi
           fi
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "12 6 * * 4" ]; then
             dispatch_one runtime-baseline.yml
