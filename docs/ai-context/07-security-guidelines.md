@@ -55,6 +55,9 @@ Privilege boundaries / enforcement notes:
   (`RouteAuthorizationRules`) are necessary but **not sufficient**: every privileged
   controller re-checks the gateway-injected `X-User-Roles`, and account-level rules are
   re-checked again in the application service. A missing/blank roles header denies.
+  auth-service admin endpoints go further: they take the actor and roles only from the
+  access token they verify themselves and ignore `X-User-Id`/`X-User-Roles`, because every
+  internal service holds the shared gateway secret (CL-F16).
 - Shared constants in `platform/parkio-platform` are transport names only. They
   do not make authorization decisions. Gateway and service filters must continue
   to strip, inject, verify, and authorize according to their own security rules.
