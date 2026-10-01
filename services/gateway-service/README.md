@@ -154,7 +154,9 @@ env-overridable via `PARKIO_AUTH_SERVICE_URI`, `PARKIO_SESSION_EPOCH_CACHE_TTL`,
 
 ¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`; and
 `GET /api/v1/auth/.well-known/jwks.json`. Any other auth path is protected.
-Actuator `health`/`info` are public.
+Actuator `health`/`info` are public. `/actuator/prometheus` is for the internal scrape only:
+a request carrying any `Forwarded`/`X-Forwarded-*` header (everything the Caddy edge relays)
+gets `404`, and Caddy blocks the path as well.
 ² See the role matrix below: user-facing report/appeal endpoints need only an
 authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`. Account-level
 actions (suspend/restore/trust/score, appeal resolution) are further restricted to

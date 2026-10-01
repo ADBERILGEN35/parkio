@@ -184,6 +184,8 @@ else
     bad "Caddyfile @blocked_actuator must include /actuator/env"
   elif ! grep -A8 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/configprops'; then
     bad "Caddyfile @blocked_actuator must include /actuator/configprops"
+  elif ! grep -A8 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/prometheus'; then
+    bad "Caddyfile @blocked_actuator must include /actuator/prometheus"
   else
     note "Caddyfile blocks public sensitive actuator paths"
   fi

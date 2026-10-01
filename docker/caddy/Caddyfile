@@ -60,7 +60,9 @@
 	# Defense in depth: never proxy sensitive actuator paths publicly. The gateway
 	# still serves /actuator/health for probes; identity/env/configprops stay off
 	# the internet-facing surface when PARKIO_GATEWAY_PUBLIC_ACTUATOR_INFO_ENABLED=false.
-	@blocked_actuator path /actuator/info /actuator/env /actuator/configprops /actuator/env/* /actuator/configprops/*
+	# Prometheus scrapes gateway-service:8080 on the internal network, so
+	# /actuator/prometheus is never needed here either (CL-F28).
+	@blocked_actuator path /actuator/info /actuator/env /actuator/configprops /actuator/env/* /actuator/configprops/* /actuator/prometheus /actuator/prometheus/*
 	handle @blocked_actuator {
 		respond 404
 	}
