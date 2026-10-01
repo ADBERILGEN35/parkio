@@ -1,5 +1,5 @@
 import { Button, ErrorMessage, Icon } from '@parkio/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
@@ -20,6 +20,17 @@ export function VerifyEmailPage() {
   const [state, setState] = useState<VerifyState>('verifying');
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();
+  // The server spends a verification token on first use, so it is sent once per token even
+  // when this effect runs again (StrictMode, or `t` changing after the link's lang applies).
+  const sentToken = useRef<string | null>(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const linkLocale = localeFromSearchParam(searchParams.get('lang'));
@@ -36,27 +47,27 @@ export function VerifyEmailPage() {
       return;
     }
 
-    let cancelled = false;
+    if (sentToken.current === token) {
+      return;
+    }
+    sentToken.current = token;
+    const current = () => mounted.current && sentToken.current === token;
     authApi
       .verifyEmail({ token })
       .then(() => {
-        if (!cancelled) {
+        if (current()) {
           setState('success');
           showSuccess(t('auth:verifyEmail.successToast'));
         }
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (!current()) return;
         const friendly = describeAuthError(error, t('errors:auth.verifyFailed'), t);
         setApiError(friendly.message);
         setTraceId(friendly.traceId);
         setState('error');
         showError(friendly.message);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [authApi, searchParams, t]);
 
   return (
