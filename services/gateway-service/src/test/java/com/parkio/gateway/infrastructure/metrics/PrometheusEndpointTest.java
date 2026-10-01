@@ -39,6 +39,32 @@ class PrometheusEndpointTest {
                 .contains("parkio_gateway_rate_limit_rejected_count");
     }
 
+    /**
+     * CL-F28: the public edge (Caddy) adds {@code X-Forwarded-*} to everything it relays;
+     * Prometheus scrapes directly without them. A relayed request must not get the metrics.
+     */
+    @Test
+    void prometheusEndpointRefusesEdgeRelayedRequests() {
+        metricsClient().get().uri("/actuator/prometheus")
+                .header("X-Forwarded-For", "203.0.113.9")
+                .header("X-Forwarded-Proto", "https")
+                .header("X-Forwarded-Host", "api.parkio.example")
+                .exchange()
+                .expectStatus().isNotFound();
+        metricsClient().get().uri("/actuator/prometheus")
+                .header("Forwarded", "for=203.0.113.9;proto=https")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void healthStillAnswersEdgeRelayedRequests() {
+        metricsClient().get().uri("/actuator/health")
+                .header("X-Forwarded-For", "203.0.113.9")
+                .exchange()
+                .expectStatus().value(status -> assertThat(status).isNotEqualTo(404));
+    }
+
     @Test
     void sensitiveActuatorEndpointsAreNotExposed() {
         metricsClient().get().uri("/actuator/env").exchange().expectStatus().isNotFound();

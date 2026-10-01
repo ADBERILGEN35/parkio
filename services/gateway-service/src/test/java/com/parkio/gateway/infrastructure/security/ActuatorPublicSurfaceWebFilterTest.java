@@ -78,6 +78,41 @@ class ActuatorPublicSurfaceWebFilterTest {
   }
 
   @Test
+  void blocksPrometheusRelayedByTheEdgeProxyWhateverTheInfoFlag() {
+    for (boolean actuatorInfoEnabled : new boolean[] {false, true}) {
+      for (String path : new String[] {"/actuator/prometheus", "/actuator/prometheus/jvm"}) {
+        for (String header : new String[] {"X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"}) {
+          var request = MockServerHttpRequest.get(path)
+              .remoteAddress(new InetSocketAddress("172.18.0.20", 443))
+              .header(header, "203.0.113.9")
+              .build();
+          var exchange = MockServerWebExchange.from(request);
+          var chain = new CapturingChain();
+
+          filter(actuatorInfoEnabled).filter(exchange, chain).block();
+
+          assertThat(chain.invoked).as("%s via %s, info=%s", path, header, actuatorInfoEnabled).isFalse();
+          assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        }
+      }
+    }
+  }
+
+  @Test
+  void allowsTheDirectInternalPrometheusScrape() {
+    // Prometheus scrapes gateway-service:8080 from its own container: no proxy headers.
+    for (String remote : new String[] {"172.18.0.7", "127.0.0.1"}) {
+      var exchange = exchangeFor("/actuator/prometheus", remote);
+      var chain = new CapturingChain();
+
+      filter(false).filter(exchange, chain).block();
+
+      assertThat(chain.invoked).as(remote).isTrue();
+      assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+  }
+
+  @Test
   void healthRemainsReachableForExternalRequestWhenDisabled() {
     var exchange = exchangeFor("/actuator/health", "203.0.113.9");
     var chain = new CapturingChain();
