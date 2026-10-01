@@ -116,7 +116,7 @@ public final class TrustEngine {
         }
         if (context.evaluatedAt().isBefore(previous.lastEvaluatedAt() == null
                 ? Instant.EPOCH : previous.lastEvaluatedAt())) {
-            throw new IllegalArgumentException("trust evaluations must be replayed in canonical order");
+            throw new CanonicalTrustOrderException();
         }
     }
 
