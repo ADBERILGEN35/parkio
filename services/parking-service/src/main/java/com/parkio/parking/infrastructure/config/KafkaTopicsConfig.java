@@ -25,6 +25,8 @@ public class KafkaTopicsConfig {
 
     public static final String PARKING_SPOT = "parkio.parking.spot";
     public static final String PARKING_SESSION = "parkio.parking.session";
+    /** Owned and provisioned by auth-service; parking-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 
