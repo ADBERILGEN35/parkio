@@ -27,6 +27,14 @@ dependencies {
     runtimeOnly(libs.jjwt.jackson)
     runtimeOnly(libs.postgresql)
 
+    // spring-cloud-starter resolves bcprov 1.80.2. The catalog floor does not apply
+    // unless this module requests it. Media already has the same constraint.
+    constraints {
+        implementation(libs.bouncycastle.bcprov) {
+            because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI")
+        }
+    }
+
     testImplementation(libs.spring.boot.starter.test)
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
