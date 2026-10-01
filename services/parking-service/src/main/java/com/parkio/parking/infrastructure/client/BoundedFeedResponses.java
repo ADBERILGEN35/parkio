@@ -16,9 +16,11 @@ import org.springframework.util.unit.DataSize;
  * does not bound a response that keeps trickling bytes, and {@code body(JsonNode.class)}
  * reads the whole body into memory. The interceptor lets a response body be read only up to
  * {@code maxSize} and only until {@code maxTime} after the request was sent (measured with
- * the monotonic clock). Past either bound the read fails with
+ * the monotonic clock; a read already blocked ends at the socket read timeout, so a response
+ * takes at most {@code maxTime} plus one read timeout). Past either bound the read fails with
  * {@link FeedResponseLimitException}, which the clients never retry, so the failure takes the
- * existing source-failure path once instead of once per attempt.
+ * existing source-failure path once instead of once per attempt. Closing a bounded response
+ * never reads the rest of the body (see {@link #closeWithoutDraining}).
  */
 public final class BoundedFeedResponses {
 
@@ -38,11 +40,26 @@ public final class BoundedFeedResponses {
             ClientHttpResponse response = execution.execute(request, body);
             long declared = response.getHeaders().getContentLength();
             if (declared > maxBytes) {
-                response.close();
+                closeWithoutDraining(response);
                 throw FeedResponseLimitException.size(maxBytes);
             }
             return new BoundedResponse(response, maxBytes, deadline, maxTime);
         };
+    }
+
+    /**
+     * Spring's responses drain the rest of the body on {@code close()} so the connection can be
+     * reused ({@code SimpleClientHttpResponse} reads it to the end), which would read past both
+     * bounds. Closing the body stream first ends the exchange instead: the drain then fails on
+     * the closed stream and {@code close()} ignores that.
+     */
+    static void closeWithoutDraining(ClientHttpResponse response) {
+        try {
+            response.getBody().close();
+        } catch (IOException | RuntimeException ignored) {
+            // the response is closed below either way
+        }
+        response.close();
     }
 
     /** True when the failure, or one of its causes, is a feed size or time bound violation. */
@@ -111,7 +128,7 @@ public final class BoundedFeedResponses {
 
         @Override
         public void close() {
-            delegate.close();
+            closeWithoutDraining(delegate);
         }
     }
 
@@ -154,6 +171,22 @@ public final class BoundedFeedResponses {
             }
             checkTime();
             return count;
+        }
+
+        /** No mark/reset: re-read bytes would be counted twice against the size bound. */
+        @Override
+        public boolean markSupported() {
+            return false;
+        }
+
+        @Override
+        public synchronized void mark(int readLimit) {
+            // not supported
+        }
+
+        @Override
+        public synchronized void reset() throws IOException {
+            throw new IOException("mark/reset not supported");
         }
 
         @Override

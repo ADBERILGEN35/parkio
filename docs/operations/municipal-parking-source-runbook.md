@@ -30,8 +30,10 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 
 Every municipal source (izum, ispark, anpark, konya, kayseri) has the same two response bounds
 (CL-F23): `max-response-size` caps the body that is read and `max-response-time` caps the whole
-response from request start, so an oversized or slow-drip feed fails once (it is not retried) and
-takes the normal source-failure path. The per-read `read-timeout` alone does not bound a slow drip.
+response from request start (a read already blocked still ends at `read-timeout`), so an oversized
+or slow-drip feed fails once (it is not retried) and takes the normal source-failure path. The
+connection is then closed without reading the rest of the body. The per-read `read-timeout` alone
+does not bound a slow drip.
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
