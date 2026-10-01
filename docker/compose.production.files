@@ -10,6 +10,8 @@ docker/docker-compose.gmp-release-pins.yml
 # Auth registration flags (no image, no volumes). Before the auth pin so
 # the pin remains image-only. Do not add waitlist-ops-inbox.yml here:
 # that overlay stays activation-only and fails without INBOX_GID.
+# Do not add docker-compose.civo-alertmanager.yml here. The Civo wrapper
+# appends it. Azure deploy-common.sh must not.
 docker/docker-compose.auth-registration-env.yml
 docker/docker-compose.auth-release-pin.yml
 docker/docker-compose.web-release-pin.yml
