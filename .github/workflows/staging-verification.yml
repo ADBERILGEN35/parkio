@@ -188,15 +188,17 @@ jobs:
             -f docker/docker-compose.yml -f docker/docker-compose.apps.yml down -v || \
           docker compose --env-file docker/.env -f docker/docker-compose.yml down -v
 
-  # U08: a requested restore counts only if restore-evidence actually ran and succeeded. A skipped,
-  # cancelled or failed restore fails this job, and with it the run. The request is read from the
-  # event and input, not from restore-evidence's own condition, so a change there cannot turn a
-  # requested restore into a green structural-only run. Without a request the run stays
-  # structural-only: this job passes and says the run is not restore evidence.
+  # U08: this check runs only when a restore was requested. Unrequested structural-only
+  # runs skip the job, so the check is not a green "restore succeeded" result. When a
+  # restore was requested, always() still starts the job if restore-evidence failed,
+  # was skipped, or was cancelled; the step then fails unless that result is success.
+  # The request expression does not read needs.*, so restore-evidence's own if cannot
+  # turn a requested restore into an unrequested run. Job success means the dependency
+  # result was success. It does not download or validate the evidence artifact.
   restore-acceptance:
     name: Requested restore executed and succeeded
     needs: restore-evidence
-    if: always()
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_restore)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
