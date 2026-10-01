@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import com.parkio.parking.infrastructure.persistence.ParkingMigrationHistory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Tag;
@@ -35,7 +36,7 @@ class RewardShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(uniqueConstraintExists(connection, "pending_reward_ledger", "uq_pending_reward_ledger_evaluation"))
                     .isTrue();
@@ -62,7 +63,7 @@ class RewardShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "pending_reward_ledger")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_outcome")).isTrue();
             assertThat(foreignKeyExists(connection, "pending_reward_ledger", "fk_pending_reward_ledger_spot")).isTrue();
