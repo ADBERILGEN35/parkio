@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import com.parkio.parking.infrastructure.persistence.ParkingMigrationHistory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Tag;
@@ -35,7 +36,7 @@ class CalibrationShadowMigrationPostgresIT {
         flyway.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "calibration_observation")).isTrue();
             assertThat(tableExists(connection, "calibration_report")).isTrue();
             assertThat(tableExists(connection, "calibration_readiness_assessment")).isTrue();
@@ -68,7 +69,7 @@ class CalibrationShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("26");
+            ParkingMigrationHistory.assertSuccessfulVersionsMatchClasspath(connection);
             assertThat(tableExists(connection, "calibration_observation")).isTrue();
             assertThat(tableExists(connection, "calibration_report")).isTrue();
             assertThat(tableExists(connection, "calibration_readiness_assessment")).isTrue();
