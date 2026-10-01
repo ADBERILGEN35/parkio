@@ -71,7 +71,8 @@ class MediaDelayedObjectWriteVersionedIT extends DelayedObjectWriteITSupport {
         softly.assertThat(acksWhileInFlight).as("media SUCCESS while a PUT of the user could still be applied").isZero();
         softly.assertThat(lateReply).as("the store applied the delayed PUT").contains(" 200 ");
         softly.assertThat(afterLateWrite).as("the late version exists once the PUT completed").hasSize(1);
-        softly.assertThat(ackRows(event)).as("media SUCCESS after the late version was erased").isEqualTo(1);
+        softly.assertThat(ackRows(event)).as("media SUCCESS after the late version was erased" + diagnostics(event))
+                .isEqualTo(1);
         softly.assertThat(storedVersions(owner)).as("versions and delete markers of the erased user after SUCCESS")
                 .isEmpty();
         softly.assertAll();
@@ -101,7 +102,7 @@ class MediaDelayedObjectWriteVersionedIT extends DelayedObjectWriteITSupport {
         SoftAssertions softly = new SoftAssertions();
         softly.assertThat(uploadFailure).as("upload failed in its database step").isNotNull();
         softly.assertThat(cleanupInFlight).as("the rollback cleanup DELETE was delayed in the network").isTrue();
-        softly.assertThat(acks).as("media SUCCESS").isEqualTo(1);
+        softly.assertThat(acks).as("media SUCCESS" + diagnostics(event)).isEqualTo(1);
         softly.assertThat(lateReply).as("the store received the delayed DELETE").startsWith("HTTP/1.1");
         softly.assertThat(afterLateDelete).as("versions and delete markers of the erased user after SUCCESS").isEmpty();
         softly.assertAll();
@@ -126,7 +127,7 @@ class MediaDelayedObjectWriteVersionedIT extends DelayedObjectWriteITSupport {
 
         SoftAssertions softly = new SoftAssertions();
         softly.assertThat(deleteInFlight).as("the owner's DELETE was delayed in the network").isTrue();
-        softly.assertThat(acks).as("media SUCCESS").isEqualTo(1);
+        softly.assertThat(acks).as("media SUCCESS" + diagnostics(event)).isEqualTo(1);
         softly.assertThat(lateReply).as("the store received the delayed DELETE").startsWith("HTTP/1.1");
         softly.assertThat(afterLateDelete).as("versions and delete markers of the erased user after SUCCESS").isEmpty();
         softly.assertAll();

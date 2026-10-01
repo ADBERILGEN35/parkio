@@ -39,6 +39,7 @@ final class DelayingStorageRelay {
         return thread;
     });
     private final List<String> requestLines = new CopyOnWriteArrayList<>();
+    private final List<String> errors = new CopyOnWriteArrayList<>();
     private volatile Mode mode;
     private volatile String method;
     private volatile String pathFragment;
@@ -79,6 +80,13 @@ final class DelayingStorageRelay {
         return requestLines.stream().filter(line -> line.startsWith(method + " ") && line.contains(pathFragment)).count();
     }
 
+    /** What the relay saw: its port, upstream, the last request lines and any I/O error (for failure messages). */
+    String diagnostics() {
+        int from = Math.max(0, requestLines.size() - 12);
+        return "relay 127.0.0.1:" + port() + " -> " + upstreamHost + ":" + upstreamPort + " accepting=" + !server.isClosed()
+                + " requests=" + requestLines.subList(from, requestLines.size()) + " errors=" + errors;
+    }
+
     /** Delivers the held request to MinIO now, on a fresh connection, and returns the reply's status line. */
     String release() throws IOException {
         byte[] request = held;
@@ -108,6 +116,7 @@ final class DelayingStorageRelay {
                 Socket client = server.accept();
                 threads.submit(() -> relay(client));
             } catch (IOException closed) {
+                errors.add("accept: " + closed);
                 return;
             }
         }
@@ -148,8 +157,8 @@ final class DelayingStorageRelay {
                 out.write(body);
                 out.flush();
             }
-        } catch (IOException ignored) {
-            // connection closed
+        } catch (IOException | RuntimeException failure) {
+            errors.add("relay: " + failure);
         }
     }
 

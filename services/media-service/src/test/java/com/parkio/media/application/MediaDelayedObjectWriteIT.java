@@ -63,7 +63,8 @@ class MediaDelayedObjectWriteIT extends DelayedObjectWriteITSupport {
         softly.assertThat(acksWhileInFlight).as("media SUCCESS while a PUT of the user could still be applied").isZero();
         softly.assertThat(lateReply).as("the store applied the delayed PUT").contains(" 200 ");
         softly.assertThat(afterLateWrite).as("the late object exists once the PUT completed").hasSize(1);
-        softly.assertThat(ackRows(event)).as("media SUCCESS after the late object was erased").isEqualTo(1);
+        String diagnostics = diagnostics(event);
+        softly.assertThat(ackRows(event)).as("media SUCCESS after the late object was erased" + diagnostics).isEqualTo(1);
         softly.assertThat(storedVersions(owner)).as("stored versions of the erased user after SUCCESS").isEmpty();
         softly.assertThat(count("SELECT COUNT(*) FROM media_files WHERE owner_user_id = ?", owner)).isZero();
         softly.assertAll();
@@ -82,7 +83,8 @@ class MediaDelayedObjectWriteIT extends DelayedObjectWriteITSupport {
         Throwable uploadFailure = upload(owner);
 
         SoftAssertions softly = new SoftAssertions();
-        softly.assertThat(relay().awaitMatched(10)).as("the PUT reached the relay").isTrue();
+        softly.assertThat(relay().awaitMatched(10)).as("the PUT reached the relay " + relay().diagnostics()
+                + " upload failure: " + uploadFailure).isTrue();
         softly.assertThat(uploadFailure).as("upload failed with a broken connection").isNotNull();
         softly.assertThat(relay().count("PUT", namespaceFragment(owner))).as("PUT requests sent for the upload")
                 .isEqualTo(1);

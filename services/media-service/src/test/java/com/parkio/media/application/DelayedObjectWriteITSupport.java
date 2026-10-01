@@ -136,6 +136,13 @@ abstract class DelayedObjectWriteITSupport {
         }
     }
 
+    /** The erasure job's recorded reason and the relay's view, appended to failure messages. */
+    String diagnostics(UserErasureRequestedEvent event) {
+        List<String> lastError = jdbc.queryForList("SELECT last_error FROM media_erasure_jobs WHERE ack_event_id = ?",
+                String.class, AccountErasureHandler.ackEventId(event));
+        return " [job last_error=" + lastError + "; " + relay().diagnostics() + "]";
+    }
+
     long ackRows(UserErasureRequestedEvent event) {
         return count("""
                 SELECT COUNT(*) FROM outbox_events
