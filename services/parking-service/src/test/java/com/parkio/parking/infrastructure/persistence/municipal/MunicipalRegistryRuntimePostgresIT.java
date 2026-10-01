@@ -67,7 +67,7 @@ class MunicipalRegistryRuntimePostgresIT {
         }
 
         Flyway latest = flyway(null);
-        assertThat(latest.migrate().migrationsExecuted).isEqualTo(8);
+        assertThat(latest.migrate().migrationsExecuted).isEqualTo(9);
         assertThat(latest.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = open()) {

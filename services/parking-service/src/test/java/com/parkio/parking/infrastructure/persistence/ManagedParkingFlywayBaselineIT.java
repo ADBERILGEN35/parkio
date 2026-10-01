@@ -74,7 +74,7 @@ class ManagedParkingFlywayBaselineIT {
     private static final String RUNTIME_ROLE = "parkio_parking_it";
     private static final String RUNTIME_PASSWORD = "runtime-it-pw";
     private static final String LOCATIONS = "classpath:db/migration";
-    private static final int EXPECTED_HEAD = 40;
+    private static final int EXPECTED_HEAD = 41;
 
     /** Verbatim from the R7/R8 invite-production crash loop. */
     private static final String AZURE_GUARD_MESSAGE =
