@@ -274,6 +274,38 @@ set does not cover the cutoff, restore is `BLOCKED` and the copy stays
 can delete again later. Kafka and participant-local tombstones are
 untrusted residue.
 
+### Durable record format v1 (Java and Python)
+
+One object format for the Python model (`scripts/lib/recovery_persist_protocol.py`)
+and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtures:
+
+| Object (`kind`) | Key | Signed fields (hex HMAC-SHA256) | Also bound by |
+|---|---|---|---|
+| Pending record (`erasure-pending-record`) | `records/<erasureRequestId>.json` | `schemaVersion`, `kind`, `erasureRecordId`, `erasureRequestId`, `authUserId`, `sequence`, `databaseIdentity`, `producerId`, `bodyDigest` | `bodyDigest` = SHA-256 of canonical `{authUserId, erasureRequestId, erasedAt}` |
+| Sequence marker (`sequence-allocation`) | `sequences/<sequence, 16 digits>.json` | unsigned if-not-exists reservation | — |
+| Frontier (`erasure-expected-frontier`) | `frontier/expected-through.json` | `schemaVersion`, `kind`, `expectedThrough`, `highestReserved`, `databaseIdentity`, `producerId`, `frontierDigest` | `frontierDigest` = SHA-256 of canonical `{kind, expectedThrough, highestReserved}` |
+| Checkpoint (`erasure-checkpoint`) | `checkpoints/<sequence, 16 digits>.json` | `schemaVersion`, `kind`, `sequence`, `databaseIdentity`, `producerId`, `ledgerDigest`, `captureProtocol` | `ledgerDigest` over `{kind: "erasure-ledger", entries}` |
+
+- Object bytes are the canonical JSON of §4 (sorted keys, compact separators,
+  ASCII escapes), including the unsigned `signature`.
+- UUIDs are lowercase text. `erasedAt` is `java.time.Instant#toString` after
+  truncation to microseconds (no fraction for whole seconds, otherwise 3 or 6
+  digits); the Python model treats it as opaque text.
+- `producerId` selects the consumer's pre-distributed key; v1 has no separate
+  key id (rotation is stage 3 below).
+- Both verifiers reach the same outcome and message: no frontier is `UNKNOWN`;
+  a missing record in `1..expectedThrough` is `BLOCKED`; requiring a sequence
+  above the frontier or in a gap is refused; tampered, re-sequenced,
+  wrong-database or unknown-producer objects are rejected.
+- Fixtures: `services/auth-service/src/test/resources/durable-erasure-evidence/v1`,
+  generated from the Python model by
+  `scripts/generate-durable-erasure-evidence-fixtures.py` (`--check` reports
+  drift) and checked by `scripts/test-durable-erasure-evidence-interop.py`,
+  `DurableErasureEvidenceInteropTest` and `CanonicalJsonTest`.
+- Not part of v1 in Java: store I/O and sequence allocation (off-host adapter),
+  checkpoint production, key distribution and rotation. Durable recording stays
+  default-off and `verifiedCoverage` stays false.
+
 ### Participants and restore ACKs
 
 Required: `auth` plus `user`, `parking`, `media`, `moderation`,
