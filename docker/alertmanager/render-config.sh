@@ -15,6 +15,18 @@ GROUP_WAIT_CRITICAL="${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-15s}"
 GROUP_INTERVAL="${PARKIO_ALERT_GROUP_INTERVAL:-5m}"
 RESOLVE_TIMEOUT="${PARKIO_ALERT_RESOLVE_TIMEOUT:-5m}"
 
+# The Civo production overlay sets PARKIO_ALERT_REQUIRE_RECEIVER. A missing
+# receiver must stop the process. Unset keeps the committed null receiver so
+# local and Azure-disabled paths can still render without a webhook.
+case "${PARKIO_ALERT_REQUIRE_RECEIVER:-}" in
+  1|true|TRUE|yes|YES)
+    if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
+      echo "ERROR: PARKIO_ALERT_REQUIRE_RECEIVER is set but neither PARKIO_ALERT_SLACK_WEBHOOK_URL nor PARKIO_ALERT_WEBHOOK_URL is set" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
   cp "$BASE_CONFIG" "$RUNTIME_CONFIG"
 else
