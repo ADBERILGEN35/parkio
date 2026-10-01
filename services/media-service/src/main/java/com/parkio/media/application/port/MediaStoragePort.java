@@ -10,10 +10,18 @@ import java.util.List;
  */
 public interface MediaStoragePort {
 
-    /** Stores the content under the given key and returns where it landed. */
+    /**
+     * Stores the content under the given key, in exactly one request, and returns where it landed.
+     * Throws {@link WriteNotAppliedException} only when the store certainly did not apply the
+     * write; any other failure leaves its outcome unknown (the store may still apply it later).
+     */
     StoredObject store(String objectKey, byte[] content, String contentType);
 
-    /** Best-effort removal of a stored object. */
+    /**
+     * Removes every stored version of the key, each by its version id, so a delete that reaches the
+     * store late can only remove data, never add a delete marker. Throws if the key is not
+     * confirmed absent afterwards; callers treat it as best effort.
+     */
     void delete(String objectKey);
 
     /**
@@ -50,6 +58,17 @@ public interface MediaStoragePort {
      * refuses, for example under an object-lock retention, fails the call.
      */
     void removeVersion(StoredVersion version);
+
+    /**
+     * The store certainly did not apply a write: it answered with a client error (4xx), or the
+     * request never left the client (no connection could be opened). Any other failure, including
+     * a timeout or a 5xx reply, leaves the outcome unknown.
+     */
+    final class WriteNotAppliedException extends RuntimeException {
+        public WriteNotAppliedException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 
     /** Location of a stored object (bucket + key only; access URLs are generated on demand). */
     record StoredObject(String bucket, String objectKey) {

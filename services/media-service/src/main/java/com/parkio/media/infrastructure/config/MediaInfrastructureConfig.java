@@ -7,6 +7,7 @@ import com.parkio.media.infrastructure.scanner.ClamavMediaScanner;
 import com.parkio.media.infrastructure.scanner.NoOpMediaScanner;
 import io.minio.MinioClient;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Set;
 import okhttp3.OkHttpClient;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -71,13 +72,30 @@ public class MediaInfrastructureConfig {
         return builder.build();
     }
 
-    private static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
+    /**
+     * Every timeout must be positive: OkHttp reads 0 as "no timeout". Transparent retries are off:
+     * OkHttp may otherwise resend a request whose body it buffered after a connection failure, even
+     * once the request was sent, and an unseen second PUT could be applied after the first one's
+     * effects were erased (U05; see erasure-ack-outbox-contract.md, media).
+     */
+    static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
+        requirePositive("connect-timeout", storage.getConnectTimeout());
+        requirePositive("read-timeout", storage.getReadTimeout());
+        requirePositive("write-timeout", storage.getWriteTimeout());
+        requirePositive("call-timeout", storage.getCallTimeout());
         return new OkHttpClient.Builder()
                 .connectTimeout(storage.getConnectTimeout())
                 .readTimeout(storage.getReadTimeout())
                 .writeTimeout(storage.getWriteTimeout())
                 .callTimeout(storage.getCallTimeout())
+                .retryOnConnectionFailure(false)
                 .build();
+    }
+
+    private static void requirePositive(String name, Duration value) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new IllegalStateException("parkio.media.storage." + name + " must be positive (0 means no timeout)");
+        }
     }
 
     @Bean

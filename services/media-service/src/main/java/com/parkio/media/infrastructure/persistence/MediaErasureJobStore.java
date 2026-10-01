@@ -52,6 +52,13 @@ public class MediaErasureJobStore {
     }
 
     /**
+     * An object write of the user from the {@code media_object_writes} ledger (V16): {@code applied}
+     * when the store confirmed it or its object was observed; otherwise its outcome is unknown.
+     */
+    public record ObjectWrite(UUID writeId, String bucket, String objectKey, boolean applied) {
+    }
+
+    /**
      * Opens the job, or touches it on redelivery (the metadata erase has just re-run in the same
      * transaction). The job starts unclaimed; {@code nextAttemptAt} keeps the scheduled poll away
      * while the caller's own attempt claims it. Must run inside the metadata erase transaction.
@@ -148,6 +155,43 @@ public class MediaErasureJobStore {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM media_files WHERE owner_user_id = ?", Long.class,
                 authUserId);
         return count == null ? 0 : count;
+    }
+
+    /** The user's recorded object writes that are not settled yet, oldest first. */
+    public List<ObjectWrite> unsettledWrites(UUID authUserId, int limit) {
+        return jdbc.query("""
+                SELECT id, bucket_name, object_key, state FROM media_object_writes
+                WHERE owner_user_id = ?
+                ORDER BY created_at, id
+                LIMIT ?
+                """, (rs, i) -> new ObjectWrite(
+                        rs.getObject("id", UUID.class), rs.getString("bucket_name"), rs.getString("object_key"),
+                        "APPLIED".equals(rs.getString("state"))),
+                authUserId, limit);
+    }
+
+    public long countUnsettledWrites(UUID authUserId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM media_object_writes WHERE owner_user_id = ?",
+                Long.class, authUserId);
+        return count == null ? 0 : count;
+    }
+
+    /** Writes of any user whose outcome is still unknown (operations gauge). */
+    public long countWritesOfUnknownOutcome() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM media_object_writes WHERE state = 'PENDING'",
+                Long.class);
+        return count == null ? 0 : count;
+    }
+
+    /** Records that the write's object was observed: that request has been applied and cannot apply again. */
+    public void markWriteApplied(UUID writeId, Instant now) {
+        jdbc.update("UPDATE media_object_writes SET state = 'APPLIED', updated_at = ? WHERE id = ?",
+                Timestamp.from(now), writeId);
+    }
+
+    /** Forgets a write whose object was applied and is now confirmed gone. */
+    public void forgetWrite(UUID writeId) {
+        jdbc.update("DELETE FROM media_object_writes WHERE id = ?", writeId);
     }
 
     /** Deletes a media row and its validation results; call inside a transaction. */

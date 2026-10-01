@@ -7,6 +7,7 @@ import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.application.port.MediaOwnerFence;
+import com.parkio.media.application.port.ObjectWriteLedger;
 import com.parkio.media.application.port.MediaScanner;
 import com.parkio.media.application.port.MediaScannerUnavailableException;
 import com.parkio.media.application.port.MediaStoragePort;
@@ -69,6 +70,7 @@ class MediaApplicationServiceTest {
     private FakeOutboxEventAppender outbox;
     private SimpleMeterRegistry meterRegistry;
     private FakeMediaOwnerFence ownerFence;
+    private FakeObjectWriteLedger objectWrites;
     private MediaApplicationService service;
 
     @BeforeEach
@@ -80,13 +82,70 @@ class MediaApplicationServiceTest {
         outbox = new FakeOutboxEventAppender();
         meterRegistry = new SimpleMeterRegistry();
         ownerFence = new FakeMediaOwnerFence();
+        objectWrites = new FakeObjectWriteLedger();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
                 Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE, 1_000, 1_000, 1_000_000);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new MediaApplicationService(mediaFiles, validationResults, storage,
                 new ImageIoImageNormalizer(constraints), scanner, outbox,
                 new MediaRejectionRecorder(outbox), constraints,
-                new MediaAccessUrlPolicy(ACCESS_URL_TTL), ownerFence, clock, meterRegistry);
+                new MediaAccessUrlPolicy(ACCESS_URL_TTL), ownerFence, objectWrites, clock, meterRegistry);
+    }
+
+    @Test
+    void uploadRecordsItsWriteBeforeThePutAndHandsItToTheCommittedRow() {
+        UUID owner = UUID.randomUUID();
+
+        MediaUploadResult result = service.upload(jpeg(owner, new byte[]{51, 51, 51}));
+
+        String key = mediaFiles.byId.get(result.mediaId()).objectKey();
+        assertThat(objectWrites.events).containsExactly("pending " + key + " stored=false", "applied", "forgetWithCaller");
+        assertThat(objectWrites.states).isEmpty();
+    }
+
+    @Test
+    void rejectedPutForgetsItsWrite() {
+        UUID owner = UUID.randomUUID();
+        storage.storeFailure = new MediaStoragePort.WriteNotAppliedException("rejected", null);
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{52, 52, 52}))).isSameAs(storage.storeFailure);
+
+        assertThat(objectWrites.events).hasSize(2).last().isEqualTo("forgetNow");
+        assertThat(objectWrites.states).isEmpty();
+    }
+
+    @Test
+    void putOfUnknownOutcomeStaysRecordedAsPending() {
+        UUID owner = UUID.randomUUID();
+        storage.storeFailure = new IllegalStateException("timeout; the store may still apply it");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{53, 53, 53}))).isSameAs(storage.storeFailure);
+
+        assertThat(objectWrites.states.values()).containsExactly("PENDING");
+        assertThat(storage.deleteAttempts).as("no blind cleanup of a write of unknown outcome").isZero();
+    }
+
+    @Test
+    void rollbackCleanupForgetsTheWriteOnlyOnceItsObjectIsGone() {
+        UUID owner = UUID.randomUUID();
+        mediaFiles.saveFailure = new IllegalStateException("database save failed");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{54, 54, 54}))).isSameAs(mediaFiles.saveFailure);
+
+        assertThat(storage.objects).isEmpty();
+        assertThat(objectWrites.events).endsWith("applied", "forgetNow");
+        assertThat(objectWrites.states).isEmpty();
+    }
+
+    @Test
+    void failedRollbackCleanupKeepsTheAppliedWriteRecorded() {
+        UUID owner = UUID.randomUUID();
+        mediaFiles.saveFailure = new IllegalStateException("database save failed");
+        storage.deleteFailure = new IllegalStateException("delete not confirmed");
+
+        assertThatThrownBy(() -> service.upload(jpeg(owner, new byte[]{55, 55, 55}))).isSameAs(mediaFiles.saveFailure);
+
+        assertThat(objectWrites.states.values()).containsExactly("APPLIED");
     }
 
     @Test
@@ -932,6 +991,38 @@ class MediaApplicationServiceTest {
         @Override
         public void removeVersion(StoredVersion version) {
             throw new UnsupportedOperationException("account erasure only");
+        }
+    }
+
+    /** Records the calls; "stored" tells whether the object already existed when the write was recorded. */
+    private final class FakeObjectWriteLedger implements ObjectWriteLedger {
+        private final List<String> events = new ArrayList<>();
+        private final Map<UUID, String> states = new HashMap<>();
+
+        @Override
+        public UUID recordPending(UUID ownerUserId, String objectKey) {
+            UUID writeId = UUID.randomUUID();
+            states.put(writeId, "PENDING");
+            events.add("pending " + objectKey + " stored=" + storage.objects.containsKey(objectKey));
+            return writeId;
+        }
+
+        @Override
+        public void markApplied(UUID writeId) {
+            states.put(writeId, "APPLIED");
+            events.add("applied");
+        }
+
+        @Override
+        public void forgetNow(UUID writeId) {
+            states.remove(writeId);
+            events.add("forgetNow");
+        }
+
+        @Override
+        public void forgetWithCaller(UUID writeId) {
+            states.remove(writeId);
+            events.add("forgetWithCaller");
         }
     }
 

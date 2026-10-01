@@ -152,7 +152,10 @@ parkio:
     # U05 account erasure, phase 2: every stored version of the user's objects is removed outside
     # the metadata transaction and confirmed gone by a fresh listing before the media row is
     # deleted; the SUCCESS ACK is queued (and the job deleted) only once nothing of the user is
-    # left, under the owner's erasure fence and only by an attempt whose claim is still live.
+    # left, no object write of the user is recorded in media_object_writes (V16), under the
+    # owner's erasure fence and only by an attempt whose claim is still live. A write of unknown
+    # outcome is settled only once its object has been observed; until then the job stays
+    # pending (gauge parkio.media.object_writes.outcome_unknown). No time limit settles it.
     # Pending jobs are retried with exponential backoff (base..max) by this poll. An attempt checks
     # attempt-budget-ms before every storage call and lists listing-page-size entries per call, so
     # it ends at most one storage call-timeout after its budget; the service refuses to start
@@ -207,6 +210,7 @@ parkio:
       read-timeout: ${PARKIO_MEDIA_STORAGE_READ_TIMEOUT:10s}
       write-timeout: ${PARKIO_MEDIA_STORAGE_WRITE_TIMEOUT:10s}
       call-timeout: ${PARKIO_MEDIA_STORAGE_CALL_TIMEOUT:15s}
+      # All four timeouts must be positive (0 would mean "no timeout"); the client never retries.
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

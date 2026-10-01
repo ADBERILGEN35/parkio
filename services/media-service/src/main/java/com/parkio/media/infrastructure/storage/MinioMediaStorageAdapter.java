@@ -5,6 +5,7 @@ import com.parkio.media.infrastructure.config.MediaProperties;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.ListObjectsArgs;
+import io.minio.ObjectWriteArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
@@ -14,9 +15,15 @@ import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -33,6 +40,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class MinioMediaStorageAdapter implements MediaStoragePort {
+
+    /** Bound on listings in one {@link #delete}; a key has one version unless the bucket is versioned. */
+    private static final int MAX_DELETE_LISTINGS = 10;
 
     private final MinioClient internalClient;
     private final MinioClient presignClient;
@@ -53,19 +63,47 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         this.listingPageSize = listingPageSize;
     }
 
+    /**
+     * One PutObject request: the part size is at least the content length, so the SDK never splits
+     * the upload into a multipart upload (whose parts would be stored data outside any listing of
+     * objects), and the HTTP client never retries a request (see {@code MediaInfrastructureConfig}).
+     */
     @Override
     public StoredObject store(String objectKey, byte[] content, String contentType) {
         try {
             internalClient.putObject(PutObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)
-                    .stream(new ByteArrayInputStream(content), content.length, -1)
+                    .stream(new ByteArrayInputStream(content), content.length,
+                            Math.max(content.length, ObjectWriteArgs.MIN_MULTIPART_SIZE))
                     .contentType(contentType)
                     .build());
         } catch (Exception e) {
-            throw new MediaStorageException("Failed to store media object", e);
+            if (definitelyNotApplied(e)) {
+                throw new WriteNotAppliedException("Media object write rejected; nothing was stored", e);
+            }
+            throw new MediaStorageException("Failed to store media object; the write's outcome is unknown", e);
         }
         return new StoredObject(bucket, objectKey);
+    }
+
+    /**
+     * A client-error reply (4xx) means the store rejected this request. A failure to open the
+     * connection means no byte of it was sent (the client does not retry, so this was the only
+     * attempt). Everything else, timeouts and 5xx replies included, may have been applied.
+     */
+    static boolean definitelyNotApplied(Exception failure) {
+        if (failure instanceof ErrorResponseException rejected && rejected.response() != null) {
+            int status = rejected.response().code();
+            return status >= 400 && status < 500;
+        }
+        for (Throwable cause = failure; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+            if (cause instanceof ConnectException || cause instanceof UnknownHostException
+                    || cause instanceof NoRouteToHostException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -83,10 +121,22 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     @Override
     public void delete(String objectKey) {
         try {
-            internalClient.removeObject(RemoveObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .build());
+            Set<StoredVersion> removed = new HashSet<>();
+            for (int listing = 0; listing < MAX_DELETE_LISTINGS; listing++) {
+                List<StoredVersion> versions = versionsOf(bucket, objectKey);
+                if (versions.isEmpty()) {
+                    return;
+                }
+                for (StoredVersion version : versions) {
+                    if (!removed.add(version)) {
+                        throw new MediaStorageException("Media object version still present after its delete", null);
+                    }
+                    removeVersion(version);
+                }
+            }
+            throw new MediaStorageException("Media object versions not confirmed removed", null);
+        } catch (MediaStorageException e) {
+            throw e;
         } catch (Exception e) {
             throw new MediaStorageException("Failed to remove media object", e);
         }
@@ -123,8 +173,9 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         requireConfiguredBucket(objectBucket);
         try {
             List<StoredVersion> versions = list(objectKey, objectKey::equals);
-            if (versions.isEmpty() && currentObjectExists(objectKey)) {
-                versions.add(new StoredVersion(bucket, objectKey, null, false));
+            if (versions.isEmpty()) {
+                currentVersionId(objectKey).ifPresent(versionId ->
+                        versions.add(new StoredVersion(bucket, objectKey, versionId, false)));
             }
             return versions;
         } catch (Exception e) {
@@ -177,13 +228,19 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         return versions;
     }
 
-    private boolean currentObjectExists(String objectKey) throws Exception {
+    /**
+     * The current version's id by HEAD, or empty if the key does not exist. An unversioned object
+     * reports {@code "null"}, so removing it is never a key-only delete (which would add a delete
+     * marker in a versioned bucket).
+     */
+    private Optional<String> currentVersionId(String objectKey) throws Exception {
         try {
-            internalClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
-            return true;
+            String versionId = internalClient.statObject(
+                    StatObjectArgs.builder().bucket(bucket).object(objectKey).build()).versionId();
+            return Optional.of(versionId == null ? "null" : versionId);
         } catch (ErrorResponseException e) {
             if ("NoSuchKey".equals(e.errorResponse().code())) {
-                return false;
+                return Optional.empty();
             }
             throw e;
         }

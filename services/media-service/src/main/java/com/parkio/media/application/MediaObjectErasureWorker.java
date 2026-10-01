@@ -7,6 +7,7 @@ import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.StoredMedia;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -14,11 +15,14 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +47,19 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ends at most one storage call (bounded by the storage call timeout) after the budget, leaving
  * the remaining work pending and durable. The lease must outlast that (checked at startup).
  *
+ * <p>Recorded object writes of the user ({@code media_object_writes}, V16) are settled next. An
+ * upload records its PUT before sending it; a PUT whose outcome is unknown may still be applied by
+ * the store at any later time, and no documented bound limits when. Such a write is settled only
+ * once its object has been observed (and removed): until then the job stays pending, records why,
+ * and is retried with backoff. A write the store confirmed is settled once its object is confirmed
+ * gone.
+ *
  * <p>The SUCCESS ACK is queued in one transaction that first takes the owner's erasure fence
- * exclusively (no media write of the owner can be admitted or still be in flight), then requires
+ * exclusively (no media write transaction of the owner can be open or admitted), then requires
  * the claim to be held and unexpired (an expired or reclaimed claim never finalizes), re-checks
- * that the owner has no media row, deletes late idempotency records and the job, and appends the
- * ACK. Every failed attempt is recorded on the job (attempts, last error, backoff); the scheduled
- * poll claims due jobs and jobs whose claim expired.
+ * that the owner has no media row and no recorded object write, deletes late idempotency records
+ * and the job, and appends the ACK. Every failed attempt is recorded on the job (attempts, last
+ * error, backoff); the scheduled poll claims due jobs and jobs whose claim expired.
  */
 @Component
 public class MediaObjectErasureWorker {
@@ -64,6 +75,12 @@ public class MediaObjectErasureWorker {
     }
 
     private enum Progress { CONFIRMED_ABSENT, BUDGET_SPENT }
+
+    /** Result of settling one recorded object write. */
+    private enum WriteProgress { SETTLED, OUTCOME_UNKNOWN, BUDGET_SPENT }
+
+    /** Recorded writes looked at per attempt; more stay recorded and keep SUCCESS blocked. */
+    static final int WRITE_BATCH = 100;
 
     /** Time the lease keeps for the database work after the last storage call. */
     static final Duration COMPLETION_MARGIN = Duration.ofSeconds(10);
@@ -128,6 +145,9 @@ public class MediaObjectErasureWorker {
         this.baseBackoff = Duration.ofMillis(baseBackoffMs);
         this.maxBackoff = Duration.ofMillis(maxBackoffMs);
         this.attemptBudget = Duration.ofMillis(attemptBudgetMs);
+        requirePositive("parkio.media.erasure-worker.attempt-budget-ms", attemptBudget);
+        requirePositive("parkio.media.erasure-worker.lease-ms", lease);
+        requirePositive("parkio.media.storage.call-timeout", storageCallTimeout);
         Duration needed = attemptBudget.plus(storageCallTimeout.multipliedBy(2)).plus(COMPLETION_MARGIN);
         if (lease.compareTo(needed) < 0) {
             throw new IllegalStateException("parkio.media.erasure-worker.lease-ms (" + lease.toMillis()
@@ -145,6 +165,9 @@ public class MediaObjectErasureWorker {
                 .register(registry);
         Gauge.builder("parkio.media.erasure.jobs.pending", jobs, MediaErasureJobStore::countPendingJobs)
                 .description("Media erasure jobs still waiting for confirmed object deletion (no SUCCESS yet)")
+                .register(registry);
+        Gauge.builder("parkio.media.object_writes.outcome_unknown", jobs, MediaErasureJobStore::countWritesOfUnknownOutcome)
+                .description("Recorded object writes whose outcome is unknown; an erasure of their owner waits on them")
                 .register(registry);
     }
 
@@ -226,14 +249,45 @@ public class MediaObjectErasureWorker {
         }
         if (failures == 0 && !budgetSpent) {
             // Uploads whose row never committed (a failed upload whose cleanup also failed) left
-            // their objects under the same owner-namespaced keys.
+            // their objects under the same owner-namespaced keys. A write of unknown outcome whose
+            // object turns up here is recorded as applied before the object is removed, so that
+            // observation is not lost.
+            Map<String, ObjectWrite> unknownByKey = new HashMap<>();
+            for (ObjectWrite write : jobs.unsettledWrites(job.authUserId(), WRITE_BATCH)) {
+                if (!write.applied()) {
+                    unknownByKey.put(write.objectKey(), write);
+                }
+            }
             String prefix = MediaApplicationService.objectKeyPrefix(job.authUserId());
             try {
-                budgetSpent = eraseVersions(() -> storage.versionsUnder(prefix), deadline) == Progress.BUDGET_SPENT;
+                budgetSpent = eraseVersions(() -> storage.versionsUnder(prefix), deadline,
+                        version -> recordObserved(unknownByKey.remove(version.objectKey())))
+                        == Progress.BUDGET_SPENT;
             } catch (RuntimeException e) {
                 failures++;
                 objectFailures.increment();
                 firstFailure = "key namespace: " + reasonOf(e);
+            }
+        }
+        int outcomeUnknown = 0;
+        if (failures == 0 && !budgetSpent) {
+            for (ObjectWrite write : jobs.unsettledWrites(job.authUserId(), WRITE_BATCH)) {
+                try {
+                    WriteProgress progress = settle(write, deadline);
+                    if (progress == WriteProgress.BUDGET_SPENT) {
+                        budgetSpent = true;
+                        break;
+                    }
+                    if (progress == WriteProgress.OUTCOME_UNKNOWN) {
+                        outcomeUnknown++;
+                    }
+                } catch (RuntimeException e) {
+                    failures++;
+                    objectFailures.increment();
+                    if (firstFailure == null) {
+                        firstFailure = "object write " + write.writeId() + ": " + reasonOf(e);
+                    }
+                }
             }
         }
         Instant now = clock.instant();
@@ -251,6 +305,15 @@ public class MediaObjectErasureWorker {
                     job.erasureRequestId());
             return Outcome.RETRY_SCHEDULED;
         }
+        if (outcomeUnknown > 0) {
+            // No time bound makes such a write harmless: the store may still apply it. The job stays
+            // pending and keeps looking until each write's object is observed (and then removed).
+            jobs.scheduleRetry(job.ackEventId(), token, outcomeUnknown + " object write(s) of unknown outcome;"
+                    + " SUCCESS waits until each is observed", now.plus(backoff(job.attempts() + 1)), now);
+            log.warn("media erasure requestId={} waiting for object writes of unknown outcome count={} status=RETRY_SCHEDULED",
+                    job.erasureRequestId(), outcomeUnknown);
+            return Outcome.RETRY_SCHEDULED;
+        }
         Boolean completed = tx.execute(status -> {
             // Fence first (the same lock order as phase 1): no media write of the owner can be
             // in flight or admitted while this decision is made and committed.
@@ -258,7 +321,7 @@ public class MediaObjectErasureWorker {
             if (!jobs.lockClaim(job.ackEventId(), token, clock.instant())) {
                 return Boolean.FALSE; // claim expired or taken over: only a live claim finalizes
             }
-            if (jobs.countMedia(job.authUserId()) > 0) {
+            if (jobs.countMedia(job.authUserId()) > 0 || jobs.countUnsettledWrites(job.authUserId()) > 0) {
                 jobs.release(job.ackEventId(), token, clock.instant(), clock.instant());
                 return Boolean.FALSE;
             }
@@ -282,6 +345,11 @@ public class MediaObjectErasureWorker {
      * delete returned normally means the store kept it: the attempt fails for that key.
      */
     private Progress eraseVersions(Supplier<List<StoredVersion>> listing, Instant deadline) {
+        return eraseVersions(listing, deadline, version -> { });
+    }
+
+    private Progress eraseVersions(Supplier<List<StoredVersion>> listing, Instant deadline,
+                                   Consumer<StoredVersion> beforeRemove) {
         Set<StoredVersion> removed = new HashSet<>();
         while (true) {
             if (expired(deadline)) {
@@ -300,9 +368,45 @@ public class MediaObjectErasureWorker {
                 if (expired(deadline)) {
                     return Progress.BUDGET_SPENT;
                 }
+                beforeRemove.accept(version);
                 storage.removeVersion(version);
                 removed.add(version);
             }
+        }
+    }
+
+    /**
+     * Settles one recorded write of the user. A write of unknown outcome is settled only once its
+     * object has been observed: that proves the request was applied, and a request applies at most
+     * once (one PUT per upload, no client retries, a fresh key per upload). Until then it stays.
+     */
+    private WriteProgress settle(ObjectWrite write, Instant deadline) {
+        if (!write.applied()) {
+            if (expired(deadline)) {
+                return WriteProgress.BUDGET_SPENT;
+            }
+            if (storage.versionsOf(write.bucket(), write.objectKey()).isEmpty()) {
+                return WriteProgress.OUTCOME_UNKNOWN;
+            }
+            tx.executeWithoutResult(status -> jobs.markWriteApplied(write.writeId(), clock.instant()));
+        }
+        if (eraseVersions(() -> storage.versionsOf(write.bucket(), write.objectKey()), deadline)
+                == Progress.BUDGET_SPENT) {
+            return WriteProgress.BUDGET_SPENT;
+        }
+        tx.executeWithoutResult(status -> jobs.forgetWrite(write.writeId()));
+        return WriteProgress.SETTLED;
+    }
+
+    private void recordObserved(ObjectWrite write) {
+        if (write != null) {
+            tx.executeWithoutResult(status -> jobs.markWriteApplied(write.writeId(), clock.instant()));
+        }
+    }
+
+    private static void requirePositive(String name, Duration value) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new IllegalStateException(name + " must be positive");
         }
     }
 

@@ -3,6 +3,7 @@ package com.parkio.media.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,6 +22,7 @@ import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.StoredMedia;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -310,6 +312,110 @@ class MediaObjectErasureWorkerTest {
         // budget 60 s + 2 x 15 s storage calls + 10 s margin = 100 s
         new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, Clock.fixed(NOW, ZoneOffset.UTC),
                 new SimpleMeterRegistry(), true, 20, 100_000, 5_000, 900_000, 60_000);
+    }
+
+    @Test
+    void aWriteOfUnknownOutcomeWhoseObjectWasNeverSeenKeepsTheJobPending() {
+        ObjectWrite write = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of());
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(jobs).scheduleRetry(eq(jobId), eq(token), contains("1 object write(s) of unknown outcome"), any(), any());
+        verify(jobs, never()).markWriteApplied(any(), any());
+        verify(jobs, never()).forgetWrite(any());
+        verify(jobs, never()).holdOwner(any());
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void aWriteOfUnknownOutcomeIsSettledOnceItsObjectHasBeenObservedAndRemoved() {
+        ObjectWrite write = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
+        StoredVersion late = new StoredVersion(BUCKET, write.objectKey(), "v9", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of(late), List.of(late), List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        InOrder order = inOrder(jobs, storage, ackOutbox);
+        order.verify(jobs).markWriteApplied(write.writeId(), NOW);
+        order.verify(storage).removeVersion(late);
+        order.verify(jobs).forgetWrite(write.writeId());
+        order.verify(jobs).countUnsettledWrites(owner);
+        order.verify(ackOutbox).append(any());
+    }
+
+    @Test
+    void anAppliedWriteIsSettledOnceItsObjectIsConfirmedGone() {
+        ObjectWrite write = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "rolled-back.jpg", true);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(write));
+        when(storage.versionsOf(BUCKET, write.objectKey())).thenReturn(List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        verify(jobs).forgetWrite(write.writeId());
+        verify(jobs, never()).markWriteApplied(any(), any());
+    }
+
+    @Test
+    void theNamespaceSweepRecordsAWriteOfUnknownOutcomeAsAppliedBeforeRemovingItsObject() {
+        ObjectWrite unknown = new ObjectWrite(UUID.randomUUID(), BUCKET, namespace + "late.jpg", false);
+        ObjectWrite observed = new ObjectWrite(unknown.writeId(), BUCKET, unknown.objectKey(), true);
+        StoredVersion late = new StoredVersion(BUCKET, unknown.objectKey(), "null", false);
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(jobs.unsettledWrites(eq(owner), anyInt())).thenReturn(List.of(unknown), List.of(observed));
+        when(storage.versionsUnder(namespace)).thenReturn(List.of(late), List.of());
+        when(storage.versionsOf(BUCKET, unknown.objectKey())).thenReturn(List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        InOrder order = inOrder(jobs, storage);
+        order.verify(jobs).markWriteApplied(unknown.writeId(), NOW);
+        order.verify(storage).removeVersion(late);
+        order.verify(jobs).forgetWrite(unknown.writeId());
+    }
+
+    @Test
+    void aWriteRecordedDuringTheAttemptKeepsTheCompletionFromQueuingSuccess() {
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+        when(jobs.countUnsettledWrites(owner)).thenReturn(1L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.RETRY_SCHEDULED);
+
+        verify(jobs).release(jobId, token, NOW, NOW);
+        verify(ackOutbox, never()).append(any());
+    }
+
+    @Test
+    void nonPositiveBudgetLeaseOrStorageTimeoutIsRejectedAtStartup() {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, clock,
+                new SimpleMeterRegistry(), true, 20, 120_000, 5_000, 900_000, 0, Duration.ofSeconds(15)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("attempt-budget-ms must be positive");
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, clock,
+                new SimpleMeterRegistry(), true, 20, 120_000, 5_000, 900_000, -60_000, Duration.ofSeconds(15)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("attempt-budget-ms must be positive");
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, clock,
+                new SimpleMeterRegistry(), true, 20, 0, 5_000, 900_000, 60_000, Duration.ofSeconds(15)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("lease-ms must be positive");
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, clock,
+                new SimpleMeterRegistry(), true, 20, 120_000, 5_000, 900_000, 60_000, Duration.ZERO))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("call-timeout must be positive");
+        assertThatThrownBy(() -> new MediaObjectErasureWorker(jobs, storage, ackOutbox, transactions, clock,
+                new SimpleMeterRegistry(), true, 20, 120_000, 5_000, 900_000, 60_000, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("call-timeout must be positive");
     }
 
     @Test
