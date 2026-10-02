@@ -1,6 +1,7 @@
 package com.parkio.gamification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -107,13 +108,16 @@ class AccountErasureAckOutboxPostgresIT {
         handler.handle(event);
         assertThat(ackRows(event.erasureRequestId())).isEqualTo(1);
 
-        // Broker unreachable: the send fails (the relay surfaces it synchronously and the poll
-        // transaction rolls back), but the committed ACK row stays queued for the next poll.
+        // Broker unreachable: send() fails synchronously. The poll counts that failure for the
+        // row and completes (U18 CL-F32); the committed ACK row stays queued, not dead-lettered.
         Runnable brokenRelay = relay(brokerTemplate("127.0.0.1:1"));
-        assertThatThrownBy(brokenRelay::run);
+        assertThatCode(brokenRelay::run).doesNotThrowAnyException();
         Map<String, Object> row = ackRow(event.erasureRequestId());
         assertThat(row.get("published")).isEqualTo(false);
         assertThat(row.get("dead_lettered")).isEqualTo(false);
+        assertThat(jdbc.queryForObject("SELECT failure_count FROM outbox_events "
+                + "WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?", Integer.class,
+                event.erasureRequestId())).as("the synchronous send failure is counted").isEqualTo(1);
 
         // "Restart": a new relay instance over the same committed database row.
         relay(brokerTemplate(KAFKA.getBootstrapServers())).run();
