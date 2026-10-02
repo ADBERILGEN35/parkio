@@ -5,8 +5,13 @@ import com.parkio.media.application.MediaUploadConstraints;
 import com.parkio.media.application.port.MediaScanner;
 import com.parkio.media.infrastructure.scanner.ClamavMediaScanner;
 import com.parkio.media.infrastructure.scanner.NoOpMediaScanner;
+import com.parkio.media.infrastructure.storage.SingleTransmissionInterceptor;
+import com.parkio.media.infrastructure.storage.VersionListingClient;
+import io.minio.MinioAsyncClient;
 import io.minio.MinioClient;
+import java.net.Proxy;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Set;
 import okhttp3.OkHttpClient;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -60,6 +65,23 @@ public class MediaInfrastructureConfig {
         return buildMinioClient(publicEndpoint, storage);
     }
 
+    /**
+     * Version listings for account erasure against the internal endpoint, one ListObjectVersions
+     * request per call (the SDK's listing iterator would request further pages on its own).
+     */
+    @Bean
+    public VersionListingClient versionListingClient(MediaProperties properties) {
+        MediaProperties.Storage storage = properties.getStorage();
+        MinioAsyncClient.Builder builder = MinioAsyncClient.builder()
+                .endpoint(storage.getEndpoint())
+                .credentials(storage.getAccessKey(), storage.getSecretKey())
+                .httpClient(minioHttpClient(storage));
+        if (StringUtils.hasText(storage.getRegion())) {
+            builder.region(storage.getRegion());
+        }
+        return new VersionListingClient(builder.build());
+    }
+
     private static MinioClient buildMinioClient(String endpoint, MediaProperties.Storage storage) {
         MinioClient.Builder builder = MinioClient.builder()
                 .endpoint(endpoint)
@@ -71,13 +93,39 @@ public class MediaInfrastructureConfig {
         return builder.build();
     }
 
-    private static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
+    /**
+     * Every timeout must be positive: OkHttp reads 0 as "no timeout".
+     *
+     * <p>U05 object write ledger: a request body is sent at most once. The
+     * {@link SingleTransmissionInterceptor} makes every body one-shot, so OkHttp sends no follow-up
+     * (503 with {@code Retry-After: 0}, 307/308, 408, 421, authentication) and no retry once a body
+     * went out; redirects are not followed at all (a 301/302/303 would turn the PUT into a GET whose
+     * reply says nothing about the PUT), and no proxy is used (an HTTP intermediary may repeat a
+     * request). OkHttp's connection recovery stays on otherwise: listings, HEAD and version-specific
+     * DELETEs still try a host's other addresses and replace stale pooled connections, and repeating
+     * them is harmless. (For the upload PUT the MinIO SDK turns that recovery off per call.)
+     */
+    static OkHttpClient minioHttpClient(MediaProperties.Storage storage) {
+        requirePositive("connect-timeout", storage.getConnectTimeout());
+        requirePositive("read-timeout", storage.getReadTimeout());
+        requirePositive("write-timeout", storage.getWriteTimeout());
+        requirePositive("call-timeout", storage.getCallTimeout());
         return new OkHttpClient.Builder()
                 .connectTimeout(storage.getConnectTimeout())
                 .readTimeout(storage.getReadTimeout())
                 .writeTimeout(storage.getWriteTimeout())
                 .callTimeout(storage.getCallTimeout())
+                .addInterceptor(new SingleTransmissionInterceptor())
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .proxy(Proxy.NO_PROXY)
                 .build();
+    }
+
+    private static void requirePositive(String name, Duration value) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new IllegalStateException("parkio.media.storage." + name + " must be positive (0 means no timeout)");
+        }
     }
 
     @Bean

@@ -60,11 +60,19 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# The plaintext mirror stays private until parkio_backup_seal_minio encrypts and removes it
+# (CL-F29.2): mc runs as the invoking user with umask 077, so the tree belongs to whoever runs
+# the backup and grants nothing to group or other, and that user can delete it without root.
+# MC_CONFIG_DIR gives mc a writable config directory for a user without a home in the image.
+umask 077
 mkdir -p "${MIRROR_DEST}"
+chmod 700 "${DEST_DIR}/minio" "${MIRROR_DEST}"
 
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   --network "${NETWORK}" \
   -v "${MIRROR_DEST}:/backup" \
+  -e "MC_CONFIG_DIR=/tmp/.mc" \
   -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
   -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}" \
   -e "BUCKET=${BUCKET}" \
@@ -72,8 +80,8 @@ docker run --rm \
   "${MC_IMAGE}" \
   -c '
     set -eu
+    umask 077
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
     mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null
-    chmod -R a+rwX /backup
     mc ls --recursive "local/${BUCKET}" | wc -l
   '
