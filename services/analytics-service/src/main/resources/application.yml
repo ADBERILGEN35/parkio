@@ -142,3 +142,10 @@ parkio:
     # configurable for production; 1 is the local/dev default (single-broker compose).
     provision-topics: true
     replication-factor: ${PARKIO_KAFKA_REPLICATION_FACTOR:1}
+    relay:
+      # Outbox relay (U05): publishes participant erasure ACKs to parkio.privacy.erasure.
+      # Poll interval and batch size are configurable; send-timeout bounds the ack wait.
+      enabled: true
+      poll-interval-ms: 1000
+      batch-size: 100
+      send-timeout-ms: 10000
