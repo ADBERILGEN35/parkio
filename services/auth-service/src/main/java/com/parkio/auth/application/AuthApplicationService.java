@@ -205,10 +205,9 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN));
 
         Instant now = clock.instant();
-        if (user.emailVerified()) {
-            return user;
-        }
-        if (user.emailVerificationTokenExpired(now)) {
+        // Verification clears the token, so a verified account matches only through a link
+        // stored before that: it is spent like any used link and returns no account (CL-F35).
+        if (user.emailVerified() || user.emailVerificationTokenExpired(now)) {
             throw new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
         }
         user.verifyEmail(now);
