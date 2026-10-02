@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,10 +21,10 @@ import javax.crypto.spec.SecretKeySpec;
 /**
  * Durable erasure evidence format v1, shared with the Python persist protocol
  * ({@code scripts/lib/recovery_persist_protocol.py}). This class writes the objects a store
- * adapter publishes: signed pending records, sequence-allocation markers and the signed
- * expected-boundary frontier. Bytes are canonical JSON ({@link CanonicalJson}); signatures
- * are hex HMAC-SHA256 over the canonical signed subset. The cross-language fixtures under
- * {@code src/test/resources/durable-erasure-evidence/v1} pin byte equality with Python.
+ * adapter publishes: signed pending records, signed checkpoints, sequence-allocation markers
+ * and the signed expected-boundary frontier. Bytes are canonical JSON ({@link CanonicalJson});
+ * signatures are hex HMAC-SHA256 over the canonical signed subset. The cross-language fixtures
+ * under {@code src/test/resources/durable-erasure-evidence/v1} pin byte equality with Python.
  *
  * <p>Store I/O, sequence allocation, key distribution and flags are not part of this class.
  */
@@ -36,6 +37,13 @@ public final class DurableErasureEvidence {
     public static final String KIND_SEQUENCE_ALLOCATION = "sequence-allocation";
     public static final String KIND_LEDGER = "erasure-ledger";
     public static final String FRONTIER_KEY = "frontier/expected-through.json";
+    /** The capture protocol of a checkpoint: READ COMMITTED read under a SHARE table lock. */
+    public static final String CAPTURE_PROTOCOL_TABLE_SHARE_LOCK = "table-share-lock";
+    /**
+     * The {@code erasureRequestId} of a sequence marker that reserves a checkpoint's sequence.
+     * Format v1 has one marker shape; the nil UUID is never a request id.
+     */
+    public static final UUID CHECKPOINT_RESERVATION = new UUID(0L, 0L);
 
     public static final List<String> SIGNED_PENDING = List.of(
             "schemaVersion", "kind", "erasureRecordId", "erasureRequestId",
@@ -129,6 +137,45 @@ public final class DurableErasureEvidence {
         body.put("bodyDigest", record.bodyDigest());
         body.put("signature", sign(body, SIGNED_PENDING, producer.key()));
         return CanonicalJson.bytes(body);
+    }
+
+    /**
+     * A signed checkpoint: the whole tombstone ledger captured under the lock protocol, one
+     * {@code {authUserId, erasedAt}} entry per tombstone ordered by {@code authUserId} (the order
+     * of PostgreSQL's {@code ORDER BY auth_user_id}), bound by {@code ledgerDigest}.
+     */
+    public static byte[] checkpoint(long sequence, List<ErasureLedgerEntry> entries,
+                                    String databaseIdentity, ProducerKey producer) {
+        List<Map<String, Object>> ledger = ledgerEntries(entries);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("schemaVersion", SCHEMA_VERSION);
+        body.put("kind", KIND_CHECKPOINT);
+        body.put("sequence", requirePositive(sequence));
+        body.put("databaseIdentity", requireText(databaseIdentity, "databaseIdentity"));
+        body.put("producerId", producer.producerId());
+        body.put("ledgerDigest", ledgerDigest(ledger));
+        body.put("captureProtocol", CAPTURE_PROTOCOL_TABLE_SHARE_LOCK);
+        body.put("entries", ledger);
+        body.put("signature", sign(body, SIGNED_CHECKPOINT, producer.key()));
+        return CanonicalJson.bytes(body);
+    }
+
+    /**
+     * Ledger entries in canonical order. Lowercase UUID text sorts like PostgreSQL's uuid order
+     * (unsigned bytes); {@link UUID#compareTo} compares signed longs and would not.
+     */
+    static List<Map<String, Object>> ledgerEntries(List<ErasureLedgerEntry> entries) {
+        Objects.requireNonNull(entries, "entries");
+        Map<String, Map<String, Object>> byUser = new TreeMap<>();
+        for (ErasureLedgerEntry entry : entries) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("authUserId", entry.authUserId().toString());
+            item.put("erasedAt", erasedAt(entry.erasedAt()));
+            if (byUser.put(entry.authUserId().toString(), item) != null) {
+                throw new IllegalArgumentException("duplicate ledger entry for one authUserId");
+            }
+        }
+        return List.copyOf(byUser.values());
     }
 
     /** The signed expected boundary; {@code highestReserved} is never below {@code expectedThrough}. */

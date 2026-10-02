@@ -9,6 +9,7 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verifi
 import com.parkio.auth.application.port.DurableErasureRecord;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,50 @@ class DurableErasureEvidenceInteropTest {
         }
         assertThat(DurableErasureEvidence.frontier(3, 3, DATABASE, PRODUCER))
                 .isEqualTo(DurableEvidenceFixtures.bytes("cases/valid/store/" + DurableErasureEvidence.FRONTIER_KEY));
+    }
+
+    @Test
+    void javaWritesTheReferenceCheckpointAndItsReservationByteForByte() {
+        List<ErasureLedgerEntry> entries = new ArrayList<>();
+        for (JsonNode input : DurableEvidenceFixtures.json("inputs.json")) {
+            entries.add(new ErasureLedgerEntry(UUID.fromString(input.path("authUserId").asText()),
+                    Instant.parse(input.path("erasedAt").asText())));
+        }
+        // The writer orders the ledger itself.
+        Collections.reverse(entries);
+
+        assertThat(DurableErasureEvidence.checkpoint(3, entries, DATABASE, PRODUCER))
+                .isEqualTo(DurableEvidenceFixtures.bytes(
+                        "cases/checkpoint-ledger/store/" + DurableErasureEvidence.checkpointKey(3)));
+        assertThat(DurableErasureEvidence.sequenceMarker(3, DurableErasureEvidence.CHECKPOINT_RESERVATION))
+                .isEqualTo(DurableEvidenceFixtures.bytes(
+                        "cases/checkpoint-ledger/store/" + DurableErasureEvidence.sequenceKey(3)));
+    }
+
+    @Test
+    void checkpointLedgerFollowsPostgresUuidOrderNotUuidCompareTo() {
+        UUID high = UUID.fromString("80000000-0000-4000-8000-000000000001");
+        UUID low = UUID.fromString("10000000-0000-4000-8000-000000000001");
+        // UUID.compareTo compares signed longs: 0x8000... is negative and sorts first.
+        assertThat(high.compareTo(low)).isNegative();
+
+        List<Map<String, Object>> ledger = DurableErasureEvidence.ledgerEntries(List.of(
+                new ErasureLedgerEntry(high, Instant.parse("2026-09-29T08:16:00Z")),
+                new ErasureLedgerEntry(low, Instant.parse("2026-09-29T08:15:30.123456789Z"))));
+
+        assertThat(ledger).extracting(entry -> entry.get("authUserId")).containsExactly(low.toString(), high.toString());
+        assertThat(ledger.get(0).get("erasedAt")).isEqualTo("2026-09-29T08:15:30.123456Z");
+    }
+
+    @Test
+    void aCheckpointWithTwoEntriesForOneUserIsNotWritten() {
+        UUID user = UUID.randomUUID();
+        List<ErasureLedgerEntry> duplicated = List.of(
+                new ErasureLedgerEntry(user, Instant.parse("2026-09-29T08:16:00Z")),
+                new ErasureLedgerEntry(user, Instant.parse("2026-09-29T08:17:00Z")));
+
+        assertThatThrownBy(() -> DurableErasureEvidence.checkpoint(1, duplicated, DATABASE, PRODUCER))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

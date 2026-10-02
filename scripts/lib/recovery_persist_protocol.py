@@ -47,6 +47,10 @@ SIGNED_FRONTIER = (
     "schemaVersion", "kind", "expectedThrough", "highestReserved",
     "databaseIdentity", "producerId", "frontierDigest",
 )
+# Sequence markers that reserve a checkpoint's sequence carry this erasureRequestId (format v1
+# has one marker shape; the nil UUID is never a request id). The auth-service producer fills a
+# checkpoint reservation left without its checkpoint with its next checkpoint.
+CHECKPOINT_RESERVATION_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def erasure_record_id(erasure_request_id):

@@ -15,5 +15,6 @@
   "frontier-tampered",
   "frontier-digest",
   "checkpoint",
-  "checkpoint-tampered"
+  "checkpoint-tampered",
+  "checkpoint-ledger"
 ]

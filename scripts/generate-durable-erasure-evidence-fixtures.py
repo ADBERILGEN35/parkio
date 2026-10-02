@@ -5,8 +5,8 @@ The Python persist protocol (scripts/lib/recovery_persist_protocol.py) is the
 reference producer. This script runs it against a throwaway directory store and
 writes deterministic store snapshots plus expected verdicts. The Java producer and
 verifier in auth-service (com.parkio.auth.application.durable) are tested against
-the same files: Java must write byte-identical records, markers and frontier, and
-both verifiers must reach the same verdict or error for every case.
+the same files: Java must write byte-identical records, markers, frontier and
+checkpoint, and both verifiers must reach the same verdict or error for every case.
 
 Usage:
   scripts/generate-durable-erasure-evidence-fixtures.py            # rewrite fixtures
@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "scripts/lib"))
 
 from recovery_evidence_contract import ContractError, PersistFailed, canonical_bytes, sign  # noqa: E402
 from recovery_persist_protocol import (  # noqa: E402
+    CHECKPOINT_RESERVATION_ID,
     FRONTIER_KEY,
     KIND_FRONTIER,
     SIGNED_FRONTIER,
@@ -272,6 +273,23 @@ def build_cases(tmp: Path):
     write(store.root / checkpoint_key(3), canonical_bytes(body))
     add("checkpoint-tampered", "A checkpoint entry changed: the ledger digest no longer "
         "matches.", store)
+
+    store = fresh_store(tmp, "checkpoint-ledger")
+    coord = coordinator(store)
+    for item in INPUTS[:2]:
+        coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
+    sequence = SequenceAllocator(store).allocate(CHECKPOINT_RESERVATION_ID)
+    entries = sorted(
+        ({"authUserId": item["authUserId"], "erasedAt": item["erasedAt"]} for item in INPUTS),
+        key=lambda entry: entry["authUserId"],
+    )
+    coord.publish_checkpoint(sequence, entries)
+    coord.advance_frontier(expected_through=sequence, highest_reserved=sequence)
+    add("checkpoint-ledger", "Two records and a checkpoint at sequence 3 as the auth-service "
+        "producer writes it: one {authUserId, erasedAt} entry per tombstone ordered by "
+        "authUserId (the third tombstone has no record), reserved by a marker with the "
+        "checkpoint reservation id. Java must write byte-identical checkpoint and marker.",
+        store, required=(None, 3))
 
     return cases
 
