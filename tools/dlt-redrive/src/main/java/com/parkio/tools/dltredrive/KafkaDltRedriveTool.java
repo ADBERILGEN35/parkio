@@ -4,9 +4,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -48,18 +50,43 @@ public final class KafkaDltRedriveTool {
         Properties producerProps = producerProps(options);
         List<ConsumerRecord<byte[], byte[]>> records = new ArrayList<>();
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps)) {
-            List<TopicPartition> partitions = partitions(consumer, options.sourceTopic());
+            List<TopicPartition> partitions = selectedPartitions(consumer, options);
             consumer.assign(partitions);
-            consumer.seekToBeginning(partitions);
+            // Read only what the DLT held when the run started: up to the end offsets now, or up
+            // to --to-offset inclusive.
+            Map<TopicPartition, Long> stopAt = new HashMap<>(consumer.endOffsets(partitions));
+            if (options.fromOffset() != null) {
+                TopicPartition partition = partitions.get(0);
+                long first = consumer.beginningOffsets(partitions).get(partition);
+                long last = stopAt.get(partition) - 1;
+                if (options.fromOffset() < first || options.toOffset() > last) {
+                    throw new IllegalArgumentException("offsets " + options.fromOffset() + ".." + options.toOffset()
+                            + " are outside " + partition + " ("
+                            + (last < first ? "empty" : "offsets " + first + ".." + last) + ")");
+                }
+                consumer.seek(partition, options.fromOffset());
+                stopAt.put(partition, options.toOffset() + 1);
+            } else {
+                consumer.seekToBeginning(partitions);
+            }
+            log("SELECTION", selectionLog(options, partitions, stopAt));
             long deadline = System.currentTimeMillis() + options.timeoutMs();
-            while (records.size() < options.maxRecords() && System.currentTimeMillis() < deadline) {
+            while (records.size() < options.maxRecords()
+                    && !reachedEnd(consumer, partitions, stopAt)
+                    && System.currentTimeMillis() < deadline) {
                 ConsumerRecords<byte[], byte[]> polled = consumer.poll(Duration.ofMillis(500));
                 for (ConsumerRecord<byte[], byte[]> record : polled) {
+                    if (!selected(options, record, stopAt)) {
+                        continue;
+                    }
                     records.add(record);
                     if (records.size() >= options.maxRecords()) {
                         break;
                     }
                 }
+            }
+            if (records.size() < options.maxRecords() && !reachedEnd(consumer, partitions, stopAt)) {
+                log("INCOMPLETE", Map.of("sourceTopic", options.sourceTopic(), "timeoutMs", options.timeoutMs()));
             }
         }
 
@@ -73,6 +100,15 @@ public final class KafkaDltRedriveTool {
                 log("DRY_RUN", recordLog(options, record));
             }
             return;
+        }
+
+        // Check every selected record before producing any, so a batch is never half redriven.
+        for (ConsumerRecord<byte[], byte[]> record : records) {
+            if (redriveAttempts(record.headers()) + 1 > options.maxRedriveAttempts()) {
+                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                        + record.offset() + " exceeds max redrive attempts " + options.maxRedriveAttempts()
+                        + "; nothing was redriven");
+            }
         }
 
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(producerProps)) {
@@ -147,6 +183,47 @@ public final class KafkaDltRedriveTool {
         return infos.stream().map(info -> new TopicPartition(topic, info.partition())).toList();
     }
 
+    private static List<TopicPartition> selectedPartitions(KafkaConsumer<byte[], byte[]> consumer, Options options) {
+        List<TopicPartition> all = partitions(consumer, options.sourceTopic());
+        if (options.partition() == null) {
+            return all;
+        }
+        TopicPartition selected = new TopicPartition(options.sourceTopic(), options.partition());
+        if (!all.contains(selected)) {
+            throw new IllegalArgumentException("--partition " + options.partition() + ": no partition "
+                    + options.partition() + " in " + options.sourceTopic() + " (" + all.size() + " partitions)");
+        }
+        return List.of(selected);
+    }
+
+    private static boolean selected(Options options, ConsumerRecord<byte[], byte[]> record,
+                                    Map<TopicPartition, Long> stopAt) {
+        Long stop = stopAt.get(new TopicPartition(record.topic(), record.partition()));
+        if (stop == null || record.offset() >= stop) {
+            return false;
+        }
+        return options.eventId() == null || options.eventId().equals(headerValue(record.headers(), "eventId"));
+    }
+
+    private static boolean reachedEnd(KafkaConsumer<byte[], byte[]> consumer, List<TopicPartition> partitions,
+                                      Map<TopicPartition, Long> stopAt) {
+        return partitions.stream().allMatch(partition -> consumer.position(partition) >= stopAt.get(partition));
+    }
+
+    private static Map<String, Object> selectionLog(Options options, List<TopicPartition> partitions,
+                                                    Map<TopicPartition, Long> stopAt) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("sourceTopic", options.sourceTopic());
+        fields.put("partitions", partitions.stream().map(TopicPartition::partition).toList());
+        fields.put("fromOffset", options.fromOffset());
+        fields.put("toOffset", options.toOffset());
+        fields.put("eventId", options.eventId());
+        fields.put("endOffsets", partitions.stream().map(stopAt::get).toList());
+        fields.put("maxRecords", options.maxRecords());
+        fields.put("mode", options.dryRun() ? "dry-run" : "execute");
+        return fields;
+    }
+
     private static Properties consumerProps(Options options) {
         Properties props = new Properties();
         props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, options.bootstrapServers());
@@ -205,7 +282,24 @@ public final class KafkaDltRedriveTool {
             int maxRedriveAttempts,
             boolean dryRun,
             boolean execute,
-            boolean help) {
+            boolean help,
+            Integer partition,
+            Long fromOffset,
+            Long toOffset,
+            String eventId) {
+
+        private static final Set<String> KNOWN = Set.of(
+                "bootstrap-servers", "source-topic", "target-topic", "group-id", "operator", "reason",
+                "max-records", "timeout-ms", "max-redrive-attempts",
+                "partition", "from-offset", "to-offset", "event-id");
+
+        /** Options without selectors: every partition from its beginning. */
+        Options(String bootstrapServers, String sourceTopic, String targetTopic, String groupId, String operator,
+                String reason, int maxRecords, int timeoutMs, int maxRedriveAttempts, boolean dryRun,
+                boolean execute, boolean help) {
+            this(bootstrapServers, sourceTopic, targetTopic, groupId, operator, reason, maxRecords, timeoutMs,
+                    maxRedriveAttempts, dryRun, execute, help, null, null, null, null);
+        }
 
         static Options parse(String[] args) {
             Map<String, String> values = new HashMap<>();
@@ -238,6 +332,10 @@ public final class KafkaDltRedriveTool {
                             }
                             value = args[++i];
                         }
+                        if (!KNOWN.contains(key)) {
+                            // A mistyped selector must not silently widen a replay.
+                            throw new IllegalArgumentException("Unknown option: --" + key);
+                        }
                         values.put(key, value);
                     }
                 }
@@ -255,7 +353,24 @@ public final class KafkaDltRedriveTool {
                             "max-redrive-attempts", Integer.toString(DEFAULT_MAX_REDRIVE_ATTEMPTS))),
                     dryRun,
                     execute,
-                    help);
+                    help,
+                    optionalNumber(values, "partition", Integer::valueOf),
+                    optionalNumber(values, "from-offset", Long::valueOf),
+                    optionalNumber(values, "to-offset", Long::valueOf),
+                    values.get("event-id"));
+        }
+
+        private static <T> T optionalNumber(Map<String, String> values, String key,
+                                            java.util.function.Function<String, T> parser) {
+            String value = values.get(key);
+            if (value == null) {
+                return null;
+            }
+            try {
+                return parser.apply(value.trim());
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException("--" + key + " must be a number");
+            }
         }
 
         void validate() {
@@ -282,6 +397,27 @@ public final class KafkaDltRedriveTool {
             if (execute && "unknown".equals(operator)) {
                 throw new IllegalArgumentException("--execute requires --operator or PARKIO_OPERATOR");
             }
+            if (partition != null && partition < 0) {
+                throw new IllegalArgumentException("--partition must be >= 0");
+            }
+            if ((fromOffset != null || toOffset != null) && partition == null) {
+                throw new IllegalArgumentException("--from-offset/--to-offset need --partition");
+            }
+            if (fromOffset != null && toOffset == null) {
+                throw new IllegalArgumentException("--from-offset needs --to-offset");
+            }
+            if (toOffset != null && fromOffset == null) {
+                throw new IllegalArgumentException("--to-offset needs --from-offset");
+            }
+            if (fromOffset != null && (fromOffset < 0 || toOffset < 0)) {
+                throw new IllegalArgumentException("--from-offset and --to-offset must be >= 0");
+            }
+            if (fromOffset != null && fromOffset > toOffset) {
+                throw new IllegalArgumentException("--from-offset must not be after --to-offset");
+            }
+            if (eventId != null && eventId.isBlank()) {
+                throw new IllegalArgumentException("--event-id must not be blank");
+            }
         }
 
         static void printUsage() {
@@ -298,9 +434,17 @@ public final class KafkaDltRedriveTool {
                       --source-topic parkio.dlt.<service>
                       --target-topic <original-topic>
 
+                    Selection (optional; combinable):
+                      --partition <n>                       one DLT partition
+                      --from-offset <a> --to-offset <b>     inclusive range in that partition
+                      --event-id <id>                       records whose eventId header matches
+
                     Safety:
                       dry-run is default; --execute requires --reason and operator identity.
                       target topic cannot be a DLT topic; batch size is capped at 100.
+                      unknown options and out-of-range offsets are refused before any write;
+                      only records present when the run starts are read; if any selected record
+                      is over --max-redrive-attempts, nothing is redriven.
                     """);
         }
 
