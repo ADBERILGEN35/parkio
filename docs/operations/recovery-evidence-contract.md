@@ -302,9 +302,42 @@ and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtu
   `scripts/generate-durable-erasure-evidence-fixtures.py` (`--check` reports
   drift) and checked by `scripts/test-durable-erasure-evidence-interop.py`,
   `DurableErasureEvidenceInteropTest` and `CanonicalJsonTest`.
-- Not part of v1 in Java: store I/O and sequence allocation (off-host adapter),
-  checkpoint production, key distribution and rotation. Durable recording stays
+- Not part of v1 in Java: checkpoint production, key distribution and rotation. Durable recording stays
   default-off and `verifiedCoverage` stays false.
+
+### Off-host object-lock store (auth-service adapter)
+
+`ObjectLockDurableErasureRecordStore` implements the durable record port on an
+S3-compatible bucket with **object lock** (and therefore versioning), writing
+format v1. No store product has been chosen (§9 item 1); the adapter assumes
+the S3 API with object-lock semantics and is tested only against a disposable
+MinIO bucket.
+
+- Protocol as in the Python model: reserve a sequence with a marker, raise the
+  frontier's `highestReserved`, publish the signed record, raise
+  `expectedThrough` to cover it. A record counts as found only once the signed
+  frontier covers it; a crash in between is completed by the next put.
+- Every object version is written with a retention lock
+  (`retention-mode` GOVERNANCE or COMPLIANCE, `retention` duration; both
+  required). Nothing is overwritten or deleted by the adapter.
+- The **first version** of a record or marker is canonical: a later write only
+  adds a version, a version delete is refused by the lock, and a plain delete
+  only adds a delete marker; none of them changes what is read. The frontier
+  (the one rewritten object) is read from its latest version.
+- Identical retry returns the existing record; a different body under the same
+  request id is a conflict. Store I/O refuses to run inside a database
+  transaction. Any store or verification failure is
+  `DURABLE_RECORDING_UNAVAILABLE` (the request stays `PENDING_DURABLE`).
+- One auth instance may write a bucket at a time (writes are serialised in the
+  JVM; the frontier is read-modify-written).
+- Recovery needs only the bucket: `ObjectLockEvidenceObjects.connect(...)` with
+  `DurableErasureEvidenceVerifier.recover(...)`.
+- Configuration `parkio.privacy.account-erasure.durable-store.object-lock.*`
+  (`PARKIO_ERASURE_STORE_*`): `enabled` (default `false`), `endpoint`,
+  `region`, `bucket`, `access-key`, `secret-key`, `retention-mode`,
+  `retention`, `database-identity`, `producer-id`, `producer-key`,
+  `connect-timeout`, `call-timeout`. When enabled, a missing setting or a
+  bucket without object lock stops startup (names only, never values).
 
 ### Participants and restore ACKs
 
