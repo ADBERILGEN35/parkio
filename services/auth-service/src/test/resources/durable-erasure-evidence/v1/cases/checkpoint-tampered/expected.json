@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "error": "checkpoint ledger digest mismatch",
+      "requiredThrough": null
+    }
+  ],
+  "description": "A checkpoint entry changed: the ledger digest no longer matches.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}

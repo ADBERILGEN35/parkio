@@ -1,10 +1,7 @@
 package com.parkio.auth.application.port;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import com.parkio.auth.application.durable.DurableErasureEvidence;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -30,14 +27,12 @@ public record DurableErasureRecord(
                 erasureRequestId, authUserId, erasedAt, digest(erasureRequestId, authUserId, erasedAt));
     }
 
+    /**
+     * The {@code bodyDigest} of durable evidence format v1, which the Python verifier checks:
+     * SHA-256 of the canonical {@code {authUserId, erasureRequestId, erasedAt}} JSON.
+     */
     public static String digest(UUID erasureRequestId, UUID authUserId, Instant erasedAt) {
-        String canonical = erasureRequestId + "\n" + authUserId + "\n" + erasedAt;
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is required", ex);
-        }
+        return DurableErasureEvidence.bodyDigest(
+                authUserId, erasureRequestId, DurableErasureEvidence.erasedAt(erasedAt));
     }
 }

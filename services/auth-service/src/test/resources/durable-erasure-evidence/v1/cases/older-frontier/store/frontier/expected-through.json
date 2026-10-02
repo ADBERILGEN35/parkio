@@ -1,0 +1,1 @@
+{"databaseIdentity":"auth-db:interop-fixture","expectedThrough":2,"frontierDigest":"9dbbf921db31469e9e788348a0445fa1e2414e317b1c29de00e66e61198329f0","highestReserved":2,"kind":"erasure-expected-frontier","producerId":"interop-fixture-producer","schemaVersion":1,"signature":"ac21a1cf6f21e64fb4f931cffed3bbea42c288c3d101ff9fdaadce2e91c3feef"}
