@@ -5,6 +5,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.domain.event.MediaEvent;
+import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.media.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.media.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -167,6 +168,10 @@ public class MediaOutboxRelay {
 
     /** All media events share one topic. */
     static String topicFor(String aggregateType) {
+        // Erasure ACKs go to the auth-owned parkio.privacy.erasure topic (U05 ACK outbox).
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
+        }
         return MediaEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.MEDIA : null;
     }
 
