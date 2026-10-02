@@ -16,27 +16,29 @@ participants add schema. Media adds three tables or columns:
 
 Analytics adds DLQ columns to its existing outbox for its new relay (V10).
 
-## Rollout status (`api` `9dd3f485`, 2026-10-01)
+## Rollout status (`api` `89f66ca4`, 2026-10-02)
 
 Source merge, deployment and production acceptance are separate states. This
-table records the source state of `api`; the PR that merges last updates it.
+table records the source state of `api` after the last participant merge
+(#140).
 
 | Participant | PR | Source on `api` | Deployed | Production acceptance |
 |-------------|----|-----------------|----------|-----------------------|
 | gamification | #132 | merged (`1146211f`) | not established | not run |
 | user | #133 | merged (`5e417266`) | not established | not run |
-| moderation | #135 | draft, not merged | no | not run |
-| parking | #137 | draft, not merged | no | not run |
-| analytics | #138 | draft, not merged | no | not run |
-| ai-validation | #139 | draft, not merged | no | not run |
-| notification | #140 | draft, not merged | no | not run |
-| media | #141 | draft, not merged | no | not run |
+| moderation | #135 | merged (`6ac15ad8`) | not established | not run |
+| parking | #137 | merged (`5617866c`) | not established | not run |
+| analytics | #138 | merged (`294dd4c9`) | not established | not run |
+| ai-validation | #139 | merged (`f3778407`) | not established | not run |
+| notification | #140 | merged (`89f66ca4`) | not established | not run |
+| media | #141 | merged (`01f7e442`) | not established | not run |
 
 "Not established": the repository holds no evidence that an image built from
 the merged source runs anywhere. Deployment pins and the PRIV-001A runtime
-acceptance are tracked outside this document. Until a participant's PR merges,
-its code on `api` still sends the HTTP ACK inside its erase transaction (the U05
-defect).
+acceptance are tracked outside this document. No participant's source on `api`
+sends the HTTP ACK any more. A service still running an image built from earlier
+source keeps the HTTP ACK inside its erase transaction (the U05 defect) until it
+is redeployed.
 
 ## Participant side
 

@@ -35,9 +35,9 @@ Participants ack over Kafka `UserErasureAcknowledged`, published only from an
 outbox row committed with the local erase (U05,
 [erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). The
 contract's rollout status separates source merge, deployment and production
-acceptance. On `api` `efbdfa5a` only `gamification` and `user` are merged; the
-other six are draft PRs and their code on `api` still acks over HTTP inside the
-erase transaction.
+acceptance. On `api` `89f66ca4` all eight participants are merged and none of
+their source acks over HTTP; their deployment and production acceptance are not
+established.
 Incomplete work stays `FAILED_RETRYING` / `IN_PROGRESS`. Never mark `COMPLETE`
 without every participant `SUCCESS` ack.
 
@@ -83,10 +83,12 @@ no time limit settles it. The contract records the exact guarantee and its
 known limitations, including the network-path assumption. Sentinel:
 `00000000-0000-4000-8000-000000000001`.
 
-**Known defect (U05), until each participant's PR merges:** the participants
-not yet merged (see the contract's rollout status) still send
-`POST /internal/erasure/acks` inside the erase transaction. A rollback or commit
-failure after that call leaves auth with a false `SUCCESS`.
+**Known defect (U05), fixed in source:** before U05 each participant sent
+`POST /internal/erasure/acks` inside the erase transaction, so a rollback or
+commit failure after that call left auth with a false `SUCCESS`. All eight
+participants' fixes are merged on `api` `89f66ca4` (see the contract's rollout
+status). A service still running an image built from earlier source keeps the
+defect until it is redeployed; deployment is not established.
 
 Each erase targets every copy of the user id in the participant's product tables:
 - JSON copies are rewritten (parking shadow ledgers).
