@@ -64,9 +64,12 @@ public final class DurableErasureEvidence {
     }
 
     /**
-     * {@code erasedAt} as written into records: {@link Instant#toString()} after truncation to
-     * microseconds, PostgreSQL's precision, so a value read back from the database formats the
-     * same as the one that was written.
+     * {@code erasedAt} as written into records (format v1): the ISO-8601 instant truncated to
+     * microseconds, PostgreSQL's precision. Truncation alone does not make an instant and its
+     * database copy format the same: the JDBC driver rounds sub-microsecond digits when it writes,
+     * so a nanosecond instant can come back one microsecond later. Producers therefore store the
+     * time already at microsecond precision (AccountErasureApplicationService), and a record
+     * rebuilt from the database is then byte-identical to the first one.
      */
     public static String erasedAt(Instant instant) {
         return DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.MICROS));
