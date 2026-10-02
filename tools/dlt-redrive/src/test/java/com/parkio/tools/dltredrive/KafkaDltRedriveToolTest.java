@@ -66,6 +66,53 @@ class KafkaDltRedriveToolTest {
                 .hasMessageContaining("--max-records");
     }
 
+    @Test
+    void offsetSelectorsNeedAPartition() {
+        assertThatThrownBy(() -> validate("--from-offset", "0", "--to-offset", "1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--partition");
+    }
+
+    @Test
+    void offsetRangeMustBeOrderedAndComplete() {
+        assertThatThrownBy(() -> validate("--partition", "0", "--from-offset", "5", "--to-offset", "1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--from-offset");
+        assertThatThrownBy(() -> validate("--partition", "0", "--from-offset", "5"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--to-offset");
+    }
+
+    @Test
+    void negativeOrNonNumericSelectorsAreRejected() {
+        assertThatThrownBy(() -> validate("--partition", "-1")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validate("--partition", "0", "--from-offset", "-1", "--to-offset", "1"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validate("--partition", "zero")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void blankEventIdIsRejected() {
+        assertThatThrownBy(() -> validate("--event-id", " "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--event-id");
+    }
+
+    @Test
+    void unknownOptionsAreRejected() {
+        assertThatThrownBy(() -> validate("--partitions", "0"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--partitions");
+    }
+
+    private static void validate(String... selection) {
+        String[] base = {"--source-topic", "parkio.dlt.notification", "--target-topic", "parkio.parking.spot"};
+        String[] args = new String[base.length + selection.length];
+        System.arraycopy(base, 0, args, 0, base.length);
+        System.arraycopy(selection, 0, args, base.length, selection.length);
+        KafkaDltRedriveTool.Options.parse(args).validate();
+    }
+
     private static byte[] bytes(String value) {
         return value.getBytes(StandardCharsets.UTF_8);
     }
