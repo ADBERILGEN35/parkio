@@ -207,6 +207,25 @@ check(JSON.stringify(sitemapUrls) === JSON.stringify([
 ]), 'sitemap.xml must contain only the approved marketing URLs.');
 
 check(sha256('.htaccess') === '26296cb6265bb7b09af9dce104838643d7921fdb21c12fcb91f076541fd3ede2', '.htaccess security policy changed from the imported live baseline.');
+
+// CL-F39.5: scripts run only from files, and HTTPS is pinned.
+const htaccess = read('.htaccess');
+const cspMatch = htaccess.match(/Header always set Content-Security-Policy "([^"]+)"/);
+check(Boolean(cspMatch), '.htaccess must set a Content-Security-Policy.');
+const scriptSrc = (cspMatch?.[1] ?? '').split(';').map((directive) => directive.trim())
+  .find((directive) => directive.startsWith('script-src')) ?? '';
+check(scriptSrc !== '' && !scriptSrc.includes("'unsafe-inline'"), "CSP script-src must not allow 'unsafe-inline'.");
+check(/Header always set Strict-Transport-Security "max-age=\d+/.test(htaccess), '.htaccess must set Strict-Transport-Security.');
+for (const file of htmlFiles) {
+  const relativeHtml = file.slice(root.length + 1).replaceAll('\\', '/');
+  const html = readFileSync(file, 'utf8');
+  for (const [, attributes] of html.matchAll(/<script\b([^>]*)>/gi)) {
+    const dataBlock = /type=["']application\/ld\+json["']/i.test(attributes);
+    check(dataBlock || /\ssrc=/i.test(attributes), `${relativeHtml}: inline <script> would need 'unsafe-inline'.`);
+  }
+  check(!/\son[a-z]+\s*=/i.test(html.replace(/<script\b[\s\S]*?<\/script>/gi, '')), `${relativeHtml}: inline event handler found.`);
+  check(!/javascript:/i.test(html), `${relativeHtml}: javascript: URL found.`);
+}
 check(read('waitlist/confirm/index.html').includes('waitlist-confirm-form'), 'Confirm page must POST via form.');
 check(read('waitlist/unsubscribe/index.html').includes('waitlist-withdraw-form'), 'Unsubscribe page must POST via form.');
 check(!/method=["']get["']/i.test(read('waitlist/confirm/index.html')), 'Confirm must not use GET form method.');
