@@ -139,13 +139,15 @@ class AccountErasureAckOutboxPostgresIT {
 
         // Broker unreachable: send() fails synchronously. The poll counts that failure for the
         // row and completes (U18 CL-F32); the committed ACK row stays queued, not dead-lettered.
+        long failuresBefore = jdbc.queryForObject("SELECT COALESCE(SUM(failure_count), 0) FROM outbox_events", Long.class);
         assertThatCode(relay(brokerTemplate("127.0.0.1:1", 2_000))::run).doesNotThrowAnyException();
         Map<String, Object> row = ackRow(event.erasureRequestId());
         assertThat(row.get("published")).isEqualTo(false);
         assertThat(row.get("dead_lettered")).isEqualTo(false);
-        assertThat(jdbc.queryForObject("SELECT failure_count FROM outbox_events "
-                + "WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?", Integer.class,
-                event.erasureRequestId())).as("the synchronous send failure is counted").isEqualTo(1);
+        // The poll stops dispatching at the first throwing send() and counts that one row, which is
+        // this ACK unless an earlier queued row comes first in the batch.
+        assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(failure_count), 0) FROM outbox_events", Long.class))
+                .as("exactly one synchronous send failure is counted").isEqualTo(failuresBefore + 1);
 
         // "Restart": a new relay instance over the same committed row.
         relay(liveBroker()).run();
