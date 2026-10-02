@@ -290,7 +290,10 @@ and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtu
   ASCII escapes), including the unsigned `signature`.
 - UUIDs are lowercase text. `erasedAt` is `java.time.Instant#toString` after
   truncation to microseconds (no fraction for whole seconds, otherwise 3 or 6
-  digits); the Python model treats it as opaque text.
+  digits); the Python model treats it as opaque text. The Java producer stores
+  the erasure time at microsecond precision before it is persisted or published:
+  the JDBC driver rounds sub-microsecond digits, so a nanosecond time would let a
+  record rebuilt from the database differ from the first one (#172 review B1).
 - `producerId` selects the consumer's pre-distributed key; v1 has no separate
   key id (rotation is stage 3 below).
 - Both verifiers reach the same outcome and message: no frontier is `UNKNOWN`;
