@@ -679,9 +679,17 @@ sends. To improve onboarding, the register form additionally collects **Full nam
 - Navigations that fail offline fall back to `offline.html`. In-app network loss
   is surfaced by `OfflineBanner`, which listens to `navigator.onLine` and shows a
   non-blocking accessible status message.
-- Update policy is conservative: the service worker claims clients after install
-  and clears old app-shell caches on activate. Bump `CACHE_NAME` when changing
-  cached shell assets or offline behavior.
+- Update policy: `vite build` stamps a release version into `dist/sw.js`
+  (`apps/web/vite-plugins/serviceWorkerVersion.ts`, a digest of the name and
+  content of every other file in `dist/`). Each release therefore installs a new
+  worker with its own cache; it claims clients and deletes every other app-shell
+  cache on activate, so hashed assets from earlier releases do not accumulate.
+  Only plain `/assets/` and `/icons/` paths are cached (no query-string
+  variants), so one cache holds at most one release's files. The build fails if
+  `public/sw.js` loses the `__PARKIO_SW_VERSION__` placeholder; do not hard-code
+  a cache name. The manifest is not content-hashed, so it is network-first with
+  the cached copy as the offline fallback. `pnpm --filter @parkio/web
+  e2e:sw-upgrade` checks an upgrade between two releases in Chromium.
 
 ### Other error statuses
 
