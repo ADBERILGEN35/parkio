@@ -205,6 +205,12 @@ consumer watermark. `verifiedCoverage` stays false.
 | isolated replay preserves unrelated | **modeled replay**, not production-entrypoint acceptance |
 | concurrent SHARE vs INSERT | **real PostgreSQL locking** (`test-recovery-evidence-pg-share-lock.py`) |
 | aborted SHARE capture | **real PostgreSQL locking** |
+| checkpoint bytes (Java writer = Python model) | model/unit (shared fixtures) |
+| checkpoint capture waits for an in-flight INSERT; lock timeout publishes nothing; publication only after commit | **real PostgreSQL + disposable MinIO** (`ErasureCheckpointPostgresMinioIT`) |
+| latest checkpoint + higher records cover every tombstone (erasure between capture and reservation) | **real PostgreSQL + disposable MinIO** |
+| checkpoint reservation left by a failed publication is filled | disposable MinIO (`ObjectLockCheckpointStoreIT`) |
+| consumer refuses an older checkpoint after a newer one | model/unit + disposable MinIO |
+| checkpoints default off, no caller | model/unit (source guard) |
 | `test-restore-safe-preflight.sh` | **real restore-entrypoint** with docker/openssl/psql **stubs**; existing production refusal intact |
 
 ## 6. Production path
@@ -305,8 +311,15 @@ and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtu
   `scripts/generate-durable-erasure-evidence-fixtures.py` (`--check` reports
   drift) and checked by `scripts/test-durable-erasure-evidence-interop.py`,
   `DurableErasureEvidenceInteropTest` and `CanonicalJsonTest`.
-- Not part of v1 in Java: checkpoint production, key distribution and rotation. Durable recording stays
-  default-off and `verifiedCoverage` stays false.
+- Checkpoint `entries` are one `{authUserId, erasedAt}` object per
+  `erased_user_tombstones` row, ordered by `authUserId` text (the order of
+  PostgreSQL's `ORDER BY auth_user_id`), `erasedAt` as above. The marker that
+  reserves a checkpoint's sequence has the nil UUID
+  `00000000-0000-0000-0000-000000000000` as `erasureRequestId` (never a
+  request id).
+- Java writes checkpoints (default-off producer below). Not part of v1 in Java:
+  key distribution and rotation. Durable recording stays default-off and
+  `verifiedCoverage` stays false.
 
 ### Off-host object-lock store (auth-service adapter)
 
@@ -342,6 +355,47 @@ MinIO bucket.
   `connect-timeout`, `call-timeout`. When enabled, a missing setting or a
   bucket without object lock stops startup (names only, never values).
 
+### Checkpoints (auth-service producer)
+
+`ErasureCheckpointProducer` publishes signed checkpoints (stage 2) to the
+object-lock store. The bean exists only with
+`parkio.privacy.account-erasure.durable-store.checkpoint.enabled=true`
+(`PARKIO_ERASURE_CHECKPOINT_ENABLED`, default `false`), which also requires the
+object-lock store, and nothing in the service calls it. The cadence is an
+operator decision, so there is no schedule. The Python guard
+`checkpoint_producer_is_disabled` checks the default and the absence of callers.
+
+- **Capture** (`JdbcErasureLedgerCapture`; the #104 SQL output, re-implemented):
+  one READ COMMITTED transaction sets `lock_timeout` and `statement_timeout`
+  (`lock-timeout` 12s and `statement-timeout` 20s by default), takes
+  `LOCK TABLE erased_user_tombstones IN SHARE MODE` (waits for in-flight
+  INSERTs, blocks new ones), reads `clock_timestamp()` and every row ordered by
+  `auth_user_id`, and commits. A timeout or any error rolls back and publishes
+  nothing.
+- **Publication** happens only after that commit. The store runs the capture
+  inside its writer lock and reserves the checkpoint's sequence after it, so no
+  record can take a sequence between the snapshot and the reservation. Every
+  pending record below the checkpoint's sequence was therefore reserved before
+  the snapshot, after its tombstone committed, and its tombstone is in the
+  checkpoint. The frontier then covers the checkpoint as it covers a record;
+  retention, the canonical first version and the single-writer rule are the
+  store's.
+- **Erasure set** for recovery: the latest trusted checkpoint's entries plus
+  the trusted pending records with a higher sequence. Tombstones without a
+  record (for example from before durable recording) are covered by checkpoints
+  only.
+- A checkpoint reservation left without its checkpoint (a store failure or
+  crash after the marker) becomes a gap, and `BLOCKED`, once a later record
+  raises the frontier past it. The next checkpoint fills that sequence. The rule
+  above still holds: the sequence was reserved before the new snapshot.
+- `coveredThrough` (the database clock while the lock was held) is returned and
+  logged but not published, because v1 does not sign it. Ordering and freshness
+  use `sequence`.
+- **Consumer freshness**: `CheckpointWatermark` holds the consumer's last
+  accepted checkpoint (sequence and ledger digest). An older valid checkpoint,
+  or another ledger at the same sequence, is refused. The mark is consumer
+  state and is never read from the store.
+
 ### Participants and restore ACKs
 
 Required: `auth` plus `user`, `parking`, `media`, `moderation`,
@@ -356,10 +410,12 @@ new restore.
 
 ### #104 reuse vs replacement
 
-Reuse later (do not import while HOLD):
+Reuse (do not import while HOLD):
 
 - `offhost-erasure-locked-snapshot.sql` (READ COMMITTED, SHARE,
-  `clock_timestamp()` while locked, abort-on-error)
+  `clock_timestamp()` while locked, abort-on-error): its protocol and output
+  shape are re-implemented by `JdbcErasureLedgerCapture` (stage 2); #104
+  itself is untouched
 - The rule that persist happens after the DB transaction ends
 - Disabled-by-default production flag posture
 
@@ -394,7 +450,9 @@ use `sequence`.
 1. **Next slice (acceptance below).** Isolated persist-before-ACK of
    pending records. Flag off. No production store.
 2. Signed lock-protocol checkpoints using the #104 SQL **output** only.
-   Still disabled in production. Do not un-HOLD #104.
+   Still disabled in production. Do not un-HOLD #104. Implemented default-off
+   without a caller or schedule (Checkpoints, §7); the cadence is an operator
+   decision.
 3. Real off-host WORM/versioned store and `keyId` rotation.
 4. Restore-hosted-beta consumes the latest trusted checkpoint + pending
    tail; expose stays refused when the tail is unknown.

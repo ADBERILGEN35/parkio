@@ -257,5 +257,12 @@ parkio:
           producer-key: ${PARKIO_ERASURE_STORE_PRODUCER_KEY:}
           connect-timeout: ${PARKIO_ERASURE_STORE_CONNECT_TIMEOUT:5s}
           call-timeout: ${PARKIO_ERASURE_STORE_CALL_TIMEOUT:15s}
+        # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published
+        # to the object-lock store above. Off by default and nothing calls the producer: the
+        # cadence is an operator decision. The timeouts bound the capture transaction.
+        checkpoint:
+          enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}
+          lock-timeout: ${PARKIO_ERASURE_CHECKPOINT_LOCK_TIMEOUT:12s}
+          statement-timeout: ${PARKIO_ERASURE_CHECKPOINT_STATEMENT_TIMEOUT:20s}
       participants: ${PARKIO_ACCOUNT_ERASURE_PARTICIPANTS:user,parking,media,moderation,gamification,notification,analytics,ai-validation}
       stuck-poll-ms: 60000
