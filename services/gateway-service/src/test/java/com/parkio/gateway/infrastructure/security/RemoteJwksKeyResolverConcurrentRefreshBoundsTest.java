@@ -70,8 +70,11 @@ class RemoteJwksKeyResolverConcurrentRefreshBoundsTest {
         jwks.answer(0, keySet(entry("known", known)));
         assertThat(initialResult.get(30, TimeUnit.SECONDS)).isNotNull();
 
-        // Admitted and charged: the forced refresh is reserved, and subscribing starts it.
-        CompletableFuture<RSAPublicKey> charged = resolver.resolve("forged-a").toFuture();
+        // Admitted and charged: the forced refresh is reserved, but nothing is sent until the
+        // caller subscribes (no I/O under the resolver's lock).
+        Mono<RSAPublicKey> reserved = resolver.resolve("forged-a");
+        assertThat(jwks.started()).isEqualTo(1);
+        CompletableFuture<RSAPublicKey> charged = reserved.toFuture();
         assertThat(jwks.started()).isEqualTo(2);
 
         // Admitted while that refresh is in flight: a free join.

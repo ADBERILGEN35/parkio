@@ -67,12 +67,13 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
             if (key != null) {
                 return Mono.just(key);
             }
-            if (!forcedRefreshAllowed(keyId, now)) {
+            Mono<CachedKeys> forced = forcedRefresh(keyId, now);
+            if (forced == null) {
                 return Mono.error(new JwtException("Unknown JWT key id"));
             }
-            return refresh(true).flatMap(keys -> keyOrError(keys, keyId));
+            return forced.flatMap(keys -> keyOrError(keys, keyId));
         }
-        return refresh(false).flatMap(keys -> keyOrError(keys, keyId));
+        return refresh().flatMap(keys -> keyOrError(keys, keyId));
     }
 
     private Mono<RSAPublicKey> keyOrError(CachedKeys keys, String keyId) {
@@ -85,23 +86,29 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
     }
 
     /**
-     * Whether an unknown kid may force a refresh now. Joining a refresh already in flight is
-     * free; otherwise the kid must not be remembered as unknown, the cooldown must have passed
-     * and the window must have budget left.
+     * The refresh an unknown kid may force now, or {@code null} when it may not. Joining a
+     * refresh already in flight is free; otherwise the kid must not be remembered as unknown,
+     * the cooldown must have passed and the window must have budget left.
+     *
+     * <p>The decision, the cooldown and budget charge, and joining or reserving the single
+     * in-flight fetch happen in one step under the monitor. A completing fetch clears the
+     * in-flight refresh under the same monitor, so a request admitted to join can never start
+     * a fetch of its own (review finding F1). The returned fetch is cold: nothing is sent
+     * until the caller subscribes, outside the lock.
      */
-    private synchronized boolean forcedRefreshAllowed(String keyId, Instant now) {
+    private synchronized Mono<CachedKeys> forcedRefresh(String keyId, Instant now) {
         Instant unknownUntil = unknownKids.get(keyId);
         if (unknownUntil != null) {
             if (unknownUntil.isAfter(now)) {
-                return false;
+                return null;
             }
             unknownKids.remove(keyId);
         }
         if (inFlightRefresh != null) {
-            return true;
+            return inFlightRefresh;
         }
         if (lastForcedRefresh != null && lastForcedRefresh.plus(properties.getJwksRefreshCooldown()).isAfter(now)) {
-            return false;
+            return null;
         }
         if (budgetWindowStart == null
                 || !budgetWindowStart.plus(properties.getJwksRefreshBudgetWindow()).isAfter(now)) {
@@ -109,11 +116,11 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
             forcedRefreshesInWindow = 0;
         }
         if (forcedRefreshesInWindow >= properties.getJwksRefreshBudget()) {
-            return false;
+            return null;
         }
         forcedRefreshesInWindow++;
         lastForcedRefresh = now;
-        return true;
+        return startFetch();
     }
 
     private synchronized void rememberUnknown(String keyId) {
@@ -125,15 +132,23 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
         return unknownKids.size();
     }
 
-    private synchronized Mono<CachedKeys> refresh(boolean force) {
+    /** Regular refresh: only when the cache is missing or expired, joining a fetch in flight. */
+    private synchronized Mono<CachedKeys> refresh() {
         CachedKeys current = cache;
-        if (!force && current != null && current.expiresAt().isAfter(clock.instant())) {
+        if (current != null && current.expiresAt().isAfter(clock.instant())) {
             return Mono.just(current);
         }
         if (inFlightRefresh != null) {
             return inFlightRefresh;
         }
+        return startFetch();
+    }
 
+    /**
+     * Reserves the single in-flight fetch. The caller holds the monitor; the request is sent
+     * when the returned (cached) Mono is first subscribed, so no I/O happens under the lock.
+     */
+    private Mono<CachedKeys> startFetch() {
         inFlightRefresh = webClient.get()
                 .uri(properties.getJwksUri())
                 .retrieve()
