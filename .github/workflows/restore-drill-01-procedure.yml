@@ -25,6 +25,9 @@ on:
       - "scripts/test-recovery-evidence-pg-share-lock.py"
       - "scripts/lib/recovery_persist_protocol.py"
       - "scripts/test-recovery-persist-protocol.py"
+      - "scripts/generate-durable-erasure-evidence-fixtures.py"
+      - "scripts/test-durable-erasure-evidence-interop.py"
+      - "services/auth-service/src/test/resources/durable-erasure-evidence/**"
       - "scripts/test-restore-isolated-fixture.sh"
       - "scripts/test-restore-isolated-teardown.sh"
       - "scripts/test-restore-isolated-topology.py"
@@ -96,6 +99,7 @@ jobs:
           python3 scripts/test-recovery-evidence-contract.py
           python3 scripts/test-recovery-evidence-pg-share-lock.py
           python3 scripts/test-recovery-persist-protocol.py
+          python3 scripts/test-durable-erasure-evidence-interop.py
           bash scripts/test-restore-safe-preflight.sh
           bash scripts/test-restore-isolated-teardown.sh
 

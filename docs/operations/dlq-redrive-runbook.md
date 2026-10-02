@@ -95,7 +95,23 @@ scripts/kafka-dlt-redrive.sh \
   --max-records 10
 ```
 
-Dry-run is the default. The tool reads from the beginning of the DLT topic using a unique non-committing consumer group and prints event id, trace headers, source partition/offset and payload size. It does not delete or commit DLT records.
+Dry-run is the default. The tool reads the DLT topic using a unique non-committing consumer group and prints a `SELECTION` line, then event id, trace headers, source partition/offset and payload size per record. It reads only records present when the run starts (up to the end offsets at that moment). It does not delete or commit DLT records.
+
+Select only what needs replaying (selectors combine):
+
+```bash
+# One partition, an inclusive offset range in it
+scripts/kafka-dlt-redrive.sh \
+  --source-topic parkio.dlt.notification --target-topic parkio.parking.spot \
+  --partition 2 --from-offset 1840 --to-offset 1845
+
+# Records whose eventId header matches (any partition, or with --partition)
+scripts/kafka-dlt-redrive.sh \
+  --source-topic parkio.dlt.notification --target-topic parkio.parking.spot \
+  --event-id 6f9619ff-8b86-4d01-b42d-00cf4fc964ff
+```
+
+`--from-offset`/`--to-offset` need `--partition` and must lie within that partition's current offsets; a partition that does not exist, an empty or reversed range, a blank `--event-id` and any unknown option (for example `--partitions`) are refused before anything is read or written. Run the same selection with `--execute` after the dry-run output matches what you intend to replay.
 
 ## Kafka DLT Redrive
 
@@ -117,7 +133,9 @@ Safety controls:
 - `--target-topic` cannot be `parkio.dlt.*`.
 - `--max-records` is capped at 100.
 - Existing headers are preserved; `parkio-redrive-source-topic`, `parkio-redrive-source-partition`, `parkio-redrive-source-offset`, `parkio-redrive-attempt`, `parkio-redrive-operator`, and `parkio-redrive-reason` are added.
-- `--max-redrive-attempts` defaults to 3 and prevents endless replay loops.
+- `--max-redrive-attempts` defaults to 3 and prevents endless replay loops. Every selected record is checked before the first one is produced: if any is over the limit, nothing is redriven.
+- A replay keeps the `eventId` header; consumers deduplicate by it, so replaying the same selection twice is absorbed downstream.
+- Selection and replay are covered by `KafkaDltRedriveToolIT` on a disposable Kafka broker (`./gradlew :tools:dlt-redrive:integrationTest`).
 
 ## Verification
 
