@@ -5,6 +5,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.notification.domain.event.NotificationCreatedEvent;
+import com.parkio.notification.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.notification.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.notification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.notification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -168,6 +169,10 @@ public class NotificationOutboxRelay {
 
     /** NotificationCreated events publish to the notification topic. */
     static String topicFor(String aggregateType) {
+        // Erasure ACKs go to the auth-owned parkio.privacy.erasure topic (U05 ACK outbox).
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
+        }
         return NotificationCreatedEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.NOTIFICATION : null;
     }
 

@@ -16,5 +16,7 @@ public enum MediaErrorCode {
     /** The uploaded bytes failed the malware scan (mapped to 422). */
     MEDIA_INFECTED,
     /** The malware scan could not be completed; upload fails closed (mapped to 503). */
-    MEDIA_SCAN_UNAVAILABLE
+    MEDIA_SCAN_UNAVAILABLE,
+    /** The owner's account is erased or being erased; media writes are refused (mapped to 403). */
+    ACCOUNT_ERASED
 }
