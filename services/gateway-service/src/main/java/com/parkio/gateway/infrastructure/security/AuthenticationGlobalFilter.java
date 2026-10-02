@@ -2,6 +2,7 @@ package com.parkio.gateway.infrastructure.security;
 
 import com.parkio.gateway.infrastructure.web.GatewayErrorResponseWriter;
 import com.parkio.gateway.shared.GatewayHeaders;
+import java.util.Optional;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -66,25 +67,36 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
         }
 
         String token = authorization.substring(BEARER_PREFIX.length()).trim();
+        // Only validation failures map to INVALID_TOKEN; an empty result is also treated as
+        // invalid so a request can never complete without a decision. Errors after a successful
+        // validation (later filters, routing, the downstream call) are not authentication
+        // failures: they propagate to the gateway's error handling (5xx/504), and a response
+        // the downstream already committed is never written over.
         return tokenValidator.validate(token)
-                .flatMap(user -> {
-                    builder.header(GatewayHeaders.USER_ID, user.userId());
-                    if (user.email() != null) {
-                        builder.header(GatewayHeaders.USER_EMAIL, user.email());
-                    }
-                    builder.header(GatewayHeaders.USER_ROLES, String.join(",", user.roles()));
-                    // Stash the token's session epoch for the downstream revocation check.
-                    // An exchange attribute (not a header) keeps it gateway-only; mutated
-                    // exchanges share the attribute map, so the later filter still sees it.
-                    if (user.sessionEpoch() != null) {
-                        exchange.getAttributes()
-                                .put(GatewayHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE, user.sessionEpoch());
-                    }
-                    return chain.filter(exchange.mutate().request(builder.build()).build());
-                })
-                .onErrorResume(ex -> errorWriter.write(
-                        exchange, HttpStatus.UNAUTHORIZED, "INVALID_TOKEN",
-                        "Authentication token is invalid or expired."));
+                .map(Optional::of)
+                .onErrorResume(ex -> Mono.just(Optional.empty()))
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(user -> user.isPresent()
+                        ? forwardWithIdentity(exchange, chain, builder, user.get())
+                        : errorWriter.write(exchange, HttpStatus.UNAUTHORIZED, "INVALID_TOKEN",
+                                "Authentication token is invalid or expired."));
+    }
+
+    private Mono<Void> forwardWithIdentity(ServerWebExchange exchange, GatewayFilterChain chain,
+                                           ServerHttpRequest.Builder builder, AuthenticatedUser user) {
+        builder.header(GatewayHeaders.USER_ID, user.userId());
+        if (user.email() != null) {
+            builder.header(GatewayHeaders.USER_EMAIL, user.email());
+        }
+        builder.header(GatewayHeaders.USER_ROLES, String.join(",", user.roles()));
+        // Stash the token's session epoch for the downstream revocation check.
+        // An exchange attribute (not a header) keeps it gateway-only; mutated
+        // exchanges share the attribute map, so the later filter still sees it.
+        if (user.sessionEpoch() != null) {
+            exchange.getAttributes()
+                    .put(GatewayHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE, user.sessionEpoch());
+        }
+        return chain.filter(exchange.mutate().request(builder.build()).build());
     }
 
     @Override

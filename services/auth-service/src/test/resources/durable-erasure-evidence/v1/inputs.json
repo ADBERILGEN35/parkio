@@ -1,0 +1,20 @@
+[
+  {
+    "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a1",
+    "erasedAt": "2026-09-29T08:15:30.123456Z",
+    "erasureRequestId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "sequence": 1
+  },
+  {
+    "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a2",
+    "erasedAt": "2026-09-29T08:16:00Z",
+    "erasureRequestId": "a1b2c3d4-0000-4000-8000-000000000002",
+    "sequence": 2
+  },
+  {
+    "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a3",
+    "erasedAt": "2026-09-29T08:17:45.120Z",
+    "erasureRequestId": "a1b2c3d4-0000-4000-8000-000000000003",
+    "sequence": 3
+  }
+]

@@ -1,0 +1,19 @@
+[
+  "valid",
+  "missing-frontier",
+  "gap",
+  "abandoned-reservation",
+  "older-frontier",
+  "tampered-signed-field",
+  "tampered-erased-at",
+  "reordered-sequences",
+  "record-copied-to-other-key",
+  "wrong-database-identity",
+  "unknown-producer",
+  "wrong-producer-key",
+  "wrong-kind",
+  "frontier-tampered",
+  "frontier-digest",
+  "checkpoint",
+  "checkpoint-tampered"
+]
