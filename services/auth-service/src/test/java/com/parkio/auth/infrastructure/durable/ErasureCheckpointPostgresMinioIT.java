@@ -11,12 +11,14 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.RecoveryVerdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.CapturedErasureLedger;
 import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.infrastructure.persistence.JdbcErasureLedgerCapture;
+import com.parkio.auth.infrastructure.persistence.PostgresDatabaseIdentity;
 import io.minio.MinioClient;
 import io.minio.messages.RetentionMode;
 import java.io.IOException;
@@ -30,7 +32,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -73,10 +74,10 @@ class ErasureCheckpointPostgresMinioIT {
     private static final String ACCESS_KEY = "parkio-test";
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String CONTEXT_BUCKET = "parkio-erasure-checkpoint-context-it";
-    private static final String DATABASE = "auth-db:checkpoint-it";
-    private static final String PRODUCER_ID = "auth-checkpoint-it";
-    private static final String PRODUCER_KEY = "checkpoint-it-key-not-a-secret";
-    private static final ProducerKey PRODUCER = new ProducerKey(PRODUCER_ID, PRODUCER_KEY.getBytes(StandardCharsets.UTF_8));
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-checkpoint-it-key-2026a", "auth-checkpoint-it",
+            "checkpoint-it-hmac-key-not-a-secret".getBytes(StandardCharsets.UTF_8), Instant.parse("2026-01-01T00:00:00Z"));
+    private static volatile String database;
+    private static volatile String trustFile;
     private static final AtomicInteger BUCKETS = new AtomicInteger();
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -120,9 +121,8 @@ class ErasureCheckpointPostgresMinioIT {
         registry.add(store + "secret-key", () -> SECRET_KEY);
         registry.add(store + "retention-mode", () -> "GOVERNANCE");
         registry.add(store + "retention", () -> "P1D");
-        registry.add(store + "database-identity", () -> DATABASE);
-        registry.add(store + "producer-id", () -> PRODUCER_ID);
-        registry.add(store + "producer-key", () -> PRODUCER_KEY);
+        registry.add(store + "trust-file", ErasureCheckpointPostgresMinioIT::trustFile);
+        registry.add(store + "producer-key-id", PRODUCER::keyId);
         registry.add("parkio.privacy.account-erasure.durable-store.checkpoint.enabled", () -> "true");
         try {
             ObjectLockTestBuckets.createLockedBucket(minioClient(), CONTEXT_BUCKET);
@@ -169,6 +169,17 @@ class ErasureCheckpointPostgresMinioIT {
         RecoveryVerdict verdict = verifier().recover(contextStore.evidence(), null);
         assertThat(verdict.verdict()).isEqualTo(Verdict.ACCEPT_ISOLATED);
         assertThat(verdict.latestTrustedCheckpoint()).isEqualTo(checkpoint.sequence());
+    }
+
+    @Test
+    void theStoreStartedWithATrustDocumentPinnedToThisDatabase() {
+        String identity = PostgresDatabaseIdentity.of(jdbc);
+
+        // system_identifier of this disposable cluster plus the database name.
+        assertThat(identity).matches("postgresql:[0-9]+:parkio_auth_checkpoint_it");
+        // The context started, so the startup check accepted the trust document pinned to it.
+        assertThat(identity).isEqualTo(database());
+        assertThat(contextStore).isNotNull();
     }
 
     @Test
@@ -358,7 +369,7 @@ class ErasureCheckpointPostgresMinioIT {
         } catch (Exception ex) {
             throw new IllegalStateException("could not create the object-lock test bucket", ex);
         }
-        return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minioClient(), bucket), DATABASE, PRODUCER,
+        return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minioClient(), bucket), trust(), PRODUCER.keyId(),
                 RetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
     }
 
@@ -379,7 +390,26 @@ class ErasureCheckpointPostgresMinioIT {
     }
 
     private static DurableErasureEvidenceVerifier verifier() {
-        return new DurableErasureEvidenceVerifier(DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()));
+        return new DurableErasureEvidenceVerifier(trust(), Instant.now());
+    }
+
+    /** The trust the service was started with: pinned to this container's database. */
+    private static EvidenceTrust trust() {
+        return new EvidenceTrust(database(), List.of(PRODUCER));
+    }
+
+    private static String database() {
+        if (database == null) {
+            database = TrustDocuments.identity(POSTGRES);
+        }
+        return database;
+    }
+
+    private static String trustFile() {
+        if (trustFile == null) {
+            trustFile = TrustDocuments.write(database(), PRODUCER).toString();
+        }
+        return trustFile;
     }
 
     private static String minioEndpoint() {

@@ -1,0 +1,50 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 2,
+      "gaps": [],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": 2,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": null,
+      "verdict": "ACCEPT_ISOLATED"
+    },
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 2,
+      "gaps": [],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": 2,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": 2,
+      "verdict": "ACCEPT_ISOLATED"
+    },
+    {
+      "error": "missing records or unknown tail; recovery BLOCKED",
+      "requiredThrough": 3
+    }
+  ],
+  "description": "A valid but older signed frontier (expectedThrough 2) beside record 3: record 3 is not trusted, and requiring sequence 3 is refused.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}
