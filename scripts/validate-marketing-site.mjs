@@ -223,7 +223,10 @@ for (const file of htmlFiles) {
     const dataBlock = /type=["']application\/ld\+json["']/i.test(attributes);
     check(dataBlock || /\ssrc=/i.test(attributes), `${relativeHtml}: inline <script> would need 'unsafe-inline'.`);
   }
-  check(!/\son[a-z]+\s*=/i.test(html.replace(/<script\b[\s\S]*?<\/script>/gi, '')), `${relativeHtml}: inline event handler found.`);
+  // Attributes of every start tag; script contents are never rewritten or stripped.
+  for (const [, tag, attributes] of html.matchAll(/<([a-z][a-z0-9-]*)\b([^>]*)>/gi)) {
+    check(!/\son[a-z]+\s*=/i.test(attributes), `${relativeHtml}: inline event handler on <${tag}>.`);
+  }
   check(!/javascript:/i.test(html), `${relativeHtml}: javascript: URL found.`);
 }
 check(read('waitlist/confirm/index.html').includes('waitlist-confirm-form'), 'Confirm page must POST via form.');
