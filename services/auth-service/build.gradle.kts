@@ -69,6 +69,16 @@ dependencies {
     runtimeOnly(libs.jjwt.impl)
     runtimeOnly(libs.jjwt.jackson)
 
+    // S3-compatible object-lock store for durable erasure records (off by default).
+    implementation(libs.minio)
+
+    // MinIO pulls bcprov transitively; raise floor to catalog ≥1.85 (CVE-2026-8763).
+    constraints {
+        implementation(libs.bouncycastle.bcprov) {
+            because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI CRITICAL policy")
+        }
+    }
+
     runtimeOnly(libs.postgresql)
 
     testImplementation(libs.spring.boot.starter.test)

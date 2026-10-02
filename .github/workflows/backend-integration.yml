@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - "services/**"
+      - "tools/**"
       - "buildSrc/**"
       - "gradle/**"
       - "build.gradle*"

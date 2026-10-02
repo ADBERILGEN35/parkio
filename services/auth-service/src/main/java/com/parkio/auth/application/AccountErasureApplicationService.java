@@ -29,6 +29,7 @@ import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -198,7 +199,7 @@ public class AccountErasureApplicationService {
         if (!passwordHasher.matches(password, user.passwordHash())) {
             throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
         }
-        Instant now = clock.instant();
+        Instant now = erasureTime();
         var existing = requests.findFirstByAuthUserIdOrderByRequestedAtDesc(principalUserId);
         if (existing.isPresent()) {
             String status = existing.get().getStatus();
@@ -293,7 +294,7 @@ public class AccountErasureApplicationService {
     @Transactional
     public int replayTombstones() {
         int replayed = 0;
-        Instant now = clock.instant();
+        Instant now = erasureTime();
         for (ErasedUserTombstoneEntity tombstone : tombstones.findAll()) {
             AuthUser user = users.findById(tombstone.getAuthUserId()).orElse(null);
             if (user == null) {
@@ -327,6 +328,17 @@ public class AccountErasureApplicationService {
             }
         }
         return replayed;
+    }
+
+    /**
+     * The time a new erasure request, its tombstone and its event carry, at PostgreSQL's
+     * microsecond precision. The JDBC driver rounds a nanosecond instant when it stores it, while
+     * evidence format v1 truncates {@code erasedAt}; with sub-microsecond digits the after-commit
+     * attempt (entity still in memory) and every later attempt (row read back) would build
+     * different durable records, and a retry after a partial publication would be a conflict.
+     */
+    private Instant erasureTime() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
     @Transactional(readOnly = true)
