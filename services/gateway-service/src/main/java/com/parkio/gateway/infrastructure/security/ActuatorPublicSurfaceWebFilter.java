@@ -26,11 +26,14 @@ import reactor.core.publisher.Mono;
  * loopback identity probes (docker exec / dark smoke) keep working.
  *
  * <p>Prometheus scrapes {@code gateway-service:8080} directly from another container,
- * so the metrics endpoint cannot be limited to loopback. The public edge (Caddy) adds
- * {@code X-Forwarded-*} to every request it relays, and the internal scrape carries none,
- * so a request with any proxy header gets {@code 404} for the metrics paths (CL-F28).
- * The headers only ever cause a refusal here, never an exemption, so spoofing them gains
- * nothing. Caddy also blocks these paths itself.
+ * so the metrics endpoint cannot be limited to loopback. The public edge (Caddy) sets
+ * {@value #EDGE_RELAY_HEADER} on every request it relays to the gateway, and the internal
+ * scrape carries none, so a relayed request gets {@code 404} for the metrics paths (CL-F28).
+ * The marker is what works in production: every production model runs the gateway with
+ * {@code SERVER_FORWARD_HEADERS_STRATEGY=framework}, and Spring then applies and removes
+ * {@code Forwarded} / {@code X-Forwarded-*} before any WebFilter runs. Those headers are still
+ * checked for setups without that strategy. A header here only ever causes a refusal, never an
+ * exemption, so sending one gains nothing. Caddy also blocks these paths itself.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -49,9 +52,15 @@ public class ActuatorPublicSurfaceWebFilter implements WebFilter {
             PARSER.parse("/actuator/prometheus"),
             PARSER.parse("/actuator/prometheus/**"));
 
-    /** Headers a reverse proxy (the public Caddy edge) adds when it relays a request. */
+    /** Set by the public Caddy edge on every request it relays to the gateway (docker/caddy/Caddyfile). */
+    static final String EDGE_RELAY_HEADER = "X-Parkio-Edge-Relay";
+
+    /**
+     * Headers that mark a request relayed by a proxy. Only the edge marker survives Spring's
+     * {@code framework} forwarded-header handling; the standard ones cover setups without it.
+     */
     private static final List<String> PROXY_HEADERS =
-            List.of("Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto");
+            List.of(EDGE_RELAY_HEADER, "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto");
 
     private final GatewayPublicSurfaceProperties publicSurface;
 

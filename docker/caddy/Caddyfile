@@ -68,8 +68,14 @@
 	}
 
 	# Caddy preserves the client Host and sets X-Forwarded-For/Proto/Host by default.
+	# X-Parkio-Edge-Relay marks every request relayed from the internet: the gateway
+	# runs with SERVER_FORWARD_HEADERS_STRATEGY=framework, which strips X-Forwarded-*
+	# before its filters run, and refuses /actuator/prometheus when it sees the marker
+	# (CL-F28). header_up replaces any value a client sent.
 	handle {
-		reverse_proxy gateway-service:8080
+		reverse_proxy gateway-service:8080 {
+			header_up X-Parkio-Edge-Relay 1
+		}
 	}
 }
 

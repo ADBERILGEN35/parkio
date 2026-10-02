@@ -186,6 +186,8 @@ else
     bad "Caddyfile @blocked_actuator must include /actuator/configprops"
   elif ! grep -A8 '@blocked_actuator' "$CADDYFILE" | grep -q '/actuator/prometheus'; then
     bad "Caddyfile @blocked_actuator must include /actuator/prometheus"
+  elif ! grep -A3 'reverse_proxy gateway-service:8080' "$CADDYFILE" | grep -q 'header_up X-Parkio-Edge-Relay'; then
+    bad "Caddyfile must mark gateway-relayed requests with header_up X-Parkio-Edge-Relay (CL-F28)"
   else
     note "Caddyfile blocks public sensitive actuator paths"
   fi

@@ -81,7 +81,7 @@ class ActuatorPublicSurfaceWebFilterTest {
   void blocksPrometheusRelayedByTheEdgeProxyWhateverTheInfoFlag() {
     for (boolean actuatorInfoEnabled : new boolean[] {false, true}) {
       for (String path : new String[] {"/actuator/prometheus", "/actuator/prometheus/jvm"}) {
-        for (String header : new String[] {"X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"}) {
+        for (String header : new String[] {"X-Parkio-Edge-Relay", "X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"}) {
           var request = MockServerHttpRequest.get(path)
               .remoteAddress(new InetSocketAddress("172.18.0.20", 443))
               .header(header, "203.0.113.9")
