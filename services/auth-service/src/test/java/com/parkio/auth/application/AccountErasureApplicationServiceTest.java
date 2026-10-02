@@ -28,6 +28,7 @@ import com.parkio.auth.domain.event.UserErasureRequestedEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import com.parkio.auth.infrastructure.metrics.ErasureMetrics;
+import com.parkio.auth.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.auth.infrastructure.persistence.entity.ErasureRequestEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureRequestJpaRepository;
@@ -36,7 +37,9 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -442,6 +445,55 @@ class AccountErasureApplicationServiceTest {
                 UUID.randomUUID(), row.getId(), user.id(), "user", "SUCCESS", NOW));
         assertThat(row.getStatus()).isEqualTo("IN_PROGRESS");
         assertThat(row.getDurableRecordingStatus()).isEqualTo("PENDING_DURABLE");
+    }
+
+    /*
+     * U02 #172 review B1: PostgreSQL keeps microseconds and the JDBC driver rounds a nanosecond
+     * instant when it writes it, while durable record format v1 truncates erasedAt. A request
+     * time with sub-microsecond digits therefore gives the after-commit attempt (entity in
+     * memory) and every later attempt (row read back) different records. Both creation paths
+     * must carry the database's precision from the start.
+     */
+    private static final Instant NANOSECOND_NOW = Instant.parse("2026-08-14T09:00:00.123456789Z");
+
+    @Test
+    void aNewErasureRequestCarriesMicrosecondPrecisionFromTheStart() {
+        service = serviceWithClock(Clock.fixed(NANOSECOND_NOW, ZoneOffset.UTC));
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+
+        service.requestDeletion(user.id(), "pw");
+
+        Instant micros = NANOSECOND_NOW.truncatedTo(ChronoUnit.MICROS);
+        ArgumentCaptor<ErasureRequestEntity> request = ArgumentCaptor.forClass(ErasureRequestEntity.class);
+        verify(requests).save(request.capture());
+        ArgumentCaptor<ErasedUserTombstoneEntity> tombstone = ArgumentCaptor.forClass(ErasedUserTombstoneEntity.class);
+        verify(tombstones).save(tombstone.capture());
+        ArgumentCaptor<UserErasureRequestedEvent> event = ArgumentCaptor.forClass(UserErasureRequestedEvent.class);
+        verify(outbox).append(event.capture());
+        assertThat(request.getValue().getRequestedAt()).isEqualTo(micros);
+        assertThat(tombstone.getValue().getErasedAt()).isEqualTo(micros);
+        assertThat(event.getValue().occurredAt()).isEqualTo(micros);
+    }
+
+    @Test
+    void aReplayedErasureRequestCarriesMicrosecondPrecisionFromTheStart() {
+        service = serviceWithClock(Clock.fixed(NANOSECOND_NOW, ZoneOffset.UTC));
+        when(tombstones.findAll()).thenReturn(List.of(new ErasedUserTombstoneEntity(user.id(), NOW)));
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+
+        assertThat(service.replayTombstones()).isEqualTo(1);
+
+        ArgumentCaptor<ErasureRequestEntity> request = ArgumentCaptor.forClass(ErasureRequestEntity.class);
+        verify(requests).save(request.capture());
+        assertThat(request.getValue().getRequestedAt()).isEqualTo(NANOSECOND_NOW.truncatedTo(ChronoUnit.MICROS));
+    }
+
+    private AccountErasureApplicationService serviceWithClock(Clock clock) {
+        return new AccountErasureApplicationService(
+                users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
+                requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
+                clock, true, PARTICIPANTS);
     }
 
     private final Map<UUID, ErasureRequestEntity> requestRows = new HashMap<>();

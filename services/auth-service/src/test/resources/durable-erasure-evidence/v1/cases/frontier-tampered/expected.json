@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "error": "frontier signature mismatch",
+      "requiredThrough": null
+    }
+  ],
+  "description": "The frontier's expectedThrough was lowered without re-signing.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}

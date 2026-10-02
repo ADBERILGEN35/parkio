@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "error": "pending body digest mismatch",
+      "requiredThrough": null
+    }
+  ],
+  "description": "Record 2's erasedAt (bound by bodyDigest, not signed directly) was changed.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}
