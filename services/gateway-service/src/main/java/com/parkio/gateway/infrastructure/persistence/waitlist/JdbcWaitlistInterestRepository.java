@@ -233,13 +233,15 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / safeSize);
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(safeSize);
-        pageArgs.add(safePage * safeSize);
+        // long: safePage * safeSize overflows int for large page numbers, and a negative
+        // OFFSET is a database error (HTTP 500) instead of an empty page (CL-F34).
+        pageArgs.add((long) safePage * safeSize);
         List<WaitlistAdminEntry> content = jdbcTemplate.query(
                 """
                 SELECT id, email, full_name, status, locale, source, created_at, confirmed_at, withdrawn_at
                 FROM waitlist_interest
                 """ + where + """
-                 ORDER BY created_at DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT ? OFFSET ?
                 """,
                 (rs, rowNum) -> new WaitlistAdminEntry(
