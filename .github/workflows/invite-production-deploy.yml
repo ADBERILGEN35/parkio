@@ -186,6 +186,7 @@ jobs:
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/assert-compose-resource-budget.test.mjs
+          node --test scripts/lib/assert-compose-hardening.test.mjs
           node --test scripts/lib/assert-invite-production-compose-ports.test.mjs
           node --test scripts/lib/assert-invite-production-runtime-identity.test.mjs
           node --test scripts/lib/assert-invite-production-public-surface.test.mjs
@@ -225,6 +226,11 @@ jobs:
             --env-file docker/.env.invite-production.example \
             --candidate-sha "$(git rev-parse HEAD)" \
             --evidence "$PARKIO_DEPLOY_ARTIFACT_DIR/invite-edge-resource-budget.json"
+
+      # CL-F29.3: no-new-privileges, cap_drop ALL and recorded cap_add on every service of the
+      # invite-production (dark and public) and Civo production models.
+      - name: Verify production container hardening
+        run: ./scripts/assert-compose-hardening.sh
 
       - name: Dry-run invite-production deploy without secret-bearing evidence
         env:

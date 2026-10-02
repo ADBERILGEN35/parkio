@@ -199,11 +199,27 @@ public class WaitlistApplicationService {
         String ipHash = hasher.hash(clientIp == null ? "unknown" : clientIp);
         return rateLimiter.check(ipHash, emailHash)
                 .then(Mono.fromCallable(() -> {
-                            maybeResendPending(emailHash, email);
+                            resendPendingWithoutRevealingIt(emailHash, email);
                             return true;
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
                 .then();
+    }
+
+    /**
+     * Resend answers 202 whether or not a PENDING row exists (CL-F14.3). Only an
+     * existing PENDING row reaches the provider, so a delivery failure must not turn
+     * into a 503 here: that would tell the caller the address is subscribed. The
+     * failure stays visible to operators through the WARN log in
+     * {@link #deliverConfirmation}, and the row stays unsent, so the next resend or
+     * submit retries the delivery straight away.
+     */
+    private void resendPendingWithoutRevealingIt(String emailHash, String email) {
+        try {
+            maybeResendPending(emailHash, email);
+        } catch (WaitlistEmailDeliveryException ex) {
+            log.warn("Waitlist resend answered 202 after a failed confirmation delivery; emailHash={}", emailHash);
+        }
     }
 
     public Mono<List<WaitlistExportRow>> export(Instant createdFrom, Instant createdTo) {

@@ -1,0 +1,28 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [
+        2
+      ],
+      "expectedThrough": 3,
+      "gaps": [
+        2
+      ],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": null,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [],
+      "requiredThrough": null,
+      "verdict": "BLOCKED"
+    },
+    {
+      "error": "BLOCKED: missing records or unknown tail; recovery BLOCKED",
+      "requiredThrough": 3
+    }
+  ],
+  "description": "Record 2 is missing below the frontier: BLOCKED with gap [2].",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}

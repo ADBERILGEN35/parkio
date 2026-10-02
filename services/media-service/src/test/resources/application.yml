@@ -32,6 +32,9 @@ parkio:
   gateway:
     internal-secret: test-only-parkio-gateway-internal-secret-0123456789
   media:
+    # Tests drive MediaObjectErasureWorker directly; no background poll.
+    erasure-worker:
+      enabled: false
     max-file-size: 10MB
     allowed-content-types:
       - image/jpeg
