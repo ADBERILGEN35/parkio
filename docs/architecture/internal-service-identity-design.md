@@ -3,8 +3,9 @@
 > **Status: proposed, for review.** Design and threat model only (Asana U18 / CL-F16).
 > Nothing here is implemented, and no secret, credential or infrastructure changes with
 > this document. Implementation tasks are created after the design is approved.
-> Inventory baseline: `api` at `f3778407` (2026-10-02). Where this document and the code
-> disagree, the code is authoritative.
+> Inventory baseline: `api` at `f3778407` (2026-10-02). The erasure rows (2.2, 2.3, 11) and the
+> consumer group ids (6) were re-checked on `api` at `fd3b81f0` (2026-10-02, after U05). Where
+> this document and the code disagree, the code is authoritative.
 
 ## 1. Problem
 
@@ -43,7 +44,7 @@ Internal endpoints (all guarded only by the shared secret unless noted):
 | `GET /internal/auth/users/{userId}/session-epoch` | auth | gateway (`SessionEpochClient`) | read session epoch | – |
 | `POST /internal/auth/registration-invites` | auth | operator (`scripts/create-registration-invite.sh`) | create invites | `X-Parkio-Registration-Invite-Operator-Token` |
 | `POST /internal/auth/admin/bootstrap-super-admin` | auth | operator (`scripts/bootstrap-super-admin.sh`) | grant SUPER_ADMIN | `X-Parkio-Admin-Bootstrap-Token` + enable flag |
-| `POST /internal/erasure/acks` | auth | media, notification (`AuthErasureAckClient`) | mark a participant's erasure step done | – |
+| `POST /internal/erasure/acks` | auth | none in the services since U05 (all eight participants acknowledge on Kafka); the endpoint still exists | mark a participant's erasure step done | – |
 | `POST /internal/erasure/replay` | auth | operators (restore runbooks) | republish erasure requests | – |
 | `GET /internal/users/{id}/status` | user | gateway (`UserStatusClient`) | read account status | – |
 | `GET /internal/users/{id}/preferred-locale` | user | notification (`UserLocaleClient`) | read locale | – |
@@ -91,7 +92,7 @@ draft PR #159 (CL-F16 admin authority from the JWT principal) is merged.
 | `parkio.moderation.case` | moderation | gamification, notification |
 | `parkio.moderation.action` | moderation | auth, gamification, notification, parking, user |
 | `parkio.aivalidation.result` | ai-validation | moderation, parking |
-| `parkio.privacy.erasure` | auth (requests) **and** user, parking, gamification, moderation, ai-validation, analytics (`UserErasureAcknowledged`) | every service |
+| `parkio.privacy.erasure` | auth (requests) **and** all eight participants: user, parking, media, gamification, moderation, notification, ai-validation, analytics (`UserErasureAcknowledged`, via each service's outbox) | every service |
 
 - `parkio.privacy.erasure` is multi-writer. Each acknowledgement carries a self-declared
   `serviceName`, which auth's `ErasureAckKafkaConsumer` records; nothing binds it to the
@@ -195,15 +196,34 @@ ACL sketch for K1 (prefixes are literal topic names unless marked):
 
 | Principal | WRITE | READ (topics) | READ (group) |
 |---|---|---|---|
-| auth | `parkio.auth.user`, `parkio.privacy.erasure`, `parkio.dlt.auth` | `parkio.moderation.action`, `parkio.privacy.erasure-ack.*` (prefixed) | `auth-service` |
-| user | `parkio.user.profile`, `parkio.privacy.erasure-ack.user`, `parkio.dlt.user` | `parkio.auth.user`, `parkio.gamification.score`, `parkio.moderation.action`, `parkio.privacy.erasure` | `user-service` |
-| parking | `parkio.parking.spot`, `parkio.parking.session`, `parkio.privacy.erasure-ack.parking`, `parkio.dlt.parking` | `parkio.aivalidation.result`, `parkio.moderation.action`, `parkio.privacy.erasure` | `parking-service` |
+| auth | `parkio.auth.user`, `parkio.privacy.erasure`, `parkio.dlt.auth` | `parkio.moderation.action`, `parkio.privacy.erasure-ack.*` (prefixed) | `parkio.auth`, `parkio.auth.erasure` |
+| user | `parkio.user.profile`, `parkio.privacy.erasure-ack.user`, `parkio.dlt.user` | `parkio.auth.user`, `parkio.gamification.score`, `parkio.moderation.action`, `parkio.privacy.erasure` | `parkio.user`, `parkio.user.erasure` |
+| parking | `parkio.parking.spot`, `parkio.parking.session`, `parkio.privacy.erasure-ack.parking`, `parkio.dlt.parking` | `parkio.aivalidation.result`, `parkio.moderation.action`, `parkio.privacy.erasure` | `parkio.parking`, `parkio.parking.erasure` |
 | … | one row per service, derived from the topic table in 2.3 | | |
 | provisioning job | CREATE, ALTER_CONFIGS on `parkio.` (prefixed) | – | – |
 | kafka-exporter | – | DESCRIBE on topics and groups | – |
 | DLT redrive operator | the source topics named in a redrive | own DLT | dedicated group |
 
-Group ids are `${spring.application.name}` in every service (`auth-service`, `user-service`, …).
+Consumer group ids are set explicitly on every `@KafkaListener` (`groupId = GROUP`), which
+overrides `spring.kafka.consumer.group-id: ${spring.application.name}`; ACLs must name these
+groups, not the application names. On `api` `fd3b81f0` (32 listeners):
+
+| Service | Groups |
+|---|---|
+| auth | `parkio.auth`, `parkio.auth.erasure` |
+| user | `parkio.user`, `parkio.user.erasure` |
+| parking | `parkio.parking`, `parkio.parking.erasure` |
+| gamification | `parkio.gamification`, `parkio.gamification.erasure` |
+| moderation | `parkio.moderation`, `parkio.moderation.erasure` |
+| notification | `parkio.notification`, `parkio.notification.erasure` |
+| analytics | `parkio.analytics`, `parkio.analytics.erasure` |
+| ai-validation | `parkio.aivalidation`, `parkio.ai-validation.erasure` (two different prefixes) |
+| media | `parkio.media.erasure` only |
+
+Literal group ACLs per service (or one prefixed ACL `parkio.<svc>` per service, with an extra
+literal ACL for `parkio.ai-validation.erasure`) cover them. Granting the application names
+instead would make every consumer fail with `GroupAuthorizationException` once
+`allow.everyone.if.no.acl.found=false` is set.
 
 ## 7. Migration phases
 
@@ -281,7 +301,8 @@ between HTTP and Kafka there); P5's ACK topics change the erasure contract
   `InternalAdminBootstrapController`, `InternalErasureController`; user
   `InternalUserController`; media `InternalMediaController`; notification
   `InternalSmartReturnController`.
-- Clients: media and notification `AuthErasureAckClient`; notification `UserLocaleClient`,
+- Clients (the `AuthErasureAckClient`s of media and notification were removed by U05);
+  notification `UserLocaleClient`,
   `SmartReturnUserClient`, `SmartReturnParkingClient`; parking `MediaServiceClient`,
   `MediaReadinessClient`, `UserFavouritesClient`; ai-validation `MediaContentHttpClient`.
 - Kafka: `docker/docker-compose.yml` (`kafka` service), `docker/docker-compose.hosted-beta.yml`,
