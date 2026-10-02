@@ -10,7 +10,9 @@ import java.security.spec.RSAPublicKeySpec;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,17 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
     private volatile CachedKeys cache;
     private Mono<CachedKeys> inFlightRefresh;
 
+    /*
+     * Refreshes forced by an unknown kid (U10 / CX-F05). The authentication filter runs before
+     * route rate limits, so a forged kid must not buy a JWKS fetch: a forced refresh needs the
+     * cooldown to have passed and budget left in the current window, and kids that a fetch
+     * did not find are remembered for a while in a bounded cache. Guarded by "this".
+     */
+    private Instant lastForcedRefresh;
+    private Instant budgetWindowStart;
+    private int forcedRefreshesInWindow;
+    private final Map<String, Instant> unknownKids;
+
     public RemoteJwksKeyResolver(WebClient.Builder webClientBuilder,
                                  JwtProperties properties,
                                  Clock clock,
@@ -36,6 +49,13 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
                 .build();
         this.properties = properties;
         this.clock = clock;
+        int negativeCacheSize = properties.getJwksNegativeCacheSize();
+        this.unknownKids = new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Instant> eldest) {
+                return size() > negativeCacheSize;
+            }
+        };
     }
 
     @Override
@@ -47,6 +67,9 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
             if (key != null) {
                 return Mono.just(key);
             }
+            if (!forcedRefreshAllowed(keyId, now)) {
+                return Mono.error(new JwtException("Unknown JWT key id"));
+            }
             return refresh(true).flatMap(keys -> keyOrError(keys, keyId));
         }
         return refresh(false).flatMap(keys -> keyOrError(keys, keyId));
@@ -54,9 +77,52 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
 
     private Mono<RSAPublicKey> keyOrError(CachedKeys keys, String keyId) {
         RSAPublicKey key = keys.keys().get(keyId);
-        return key == null
-                ? Mono.error(new JwtException("Unknown JWT key id"))
-                : Mono.just(key);
+        if (key == null) {
+            rememberUnknown(keyId);
+            return Mono.error(new JwtException("Unknown JWT key id"));
+        }
+        return Mono.just(key);
+    }
+
+    /**
+     * Whether an unknown kid may force a refresh now. Joining a refresh already in flight is
+     * free; otherwise the kid must not be remembered as unknown, the cooldown must have passed
+     * and the window must have budget left.
+     */
+    private synchronized boolean forcedRefreshAllowed(String keyId, Instant now) {
+        Instant unknownUntil = unknownKids.get(keyId);
+        if (unknownUntil != null) {
+            if (unknownUntil.isAfter(now)) {
+                return false;
+            }
+            unknownKids.remove(keyId);
+        }
+        if (inFlightRefresh != null) {
+            return true;
+        }
+        if (lastForcedRefresh != null && lastForcedRefresh.plus(properties.getJwksRefreshCooldown()).isAfter(now)) {
+            return false;
+        }
+        if (budgetWindowStart == null
+                || !budgetWindowStart.plus(properties.getJwksRefreshBudgetWindow()).isAfter(now)) {
+            budgetWindowStart = now;
+            forcedRefreshesInWindow = 0;
+        }
+        if (forcedRefreshesInWindow >= properties.getJwksRefreshBudget()) {
+            return false;
+        }
+        forcedRefreshesInWindow++;
+        lastForcedRefresh = now;
+        return true;
+    }
+
+    private synchronized void rememberUnknown(String keyId) {
+        unknownKids.put(keyId, clock.instant().plus(properties.getJwksNegativeCacheTtl()));
+    }
+
+    /** Number of kids currently remembered as unknown (bounded by the negative-cache size). */
+    synchronized int unknownKidCount() {
+        return unknownKids.size();
     }
 
     private synchronized Mono<CachedKeys> refresh(boolean force) {
@@ -72,6 +138,8 @@ public class RemoteJwksKeyResolver implements JwksKeyResolver {
                 .uri(properties.getJwksUri())
                 .retrieve()
                 .bodyToMono(JwkSetResponse.class)
+                .timeout(properties.getJwksFetchTimeout())
+                .onErrorMap(TimeoutException.class, ex -> new JwtException("JWKS fetch timed out", ex))
                 .map(this::parse)
                 .doOnNext(keys -> cache = keys)
                 .doFinally(signal -> clearInFlight())
