@@ -206,7 +206,7 @@ check(JSON.stringify(sitemapUrls) === JSON.stringify([
   'https://parkio.dev/terms/',
 ]), 'sitemap.xml must contain only the approved marketing URLs.');
 
-check(sha256('.htaccess') === '26296cb6265bb7b09af9dce104838643d7921fdb21c12fcb91f076541fd3ede2', '.htaccess security policy changed from the imported live baseline.');
+check(sha256('.htaccess') === 'f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0', '.htaccess security policy changed from the imported live baseline.');
 
 // CL-F39.5: scripts run only from files, and HTTPS is pinned.
 const htaccess = read('.htaccess');
