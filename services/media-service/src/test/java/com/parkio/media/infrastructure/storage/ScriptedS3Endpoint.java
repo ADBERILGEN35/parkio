@@ -20,7 +20,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * An HTTP/1.1 endpoint on the IPv4 loopback that answers each request with the next scripted
  * reply, the way an S3 store or a network path might, and records every request it received
  * with its body size. A reply can close the listener before it is sent, so any further
- * connection is refused.
+ * connection is refused: the reply waits until the accepting thread has finished, because a
+ * thread blocked in {@code accept()} can still accept a connection that arrives before it wakes
+ * up from the close.
  */
 public final class ScriptedS3Endpoint implements AutoCloseable {
 
@@ -64,6 +66,7 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
     }
 
     private final ServerSocket server;
+    private final Thread acceptor;
     private final Deque<Reply> script;
     private final List<String> requestLines = new CopyOnWriteArrayList<>();
     private final List<Integer> bodySizes = new CopyOnWriteArrayList<>();
@@ -71,7 +74,7 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
     public ScriptedS3Endpoint(Reply... replies) throws IOException {
         this.script = new ArrayDeque<>(List.of(replies));
         this.server = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
-        Thread acceptor = new Thread(this::acceptLoop, "scripted-s3-endpoint");
+        this.acceptor = new Thread(this::acceptLoop, "scripted-s3-endpoint");
         acceptor.setDaemon(true);
         acceptor.start();
     }
@@ -136,7 +139,7 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
                     return;
                 }
                 if (reply.refuseConnectionsFirst()) {
-                    server.close();
+                    refuseConnections();
                 }
                 out.write(bytes(reply, requestLine.split(" ")[1], requestLine.startsWith("HEAD ")));
                 out.flush();
@@ -146,6 +149,19 @@ public final class ScriptedS3Endpoint implements AutoCloseable {
             }
         } catch (IOException ignored) {
             // the client went away
+        }
+    }
+
+    private void refuseConnections() throws IOException {
+        server.close();
+        try {
+            acceptor.join(5_000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while closing the listener", e);
+        }
+        if (acceptor.isAlive()) {
+            throw new IOException("the accepting thread did not finish after the listener closed");
         }
     }
 
