@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { serviceWorkerVersionPlugin } from './vite-plugins/serviceWorkerVersion';
 
 const errorReportingProvider = process.env.VITE_FRONTEND_ERROR_REPORTING ?? 'disabled';
 const sourcemap = errorReportingProvider === 'disabled' ? false : 'hidden';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorkerVersionPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
