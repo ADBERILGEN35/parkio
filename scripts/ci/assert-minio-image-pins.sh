@@ -56,6 +56,7 @@ require_contains \
 for f in \
   scripts/backup-minio.sh \
   scripts/restore-drill-minio.sh \
+  scripts/test-backup-minio-mirror-permissions.sh \
   scripts/restore-drill-offsite.sh \
   scripts/restore-hosted-beta.sh \
   scripts/lib/backup-common.sh \

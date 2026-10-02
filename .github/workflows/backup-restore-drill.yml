@@ -27,6 +27,7 @@ on:
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
+      - "scripts/test-backup-minio-mirror-permissions.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -57,6 +58,7 @@ on:
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
+      - "scripts/test-backup-minio-mirror-permissions.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -168,6 +170,10 @@ jobs:
 
       - name: Isolated MinIO backup/restore checksum
         run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-minio.sh
+
+      # CL-F29.2: the real backup-minio.sh mirror is private to the runner user (synthetic bucket).
+      - name: MinIO backup mirror permissions
+        run: PARKIO_ENV_FILE=docker/.env ./scripts/test-backup-minio-mirror-permissions.sh
 
       - name: Failure-mode + encryption round-trip
         run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-failure-modes.sh
