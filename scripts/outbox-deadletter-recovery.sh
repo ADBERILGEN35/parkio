@@ -59,7 +59,7 @@ Actions:
   acknowledge   Mark one open dead-letter row intentionally suppressed
 
 Common filters:
-  --service <name>          auth|user|parking|media|gamification|moderation|ai-validation
+  --service <name>          auth|user|parking|media|gamification|moderation|notification|analytics|ai-validation
   --aggregate-type <type>   filter aggregate_type
   --event-type <type>       filter event_type
   --aggregate-id <uuid>     filter aggregate_id
@@ -139,13 +139,15 @@ resolve() {
     media) echo "parkio-postgres-media:${POSTGRES_MEDIA_USER:-parkio_media}:${POSTGRES_MEDIA_DB:-parkio_media}" ;;
     gamification) echo "parkio-postgres-gamification:${POSTGRES_GAMIFICATION_USER:-parkio_gamification}:${POSTGRES_GAMIFICATION_DB:-parkio_gamification}" ;;
     moderation) echo "parkio-postgres-moderation:${POSTGRES_MODERATION_USER:-parkio_moderation}:${POSTGRES_MODERATION_DB:-parkio_moderation}" ;;
+    notification) echo "parkio-postgres-notification:${POSTGRES_NOTIFICATION_USER:-parkio_notification}:${POSTGRES_NOTIFICATION_DB:-parkio_notification}" ;;
+    analytics) echo "parkio-postgres-analytics:${POSTGRES_ANALYTICS_USER:-parkio_analytics}:${POSTGRES_ANALYTICS_DB:-parkio_analytics}" ;;
     ai-validation) echo "parkio-postgres-ai-validation:${POSTGRES_AIVALIDATION_USER:-parkio_aivalidation}:${POSTGRES_AIVALIDATION_DB:-parkio_aivalidation}" ;;
     *) return 1 ;;
   esac
 }
 
 if [ -z "${SERVICE}" ] || ! TRIPLE="$(resolve "${SERVICE}")"; then
-  echo "ERROR: --service must be one of auth user parking media gamification moderation ai-validation." >&2
+  echo "ERROR: --service must be one of auth user parking media gamification moderation notification analytics ai-validation." >&2
   exit 2
 fi
 IFS=":" read -r CONTAINER DB_USER DB_NAME <<< "${TRIPLE}"

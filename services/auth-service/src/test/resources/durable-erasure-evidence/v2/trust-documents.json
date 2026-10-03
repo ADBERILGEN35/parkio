@@ -1,0 +1,243 @@
+[
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notAfter": "2026-09-30T00:00:00Z",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": null,
+    "name": "valid"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer",
+          "retired": true
+        }
+      ],
+      "version": 1
+    },
+    "error": null,
+    "name": "valid-retired"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "other",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust document format must be parkio-erasure-evidence-trust",
+    "name": "wrong-format"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 2
+    },
+    "error": "trust document version must be 1",
+    "name": "wrong-version"
+  },
+  {
+    "document": {
+      "databaseIdentity": " ",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust databaseIdentity must not be blank",
+    "name": "blank-database-identity"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [],
+      "version": 1
+    },
+    "error": "trust document needs at least one key",
+    "name": "no-keys"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust key #0 needs a keyId",
+    "name": "missing-key-id"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": null
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust key interop-fixture-key-2026a needs a producerId",
+    "name": "missing-producer-id"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "zz",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust key interop-fixture-key-2026a keyHex must be hex",
+    "name": "key-not-hex"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "ababababababababababababababababababababababababababababababab",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust key interop-fixture-key-2026a must be at least 32 bytes",
+    "name": "short-key"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "key interop-fixture-key-2026a notBefore must be an ISO-8601 UTC instant",
+    "name": "bad-not-before"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notAfter": "2025-01-01T00:00:00Z",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "key interop-fixture-key-2026a notAfter must be after notBefore",
+    "name": "not-after-before-not-before"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer",
+          "retired": "no"
+        }
+      ],
+      "version": 1
+    },
+    "error": "trust key interop-fixture-key-2026a retired must be true or false",
+    "name": "retired-not-boolean"
+  },
+  {
+    "document": {
+      "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+      "format": "parkio-erasure-evidence-trust",
+      "keys": [
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        },
+        {
+          "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+          "keyId": "interop-fixture-key-2026a",
+          "notBefore": "2026-01-01T00:00:00Z",
+          "producerId": "interop-fixture-producer"
+        }
+      ],
+      "version": 1
+    },
+    "error": "duplicate keyId interop-fixture-key-2026a in trust",
+    "name": "duplicate-key-id"
+  }
+]

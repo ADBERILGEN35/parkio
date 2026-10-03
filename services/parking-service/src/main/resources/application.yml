@@ -170,6 +170,9 @@ parkio:
       connect-timeout: 2s
       read-timeout: 5s
       max-retries: 2
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      max-response-size: 16MB
+      max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
@@ -182,6 +185,9 @@ parkio:
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      max-response-size: 16MB
+      max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
@@ -195,6 +201,9 @@ parkio:
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      max-response-size: 16MB
+      max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:false}
       # 6h — inventory-only; no live occupancy polling cadence.
       fixed-delay-ms: 21600000
@@ -212,6 +221,9 @@ parkio:
       connect-timeout: 5s
       read-timeout: 30s
       max-retries: 1
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      max-response-size: 16MB
+      max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:false}
       # 24h — static/stale inventory; no live occupancy polling cadence.
       fixed-delay-ms: 86400000
@@ -226,6 +238,9 @@ parkio:
       connect-timeout: 5s
       read-timeout: 30s
       max-retries: 1
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      max-response-size: 16MB
+      max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:false}
       # 24h — static inventory; no live occupancy polling cadence.
       fixed-delay-ms: 86400000

@@ -28,7 +28,7 @@ public record DurableErasureRecord(
     }
 
     /**
-     * The {@code bodyDigest} of durable evidence format v1, which the Python verifier checks:
+     * The {@code bodyDigest} of the durable evidence format, which the Python verifier checks:
      * SHA-256 of the canonical {@code {authUserId, erasureRequestId, erasedAt}} JSON.
      */
     public static String digest(UUID erasureRequestId, UUID authUserId, Instant erasedAt) {

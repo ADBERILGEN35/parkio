@@ -1,6 +1,7 @@
 package com.parkio.analytics.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -136,12 +137,17 @@ class AccountErasureAckOutboxPostgresIT {
         seed(user);
         handler.handle(event);
 
-        // Broker unreachable: the send fails (the shared relay surfaces it synchronously and the
-        // poll rolls back - U18), but the committed ACK row stays queued.
-        assertThatThrownBy(relay(brokerTemplate("127.0.0.1:1", 2_000))::run);
+        // Broker unreachable: send() fails synchronously. The poll counts that failure for the
+        // row and completes (U18 CL-F32); the committed ACK row stays queued, not dead-lettered.
+        long failuresBefore = jdbc.queryForObject("SELECT COALESCE(SUM(failure_count), 0) FROM outbox_events", Long.class);
+        assertThatCode(relay(brokerTemplate("127.0.0.1:1", 2_000))::run).doesNotThrowAnyException();
         Map<String, Object> row = ackRow(event.erasureRequestId());
         assertThat(row.get("published")).isEqualTo(false);
         assertThat(row.get("dead_lettered")).isEqualTo(false);
+        // The poll stops dispatching at the first throwing send() and counts that one row, which is
+        // this ACK unless an earlier queued row comes first in the batch.
+        assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(failure_count), 0) FROM outbox_events", Long.class))
+                .as("exactly one synchronous send failure is counted").isEqualTo(failuresBefore + 1);
 
         // "Restart": a new relay instance over the same committed row.
         relay(liveBroker()).run();
