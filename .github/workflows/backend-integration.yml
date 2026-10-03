@@ -81,13 +81,16 @@ jobs:
         run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
 
       # A cached or up-to-date result must not stand in for a run (#205 review B1). One module of
-      # each integrationTest definition (the buildSrc convention and the platform's own) is run again
-      # with a docker stub that always fails; the task must execute and fail closed.
+      # each integrationTest definition (the buildSrc convention, the platform's own and the
+      # dlt-redrive tool's own) is run again with a docker stub that always fails; the task must
+      # execute and fail closed. Without the flag, caching must still work (platform, last).
       - name: Integration tests are never reused without running
         run: |
           set -euo pipefail
           ./scripts/ci/check-integration-test-not-reused.sh --module :services:analytics-service
           ./scripts/ci/check-integration-test-not-reused.sh --module :platform:parkio-platform
+          ./scripts/ci/check-integration-test-not-reused.sh --module :tools:dlt-redrive
+          ./scripts/ci/check-integration-test-not-reused.sh --module :platform:parkio-platform --without-flag
 
       - name: Upload integration test reports on failure
         if: failure()
