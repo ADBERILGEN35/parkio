@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.parking.application.event.UserErasureRequestedEvent;
+import com.parkio.parking.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.parking.infrastructure.messaging.ParkingOutboxRelay;
 import com.parkio.parking.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import com.parkio.parking.testsupport.PostgisTestImages;
@@ -290,6 +291,73 @@ class AccountErasureAckOutboxPostgresIT {
         assertThat(residue(second)).isEmpty();
     }
 
+    // U02 restore replay (docs/architecture/erasure-restore-replay-contract.md): the replayed erase and
+    // its attempt-bound ACK use the same outbox; the restore ACK is keyed by the user.
+
+    @Test
+    void restoreReplayErasesAndPublishesTheAttemptBoundAck() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID bystander = UUID.randomUUID();
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+        seed(user);
+        seed(bystander);
+        Map<String, Long> bystanderBefore = userRows(bystander);
+
+        handler.replayForRestore(replay);
+
+        assertErased(user);
+        assertThat(userRows(bystander)).isEqualTo(bystanderBefore);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+        relay(liveBroker()).run();
+        List<ConsumerRecord<String, String>> published = records(ERASURE_TOPIC, user, Duration.ofSeconds(20));
+        assertThat(published).hasSize(1);
+        JsonNode envelope = objectMapper.readTree(published.get(0).value());
+        assertThat(envelope.get("eventType").asText()).isEqualTo("UserErasureRestoreAcknowledged");
+        assertThat(envelope.get("aggregateType").asText()).isEqualTo("AccountErasure");
+        assertThat(envelope.get("aggregateId").asText()).isEqualTo(user.toString());
+        JsonNode payload = envelope.get("payload");
+        assertThat(payload.get("eventId").asText()).isEqualTo(AccountErasureHandler.restoreAckEventId(replay).toString());
+        assertThat(payload.get("recoveryAttemptId").asText()).isEqualTo(replay.recoveryAttemptId().toString());
+        assertThat(payload.get("restoredDatasetId").asText()).isEqualTo(replay.restoredDatasetId());
+        assertThat(payload.get("erasureSetDigest").asText()).isEqualTo(replay.erasureSetDigest());
+        assertThat(payload.get("authUserId").asText()).isEqualTo(user.toString());
+        assertThat(payload.get("serviceName").asText()).isEqualTo("parking");
+        assertThat(payload.get("status").asText()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void restoreReplayCommitFailureLeavesNeitherTheEraseNorTheAck() {
+        UUID user = UUID.randomUUID();
+        seed(user);
+        Map<String, Long> before = userRows(user);
+
+        installCommitFailure();
+        try {
+            assertThatThrownBy(() -> handler.replayForRestore(restoreReplay(user, UUID.randomUUID())));
+        } finally {
+            dropCommitFailure();
+        }
+
+        assertThat(userRows(user)).isEqualTo(before);
+        assertThat(tombstones(user)).isZero();
+        assertThat(restoreAckRows(user)).isZero();
+    }
+
+    @Test
+    void restoreReplayRedeliveryQueuesOneAckAndAnotherAttemptAFreshOne() {
+        UUID user = UUID.randomUUID();
+        seed(user);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+
+        handler.replayForRestore(replay);
+        handler.replayForRestore(replay);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+
+        handler.replayForRestore(restoreReplay(user, UUID.randomUUID()));
+        assertThat(restoreAckRows(user)).isEqualTo(2);
+        assertErased(user);
+    }
+
     /**
      * Every column, in any table, whose text form still contains the user id. By-design copies are
      * excluded: the tombstone (resurrection guard) and the outbox (the ACK payload carries
@@ -560,5 +628,18 @@ class AccountErasureAckOutboxPostgresIT {
             }
         }
         return matches;
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay(UUID user, UUID attempt) {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), attempt, "backup-stamp-2026-10-03",
+                "e".repeat(64), user, Instant.parse("2026-09-29T08:16:00Z"), Instant.now());
+    }
+
+    private long restoreAckRows(UUID user) {
+        return count("""
+                SELECT COUNT(*) FROM outbox_events
+                WHERE aggregate_type = 'AccountErasure' AND event_type = 'UserErasureRestoreAcknowledged'
+                  AND aggregate_id = ?
+                """, user);
     }
 }

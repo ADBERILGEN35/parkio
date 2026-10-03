@@ -131,6 +131,11 @@ info:
     description: Parkio parking-service
 
 parkio:
+  privacy:
+    # Restore replay during an isolated recovery (docs/architecture/erasure-restore-replay-contract.md).
+    # Off by default: replay commands are acknowledged on Kafka and skipped.
+    restore-replay:
+      enabled: ${PARKIO_RESTORE_REPLAY_ENABLED:false}
   public-explore:
     enabled: ${PARKIO_PUBLIC_EXPLORE_ENABLED:false}
     allowed-source-families: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:}
