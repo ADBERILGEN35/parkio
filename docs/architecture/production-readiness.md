@@ -202,7 +202,8 @@ PostGIS is required by `parking-service`; everything else is plain Postgres 16.
       **not** client-side encrypted; Azure SSE + TLS apply.
     - **D. MINIO RESTORE — PARTIALLY CLOSED.** Isolated MinIO object restore from offsite-retrieved
       stamp is proven in CI. Live hosted-beta MinIO restore is **not** executed; `restore-hosted-beta.sh`
-      refuses live bucket overwrite unless `PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes`.
+      refuses a production MinIO restore (`parkio_restore_refuse_unsupported_production_scope`),
+      and no flag enables it.
   - **Test the restore** (and the *offsite* copy, not just the local file) before relying on it.
 - **Migrations.** Already Flyway-owned, `validate` at runtime. Run migrations as a **pre-deploy
   step** (init container / deploy job) — never let two app replicas race migrations on boot. Gate

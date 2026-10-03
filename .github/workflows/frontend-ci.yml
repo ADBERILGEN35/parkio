@@ -135,6 +135,11 @@ jobs:
           node --test apps/web/scripts/assert-playwright-report.test.mjs
           pnpm --filter @parkio/web e2e:ownership
 
+      # CL-F39.3: the real service worker across two releases in Chromium (local server,
+      # synthetic releases); the report guard rejects skipped or zero-test runs.
+      - name: Service-worker upgrade browser acceptance
+        run: pnpm --filter @parkio/web e2e:sw-upgrade
+
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
       #
