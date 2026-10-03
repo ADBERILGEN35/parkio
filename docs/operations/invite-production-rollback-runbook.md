@@ -30,6 +30,37 @@ The repository rollback script handles only image/config rollback to a recorded
 manifest. It must refuse to claim data rollback and does not reverse migrations
 or erasure semantics.
 
+### Running the image/config rollback from GitHub Actions (U13 CL-F06)
+
+A rollback runs as a new workflow run, so it has to fetch the manifest from the
+earlier deploy run.
+
+1. Open the job summary of the deploy run you want to return to. Its deploy job
+   prints a "Rollback reference" section, and only when the deploy succeeded:
+   `RUN_ID/invite-production-manifest-<sha>@<manifest SHA-256>`.
+2. Dispatch `invite-production-deploy.yml` on `api` with `action=rollback`, the
+   current api SHA as `git_sha`, and that reference as `manifest_artifact`.
+
+A deploy run from before this change prints no reference. For one of those,
+build `RUN_ID/invite-production-manifest-<sha>` by hand; without `@SHA256` the
+content pin is skipped, and every other check below still applies.
+
+The rollback job then works in three steps:
+
+- **Resolve** (`scripts/ci/resolve-rollback-manifest-run.sh`). It refuses any
+  reference that is not a successful `workflow_dispatch` run of this workflow on
+  `api` whose `Deploy invite-production` job succeeded and which holds exactly
+  that unexpired artifact. A build-only run (deploy skipped) is refused.
+- **Download.** It downloads the artifact by the id the resolver checked.
+- **Verify** (`scripts/ci/verify-rollback-manifest.sh`). The manifest must have
+  `schemaVersion` 1 and profile `invite-production`, a `gitSha` equal to that
+  run's commit, and image references in its `imageTag`. With `@SHA256` in the
+  reference, the file must also have that SHA-256.
+
+Only then does it run the rollback. Manifest artifacts are kept for 90 days.
+`hosted-beta-deploy.yml` (deprecated path) works the same way, with the
+`deploy-manifest-live-<sha>` artifact of its `Deploy (self-hosted beta)` job.
+
 ## Dark acceptance endpoint and backup scheduler (PROD-DEPLOY-01A-R3)
 
 Two rollbacks are independent of image/config rollback and of each other.
