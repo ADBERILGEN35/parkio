@@ -84,6 +84,16 @@ describe('AdminWaitlistPage full name column', () => {
   });
 });
 
+/** The bytes of a Blob as the browser would save them (jsdom: via FileReader). */
+function blobBytes(blob: Blob): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
 describe('AdminWaitlistPage confirmed export', () => {
   beforeEach(() => {
     adminSummary.mockResolvedValue({ pending: 0, confirmed: 0, withdrawn: 0, total: 0 });
@@ -109,6 +119,24 @@ describe('AdminWaitlistPage confirmed export', () => {
       confirmedFrom: new Date('2026-09-01T00:00').toISOString(),
       confirmedTo: undefined,
     });
+  });
+
+  it('saves the CSV with exactly one UTF-8 BOM', async () => {
+    // Decoding the response as text drops the server's BOM; the page must put it back once.
+    for (const csv of ['email\nuser@parkio.dev\n', '\uFEFFemail\nuser@parkio.dev\n']) {
+      exportConfirmedCsv.mockResolvedValue({ csv, truncated: false, matchingRows: 1, rowLimit: 50000 });
+      const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:export');
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+      await withLocale('en');
+      const { unmount } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Export confirmed CSV' }));
+
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+      const bytes = new Uint8Array(await blobBytes(createObjectURL.mock.calls[0][0]));
+      expect(Array.from(bytes.slice(0, 4))).toEqual([0xef, 0xbb, 0xbf, 0x65]);
+      unmount();
+    }
   });
 
   it('shows no truncation notice for a complete export', async () => {

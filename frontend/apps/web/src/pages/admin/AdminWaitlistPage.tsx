@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { adminKeys } from '@/data/keys';
+import { fromLocalDateTimeInput, toLocalDateTimeInput } from '@/lib/localDateTimeInput';
 
 const STATUSES: Array<WaitlistSubscriptionStatus | ''> = [
   '',
@@ -22,8 +23,13 @@ function formatInstant(value: string | null | undefined, fallback: string): stri
   return date.toLocaleString();
 }
 
+const UTF8_BOM = '\uFEFF';
+
 function downloadCsv(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  // The server starts the CSV with a UTF-8 BOM for spreadsheet clients, but decoding the
+  // response as text drops it. Put it back once, so the saved file starts with EF BB BF.
+  const content = csv.startsWith(UTF8_BOM) ? csv : UTF8_BOM + csv;
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -139,10 +145,10 @@ export function AdminWaitlistPage() {
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.createdFrom')}</span>
             <Input
               type="datetime-local"
-              value={createdFrom ? createdFrom.slice(0, 16) : ''}
+              value={toLocalDateTimeInput(createdFrom)}
               onChange={(e) =>
                 update({
-                  createdFrom: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  createdFrom: fromLocalDateTimeInput(e.target.value),
                 })
               }
             />
@@ -151,10 +157,10 @@ export function AdminWaitlistPage() {
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.createdTo')}</span>
             <Input
               type="datetime-local"
-              value={createdTo ? createdTo.slice(0, 16) : ''}
+              value={toLocalDateTimeInput(createdTo)}
               onChange={(e) =>
                 update({
-                  createdTo: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  createdTo: fromLocalDateTimeInput(e.target.value),
                 })
               }
             />
@@ -168,20 +174,16 @@ export function AdminWaitlistPage() {
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedFrom')}</span>
             <Input
               type="datetime-local"
-              value={confirmedFrom ? confirmedFrom.slice(0, 16) : ''}
-              onChange={(e) =>
-                setConfirmedFrom(e.target.value ? new Date(e.target.value).toISOString() : '')
-              }
+              value={toLocalDateTimeInput(confirmedFrom)}
+              onChange={(e) => setConfirmedFrom(fromLocalDateTimeInput(e.target.value))}
             />
           </label>
           <label>
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedTo')}</span>
             <Input
               type="datetime-local"
-              value={confirmedTo ? confirmedTo.slice(0, 16) : ''}
-              onChange={(e) =>
-                setConfirmedTo(e.target.value ? new Date(e.target.value).toISOString() : '')
-              }
+              value={toLocalDateTimeInput(confirmedTo)}
+              onChange={(e) => setConfirmedTo(fromLocalDateTimeInput(e.target.value))}
             />
           </label>
           <Button type="button" onClick={() => void onExportConfirmed()} disabled={exporting}>
