@@ -118,12 +118,18 @@ jobs:
 
       - name: Verify manual build pin
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          # This job is not gated on git_sha == github.sha or on api, so the operator's input and
+          # the dispatch ref reach the shell through the environment, never as shell source.
+          PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
+          PARKIO_REF_SHA: ${{ github.sha }}
+          PARKIO_REF_NAME: ${{ github.ref }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
-            --ref-sha '${{ github.sha }}' \
-            --ref-name '${{ github.ref }}'
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
+            --ref-sha "$PARKIO_REF_SHA" \
+            --ref-name "$PARKIO_REF_NAME"
 
       - name: Attest blank dark gateway dispatch input
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
