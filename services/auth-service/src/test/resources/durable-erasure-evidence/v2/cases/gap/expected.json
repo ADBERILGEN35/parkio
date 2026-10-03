@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [
+        2
+      ],
+      "expectedThrough": 3,
+      "gaps": [
+        2
+      ],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": null,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [],
+      "requiredThrough": null,
+      "verdict": "BLOCKED"
+    },
+    {
+      "error": "BLOCKED: missing records or unknown tail; recovery BLOCKED",
+      "requiredThrough": 3
+    }
+  ],
+  "description": "Record 2 is missing below the frontier: BLOCKED with gap [2].",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

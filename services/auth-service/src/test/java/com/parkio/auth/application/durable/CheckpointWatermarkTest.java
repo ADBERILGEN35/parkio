@@ -8,22 +8,22 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
  * Consumer freshness for checkpoints: after a newer checkpoint was accepted, an older valid one
  * is refused, and so is a different ledger at the accepted sequence. The checkpoints are real
- * format v1 objects that pass the verifier.
+ * format v2 objects that pass the verifier.
  */
 class CheckpointWatermarkTest {
 
-    private static final String DATABASE = "auth-db:checkpoint-watermark-test";
-    private static final ProducerKey PRODUCER =
-            new ProducerKey("checkpoint-watermark-test", "watermark-test-key-not-a-secret".getBytes(StandardCharsets.UTF_8));
-    private static final DurableErasureEvidenceVerifier VERIFIER =
-            new DurableErasureEvidenceVerifier(DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()));
+    private static final String DATABASE = "postgresql:7000000000000000003:checkpoint_watermark_test";
+    private static final TrustedKey PRODUCER = TrustedKey.active("checkpoint-watermark-test-key",
+            "checkpoint-watermark-test", "watermark-test-key-not-a-secret".getBytes(StandardCharsets.UTF_8),
+            Instant.parse("2026-01-01T00:00:00Z"));
+    private static final DurableErasureEvidenceVerifier VERIFIER = new DurableErasureEvidenceVerifier(
+            new EvidenceTrust(DATABASE, List.of(PRODUCER)), Instant.parse("2026-10-01T00:00:00Z"));
     private static final UUID FIRST_USER = UUID.fromString("0f0e0d0c-0000-4000-8000-0000000000a1");
     private static final UUID SECOND_USER = UUID.fromString("0f0e0d0c-0000-4000-8000-0000000000a2");
 

@@ -8,7 +8,8 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verifi
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedFrontier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
 import com.parkio.auth.application.durable.DurableEvidenceException;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.CapturedErasureLedger;
 import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.application.port.DurableErasureCheckpointStore;
@@ -25,7 +26,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -36,7 +36,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * Off-host durable erasure record store on an S3-compatible bucket with object lock, writing
- * evidence format v1 (docs/operations/recovery-evidence-contract.md). The protocol mirrors the
+ * evidence format v2 (docs/operations/recovery-evidence-contract.md). The protocol mirrors the
  * Python model: reserve a sequence with a marker, raise the frontier's highest reservation,
  * publish the signed record, then raise the expected boundary to cover it.
  *
@@ -49,6 +49,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *   <li>A record counts as found only once the signed frontier covers it, so a crash between
  *       record and frontier is completed by the next put instead of being reported durable.</li>
  *   <li>Store I/O refuses to run inside a database transaction.</li>
+ *   <li>Objects are signed with one key of the trust document, and only while that key is not
+ *       retired and inside its signing window; reads verify with the whole trust.</li>
  * </ul>
  *
  * <p>Signed checkpoints of the tombstone ledger (contract stage 2) take sequences from the same
@@ -67,20 +69,25 @@ public final class ObjectLockDurableErasureRecordStore
 
     private final ObjectLockBucket bucket;
     private final ObjectLockEvidenceObjects objects;
+    private final EvidenceTrust trust;
+    private final TrustedKey signingKey;
     private final String databaseIdentity;
-    private final ProducerKey producer;
-    private final DurableErasureEvidenceVerifier verifier;
     private final RetentionMode retentionMode;
     private final Duration retention;
     private final Clock clock;
 
-    ObjectLockDurableErasureRecordStore(ObjectLockBucket bucket, String databaseIdentity, ProducerKey producer,
+    /**
+     * Signs with {@code signingKeyId} from {@code trust} and verifies what it reads with the whole
+     * trust, so objects signed with an earlier key still verify after a key rotation.
+     */
+    ObjectLockDurableErasureRecordStore(ObjectLockBucket bucket, EvidenceTrust trust, String signingKeyId,
                                         RetentionMode retentionMode, Duration retention, Clock clock) {
         this.bucket = Objects.requireNonNull(bucket, "bucket");
         this.objects = new ObjectLockEvidenceObjects(bucket);
-        this.databaseIdentity = Objects.requireNonNull(databaseIdentity, "databaseIdentity");
-        this.producer = Objects.requireNonNull(producer, "producer");
-        this.verifier = new DurableErasureEvidenceVerifier(databaseIdentity, Map.of(producer.producerId(), producer.key()));
+        this.trust = Objects.requireNonNull(trust, "trust");
+        this.signingKey = trust.key(signingKeyId)
+                .orElseThrow(() -> new IllegalArgumentException("signing key " + signingKeyId + " is not in the trust"));
+        this.databaseIdentity = trust.databaseIdentity();
         this.retentionMode = Objects.requireNonNull(retentionMode, "retentionMode");
         this.retention = Objects.requireNonNull(retention, "retention");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -89,6 +96,7 @@ public final class ObjectLockDurableErasureRecordStore
     @Override
     public synchronized DurableErasurePutResult putIfAbsent(DurableErasureRecord record) {
         requireNoTransaction();
+        signingKey();
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
         Optional<ObjectLockBucket.StoredVersion> existing = bucket.oldest(key);
         if (existing.isPresent()) {
@@ -96,7 +104,8 @@ public final class ObjectLockDurableErasureRecordStore
         }
         long sequence = reserveSequence(record.erasureRequestId());
         advanceFrontier(null, sequence);
-        String versionId = publish(key, DurableErasureEvidence.pendingRecord(record, sequence, databaseIdentity, producer));
+        String versionId = publish(key,
+                DurableErasureEvidence.pendingRecord(record, sequence, databaseIdentity, signingKey()));
         ObjectLockBucket.StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("record " + key + " is not readable after publication"));
         return settle(canonical, record, canonical.versionId().equals(versionId));
@@ -128,6 +137,7 @@ public final class ObjectLockDurableErasureRecordStore
     @Override
     public synchronized DurableErasureCheckpoint publishCheckpoint(ErasureLedgerCapture capture) {
         requireNoTransaction();
+        signingKey();
         CapturedErasureLedger ledger = Objects.requireNonNull(capture.capture(), "capture");
         requireNoTransaction();
         OptionalLong abandoned = abandonedCheckpointReservation();
@@ -135,7 +145,7 @@ public final class ObjectLockDurableErasureRecordStore
         advanceFrontier(null, sequence);
         String key = DurableErasureEvidence.checkpointKey(sequence);
         String versionId = publish(key,
-                DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, producer));
+                DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, signingKey()));
         ObjectLockBucket.StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("checkpoint " + key + " is not readable after publication"));
         if (!canonical.versionId().equals(versionId)) {
@@ -236,12 +246,12 @@ public final class ObjectLockDurableErasureRecordStore
             return;
         }
         publish(DurableErasureEvidence.FRONTIER_KEY,
-                DurableErasureEvidence.frontier(newExpected, newReserved, databaseIdentity, producer));
+                DurableErasureEvidence.frontier(newExpected, newReserved, databaseIdentity, signingKey()));
     }
 
     private Optional<VerifiedFrontier> frontier() {
         try {
-            return verifier.verifyFrontier(objects.find(DurableErasureEvidence.FRONTIER_KEY));
+            return verifier().verifyFrontierVersions(objects.findAll(DurableErasureEvidence.FRONTIER_KEY));
         } catch (DurableEvidenceException ex) {
             log.error("durable store frontier failed verification: {}", ex.getMessage());
             throw unavailable("frontier failed verification");
@@ -250,7 +260,7 @@ public final class ObjectLockDurableErasureRecordStore
 
     private VerifiedCheckpoint verifyCheckpoint(ObjectLockBucket.StoredVersion stored) {
         try {
-            return verifier.verifyCheckpoint(stored.bytes());
+            return verifier().verifyCheckpoint(stored.bytes());
         } catch (DurableEvidenceException ex) {
             log.error("durable store checkpoint {} version {} failed verification: {}",
                     stored.key(), stored.versionId(), ex.getMessage());
@@ -260,7 +270,7 @@ public final class ObjectLockDurableErasureRecordStore
 
     private VerifiedPending verify(ObjectLockBucket.StoredVersion stored) {
         try {
-            return verifier.verifyPending(stored.bytes());
+            return verifier().verifyPending(stored.bytes());
         } catch (DurableEvidenceException ex) {
             log.error("durable store record {} version {} failed verification: {}",
                     stored.key(), stored.versionId(), ex.getMessage());
@@ -275,7 +285,7 @@ public final class ObjectLockDurableErasureRecordStore
                     UUID.fromString(pending.authUserId()), Instant.parse(pending.erasedAt()),
                     body.path("bodyDigest").asText());
         } catch (IOException | RuntimeException ex) {
-            throw unavailable("record " + stored.key() + " is not a format v1 record");
+            throw unavailable("record " + stored.key() + " is not a format v2 record");
         }
     }
 
@@ -294,6 +304,23 @@ public final class ObjectLockDurableErasureRecordStore
         } catch (NumberFormatException ex) {
             throw unavailable("unexpected sequence marker " + key);
         }
+    }
+
+    /**
+     * The signing key, if it may sign now: not retired and inside its signing window. Checked
+     * before an operation reserves anything and again for every signed object.
+     */
+    private TrustedKey signingKey() {
+        if (!signingKey.signsAt(clock.instant())) {
+            log.error("durable store signing key {} is retired or outside its signing window", signingKey.keyId());
+            throw unavailable("signing key is retired or outside its signing window");
+        }
+        return signingKey;
+    }
+
+    /** Verification as of now: the whole trust, so earlier keys still verify. */
+    private DurableErasureEvidenceVerifier verifier() {
+        return new DurableErasureEvidenceVerifier(trust, clock.instant());
     }
 
     /** Every version is written under the configured retention lock. */

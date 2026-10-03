@@ -8,7 +8,8 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.RecoveryVerdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.DurableErasurePutResult;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.domain.exception.AuthErrorCode;
@@ -28,7 +29,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
-import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import okhttp3.OkHttpClient;
@@ -44,7 +45,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * The object-lock durable store against a disposable MinIO bucket with object lock and
- * versioning: format v1 objects, idempotent and conflicting retries, overwrite and delete
+ * versioning: format v2 objects, idempotent and conflicting retries, overwrite and delete
  * attempts, the publication receipt, a crash between record and frontier, recovery from the
  * bucket alone, store timeouts and the no-transaction rule. Synthetic keys and data only.
  */
@@ -55,8 +56,9 @@ class ObjectLockDurableErasureRecordStoreIT {
     private static final String ACCESS_KEY = "parkio-test";
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String DATABASE = "auth-db:object-lock-it";
-    private static final ProducerKey PRODUCER =
-            new ProducerKey("auth-object-lock-it", "object-lock-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8));
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-object-lock-it-key-2026a", "auth-object-lock-it",
+            "object-lock-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8), Instant.parse("2026-01-01T00:00:00Z"));
+    private static final EvidenceTrust TRUST = new EvidenceTrust(DATABASE, List.of(PRODUCER));
     private static final Duration RETENTION = Duration.ofDays(1);
     private static final AtomicInteger BUCKETS = new AtomicInteger();
 
@@ -84,7 +86,7 @@ class ObjectLockDurableErasureRecordStoreIT {
         ObjectLockTestBuckets.createLockedBucket(client, bucketName);
         bucket = new ObjectLockBucket(client, bucketName);
         bucket.requireObjectLock();
-        store = new ObjectLockDurableErasureRecordStore(bucket, DATABASE, PRODUCER, RetentionMode.GOVERNANCE, RETENTION, clock);
+        store = new ObjectLockDurableErasureRecordStore(bucket, TRUST, PRODUCER.keyId(), RetentionMode.GOVERNANCE, RETENTION, clock);
     }
 
     @Test
@@ -208,8 +210,7 @@ class ObjectLockDurableErasureRecordStoreIT {
         }
 
         // A fresh client and verifier: no auth database, no in-memory state from the writer.
-        DurableErasureEvidenceVerifier verifier = new DurableErasureEvidenceVerifier(
-                DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()));
+        DurableErasureEvidenceVerifier verifier = new DurableErasureEvidenceVerifier(TRUST, clock.instant());
         RecoveryVerdict verdict = verifier.recover(
                 ObjectLockEvidenceObjects.connect(client(Duration.ofSeconds(15)), bucketName), 3L);
 
@@ -222,7 +223,7 @@ class ObjectLockDurableErasureRecordStoreIT {
     @Test
     void anUnreachableStoreFailsWithinTheCallTimeout() throws Exception {
         ObjectLockDurableErasureRecordStore impatient = new ObjectLockDurableErasureRecordStore(
-                new ObjectLockBucket(client(Duration.ofSeconds(2)), bucketName), DATABASE, PRODUCER,
+                new ObjectLockBucket(client(Duration.ofSeconds(2)), bucketName), TRUST, PRODUCER.keyId(),
                 RetentionMode.GOVERNANCE, RETENTION, clock);
         MINIO.getDockerClient().pauseContainerCmd(MINIO.getContainerId()).exec();
         try {
@@ -253,8 +254,7 @@ class ObjectLockDurableErasureRecordStoreIT {
     }
 
     private RecoveryVerdict recover() {
-        return new DurableErasureEvidenceVerifier(DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()))
-                .recover(store.evidence(), null);
+        return new DurableErasureEvidenceVerifier(TRUST, clock.instant()).recover(store.evidence(), null);
     }
 
     private static DurableErasureRecord record(String erasedAt) {
