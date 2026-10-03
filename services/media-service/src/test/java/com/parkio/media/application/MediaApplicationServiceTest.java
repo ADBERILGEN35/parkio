@@ -936,8 +936,9 @@ class MediaApplicationServiceTest {
         }
 
         @Override
-        public boolean existsByChecksum(String checksum) {
-            return byId.values().stream().anyMatch(m -> m.checksum().equals(checksum));
+        public boolean existsLiveDuplicate(UUID ownerUserId, String checksum) {
+            return byId.values().stream().anyMatch(m -> m.isOwnedBy(ownerUserId)
+                    && m.checksum().equals(checksum) && !m.isDeleted());
         }
     }
 

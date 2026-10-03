@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MediaFileJpaRepository extends JpaRepository<MediaFileEntity, UUID> {
 
-    boolean existsByChecksum(String checksum);
+    boolean existsByOwnerUserIdAndChecksumAndStatusNot(UUID ownerUserId, String checksum, MediaStatus status);
 
     long countByStatus(MediaStatus status);
 
