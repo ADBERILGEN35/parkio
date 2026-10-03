@@ -15,7 +15,7 @@ No real Slack message or email was sent while building or testing this.
 | `POST /api/v1/waitlist` (submission) | Creates a `PENDING` row only. The visitor has not proven they own the address. |
 | Account registration (`UserRegistered`, auth-service) | A different product flow. It already has its own `registration.completed` family and is not touched here. |
 | Resend `2xx` on `POST /emails` | The provider **accepted** the message for sending. That does not mean it was delivered. |
-| Resend error / network failure on send | Returned to the visitor as `503 WAITLIST_EMAIL_DELIVERY_FAILED`. The row stays retryable through resubmit/resend (`max-resends`). This is a retryable failure, not a terminal one. |
+| Resend error / network failure on send | On submission it is returned to the visitor as `503 WAITLIST_EMAIL_DELIVERY_FAILED`. On `POST /api/v1/waitlist/resend` the visitor gets the same `202` as for an unknown address (only a `PENDING` row reaches the provider, so a `503` there would reveal the subscription); the gateway logs the failure at WARN with the e-mail hash. Either way the row stays retryable through resubmit/resend (`max-resends`). This is a retryable failure, not a terminal one. |
 | Repeat confirm with an already-used token | Idempotent success for the visitor. It is not a new transition, so no notification. |
 | Withdrawal | Out of scope for this change. |
 

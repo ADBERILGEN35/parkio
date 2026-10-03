@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.util.StringUtils;
@@ -44,6 +45,7 @@ public class MediaInfrastructureConfig {
      * endpoint (e.g. {@code http://minio:9000} in compose).
      */
     @Bean
+    @DependsOn(MediaStorageCredentialsGuard.BEAN_NAME)
     @Primary
     @Qualifier("internalMinioClient")
     public MinioClient internalMinioClient(MediaProperties properties) {
@@ -56,6 +58,7 @@ public class MediaInfrastructureConfig {
      * host; it cannot be rewritten after signing.
      */
     @Bean
+    @DependsOn(MediaStorageCredentialsGuard.BEAN_NAME)
     @Qualifier("presignMinioClient")
     public MinioClient presignMinioClient(MediaProperties properties) {
         MediaProperties.Storage storage = properties.getStorage();
@@ -70,6 +73,7 @@ public class MediaInfrastructureConfig {
      * request per call (the SDK's listing iterator would request further pages on its own).
      */
     @Bean
+    @DependsOn(MediaStorageCredentialsGuard.BEAN_NAME)
     public VersionListingClient versionListingClient(MediaProperties properties) {
         MediaProperties.Storage storage = properties.getStorage();
         MinioAsyncClient.Builder builder = MinioAsyncClient.builder()
