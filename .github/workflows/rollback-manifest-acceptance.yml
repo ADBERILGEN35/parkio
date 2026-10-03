@@ -80,11 +80,11 @@ jobs:
           RUN_ID: ${{ steps.source.outputs.run_id }}
           ARTIFACT: ${{ steps.source.outputs.artifact }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           refused() { # description, reference
-            ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
-              --workflow invite-production-deploy.yml --branch api --reference "$2"
-            rc=$?
+            # The step shell runs with errexit, so the refusal's exit code is caught here.
+            if ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+              --workflow invite-production-deploy.yml --branch api --reference "$2"; then rc=0; else rc=$?; fi
             if [ "$rc" -ne 3 ]; then echo "::error::$1 was not refused (exit $rc)"; exit 1; fi
             echo "refused as expected: $1"
           }
