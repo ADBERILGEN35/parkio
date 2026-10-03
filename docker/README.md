@@ -627,16 +627,43 @@ until they expire.
 
 1. Generate a new key + kid:
    `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out new.pem`
-2. Export the **current** key's public PEM for the JWKS overlap:
-   `openssl pkey -in current.pem -pubout`
-3. In `.env`: set `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` to a JSON array including the
-   **old** key `[{"kid":"<old-kid>","pem":"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}]`,
-   then set `PARKIO_JWT_PRIVATE_KEY_PEM`/`PARKIO_JWT_KEY_ID` to the **new** key/kid.
-4. Redeploy auth-service. The gateway refreshes its JWKS cache within
-   `parkio.security.jwt.jwks-cache-ttl` (15m) — new tokens use the new kid; old tokens still
-   verify against the old public key.
-5. Wait at least one access-token TTL (`PARKIO_JWT_ACCESS_TTL`, ~15m) so all old tokens expire.
-6. Clear `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` and redeploy auth-service. Done.
+2. Publish the **new** public key first, still signing with the current key. In `.env`, set
+   `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` to
+   `[{"kid":"<new-kid>","pem":"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}]`
+   (`openssl pkey -in new.pem -pubout`). Redeploy auth-service, then wait at least
+   `parkio.security.jwt.jwks-cache-ttl` (15m), so that every gateway has the new kid cached.
+3. Switch the signing key. Set `PARKIO_JWT_PRIVATE_KEY_PEM`/`PARKIO_JWT_KEY_ID` to the **new**
+   key/kid. Replace the additional keys with the **old** key's public PEM
+   (`openssl pkey -in current.pem -pubout`), and redeploy auth-service. New tokens use a kid the
+   gateway already has; old tokens still verify against the old public key.
+4. Wait at least one access-token TTL (`PARKIO_JWT_ACCESS_TTL`, ~15m) so all old tokens expire.
+5. Clear `PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON` and redeploy auth-service. Done.
+
+**Why step 2 comes first: the gateway's JWKS refresh bounds** (U10, owner decision A1: the
+defaults stay as shipped).
+
+How a forced refresh is bounded:
+- A token whose kid the gateway has not cached forces a JWKS refresh at most once per
+  `PARKIO_AUTH_JWKS_REFRESH_COOLDOWN` (30s).
+- There are at most `PARKIO_AUTH_JWKS_REFRESH_BUDGET` such refreshes (20) per
+  `PARKIO_AUTH_JWKS_REFRESH_BUDGET_WINDOW` (1h).
+- A kid that a refresh did not find is remembered for `PARKIO_AUTH_JWKS_NEGATIVE_CACHE_TTL`
+  (5m, up to `PARKIO_AUTH_JWKS_NEGATIVE_CACHE_SIZE`, 1000 kids), and cannot force another
+  refresh meanwhile.
+- Each fetch ends after `PARKIO_AUTH_JWKS_FETCH_TIMEOUT` (10s) and fails into the normal 401.
+
+The trade-offs:
+- **Rotation.** If a new kid is used before the gateways cached it, its tokens are accepted at
+  the first request after the cooldown, while the budget lasts. Once forged kids have spent the
+  budget, those tokens get 401 until the next regular refresh, at most 15 minutes later.
+  Publishing first (step 2) means a rotation never depends on a forced refresh.
+- **Availability.** When auth-service's JWKS is unreachable, the cached keys keep working until
+  the cache TTL (15m) runs out. After that every authenticated request gets 401 until a fetch
+  succeeds: there is no stale fallback. Those regular refreshes are shared between concurrent
+  requests and do not count against the budget, and each attempt ends after the 10s timeout.
+- **Tuning.** A larger budget or a shorter cooldown recovers sooner from a rotation that skipped
+  step 2, but lets unknown kids drive more fetches to auth-service. That load is what the bounds
+  exist to stop: before them, 100 forged kids cost 101 fetches.
 
 **Gateway internal secret (`X-Gateway-Auth`).** The gateway sends one secret; downstream
 accepts a set (current + previous) during the window.
