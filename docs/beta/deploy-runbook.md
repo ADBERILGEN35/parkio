@@ -1,5 +1,10 @@
 # Hosted-beta deploy runbook (R5.1)
 
+> **Production:** with `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta`, this script is a
+> deprecated production path (owner decision B7, 2026-10-03). It still runs unchanged, and
+> prints a warning. The supported production path is `scripts/parkio-prod-compose.sh` with
+> `docker/compose.production.files`. See `docs/azure/AZURE-DEPLOYMENT-PROFILE.md`.
+
 Safe, repeatable deployment of Parkio application images for **hosted-beta**.
 Images are always built from the **current git commit** and tagged so rollback
 can restore a previous SHA without rebuilding.
