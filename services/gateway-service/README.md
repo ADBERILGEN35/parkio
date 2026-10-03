@@ -156,7 +156,12 @@ env-overridable via `PARKIO_AUTH_SERVICE_URI`, `PARKIO_SESSION_EPOCH_CACHE_TTL`,
 
 ¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`; and
 `GET /api/v1/auth/.well-known/jwks.json`. Any other auth path is protected.
-Actuator `health`/`info` are public.
+Actuator `health`/`info` are public. `/actuator/prometheus` is for the internal scrape only.
+Caddy blocks the path, and the gateway answers `404` to any request that the Caddy edge relayed:
+Caddy sets `X-Parkio-Edge-Relay` on everything it forwards to the gateway. In production the
+gateway runs with `SERVER_FORWARD_HEADERS_STRATEGY=framework`, which removes `Forwarded` and
+`X-Forwarded-*` before the gateway's filters run, so that marker is the signal there; the
+standard proxy headers are still refused for setups without that strategy.
 ² See the role matrix below: user-facing report/appeal endpoints need only an
 authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`. Account-level
 actions (suspend/restore/trust/score, appeal resolution) are further restricted to
