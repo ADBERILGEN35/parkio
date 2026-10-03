@@ -1,0 +1,7 @@
+# Local-development profile. A local MinIO started with its default root user accepts
+# minioadmin/minioadmin; only this profile may use those credentials (CL-F38d).
+parkio:
+  media:
+    storage:
+      access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:minioadmin}
+      secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:minioadmin}
