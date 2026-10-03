@@ -1,11 +1,16 @@
 import { http, HttpResponse } from 'msw';
-import { configure, screen, waitFor } from '@testing-library/react';
+import { configure, fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { useLocaleStore } from '@/i18n/localeStore';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { createTestAppRuntime, createTestQueryClient, renderWithProviders } from '@/test/utils';
 import { VerifyEmailPage } from './VerifyEmailPage';
+
+const INVALID_LINK_EN =
+  'This verification link is invalid, has expired or was already used. If you already verified your email, sign in. Otherwise, request a new link.';
+const INVALID_LINK_TR =
+  'Bu doğrulama bağlantısı geçersiz, süresi dolmuş veya daha önce kullanılmış. E-postanızı zaten doğruladıysanız giriş yapın; doğrulamadıysanız yeni bir bağlantı isteyin.';
 
 const verifiedUser = {
   id: '6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
@@ -112,14 +117,33 @@ describe('VerifyEmailPage', () => {
 
     renderVerify('?token=expired-token');
 
-    expect(
-      await screen.findByText('Email verification token is invalid or expired.'),
-    ).toBeInTheDocument();
+    expect(await screen.findAllByText(INVALID_LINK_EN)).not.toHaveLength(0);
+    expect(screen.queryByText('Email verification token is invalid or expired.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Request a new link' })).toBeInTheDocument();
+  });
+
+  it('offers sign-in for a link that was already used, in the link language', async () => {
+    useLocaleStore.getState().setLocale('en');
+    server.use(
+      http.post(`${API_BASE}/auth/verify-email`, () =>
+        HttpResponse.json(
+          apiErrorBody('INVALID_VERIFICATION_TOKEN', 'Email verification token is invalid or expired.'),
+          { status: 400 },
+        ),
+      ),
+    );
+
+    renderVerify('?token=spent-token&lang=tr');
+
+    expect(await screen.findAllByText(INVALID_LINK_TR)).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Giriş yap' }));
+    expect(await screen.findByText('Login page stub')).toBeInTheDocument();
   });
 
   it('shows failure when token is missing', async () => {
     renderVerify('');
 
-    expect(await screen.findByText('Verification link is invalid or expired.')).toBeInTheDocument();
+    expect(await screen.findByText(INVALID_LINK_EN)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 });
