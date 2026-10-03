@@ -92,7 +92,8 @@ messages need a redrive. They are never suppressed.
 |---|---|---|
 | auth-service outbox | the erasure command to every participant | `UserErasureRequested`, `UserErasureRestoreReplayRequested` |
 | participant outboxes (user, parking, media, moderation, gamification, notification, analytics, ai-validation) | the participant's ACK to auth | `UserErasureAcknowledged`, `UserErasureRestoreAcknowledged` |
-| `parkio.dlt.<service>` | a participant's consumer failed on a command from `parkio.privacy.erasure` | the original Kafka record |
+| `parkio.dlt.user`, `parkio.dlt.parking`, `parkio.dlt.media`, `parkio.dlt.moderation`, `parkio.dlt.gamification`, `parkio.dlt.notification`, `parkio.dlt.analytics`, `parkio.dlt.aivalidation` | a participant's consumer failed on an erasure command from `parkio.privacy.erasure` | the original Kafka record |
+| `parkio.dlt.auth` | auth-service's consumer failed on a participant's ACK from `parkio.privacy.erasure` | the original Kafka record |
 
 **Why they matter.**
 - A command that is never delivered leaves the participant's data in place.
@@ -109,8 +110,9 @@ Either way, `AccountErasureStuck` fires once a request has been past its 1-hour 
 **Nothing removes them on its own.**
 - The outbox retention job deletes only published rows. A dead-lettered row stays until an
   operator acts.
-- DLT records are kept for the topic retention: 14 days, see PRIV-001 "Transport copies".
-  Redrive them before then.
+- DLT records are kept for the topic retention: 14 days (`docs/architecture/kafka-transport.md`,
+  DLT retention). Redrive them before then. On api, `parkio.dlt.media` is not provisioned yet,
+  so no retention is set for it.
 
 Steps:
 
@@ -133,13 +135,22 @@ Steps:
      --reason "broker outage over" --yes
    ```
 
-4. For a DLT record, run the redrive back to `parkio.privacy.erasure` as a dry run first. Then
-   run the same selection with `--execute`:
+4. For a DLT record, run the redrive back to `parkio.privacy.erasure` as a dry run first,
+   here from notification's DLT:
 
    ```bash
    scripts/kafka-dlt-redrive.sh --bootstrap-servers localhost:29092 \
-     --source-topic parkio.dlt.<service> --target-topic parkio.privacy.erasure \
+     --source-topic parkio.dlt.notification --target-topic parkio.privacy.erasure \
      --event-id <eventId>
+   ```
+
+   Then run the same selection with `--execute`, which also needs the operator and a reason:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/kafka-dlt-redrive.sh --execute \
+     --bootstrap-servers localhost:29092 \
+     --source-topic parkio.dlt.notification --target-topic parkio.privacy.erasure \
+     --event-id <eventId> --reason "erasure command redrive after consumer fix"
    ```
 
 5. Check that `parkio_erasure_stuck` returns to 0 and the request reaches `COMPLETE`.
