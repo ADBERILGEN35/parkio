@@ -512,9 +512,15 @@ and are deleted before the ACK. A PUT that could still be applied blocks
 `SUCCESS` instead of leaving an object behind it.
 
 Transport retention predates U05 and applies to every service; U05 adds no
-retention period and changes none. PRIV-001's policy matrix does not mention
-transport copies yet. The privacy policy owner has to confirm that they are
-acceptable until the transport retention removes them.
+retention period and changes none. Owner decision B6 (2026-10-03) accepts the
+source-policy bounds for these copies:
+- published outbox rows: P7D;
+- `parkio.privacy.erasure`: 14 days;
+- DLT topics: 14 days.
+
+PRIV-001 ("Transport copies") lists them. It also explains two things: Kafka
+deletes by segment, and the live broker's topic configuration has not been
+checked. The decision is not a legal approval.
 
 How the per-service ITs check this (whole-schema residue scan, every
 uuid/text/json column):
