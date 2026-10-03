@@ -239,5 +239,36 @@ parkio:
       durable-recording-retry-worker-base-backoff-ms: 5000
       durable-recording-retry-worker-max-backoff-ms: 900000
       durable-recording-retry-worker-lease-ms: 120000
+      # Off-host object-lock store for durable erasure records (evidence format v2). Off by
+      # default. Bucket, credentials, retention, the trust document (pinned database identity
+      # and producer keys; secret material) and the signing key id are operator inputs with no
+      # defaults; when enabled, a missing or invalid one (or a bucket without object lock) stops
+      # startup. Key custody: docs/operations/erasure-evidence-key-custody.md.
+      durable-store:
+        object-lock:
+          enabled: ${PARKIO_ERASURE_STORE_OBJECT_LOCK_ENABLED:false}
+          endpoint: ${PARKIO_ERASURE_STORE_ENDPOINT:}
+          region: ${PARKIO_ERASURE_STORE_REGION:us-east-1}
+          bucket: ${PARKIO_ERASURE_STORE_BUCKET:}
+          access-key: ${PARKIO_ERASURE_STORE_ACCESS_KEY:}
+          secret-key: ${PARKIO_ERASURE_STORE_SECRET_KEY:}
+          retention-mode: ${PARKIO_ERASURE_STORE_RETENTION_MODE:}
+          retention: ${PARKIO_ERASURE_STORE_RETENTION:}
+          trust-file: ${PARKIO_ERASURE_STORE_TRUST_FILE:}
+          producer-key-id: ${PARKIO_ERASURE_STORE_PRODUCER_KEY_ID:}
+          connect-timeout: ${PARKIO_ERASURE_STORE_CONNECT_TIMEOUT:5s}
+          call-timeout: ${PARKIO_ERASURE_STORE_CALL_TIMEOUT:15s}
+        # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published
+        # to the object-lock store above. Off by default and nothing calls the producer: the
+        # cadence is an operator decision. The timeouts bound the capture transaction.
+        checkpoint:
+          enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}
+          lock-timeout: ${PARKIO_ERASURE_CHECKPOINT_LOCK_TIMEOUT:12s}
+          statement-timeout: ${PARKIO_ERASURE_CHECKPOINT_STATEMENT_TIMEOUT:20s}
       participants: ${PARKIO_ACCOUNT_ERASURE_PARTICIPANTS:user,parking,media,moderation,gamification,notification,analytics,ai-validation}
+      # Restore replay of a trusted erasure set during an isolated recovery, with participant ACKs
+      # bound to the recovery attempt, restored dataset and erasure set
+      # (docs/architecture/erasure-restore-replay-contract.md). Off by default; nothing starts it.
+      restore-replay:
+        enabled: ${PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED:false}
       stuck-poll-ms: 60000

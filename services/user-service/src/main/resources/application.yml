@@ -118,6 +118,11 @@ info:
     description: Parkio user-service
 
 parkio:
+  privacy:
+    # Restore replay during an isolated recovery (docs/architecture/erasure-restore-replay-contract.md).
+    # Off by default: replay commands are acknowledged on Kafka and skipped.
+    restore-replay:
+      enabled: ${PARKIO_RESTORE_REPLAY_ENABLED:false}
   smart-return:
     enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
   spa:

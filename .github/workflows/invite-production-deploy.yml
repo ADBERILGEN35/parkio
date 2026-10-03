@@ -37,7 +37,7 @@ on:
         required: false
         type: string
       manifest_artifact:
-        description: "For rollback: workflow artifact containing a secret-free deploy manifest"
+        description: "For rollback: RUN_ID/ARTIFACT@SHA256 of the earlier deploy's secret-free manifest (its deploy job summary prints it; @SHA256 may be omitted for older runs)"
         required: false
         type: string
       invite_edge_mode:
@@ -99,6 +99,8 @@ jobs:
     timeout-minutes: 90
     outputs:
       git_sha: ${{ steps.meta.outputs.git_sha }}
+      manifest_artifact: ${{ steps.manifest_ref.outputs.artifact }}
+      manifest_sha256: ${{ steps.manifest_ref.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,12 +118,18 @@ jobs:
 
       - name: Verify manual build pin
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          # This job is not gated on git_sha == github.sha or on api, so the operator's input and
+          # the dispatch ref reach the shell through the environment, never as shell source.
+          PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
+          PARKIO_REF_SHA: ${{ github.sha }}
+          PARKIO_REF_NAME: ${{ github.ref }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
-            --ref-sha '${{ github.sha }}' \
-            --ref-name '${{ github.ref }}'
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
+            --ref-sha "$PARKIO_REF_SHA" \
+            --ref-name "$PARKIO_REF_NAME"
 
       - name: Attest blank dark gateway dispatch input
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' }}
@@ -186,6 +194,7 @@ jobs:
           python3 scripts/test_assert_invite_production_artifacts_safe.py
           python3 scripts/test_invite_production_deploy_safety.py
           node --test scripts/lib/assert-compose-resource-budget.test.mjs
+          node --test scripts/lib/assert-compose-hardening.test.mjs
           node --test scripts/lib/assert-invite-production-compose-ports.test.mjs
           node --test scripts/lib/assert-invite-production-runtime-identity.test.mjs
           node --test scripts/lib/assert-invite-production-public-surface.test.mjs
@@ -225,6 +234,11 @@ jobs:
             --env-file docker/.env.invite-production.example \
             --candidate-sha "$(git rev-parse HEAD)" \
             --evidence "$PARKIO_DEPLOY_ARTIFACT_DIR/invite-edge-resource-budget.json"
+
+      # CL-F29.3: no-new-privileges, cap_drop ALL and recorded cap_add on every service of the
+      # invite-production (dark and public) and Civo production models.
+      - name: Verify production container hardening
+        run: ./scripts/assert-compose-hardening.sh
 
       - name: Dry-run invite-production deploy without secret-bearing evidence
         env:
@@ -324,6 +338,25 @@ jobs:
             deploy-artifacts/invite-production/invite-edge-resource-budget.json
           if-no-files-found: error
           retention-days: 90
+
+      # The deploy job prints the rollback reference, and only after its deploy succeeded: a
+      # build-only run is no rollback target (U13 CL-F06).
+      - name: Hash the manifest for the rollback reference
+        id: manifest_ref
+        env:
+          PARKIO_MANIFEST_ARTIFACT: invite-production-manifest-${{ steps.meta.outputs.git_sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          manifests=(deploy-artifacts/invite-production/deploy-*.json)
+          if [ "${#manifests[@]}" -ne 1 ]; then
+            echo "::error::expected one deploy-*.json for the rollback reference, found ${#manifests[@]}"
+            exit 1
+          fi
+          {
+            echo "artifact=$PARKIO_MANIFEST_ARTIFACT"
+            echo "sha256=$(sha256sum "${manifests[0]}" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
 
   runner-acceptance:
     name: Non-deploy production runner acceptance
@@ -653,6 +686,23 @@ jobs:
           set -e
           exit "$finalize_status"
 
+      - name: Record the rollback reference
+        env:
+          PARKIO_MANIFEST_ARTIFACT: ${{ needs.build-images.outputs.manifest_artifact }}
+          PARKIO_MANIFEST_SHA256: ${{ needs.build-images.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          # Reached only when the deploy succeeded. A later rollback run downloads this run's
+          # manifest by run id and checks it against this SHA-256 (U13 CL-F06).
+          if [[ ! "$PARKIO_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::the build job passed no manifest SHA-256"
+            exit 1
+          fi
+          {
+            echo "### Rollback reference"
+            echo "manifest_artifact for a later rollback: \`${GITHUB_RUN_ID}/${PARKIO_MANIFEST_ARTIFACT}@${PARKIO_MANIFEST_SHA256}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Cleanup per-job source and credentials
         if: ${{ always() }}
         run: |
@@ -677,6 +727,10 @@ jobs:
     environment: invite-production
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 60
+    # actions: read lets the job download the manifest artifact of the earlier deploy run.
+    permissions:
+      contents: read
+      actions: read
     env:
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
       # actions/setup-node resolves `node-version-file` with
@@ -703,13 +757,15 @@ jobs:
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
+          # Pass operator input through the environment, never interpolate it in shell source.
+          PARKIO_MANIFEST_REFERENCE: ${{ inputs.manifest_artifact }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
             --expected-sha '${{ inputs.git_sha }}' \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
-          test -n '${{ inputs.manifest_artifact }}'
+          test -n "$PARKIO_MANIFEST_REFERENCE"
           source ./scripts/lib/dark-gateway-url.sh
           resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
           parkio_validate_dark_gateway_url "$resolved"
@@ -732,21 +788,56 @@ jobs:
           ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
           test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
 
+      # The manifest is an artifact of the earlier deploy run, which download-artifact can only
+      # reach with that run's id and a token (U13 CL-F06). The run must be a successful
+      # workflow_dispatch of this workflow on api whose deploy job succeeded, holding exactly that
+      # artifact.
+      - name: Resolve the deploy run that holds the manifest
+        id: manifest_run
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PARKIO_MANIFEST_REFERENCE: ${{ inputs.manifest_artifact }}
+        run: |
+          ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+            --workflow invite-production-deploy.yml --branch api --deploy-job "Deploy invite-production" \
+            --reference "$PARKIO_MANIFEST_REFERENCE"
+
+      # By the id the resolver checked, not by name. With merge-multiple the files land directly
+      # in path, as a download by name does.
       - name: Download secret-free rollback manifest
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.manifest_artifact }}
+          artifact-ids: ${{ steps.manifest_run.outputs.artifact_id }}
+          merge-multiple: true
+          run-id: ${{ steps.manifest_run.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
           path: ${{ env.PARKIO_SOURCE_PATH }}/deploy-artifacts/invite-production
+
+      - name: Verify the rollback manifest
+        id: manifest
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          PARKIO_MANIFEST_GIT_SHA: ${{ steps.manifest_run.outputs.head_sha }}
+          PARKIO_MANIFEST_SHA256: ${{ steps.manifest_run.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          # A reference with @SHA256 pins the manifest's content.
+          if [ -n "$PARKIO_MANIFEST_SHA256" ]; then set -- --sha256 "$PARKIO_MANIFEST_SHA256"; fi
+          ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts/invite-production \
+            --profile invite-production --git-sha "$PARKIO_MANIFEST_GIT_SHA" "$@"
 
       - name: Rollback exact environment with quarantined log
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
         run: |
           set -euo pipefail
-          manifest="$(find deploy-artifacts/invite-production -maxdepth 1 -type f -name 'deploy-*.json' -print -quit)"
-          test -n "$manifest"
+          manifest="$PARKIO_VERIFIED_MANIFEST"
+          test -f "$manifest"
           set +e
           ./scripts/rollback-invite-production.sh --manifest "$manifest" > "$PARKIO_JOB_LOG" 2>&1
           status=$?

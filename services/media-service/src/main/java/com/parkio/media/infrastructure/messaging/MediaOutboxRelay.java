@@ -5,6 +5,7 @@ import com.parkio.platform.messaging.EventEnvelope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.domain.event.MediaEvent;
+import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.media.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.media.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -111,12 +112,31 @@ public class MediaOutboxRelay {
                 recordFailure(row, "No topic mapping for aggregate type " + row.getAggregateType());
                 continue;
             }
-            EventEnvelope envelope = toEnvelope(row);
-            ProducerRecord<String, Object> record = new ProducerRecord<>(
-                    topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope, row.getTraceId()));
+            EventEnvelope envelope;
+            ProducerRecord<String, Object> record;
+            try {
+                envelope = toEnvelope(row);
+                record = new ProducerRecord<>(
+                        topic, null, row.getAggregateId().toString(), envelope, headersFor(envelope, row.getTraceId()));
+            } catch (RuntimeException e) {
+                // CL-F32: an unreadable payload is a deterministic poison row. Fail only this row and
+                // count it toward dead-lettering; throwing would roll back the whole batch, re-send the
+                // rows already dispatched and never count this one.
+                recordFailure(row, reasonOf(e));
+                continue;
+            }
             Context publishContext = KafkaTraceContextSupport.extractedContext(row.getTraceId());
             try (Scope ignored = publishContext.makeCurrent()) {
                 inFlight.add(new InFlight(row, System.nanoTime(), kafkaTemplate.send(record)));
+            } catch (RuntimeException e) {
+                // CL-F32: send() can throw instead of returning a failed future (for example the
+                // producer's metadata wait timing out while the broker is unreachable). Count the
+                // failure for this row and stop dispatching this batch: the cause usually affects
+                // every row, and each further send could block for max.block.ms while the batch's
+                // rows stay locked. Rows already dispatched are still awaited below; the rest stay
+                // pending, uncounted, for the next poll.
+                recordFailure(row, reasonOf(e));
+                break;
             }
         }
         // Phase 2 — await the already-dispatched acks within a single shared deadline. Because
@@ -167,6 +187,10 @@ public class MediaOutboxRelay {
 
     /** All media events share one topic. */
     static String topicFor(String aggregateType) {
+        // Erasure ACKs go to the auth-owned parkio.privacy.erasure topic (U05 ACK outbox).
+        if (UserErasureAcknowledgedEvent.AGGREGATE_TYPE.equals(aggregateType)) {
+            return KafkaTopicsConfig.PRIVACY_ERASURE;
+        }
         return MediaEvent.AGGREGATE_TYPE.equals(aggregateType) ? KafkaTopicsConfig.MEDIA : null;
     }
 

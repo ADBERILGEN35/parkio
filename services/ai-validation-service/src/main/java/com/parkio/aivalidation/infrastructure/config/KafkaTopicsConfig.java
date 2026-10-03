@@ -25,6 +25,8 @@ public class KafkaTopicsConfig {
 
     public static final String AIVALIDATION_RESULT = "parkio.aivalidation.result";
     public static final String DLT_AIVALIDATION = "parkio.dlt.aivalidation";
+    /** Owned and provisioned by auth-service; ai-validation-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

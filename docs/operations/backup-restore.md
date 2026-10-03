@@ -69,6 +69,10 @@ Acceptance layers stay separate:
 
 ## Restore Order
 
+This order applies to isolated drills today. A production restore is BLOCKED before decrypt or
+apply (see "Production restore safety" above and
+[disaster-recovery-runbook.md](disaster-recovery-runbook.md)).
+
 1. PostgreSQL instances (auth → user → parking → … per service dependency)
 2. Run Flyway on each service startup
 3. Replay `erasure-tombstones.json` from the stamp into auth (`scripts/lib/erasure-tombstones.sh`) **before** returning the environment to service. This applies after **logical restore and after managed PITR restore** (PITR to a pre-erasure timestamp can resurrect ACTIVE users). Production-intended restore (`restore-hosted-beta.sh`, `BACKUP_PRODUCTION_MODE=1`, or `PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1`) **fail-closes** if the ledger file is missing. Then call auth `POST /internal/erasure/replay` (or wait for Kafka republish) so participants re-erase restored PII.

@@ -334,6 +334,18 @@ describe('RegisterPage', () => {
     expect(useLocaleStore.getState().locale).toBe('tr');
   });
 
+  it('opens check-email without the address in the URL (CL-F39.1)', async () => {
+    server.use(http.post(`${API_BASE}/auth/register`, () => HttpResponse.json(authResponse)));
+
+    const { runtime } = await fillAndSubmit();
+
+    expect(await screen.findByText('Check your email')).toBeInTheDocument();
+    const { pathname, search, hash } = runtime.router.state.location;
+    expect(pathname).toBe('/check-email');
+    expect(`${pathname}${search}${hash}`).not.toMatch(/newcomer|%40|@/);
+    expect(screen.getByLabelText('Email')).toHaveValue('newcomer@parkio.dev');
+  });
+
   it('blocks a password over 72 bytes before calling the API (CL-F36)', async () => {
     let registerCalls = 0;
     server.use(

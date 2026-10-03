@@ -19,12 +19,21 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.izum.connect-timeout` | `PARKIO_MUNICIPAL_IZUM_CONNECT_TIMEOUT` | 2s |
 | `parkio.municipal.izum.read-timeout` | `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT` | 5s |
 | `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
+| `parkio.municipal.izum.max-response-size` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_SIZE` | 16MB |
+| `parkio.municipal.izum.max-response-time` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` | 30s |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` | true |
 | `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.ops.quality-report-enabled` | `PARKIO_MUNICIPAL_OPS_QUALITY_REPORT_ENABLED` | false |
 | `parkio.municipal.ops.source-mode-sla-enabled` | `PARKIO_MUNICIPAL_OPS_SOURCE_MODE_SLA_ENABLED` | false |
 | `parkio.municipal.ops.district-coverage-enabled` | `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED` | false |
+
+Every municipal source (izum, ispark, anpark, konya, kayseri) has the same two response bounds
+(CL-F23): `max-response-size` caps the body that is read and `max-response-time` caps the whole
+response from request start (a read already blocked still ends at `read-timeout`), so an oversized
+or slow-drip feed fails once (it is not retried) and takes the normal source-failure path. The
+connection is then closed without reading the rest of the body. The per-read `read-timeout` alone
+does not bound a slow drip.
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  

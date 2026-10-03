@@ -1,0 +1,29 @@
+{
+  "checks": [
+    {
+      "error": "producer key not yet valid",
+      "requiredThrough": null
+    }
+  ],
+  "description": "As rotated-key, verified before the new key's notBefore: its objects are refused.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": "2026-09-30T00:00:00Z",
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      },
+      {
+        "keyId": "interop-fixture-key-2026b",
+        "notAfter": null,
+        "notBefore": "2026-09-30T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-09-29T12:00:00Z"
+}

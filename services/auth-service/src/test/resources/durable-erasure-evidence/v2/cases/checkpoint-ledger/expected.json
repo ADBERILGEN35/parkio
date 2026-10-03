@@ -1,0 +1,46 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": 3,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": null,
+      "verdict": "ACCEPT_ISOLATED"
+    },
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": 3,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": 3,
+      "verdict": "ACCEPT_ISOLATED"
+    }
+  ],
+  "description": "Two records and a checkpoint at sequence 3 as the auth-service producer writes it: one {authUserId, erasedAt} entry per tombstone ordered by authUserId (the third tombstone has no record), reserved by a marker with the checkpoint reservation id. Java must write byte-identical checkpoint and marker.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}
