@@ -42,9 +42,11 @@ permissions:
   contents: read
   packages: read
 
+# A newer push to a PR cancels its older run; runs for pushes to api are never cancelled, so every
+# merge gets its own result (#205 review N-R1).
 concurrency:
   group: restore-replay-harness-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   harness:

@@ -26,6 +26,8 @@ cp -- "$ROOT/scripts/ci/restore-replay-harness.sh" "$TREE/scripts/ci/"
 #   failed  - six restore cases, one of them failing;
 #   error   - six restore cases, one of them erroring;
 #   stale   - the suites carry a timestamp from 2020, as a build-cache restore would;
+#   recent  - the suites carry a timestamp two minutes before now, as a result restored from a
+#             run that ended just before this one would;
 #   nostamp - the suites carry no timestamp;
 #   missing - no XML at all.
 # FAKE_GRADLE_RC is the exit code.
@@ -39,13 +41,16 @@ modes = {}
 for item in os.environ.get("FAKE_SCENARIO", "").split():
     mode, participant = item.split(":", 1)
     modes[participant] = mode
-NOW = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+NOW = datetime.datetime.now(datetime.timezone.utc)
+RECENT = (NOW - datetime.timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S")
+NOW = NOW.strftime("%Y-%m-%dT%H:%M:%S")
 INNER = {"pass": "", "skipped": "<skipped/>", "failed": '<failure message="boom">boom</failure>',
          "error": '<error message="boom">boom</error>'}
 def case(cls, name, outcome="pass"):
     return f'  <testcase name="{name}()" classname="com.parkio.fake.{cls}" time="0.1">{INNER[outcome]}</testcase>\n'
 def write(out, cls, cases, mode):
-    stamp = {"stale": ' timestamp="2020-01-01T00:00:00"', "nostamp": ""}.get(mode, f' timestamp="{NOW}"')
+    stamp = {"stale": ' timestamp="2020-01-01T00:00:00"', "nostamp": "",
+             "recent": f' timestamp="{RECENT}"'}.get(mode, f' timestamp="{NOW}"')
     (out / f"TEST-com.parkio.fake.{cls}.xml").write_text(
         f'<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="com.parkio.fake.{cls}"{stamp}>\n{cases}</testsuite>\n')
 for p in ["auth", "user", "parking", "media", "moderation", "gamification", "notification", "analytics", "ai-validation"]:
@@ -122,6 +127,7 @@ for case in "zero:user:| user | 0 | 3 | 0 | 0 | 0 | - | FAIL |" \
   "failed:media:| media | 6 | 3 | 1 | 0 | 0 | $ACK | FAIL |" \
   "error:moderation:| moderation | 6 | 3 | 1 | 0 | 0 | $ACK | FAIL |" \
   "stale:analytics:| analytics | 6 | 3 | 0 | 0 | 1 | $ACK | FAIL |" \
+  "recent:parking:| parking | 6 | 3 | 0 | 0 | 1 | $ACK | FAIL |" \
   "nostamp:user:| user | 6 | 3 | 0 | 0 | 1 | $ACK | FAIL |" \
   "missing:ai-validation:| ai-validation | 0 | 3 | 0 | 0 | 0 | - | FAIL |"; do
   mode="${case%%:*}"; rest="${case#*:}"; participant="${rest%%:*}"; want="${rest#*:}"
