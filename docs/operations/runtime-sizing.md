@@ -206,11 +206,11 @@ watch those alerts; storage expansion is a manual, planned operation on a single
   need no Linux capabilities; they bind ports > 1024).
 - `pids_limit` caps thread/process explosions.
 - Only one extra runtime package (`curl`) is installed — solely for the readiness probe.
-- **Read-only root filesystem is a deliberate follow-up, not yet enabled.** It needs live
-  validation of Tomcat multipart temp + heap-dump paths under real upload load (which this
-  sprint could not run — no Docker daemon in the build env). The ready-to-apply snippet:
-  `read_only: true` + `tmpfs: /tmp` (sized for media multipart), verified against an upload
-  smoke test, then enabled per service.
+- **Read-only root filesystem (B8).** Every app container runs with `read_only: true`. `/tmp`
+  is a 128 MB tmpfs, except in media-service, where it is a disk-backed anonymous volume:
+  multipart upload bodies go there, and tmpfs pages would count against the 768 MB limit. No
+  heap-dump path is configured (`ExitOnOutOfMemoryError` only). The writable paths and the
+  probes are listed in `container-hardening-inventory.md`.
 
 ---
 
