@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Static guards for the two deploy workflows (U13, #204 review D1, N3, N6; #206 review G1-G3).
+"""Static guards for the two deploy workflows (U13, #204 review D1, N3, N6; #206 review G1-G3;
+#208 review N1-N3).
 
 1. Expressions never inject text into a script. Inside a `run:` script or an actions/github-script
    `script:`, an expression may only be one of a fixed allowlist of values the workflow itself
    controls (SAFE). Two operator values are also allowed where the job's own `if` pins them:
    inputs.git_sha under `inputs.git_sha == github.sha`, and github.ref under
    `github.ref == 'refs/heads/api'`. A pin only counts as a top-level term of a plain `&&`
-   conjunction, with no `||` and no `!` negation anywhere in the condition. Everything else,
+   conjunction: outside string literals and parentheses, with no `||`, no `!` negation and no
+   embedded `${{ }}` (which would turn the `if` into an always-true string). Everything else,
    such as other inputs, bracket access, toJSON(...), github.event.*, env.*, steps.*, needs.*,
-   matrix.* or secrets.*, goes through `env:` instead.
-2. A job that may run on a self-hosted runner works with the real environment, so its artifact
-   uploads name files, not a directory or a bare `*`/`**`, and never YAML, .env or the rendered
-   Compose model. The hosted-beta live upload is exactly the manifest the rollback needs. A
-   runs-on mapping (runner group or labels) counts as self-hosted.
+   matrix.* or secrets.*, goes through `env:` instead. The same rule covers the code inputs of
+   actions that run code (CODE_INPUTS) and every `with:` input of an action not known either way.
+2. A job that may run on a self-hosted runner works with the real environment, so it may only
+   upload the files on an explicit allowlist (SELF_HOSTED_UPLOADS), which is the manifest the
+   rollback needs. Only the listed GitHub-hosted labels count as GitHub-hosted; anything else,
+   including a runs-on mapping, counts as self-hosted.
 
 Each guard is also run against mutated copies of the parsed workflows, so a broken guard fails.
 """
@@ -34,9 +37,17 @@ SAFE = {"github.sha", "github.run_id", "github.run_attempt", "github.run_number"
 GIT_SHA_PIN = "inputs.git_sha == github.sha"
 REF_PIN = "github.ref == 'refs/heads/api'"
 PINNED = {"inputs.git_sha": GIT_SHA_PIN, "github.ref": REF_PIN}
-NEGATION = re.compile(r"!(?!=)")
-GITHUB_HOSTED = ("ubuntu-", "windows-", "macos-")
+GITHUB_HOSTED = {"ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04-arm", "ubuntu-22.04-arm",
+                 "windows-latest", "windows-2025", "windows-2022", "macos-latest", "macos-15", "macos-14"}
+SELF_HOSTED_UPLOADS = {"deploy-artifacts/deploy-*.json"}
 HOSTED_BETA_LIVE_UPLOAD = ["deploy-artifacts/deploy-*.json"]
+# Actions whose inputs are data, not code. Their `with:` values are not scanned.
+DATA_ACTIONS = {"actions/checkout", "actions/setup-node", "actions/setup-java", "actions/upload-artifact",
+                "actions/download-artifact", "actions/cache", "docker/login-action", "docker/setup-buildx-action",
+                "docker/setup-qemu-action"}
+# Actions that run one of their inputs as code: only those inputs are scanned.
+CODE_INPUTS = {"actions/github-script": {"script"}, "azure/cli": {"inlineScript"},
+               "azure/powershell": {"inlineScript"}, "appleboy/ssh-action": {"script"}}
 
 
 def load(path: Path) -> dict:
@@ -44,21 +55,65 @@ def load(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
-def pinned(condition: str, pin: str) -> bool:
-    """True only when the condition is a plain && conjunction with the pin as one of its terms."""
+def conjuncts(condition: str) -> list[str] | None:
+    """The top-level && terms of a condition, or None when it is not a plain conjunction.
+
+    String literals ('...', with '' as an escaped quote) and parentheses are kept whole. Any ||,
+    any ! that is not part of !=, and any ${{ inside the body make it not plain.
+    """
     body = condition.strip()
     match = re.fullmatch(r"\$\{\{(.*)\}\}", body, re.S)
     if match:
         body = match.group(1)
-    if "||" in body or NEGATION.search(body):
-        return False
-    return pin in {term.strip() for term in body.split("&&")}
+    if "${{" in body or "}}" in body:
+        return None
+    terms, current, depth, quoted, i = [], [], 0, False, 0
+    while i < len(body):
+        char = body[i]
+        if quoted:
+            current.append(char)
+            if char == "'" and body[i + 1:i + 2] == "'":
+                current.append("'")
+                i += 2
+                continue
+            quoted = char != "'"
+            i += 1
+            continue
+        if char == "'":
+            quoted = True
+        elif body.startswith("||", i) or (char == "!" and body[i + 1:i + 2] != "="):
+            return None
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and body.startswith("&&", i):
+            terms.append("".join(current).strip())
+            current = []
+            i += 2
+            continue
+        current.append(char)
+        i += 1
+    if quoted or depth != 0:
+        return None
+    terms.append("".join(current).strip())
+    return terms
+
+
+def pinned(condition: str, pin: str) -> bool:
+    """True only when the condition is a plain && conjunction with the pin as one of its terms."""
+    terms = conjuncts(condition)
+    return terms is not None and pin in terms
 
 
 def scripts(step: dict) -> list[str]:
+    """The run script and every action input that may be run as code."""
     texts = [step.get("run", "")]
-    if "actions/github-script" in step.get("uses", ""):
-        texts.append((step.get("with") or {}).get("script", ""))
+    action = step.get("uses", "").split("@")[0]
+    inputs = step.get("with") or {}
+    if action and action not in DATA_ACTIONS:
+        code = CODE_INPUTS.get(action)
+        texts.extend(str(value) for key, value in inputs.items() if code is None or key in code)
     return texts
 
 
@@ -78,10 +133,7 @@ def interpolation_violations(name: str, workflow: dict) -> list[str]:
 
 
 def self_hosted(runs_on) -> bool:
-    if isinstance(runs_on, dict):
-        return True
-    labels = runs_on if isinstance(runs_on, list) else [runs_on]
-    return any(not str(label).startswith(GITHUB_HOSTED) for label in labels)
+    return not (isinstance(runs_on, str) and runs_on in GITHUB_HOSTED)
 
 
 def upload_paths(step: dict) -> list[str]:
@@ -97,11 +149,8 @@ def upload_violations(name: str, workflow: dict) -> list[str]:
             if "actions/upload-artifact" not in step.get("uses", ""):
                 continue
             for path in upload_paths(step):
-                last = path.rstrip("/").rsplit("/", 1)[-1]
-                if path.endswith("/") or last in ("*", "**") or ("*" not in last and "." not in last):
-                    problems.append(f"{name}: job {job_name} uploads the directory {path!r}")
-                if "compose-config" in path or path.endswith((".yml", ".yaml", ".env")):
-                    problems.append(f"{name}: job {job_name} uploads {path!r}")
+                if path not in SELF_HOSTED_UPLOADS:
+                    problems.append(f"{name}: job {job_name} uploads {path!r}, which is not on the self-hosted allowlist")
     deploy = workflow["jobs"].get("deploy", {}) if name == "hosted-beta-deploy" else {}
     for step in deploy.get("steps", []):
         if "actions/upload-artifact" in step.get("uses", "") and upload_paths(step) != HOSTED_BETA_LIVE_UPLOAD:
@@ -209,6 +258,49 @@ class DeployWorkflowGuardsTest(unittest.TestCase):
         workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
         workflow["jobs"]["build-images"]["runs-on"] = {"group": "production", "labels": ["linux"]}
         step_named(workflow, "build-images", "Upload secret-free manifest evidence")["with"]["path"] = "deploy-artifacts/"
+        self.assertNotEqual(upload_violations("invite-production-deploy", workflow), [])
+
+    def test_conditions_are_parsed_not_matched(self) -> None:
+        # #208 review N1: a pin only counts outside string literals and without embedded ${{ }}.
+        self.assertTrue(pinned("${{ 'it''s' == 'x' && inputs.git_sha == github.sha }}", GIT_SHA_PIN))
+        self.assertTrue(pinned("${{ contains('!x', 'y') && inputs.git_sha == github.sha }}", GIT_SHA_PIN))
+        for condition in ("${{ github.ref == 'refs/heads/api' && inputs.git_sha == github.sha }} && ${{ true }}",
+                          "github.ref == 'refs/heads/api' && inputs.git_sha == github.sha && ${{ true }}",
+                          "${{ startsWith('a && inputs.git_sha == github.sha && b', 'a') }}",
+                          "${{ (github.event_name == 'push' || true) && inputs.git_sha == github.sha }}",
+                          "${{ 'open && inputs.git_sha == github.sha }}"):
+            with self.subTest(condition=condition):
+                self.assertFalse(pinned(condition, GIT_SHA_PIN))
+
+    def test_code_running_and_unknown_action_inputs_are_checked(self) -> None:
+        # #208 review N2.
+        flagged = [("azure/cli@v2", {"inlineScript": "az storage blob list --prefix '${{ inputs.manifest_artifact }}'"}),
+                   ("appleboy/ssh-action@v1", {"script": "echo '${{ github.event.inputs.manifest_artifact }}'"}),
+                   ("example/unknown-action@v1", {"args": "${{ inputs.manifest_artifact }}"})]
+        for uses, inputs in flagged:
+            with self.subTest(uses=uses):
+                workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
+                workflow["jobs"]["rollback"]["steps"].append({"name": "Extra", "uses": uses, "with": inputs})
+                self.assertNotEqual(interpolation_violations("invite-production-deploy", workflow), [])
+        workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
+        workflow["jobs"]["rollback"]["steps"].append({
+            "name": "Annotate", "uses": "actions/github-script@v7",
+            "with": {"github-token": "${{ secrets.GITHUB_TOKEN }}", "script": "core.info('rollback')"}})
+        self.assertEqual(interpolation_violations("invite-production-deploy", workflow), [])
+
+    def test_self_hosted_uploads_must_be_allowlisted(self) -> None:
+        # #208 review N3.
+        for path in ("deploy-artifacts/*.*", "deploy-artifacts/compose*", "deploy-artifacts/*rendered*",
+                     "deploy-artifacts/*.y?ml", "deploy-artifacts/smoke-*.log"):
+            with self.subTest(path=path):
+                workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
+                workflow["jobs"]["deploy"]["steps"].append({
+                    "name": "Upload extra", "uses": "actions/upload-artifact@v4", "with": {"name": "x", "path": path}})
+                self.assertNotEqual(upload_violations("invite-production-deploy", workflow), [])
+        self.assertTrue(self_hosted("ubuntu-prod"))
+        self.assertTrue(self_hosted(["ubuntu-latest", "parkio-beta"]))
+        workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
+        workflow["jobs"]["build-images"]["runs-on"] = "ubuntu-prod"
         self.assertNotEqual(upload_violations("invite-production-deploy", workflow), [])
 
 
