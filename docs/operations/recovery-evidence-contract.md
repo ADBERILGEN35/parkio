@@ -377,6 +377,13 @@ MinIO bucket.
 - Every object version is written with a retention lock
   (`retention-mode` GOVERNANCE or COMPLIANCE, `retention` duration; both
   required). Nothing is overwritten or deleted by the adapter.
+  **COMPLIANCE is the intended mode for the real evidence store** (owner
+  decision B2, 2026-10-03). Under GOVERNANCE, a principal allowed to bypass
+  governance retention can delete a locked version; COMPLIANCE refuses that
+  until the retention ends. `ObjectLockDurableErasureRecordStoreIT` shows
+  both on the disposable bucket. GOVERNANCE stays accepted for disposable
+  test buckets. The retention duration follows the erasure-evidence policy
+  and is not chosen here; no real bucket is provisioned.
 - The **first version** of a record or marker is canonical: a later write only
   adds a version, a version delete is refused by the lock, and a plain delete
   only adds a delete marker; none of them changes what is read. The frontier
@@ -387,10 +394,23 @@ MinIO bucket.
   host saw 102 stale first-listed versions in 14,467 writes). Frontier
   contents only grow, so the highest verified version is the current one.
   Versions that fail verification are ignored while another one verifies; if
-  none does, recovery fails with that error. The store reads each version once
-  (versions never change); recovery reads them all.
+  none does, recovery fails with that error. Ignored versions are tamper
+  evidence: recovery reports their number (`ignoredFrontierVersions`), and the
+  store logs a warning whenever that number grows. The store reads each
+  version once (versions never change); recovery reads them all.
+  `ObjectLockEvidenceObjects` reads the frontier only through all of its
+  versions: `find` refuses the frontier key and `findAll` refuses every other
+  key.
 - Identical retry returns the existing record; a different body under the same
-  request id is a conflict. Store I/O refuses to run inside a database
+  request id is a conflict.
+- Every put returns a **receipt** for the canonical version of the record: its
+  version id, the SHA-256 of its bytes, and the retention mode and
+  retain-until date that the store reports for that version (read back, not
+  assumed). A store that reports no lock on the version fails the put. An
+  identical retry and a conflict return the receipt of the existing canonical
+  version. auth-service logs it (`erasure durable receipt`) and does not store
+  it in its database; the bucket stays the source of truth.
+- Store I/O refuses to run inside a database
   transaction. Any store or verification failure is
   `DURABLE_RECORDING_UNAVAILABLE` (the request stays `PENDING_DURABLE`).
 - One auth instance may write a bucket at a time (writes are serialised in the
@@ -536,7 +556,8 @@ changes. No production enablement.
 
 1. **Off-host store location.** Must not be the primary host. Product
    choice (object-lock bucket vs equivalent WORM). Isolated directory
-   is not that store.
+   is not that store. The lock mode is decided (COMPLIANCE, B2); the
+   product, region, credentials and retention duration are still open.
 2. **Public DELETE status.** Either add `DURABLY_RECORDED` /
    `PENDING_DURABLE` to the API, or keep returning `IN_PROGRESS` until
    persist-ack and document that today's immediate `IN_PROGRESS` is

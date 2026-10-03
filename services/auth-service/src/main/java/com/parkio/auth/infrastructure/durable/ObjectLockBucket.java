@@ -86,12 +86,6 @@ final class ObjectLockBucket {
         return all;
     }
 
-    /** The most recent version written under {@code key}, ignoring delete markers. */
-    Optional<StoredVersion> latest(String key) {
-        List<Item> versions = objectVersions(key);
-        return versions.isEmpty() ? Optional.empty() : Optional.of(read(versions.get(0)));
-    }
-
     int versionCount(String key) {
         return objectVersions(key).size();
     }
