@@ -3,6 +3,8 @@ package com.parkio.media.application;
 import com.parkio.media.application.command.SetClaimedRegionCommand;
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.port.MediaFileRepository;
+import com.parkio.media.application.port.MediaOwnerFence;
+import com.parkio.media.application.port.ObjectWriteLedger;
 import com.parkio.media.application.port.ImageNormalizationException;
 import com.parkio.media.application.port.ImageNormalizer;
 import com.parkio.media.application.port.MediaScanner;
@@ -73,6 +75,8 @@ public class MediaApplicationService {
     private final MediaRejectionRecorder rejectionRecorder;
     private final MediaUploadConstraints constraints;
     private final MediaAccessUrlPolicy accessUrlPolicy;
+    private final MediaOwnerFence ownerFence;
+    private final ObjectWriteLedger objectWrites;
     private final Clock clock;
     private final Counter orphanCleanupAttempts;
     private final Counter orphanCleanupFailures;
@@ -86,6 +90,8 @@ public class MediaApplicationService {
                                    MediaRejectionRecorder rejectionRecorder,
                                    MediaUploadConstraints constraints,
                                    MediaAccessUrlPolicy accessUrlPolicy,
+                                   MediaOwnerFence ownerFence,
+                                   ObjectWriteLedger objectWrites,
                                    Clock clock,
                                    MeterRegistry meterRegistry) {
         this.mediaFiles = mediaFiles;
@@ -97,6 +103,8 @@ public class MediaApplicationService {
         this.rejectionRecorder = rejectionRecorder;
         this.constraints = constraints;
         this.accessUrlPolicy = accessUrlPolicy;
+        this.ownerFence = ownerFence;
+        this.objectWrites = objectWrites;
         this.clock = clock;
         this.orphanCleanupAttempts = Counter.builder("parkio.media.upload.orphan_cleanup_attempts")
                 .description("Upload-stored objects removed after downstream DB/outbox transaction failure")
@@ -119,11 +127,21 @@ public class MediaApplicationService {
      * be completed throws {@link MediaErrorCode#MEDIA_SCAN_UNAVAILABLE} (503) — the
      * upload fails closed and no media row is created. Other validation failures record
      * a {@code MediaRejected} event and throw as before.
+     *
+     * <p>Account erasure (U05): before anything else the upload joins its owner's erasure
+     * fence, which it holds through the object write until its transaction ends; an owner whose
+     * erasure tombstone exists is refused with {@link MediaErrorCode#ACCOUNT_ERASED} (403). The
+     * PUT is recorded in the object write ledger before it is sent: a PUT whose outcome stays
+     * unknown can still be applied after the transaction ended, and an erasure of the owner waits
+     * until that write is accounted for.
      */
     public MediaUploadResult upload(UploadMediaCommand command) {
         UUID ownerUserId = command.ownerUserId();
         byte[] content = command.content();
         String contentType = command.contentType();
+        // Before anything is recorded or stored: the owner's fence is held until this transaction
+        // ends, so an erasure waits for this upload, and an erased owner's upload stores nothing.
+        requireWritableOwner(ownerUserId);
 
         if (content == null || content.length == 0) {
             reject(ownerUserId, MediaValidationType.FILE_SIZE, "Empty file", null);
@@ -188,11 +206,22 @@ public class MediaApplicationService {
 
         Instant now = clock.instant();
         String objectKey = generateObjectKey(ownerUserId, normalizedContentType);
-        MediaStoragePort.StoredObject stored = storage.store(objectKey, normalizedContent, normalizedContentType);
-        StoredUploadCleanup cleanup = new StoredUploadCleanup(stored.objectKey());
+        // Recorded and committed before the PUT is sent: if its outcome stays unknown (timeout,
+        // broken connection, 5xx, crash), the store may still apply it at any later time, and an
+        // erasure of this owner must not report SUCCESS until that write is accounted for.
+        UUID writeId = objectWrites.recordPending(ownerUserId, objectKey);
+        MediaStoragePort.StoredObject stored;
+        try {
+            stored = storage.store(objectKey, normalizedContent, normalizedContentType);
+        } catch (MediaStoragePort.WriteNotAppliedException rejected) {
+            forgetRejectedWrite(writeId);
+            throw rejected;
+        }
+        StoredUploadCleanup cleanup = new StoredUploadCleanup(stored.objectKey(), writeId);
         boolean cleanupManagedByTransaction = registerRollbackCleanup(cleanup);
 
         try {
+            objectWrites.markApplied(writeId);
             MediaFile media = MediaFile.create(ownerUserId, stored.bucket(), stored.objectKey(),
                     normalizedContentType, normalizedContent.length, checksum, null,
                     command.claimedRegion(), now);
@@ -206,6 +235,8 @@ public class MediaApplicationService {
             recordPassed(media.id(), MediaValidationType.MALWARE_SCAN, now);
 
             outbox.append(MediaUploadedEvent.of(media, now));
+            // From the commit on, the media row accounts for the object.
+            objectWrites.forgetWithCaller(writeId);
             return MediaUploadResult.from(media);
         } catch (RuntimeException ex) {
             if (!cleanupManagedByTransaction) {
@@ -230,6 +261,7 @@ public class MediaApplicationService {
     /** Owner sets/replaces the claimed parking region annotation. */
     @Transactional
     public MediaFile setClaimedRegion(SetClaimedRegionCommand command) {
+        requireWritableOwner(command.ownerUserId());
         MediaFile media = requireActiveMedia(command.mediaId());
         if (!media.isOwnedBy(command.ownerUserId())) {
             throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "Only the media owner can update the claimed region.");
@@ -306,6 +338,9 @@ public class MediaApplicationService {
 
     /** Soft-deletes the media (owner only) and best-effort removes the stored object. */
     public void delete(UUID mediaId, UUID requesterUserId) {
+        // Fenced like every owner write: unfenced, its storage delete could reach a versioned bucket
+        // (as a new delete marker under the owner's key) after an erasure had confirmed the key empty.
+        requireWritableOwner(requesterUserId);
         MediaFile media = requireActiveMedia(mediaId);
         if (!media.isOwnedBy(requesterUserId)) {
             throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "You do not own this media.");
@@ -363,6 +398,17 @@ public class MediaApplicationService {
         return media;
     }
 
+    /**
+     * Joins the owner's erasure fence (U05) for the rest of the transaction and refuses the write
+     * once the owner's account is erased or being erased. Nothing about the refused request is
+     * recorded: an erased owner must not reappear in metadata or outbox events.
+     */
+    private void requireWritableOwner(UUID ownerUserId) {
+        if (!ownerFence.admitWrite(ownerUserId)) {
+            throw new MediaException(MediaErrorCode.ACCOUNT_ERASED, "This account is no longer active.");
+        }
+    }
+
     private void recordPassed(UUID mediaId, MediaValidationType type, Instant now) {
         validationResults.save(MediaValidationResult.of(mediaId, type, MediaValidationOutcome.PASSED, null, now));
     }
@@ -395,6 +441,8 @@ public class MediaApplicationService {
         orphanCleanupAttempts.increment();
         try {
             storage.delete(cleanup.objectKey);
+            // Every version is confirmed gone and the PUT was applied, so it cannot apply again.
+            objectWrites.forgetNow(cleanup.writeId);
         } catch (RuntimeException cleanupFailure) {
             orphanCleanupFailures.increment();
             log.warn("Failed to remove stored object after upload transaction failure (mediaId={}, reason={})",
@@ -402,19 +450,37 @@ public class MediaApplicationService {
         }
     }
 
+    /** The store rejected the PUT or never received it: nothing to account for. */
+    private void forgetRejectedWrite(UUID writeId) {
+        try {
+            objectWrites.forgetNow(writeId);
+        } catch (RuntimeException ledgerFailure) {
+            // The write stays recorded as of unknown outcome: an erasure of the owner waits on it.
+            log.warn("Could not forget a rejected object write (writeId={}, reason={})", writeId,
+                    ledgerFailure.getClass().getSimpleName());
+        }
+    }
+
     private static String generateObjectKey(UUID ownerUserId, String contentType) {
         String extension = EXTENSION_BY_CONTENT_TYPE.getOrDefault(contentType, "");
         // Owner id (a UUID) namespaces the key; the filename is never user-derived.
-        return "media/" + ownerUserId + "/" + UUID.randomUUID() + extension;
+        return objectKeyPrefix(ownerUserId) + UUID.randomUUID() + extension;
+    }
+
+    /** The key namespace of every object stored for the owner (account erasure sweeps it). */
+    static String objectKeyPrefix(UUID ownerUserId) {
+        return "media/" + ownerUserId + "/";
     }
 
     private static final class StoredUploadCleanup {
         private final String objectKey;
+        private final UUID writeId;
         private final AtomicBoolean cleanupStarted = new AtomicBoolean(false);
         private UUID mediaId;
 
-        private StoredUploadCleanup(String objectKey) {
+        private StoredUploadCleanup(String objectKey, UUID writeId) {
             this.objectKey = objectKey;
+            this.writeId = writeId;
         }
 
         private boolean markCleanupStarted() {

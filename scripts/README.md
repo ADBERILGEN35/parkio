@@ -12,7 +12,7 @@ Developer and CI helper scripts.
 | `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |
 | `run-service.sh`      | Run a single service locally (`run-service.sh auth-service`). |
 | `backup-databases.sh` | Dump every service DB (`pg_dump` via `docker exec`); optional AES-256 + offsite upload. |
-| `backup-minio.sh` | Mirror the MinIO media bucket via `mc`. |
+| `backup-minio.sh` | Mirror the MinIO media bucket via `mc` (runs as the invoking user with umask 077: the plaintext mirror stays private until it is sealed). |
 | `backup-hosted-beta.sh` | Orchestrate DB + MinIO backup, manifest, and Prometheus metrics. |
 | `restore-isolated-fixture.sh` | Disposable orchestrator that establishes restore targets and issues a destination-bound ticket. Restore entrypoints will not self-authorize. |
 | `restore-hosted-beta.sh` | Restore from a backup manifest (databases and/or MinIO). Production apply is refused without verified coverage. Isolated apply requires the orchestrator ticket. |

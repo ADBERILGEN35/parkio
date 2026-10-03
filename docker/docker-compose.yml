@@ -29,7 +29,20 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+# Baseline container hardening (CL-F29.3; per-service inventory and exceptions:
+# docs/operations/container-hardening-inventory.md). no-new-privileges blocks setuid
+# escalation; every capability is dropped, and the few a root entrypoint needs to prepare its
+# data directory and switch to its service user are added back per service.
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 x-postgres-common: &postgres-common
+  <<: *hardening
+  # The entrypoint creates and chowns PGDATA, then switches to the postgres user.
+  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
   image: ${POSTGRES_IMAGE:-postgres:16-alpine}
   restart: unless-stopped
   logging: *default-logging
@@ -156,6 +169,10 @@ services:
   # Redis — cache, distributed locks, idempotency keys, rate limiting.        #
   # ------------------------------------------------------------------------- #
   redis:
+    <<: *hardening
+    # Runs redis-server as root (the command is not "redis-server", so the entrypoint
+    # does not switch users) and writes into /data, which the image owns as redis.
+    cap_add: [DAC_OVERRIDE]
     image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: parkio-redis
     restart: unless-stopped
@@ -190,6 +207,7 @@ services:
   # Internal listener kafka:9092 for containers; host listener on :29092.     #
   # ------------------------------------------------------------------------- #
   kafka:
+    <<: *hardening
     image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.7.1}
     container_name: parkio-kafka
     restart: unless-stopped
@@ -223,6 +241,7 @@ services:
       start_period: 20s
 
   kafka-exporter:
+    <<: *hardening
     image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter:v1.8.0}
     container_name: parkio-kafka-exporter
     restart: unless-stopped
@@ -241,6 +260,7 @@ services:
   # blackbox-exporter — HTTP/TCP probes for infra that does not expose Prometheus metrics.
   # Prometheus scrapes /probe; targets are on the backend network (MinIO, Redis, ClamAV, Postgres).
   blackbox-exporter:
+    <<: *hardening
     image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
     container_name: parkio-blackbox-exporter
     restart: unless-stopped
@@ -259,6 +279,7 @@ services:
   # for local non-amd64 work. Do not add platform: linux/amd64 (forces qemu). #
   # ------------------------------------------------------------------------- #
   minio:
+    <<: *hardening
     image: ${MINIO_IMAGE:-ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c}
     container_name: parkio-minio
     restart: unless-stopped
@@ -281,6 +302,7 @@ services:
 
   # One-shot: create the media bucket so media-service has somewhere to write.
   minio-setup:
+    <<: *hardening
     image: ${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}
     container_name: parkio-minio-setup
     depends_on:
@@ -290,6 +312,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-parkio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
       MINIO_BUCKET: ${MINIO_BUCKET:-parkio-media}
+      # /root in the mc image is read-only (0550) for root without CAP_DAC_OVERRIDE.
+      MC_CONFIG_DIR: /tmp/.mc
     entrypoint:
       - /bin/sh
       - -c
@@ -308,6 +332,10 @@ services:
   # First start downloads the virus DB (freshclam) — allow a long start_period.#
   # ------------------------------------------------------------------------- #
   clamav:
+    <<: *hardening
+    # The init script prepares /var/lib/clamav and the run directories, then runs
+    # freshclam and clamd as the clamav user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     image: ${CLAMAV_IMAGE:-clamav/clamav:1.4}
     container_name: parkio-clamav
     restart: unless-stopped
@@ -332,6 +360,7 @@ services:
   # Loki stores logs; Promtail ships Docker logs; Grafana displays both.       #
   # ------------------------------------------------------------------------- #
   prometheus:
+    <<: *hardening
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     container_name: parkio-prometheus
     restart: unless-stopped
@@ -371,6 +400,7 @@ services:
       start_period: 10s
 
   alertmanager:
+    <<: *hardening
     image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
     container_name: parkio-alertmanager
     restart: unless-stopped
@@ -397,6 +427,7 @@ services:
       start_period: 10s
 
   loki:
+    <<: *hardening
     image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
     container_name: parkio-loki
     restart: unless-stopped
@@ -419,6 +450,7 @@ services:
       start_period: 20s
 
   promtail:
+    <<: *hardening
     image: ${PROMTAIL_IMAGE:-grafana/promtail:2.9.8}
     container_name: parkio-promtail
     restart: unless-stopped
@@ -459,6 +491,7 @@ services:
   # in-network as node-exporter:9100. The image is a from-scratch binary (no shell/wget), so
   # like Tempo it carries no container healthcheck — liveness is observed via up{job=...}.
   node-exporter:
+    <<: *hardening
     image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
     container_name: parkio-node-exporter
     restart: unless-stopped
@@ -490,6 +523,7 @@ services:
   # Grafana. The OTLP exporter in each service is fire-and-forget, so a late Tempo never
   # blocks app startup.
   tempo:
+    <<: *hardening
     image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
     container_name: parkio-tempo
     restart: unless-stopped
@@ -508,6 +542,7 @@ services:
     networks: [parkio-backend, parkio-observability]
 
   grafana:
+    <<: *hardening
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: parkio-grafana
     restart: unless-stopped

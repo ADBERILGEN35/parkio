@@ -23,6 +23,8 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicsConfig {
 
     public static final String MEDIA = "parkio.media.media";
+    /** Owned and provisioned by auth-service; media-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

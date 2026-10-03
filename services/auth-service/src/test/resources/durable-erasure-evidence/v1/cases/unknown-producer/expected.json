@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "error": "unknown producer",
+      "requiredThrough": null
+    }
+  ],
+  "description": "The producer is not in the consumer's trusted keys.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-other-producer"
+  ]
+}
