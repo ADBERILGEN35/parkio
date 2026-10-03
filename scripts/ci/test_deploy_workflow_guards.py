@@ -19,13 +19,14 @@
 2. A job that may run on a self-hosted runner works with the real environment, so it may only use
    the actions in SELF_HOSTED_ACTIONS (no cache, no other upload or publishing action), it may only
    upload the files on an explicit allowlist (SELF_HOSTED_UPLOADS), which is the manifest the
-   rollback needs, and its scripts may not publish files with `gh release` or `gh gist`. Only the
-   listed GitHub-hosted labels count as GitHub-hosted; anything else, including a runs-on mapping,
-   counts as self-hosted.
+   rollback needs, and its scripts are flagged for the common gh publish forms (`gh release
+   upload|create`, `gh gist create`). Only the listed GitHub-hosted labels count as GitHub-hosted;
+   anything else, including a runs-on mapping, counts as self-hosted.
 
-Not covered, and left to review: a run script can still send data anywhere over the network (for
-example curl to some host). No static guard can tell such egress from a legitimate call, so a
-reviewer must check every network command a self-hosted job runs.
+Not covered, and left to review: other ways to publish (other gh forms, `gh api` uploads) and any
+other network egress from a run script (for example curl to some host). No static guard can tell
+such egress from a legitimate call, so a reviewer must check every network command a self-hosted
+job runs.
 
 Each guard is also run against mutated copies of the parsed workflows, so a broken guard fails.
 """
@@ -142,7 +143,12 @@ def default_shell(scope: dict) -> str:
 def job_texts(job: dict) -> list[str]:
     """The job's default shell and its container and service images and options."""
     texts = [default_shell(job)]
-    for spec in [job.get("container")] + list((job.get("services") or {}).values()):
+    services = job.get("services") or {}
+    if not isinstance(services, dict):
+        # An expression for the whole mapping: scan it like any other text.
+        texts.append(str(services))
+        services = {}
+    for spec in [job.get("container")] + list(services.values()):
         if isinstance(spec, dict):
             texts += [str(spec.get("image", "")), str(spec.get("options", ""))]
         elif spec:
@@ -180,7 +186,9 @@ def self_hosted(runs_on) -> bool:
 
 
 def upload_paths(step: dict) -> list[str]:
-    return [line.strip() for line in str((step.get("with") or {}).get("path", "")).splitlines() if line.strip()]
+    """Every `path` input, matched case-insensitively as GitHub matches input names."""
+    values = [str(value) for key, value in (step.get("with") or {}).items() if str(key).lower() == "path"]
+    return [line.strip() for value in values for line in value.splitlines() if line.strip()]
 
 
 def upload_violations(name: str, workflow: dict) -> list[str]:
@@ -375,6 +383,7 @@ class DeployWorkflowGuardsTest(unittest.TestCase):
             lambda w: w["jobs"]["rollback"].__setitem__("container", {"image": "alpine:3", "options": f"--name {reference}"}),
             lambda w: w["jobs"]["rollback"].__setitem__("services", {"db": {"image": f"postgres:{reference}"}}),
             lambda w: w["jobs"].__setitem__("reusable", {"uses": "./.github/workflows/other.yml", "with": {"x": "1"}}),
+            lambda w: w["jobs"]["rollback"].__setitem__("services", "${{ fromJSON(inputs.manifest_artifact) }}"),
         ]
         for index, mutate in enumerate(mutations):
             with self.subTest(case=index):
@@ -396,6 +405,17 @@ class DeployWorkflowGuardsTest(unittest.TestCase):
                 workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
                 workflow["jobs"]["deploy"]["steps"].append(step)
                 self.assertNotEqual(upload_violations("invite-production-deploy", workflow), [])
+        # #210 review B1: input names are case-insensitive, so `Path:` uploads the same directory.
+        for key in ("Path", "PATH"):
+            with self.subTest(key=key):
+                workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
+                workflow["jobs"]["deploy"]["steps"].append(
+                    {"name": "Upload", "uses": "actions/upload-artifact@v4", "with": {"name": "x", key: "deploy-artifacts/"}})
+                self.assertNotEqual(upload_violations("invite-production-deploy", workflow), [])
+                workflow = copy.deepcopy(self.workflows["hosted-beta-deploy"])
+                upload = step_named(workflow, "deploy", "Upload post-deploy manifest")["with"]
+                upload[key] = upload.pop("path") + "\ndeploy-artifacts/compose-config.rendered.yml"
+                self.assertNotEqual(upload_violations("hosted-beta-deploy", workflow), [])
         # The same steps stay allowed on a GitHub-hosted job (no real environment there).
         workflow = copy.deepcopy(self.workflows["invite-production-deploy"])
         workflow["jobs"]["build-images"]["steps"].append(steps[4])
