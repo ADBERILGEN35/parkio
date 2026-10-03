@@ -7,25 +7,28 @@
 #   - a run of the same workflow in this repository;
 #   - on the expected branch;
 #   - started by workflow_dispatch;
-#   - completed successfully;
+#   - completed successfully, with its deploy job (--deploy-job) successful too, so that a
+#     build-only run, whose deploy was skipped, cannot serve as a rollback target;
 #   - holding exactly one unexpired artifact with the given name.
 # Anything else fails closed (exit 3).
 #
 #   resolve-rollback-manifest-run.sh --repo OWNER/NAME --workflow FILE.yml --branch BRANCH \
-#     { --reference RUN_ID/ARTIFACT | --run-id ID --artifact NAME }
+#     --deploy-job "JOB NAME" { --reference RUN_ID/ARTIFACT[@SHA256] | --run-id ID --artifact NAME }
 #
-# --reference is the form the rollback input takes: the deploy run's job summary prints it.
+# --reference is the form the rollback input takes; the deploy job's summary prints it with the
+# manifest's SHA-256, which the rollback then checks (verify-rollback-manifest.sh --sha256).
 # Needs GITHUB_TOKEN with actions: read. GITHUB_API_URL overrides the API base (tests).
-# Prints run_id, artifact, head_sha and artifact_id as key=value lines, and appends them to
-# GITHUB_OUTPUT when it is set.
+# Prints run_id, artifact, manifest_sha256 (empty without @SHA256), head_sha and artifact_id as
+# key=value lines, and appends them to GITHUB_OUTPUT when it is set.
 set -euo pipefail
 
 die() { echo "resolve-rollback-manifest-run: $*" >&2; exit 2; }
 refuse() { echo "resolve-rollback-manifest-run: REFUSED: $*" >&2; exit 3; }
 
-repo=""; workflow=""; branch=""; run_id=""; artifact=""; reference=""
+repo=""; workflow=""; branch=""; run_id=""; artifact=""; reference=""; deploy_job=""; manifest_sha256=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --deploy-job) deploy_job="${2:-}"; shift 2 || die "--deploy-job needs a value" ;;
     --reference) reference="${2:-}"; shift 2 || die "--reference needs a value" ;;
     --repo) repo="${2:-}"; shift 2 || die "--repo needs a value" ;;
     --workflow) workflow="${2:-}"; shift 2 || die "--workflow needs a value" ;;
@@ -41,7 +44,12 @@ if [ -n "$reference" ]; then
     */*) run_id="${reference%%/*}"; artifact="${reference#*/}" ;;
     *) refuse "the reference '$reference' is not RUN_ID/ARTIFACT; copy it from the deploy run's job summary" ;;
   esac
+  case "$artifact" in
+    *@*) manifest_sha256="${artifact#*@}"; artifact="${artifact%%@*}"
+         [[ "$manifest_sha256" =~ ^[0-9a-f]{64}$ ]] || refuse "the SHA-256 in the reference is not 64 lowercase hex characters" ;;
+  esac
 fi
+[ -n "$deploy_job" ] || die "--deploy-job is required"
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--repo must be OWNER/NAME"
 [[ "$workflow" =~ ^[A-Za-z0-9_.-]+\.ya?ml$ ]] || die "--workflow must be a workflow file name"
 [ -n "$branch" ] || die "--branch is required"
@@ -61,10 +69,13 @@ get() {
 run_json="$(get "repos/$repo/actions/runs/$run_id")" || refuse "run $run_id is not readable in $repo"
 artifacts_json="$(get "repos/$repo/actions/runs/$run_id/artifacts?name=$artifact&per_page=100")" \
   || refuse "the artifacts of run $run_id are not readable"
+jobs_json="$(get "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100")" \
+  || refuse "the jobs of run $run_id are not readable"
 
-result="$(RUN_JSON="$run_json" ARTIFACTS_JSON="$artifacts_json" python3 - "$repo" "$workflow" "$branch" "$artifact" <<'PY'
+result="$(RUN_JSON="$run_json" ARTIFACTS_JSON="$artifacts_json" JOBS_JSON="$jobs_json" \
+  python3 - "$repo" "$workflow" "$branch" "$artifact" "$deploy_job" <<'PY'
 import json, os, sys
-repo, workflow, branch, artifact = sys.argv[1:5]
+repo, workflow, branch, artifact, deploy_job = sys.argv[1:6]
 run = json.loads(os.environ["RUN_JSON"])
 problems = []
 if (run.get("repository") or {}).get("full_name") != repo:
@@ -77,6 +88,10 @@ if run.get("event") != "workflow_dispatch":
     problems.append(f"it was started by {run.get('event')!r}, not workflow_dispatch")
 if run.get("status") != "completed" or run.get("conclusion") != "success":
     problems.append(f"it ended {run.get('status')}/{run.get('conclusion')}, not completed/success")
+deploys = [j for j in json.loads(os.environ["JOBS_JSON"]).get("jobs", []) if j.get("name") == deploy_job]
+if len(deploys) != 1 or deploys[0].get("conclusion") != "success":
+    seen = ", ".join(str(j.get("conclusion")) for j in deploys) or "absent"
+    problems.append(f"its {deploy_job!r} job is {seen}, not one successful job (a build-only run is no rollback target)")
 matches = [a for a in json.loads(os.environ["ARTIFACTS_JSON"]).get("artifacts", [])
            if a.get("name") == artifact and not a.get("expired")]
 if len(matches) != 1:
@@ -95,8 +110,11 @@ case "$result" in
 esac
 read -r _ head_sha artifact_id <<<"$result"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || refuse "run $run_id has no valid head sha"
+# The rollback downloads by this id, so the download fetches exactly the artifact checked here.
+[[ "$artifact_id" =~ ^[1-9][0-9]{0,19}$ ]] || refuse "run $run_id: the artifact has no valid id"
 lines="run_id=$run_id
 artifact=$artifact
+manifest_sha256=$manifest_sha256
 head_sha=$head_sha
 artifact_id=$artifact_id"
 echo "$lines"

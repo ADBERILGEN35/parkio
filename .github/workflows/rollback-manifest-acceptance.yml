@@ -34,6 +34,8 @@ jobs:
       - name: Unit tests (fake GitHub API, synthetic manifests)
         run: ./scripts/ci/test-rollback-manifest-retrieval.sh
 
+      # The latest real deploy (deploy job successful) is the source. A build-only run (deploy
+      # skipped) that still holds its manifest, if one exists, must be refused.
       - name: Find the latest successful invite-production deploy run with a manifest
         id: source
         env:
@@ -51,18 +53,28 @@ jobs:
                   return json.load(resp)
           runs = get("actions/workflows/invite-production-deploy.yml/runs"
                      "?event=workflow_dispatch&branch=api&status=success&per_page=50")["workflow_runs"]
+          found = {}
           for run in runs:
               name = f"invite-production-manifest-{run['head_sha']}"
               arts = [a for a in get(f"actions/runs/{run['id']}/artifacts?name={name}")["artifacts"]
                       if not a["expired"]]
-              if len(arts) == 1:
-                  with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-                      out.write(f"reference={run['id']}/{name}\nrun_id={run['id']}\nartifact={name}\n")
-                  print(f"source run {run['id']} ({run['created_at']}), artifact {name}")
+              if len(arts) != 1:
+                  continue
+              deploys = [j["conclusion"] for j in get(f"actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
+                         if j["name"] == "Deploy invite-production"]
+              kind = {"success": "deployed", "skipped": "build_only"}.get(deploys[0]) if len(deploys) == 1 else None
+              if kind and kind not in found:
+                  found[kind] = f"{run['id']}/{name}"
+                  print(f"{kind} run {run['id']} ({run['created_at']}), artifact {name}")
+              if len(found) == 2:
                   break
-          else:
+          if "deployed" not in found:
               raise SystemExit("::error::no successful invite-production deploy run on api has an "
                                "unexpired manifest artifact (they are kept 90 days)")
+          run_id, artifact = found["deployed"].split("/", 1)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"reference={found['deployed']}\nrun_id={run_id}\nartifact={artifact}\n"
+                        f"build_only_reference={found.get('build_only', '')}\n")
           PY
 
       - name: Resolve that run as the rollback job does
@@ -72,19 +84,22 @@ jobs:
           PARKIO_MANIFEST_REFERENCE: ${{ steps.source.outputs.reference }}
         run: |
           ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
-            --workflow invite-production-deploy.yml --branch api --reference "$PARKIO_MANIFEST_REFERENCE"
+            --workflow invite-production-deploy.yml --branch api --deploy-job "Deploy invite-production" \
+            --reference "$PARKIO_MANIFEST_REFERENCE"
 
       - name: Wrong references fail closed
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RUN_ID: ${{ steps.source.outputs.run_id }}
           ARTIFACT: ${{ steps.source.outputs.artifact }}
+          BUILD_ONLY_REFERENCE: ${{ steps.source.outputs.build_only_reference }}
         run: |
           set -euo pipefail
           refused() { # description, reference
             # The step shell runs with errexit, so the refusal's exit code is caught here.
             if ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
-              --workflow invite-production-deploy.yml --branch api --reference "$2"; then rc=0; else rc=$?; fi
+              --workflow invite-production-deploy.yml --branch api --deploy-job "Deploy invite-production" \
+              --reference "$2"; then rc=0; else rc=$?; fi
             if [ "$rc" -ne 3 ]; then echo "::error::$1 was not refused (exit $rc)"; exit 1; fi
             echo "refused as expected: $1"
           }
@@ -92,11 +107,18 @@ jobs:
           refused "a run id that does not exist" "1/$ARTIFACT"
           refused "an artifact name without the run id" "$ARTIFACT"
           refused "an artifact the run does not hold" "$RUN_ID/invite-production-manifest-0000000000000000000000000000000000000000"
+          refused "a malformed SHA-256 pin" "$RUN_ID/$ARTIFACT@not-a-sha256"
+          if [ -n "$BUILD_ONLY_REFERENCE" ]; then
+            refused "a build-only run, whose deploy was skipped" "$BUILD_ONLY_REFERENCE"
+          else
+            echo "::notice::No build-only run holds an unexpired manifest; the unit tests cover that refusal."
+          fi
 
-      - name: Download the manifest from that run
+      - name: Download the manifest from that run by artifact id
         uses: actions/download-artifact@v4
         with:
-          name: ${{ steps.resolved.outputs.artifact }}
+          artifact-ids: ${{ steps.resolved.outputs.artifact_id }}
+          merge-multiple: true
           run-id: ${{ steps.resolved.outputs.run_id }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -109,6 +131,31 @@ jobs:
         run: |
           ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts/invite-production \
             --profile invite-production --git-sha "$PARKIO_MANIFEST_GIT_SHA"
+
+      # A deploy job's summary prints RUN_ID/ARTIFACT@SHA256. Pinned that way, the rollback must
+      # accept this manifest and refuse any other content.
+      - name: A pinned reference accepts its manifest and refuses other content
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.resolved.outputs.run_id }}
+          ARTIFACT: ${{ steps.resolved.outputs.artifact }}
+          PARKIO_MANIFEST_GIT_SHA: ${{ steps.resolved.outputs.head_sha }}
+          PARKIO_MANIFEST_SHA256: ${{ steps.manifest.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          pinned="$(GITHUB_OUTPUT='' ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+            --workflow invite-production-deploy.yml --branch api --deploy-job "Deploy invite-production" \
+            --reference "$RUN_ID/$ARTIFACT@$PARKIO_MANIFEST_SHA256")"
+          grep -qx "manifest_sha256=$PARKIO_MANIFEST_SHA256" <<<"$pinned"
+          verify() { # expected sha256
+            GITHUB_OUTPUT='' ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts/invite-production \
+              --profile invite-production --git-sha "$PARKIO_MANIFEST_GIT_SHA" --sha256 "$1" > /dev/null
+          }
+          verify "$PARKIO_MANIFEST_SHA256"
+          other="$(printf '%s' "$PARKIO_MANIFEST_SHA256" | tr '0-9a-f' '1-9a-f0')"
+          if verify "$other"; then rc=0; else rc=$?; fi
+          if [ "$rc" -ne 3 ]; then echo "::error::another SHA-256 was not refused (exit $rc)"; exit 1; fi
+          echo "the pinned reference accepts its manifest and refuses other content"
 
       - name: Dry-run the rollback to that manifest (no deploy)
         env:

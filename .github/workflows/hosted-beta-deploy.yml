@@ -28,7 +28,7 @@ on:
           - rollback
         default: build
       manifest_artifact:
-        description: "For rollback: RUN_ID/ARTIFACT of the earlier deploy run's live manifest (that run's job summary prints it)"
+        description: "For rollback: RUN_ID/ARTIFACT@SHA256 of the earlier deploy's live manifest (its deploy job summary prints it)"
         required: false
         type: string
       allow_dirty:
@@ -192,14 +192,18 @@ jobs:
           PARKIO_MANIFEST_ARTIFACT: deploy-manifest-live-${{ needs.build-images.outputs.git_sha }}
         run: |
           set -euo pipefail
-          # A later rollback run downloads this run's manifest by run id (U13 CL-F06).
+          # Reached only when the deploy succeeded. A later rollback run downloads this run's
+          # manifest by run id and checks it against this SHA-256 (U13 CL-F06).
+          shopt -s nullglob
+          manifests=(deploy-artifacts/deploy-*.json)
+          if [ "${#manifests[@]}" -ne 1 ]; then
+            echo "::error::expected one deploy-*.json for the rollback reference, found ${#manifests[@]}"
+            exit 1
+          fi
+          sha256="$(sha256sum "${manifests[0]}" | cut -d' ' -f1)"
           {
             echo "### Rollback reference"
-            echo "manifest_artifact for a later rollback: \`${GITHUB_RUN_ID}/${PARKIO_MANIFEST_ARTIFACT}\`"
-            echo
-            echo '```'
-            (cd deploy-artifacts && sha256sum deploy-*.json)
-            echo '```'
+            echo "manifest_artifact for a later rollback: \`${GITHUB_RUN_ID}/${PARKIO_MANIFEST_ARTIFACT}@${sha256}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   rollback:
@@ -217,7 +221,8 @@ jobs:
 
       # The manifest is an artifact of the earlier deploy run, which download-artifact can only
       # reach with that run's id and a token (U13 CL-F06). The run must be a successful
-      # workflow_dispatch of this workflow on the same branch holding exactly that artifact.
+      # workflow_dispatch of this workflow on the same branch whose deploy job succeeded, holding
+      # exactly that artifact.
       - name: Resolve the deploy run that holds the manifest
         id: manifest_run
         env:
@@ -225,12 +230,16 @@ jobs:
           PARKIO_MANIFEST_REFERENCE: ${{ github.event.inputs.manifest_artifact }}
         run: |
           ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
-            --workflow hosted-beta-deploy.yml --branch "$GITHUB_REF_NAME" --reference "$PARKIO_MANIFEST_REFERENCE"
+            --workflow hosted-beta-deploy.yml --branch "$GITHUB_REF_NAME" \
+            --deploy-job "Deploy (self-hosted beta)" --reference "$PARKIO_MANIFEST_REFERENCE"
 
+      # By the id the resolver checked, not by name. With merge-multiple the files land directly
+      # in path, as a download by name does.
       - name: Download manifest artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ steps.manifest_run.outputs.artifact }}
+          artifact-ids: ${{ steps.manifest_run.outputs.artifact_id }}
+          merge-multiple: true
           run-id: ${{ steps.manifest_run.outputs.run_id }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -240,7 +249,12 @@ jobs:
         id: manifest
         env:
           PARKIO_MANIFEST_GIT_SHA: ${{ steps.manifest_run.outputs.head_sha }}
-        run: ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts --git-sha "$PARKIO_MANIFEST_GIT_SHA"
+          PARKIO_MANIFEST_SHA256: ${{ steps.manifest_run.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          # A reference with @SHA256 pins the manifest's content.
+          if [ -n "$PARKIO_MANIFEST_SHA256" ]; then set -- --sha256 "$PARKIO_MANIFEST_SHA256"; fi
+          ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts --git-sha "$PARKIO_MANIFEST_GIT_SHA" "$@"
 
       - name: Rollback
         env:
