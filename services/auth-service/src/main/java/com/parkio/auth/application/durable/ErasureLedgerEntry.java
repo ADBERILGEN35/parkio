@@ -7,7 +7,7 @@ import java.util.UUID;
 /**
  * One {@code erased_user_tombstones} row in a checkpoint ledger: the entry shape of the #104
  * locked-snapshot output ({@code authUserId}, {@code erasedAt}), with {@code erasedAt} written
- * like every format v1 erasure time ({@link DurableErasureEvidence#erasedAt(Instant)}).
+ * like every erasure time in the evidence format ({@link DurableErasureEvidence#erasedAt(Instant)}).
  */
 public record ErasureLedgerEntry(UUID authUserId, Instant erasedAt) {
 

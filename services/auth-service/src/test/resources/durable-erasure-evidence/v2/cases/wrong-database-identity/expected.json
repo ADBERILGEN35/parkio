@@ -1,0 +1,22 @@
+{
+  "checks": [
+    {
+      "error": "database identity mismatch",
+      "requiredThrough": null
+    }
+  ],
+  "description": "The consumer's trust pins another database identity.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000002:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

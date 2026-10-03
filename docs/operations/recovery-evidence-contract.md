@@ -173,8 +173,9 @@ consumer watermark. `verifiedCoverage` stays false.
 - **Old valid evidence.** HMAC remains valid after rotation if the old
   key is still trusted. Freshness is a consumer watermark, not a
   signature expiry or key `not-before`.
-- **Key rotation.** No key id, not-before, or retirement schedule.
-  Tests use a fixture HMAC key.
+- **Key rotation.** Not modelled by this stage-0 evidence (one key per
+  `producerId`). Durable evidence format v2 (§7) signs a `keyId` and checks it
+  against trust windows and retirement; see "Trust and key rotation".
 - **Transaction isolation.** The consumer cannot verify that SHARE was
   held. Isolation is a capture-time property.
 - **Clock rollback.** `coveredThrough` is the capture clock. A rolled-back
@@ -199,7 +200,8 @@ consumer watermark. `verifiedCoverage` stays false.
 | post-watermark host loss / unknown tail | model/unit |
 | HMAC+receipt incomplete snapshot | model/unit negative |
 | older valid evidence freshness | model/unit negative |
-| key rotation / retired key | model/unit |
+| key rotation / retired key | model/unit (stage 0); format v2: model/unit + shared fixtures + disposable MinIO (`ObjectLockKeyRotationIT`) |
+| `databaseIdentity` from `system_identifier` + `datname`; trust pinned to another database refused at startup | **real PostgreSQL** (`ErasureCheckpointPostgresMinioIT`) + model/unit (`ObjectLockDurableStoreConfigTest`) |
 | missing participant ACK | model/unit |
 | prior-attempt ACK replay | model/unit negative |
 | isolated replay preserves unrelated | **modeled replay**, not production-entrypoint acceptance |
@@ -280,17 +282,17 @@ set does not cover the cutoff, restore is `BLOCKED` and the copy stays
 can delete again later. Kafka and participant-local tombstones are
 untrusted residue.
 
-### Durable record format v1 (Java and Python)
+### Durable record format v2 (Java and Python)
 
 One object format for the Python model (`scripts/lib/recovery_persist_protocol.py`)
 and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtures:
 
 | Object (`kind`) | Key | Signed fields (hex HMAC-SHA256) | Also bound by |
 |---|---|---|---|
-| Pending record (`erasure-pending-record`) | `records/<erasureRequestId>.json` | `schemaVersion`, `kind`, `erasureRecordId`, `erasureRequestId`, `authUserId`, `sequence`, `databaseIdentity`, `producerId`, `bodyDigest` | `bodyDigest` = SHA-256 of canonical `{authUserId, erasureRequestId, erasedAt}` |
+| Pending record (`erasure-pending-record`) | `records/<erasureRequestId>.json` | `schemaVersion`, `kind`, `erasureRecordId`, `erasureRequestId`, `authUserId`, `sequence`, `databaseIdentity`, `producerId`, `keyId`, `bodyDigest` | `bodyDigest` = SHA-256 of canonical `{authUserId, erasureRequestId, erasedAt}` |
 | Sequence marker (`sequence-allocation`) | `sequences/<sequence, 16 digits>.json` | unsigned if-not-exists reservation | — |
-| Frontier (`erasure-expected-frontier`) | `frontier/expected-through.json` | `schemaVersion`, `kind`, `expectedThrough`, `highestReserved`, `databaseIdentity`, `producerId`, `frontierDigest` | `frontierDigest` = SHA-256 of canonical `{kind, expectedThrough, highestReserved}` |
-| Checkpoint (`erasure-checkpoint`) | `checkpoints/<sequence, 16 digits>.json` | `schemaVersion`, `kind`, `sequence`, `databaseIdentity`, `producerId`, `ledgerDigest`, `captureProtocol` | `ledgerDigest` over `{kind: "erasure-ledger", entries}` |
+| Frontier (`erasure-expected-frontier`) | `frontier/expected-through.json` | `schemaVersion`, `kind`, `expectedThrough`, `highestReserved`, `databaseIdentity`, `producerId`, `keyId`, `frontierDigest` | `frontierDigest` = SHA-256 of canonical `{kind, expectedThrough, highestReserved}` |
+| Checkpoint (`erasure-checkpoint`) | `checkpoints/<sequence, 16 digits>.json` | `schemaVersion`, `kind`, `sequence`, `databaseIdentity`, `producerId`, `keyId`, `ledgerDigest`, `captureProtocol` | `ledgerDigest` over `{kind: "erasure-ledger", entries}` |
 
 - Object bytes are the canonical JSON of §4 (sorted keys, compact separators,
   ASCII escapes), including the unsigned `signature`.
@@ -300,32 +302,71 @@ and auth-service (`com.parkio.auth.application.durable`), pinned by shared fixtu
   the erasure time at microsecond precision before it is persisted or published:
   the JDBC driver rounds sub-microsecond digits, so a nanosecond time would let a
   record rebuilt from the database differ from the first one (#172 review B1).
-- `producerId` selects the consumer's pre-distributed key; v1 has no separate
-  key id (rotation is stage 3 below).
+- `schemaVersion` is 2. Every signed object names its signing key (`keyId`);
+  the consumer's trust maps it to the producer, secret, window and retirement
+  state (Trust and key rotation, below). Objects of any other version,
+  including format v1 (no `keyId`, never produced outside tests), are refused
+  with `unsupported schema version`.
 - Both verifiers reach the same outcome and message: no frontier is `UNKNOWN`;
   a missing record in `1..expectedThrough` is `BLOCKED`; requiring a sequence
   above the frontier or in a gap is refused; tampered, re-sequenced,
-  wrong-database or unknown-producer objects are rejected.
-- Fixtures: `services/auth-service/src/test/resources/durable-erasure-evidence/v1`,
+  wrong-database, unknown-key, foreign-key, retired-key and not-yet-valid-key
+  objects are rejected.
+- Fixtures: `services/auth-service/src/test/resources/durable-erasure-evidence/v2`,
   generated from the Python model by
   `scripts/generate-durable-erasure-evidence-fixtures.py` (`--check` reports
   drift) and checked by `scripts/test-durable-erasure-evidence-interop.py`,
-  `DurableErasureEvidenceInteropTest` and `CanonicalJsonTest`.
+  `DurableErasureEvidenceInteropTest` and `CanonicalJsonTest`. Each case pins
+  its trust and verification instant; `trust-documents.json` pins the trust
+  document loader (same accept/refuse and message in both languages).
 - Checkpoint `entries` are one `{authUserId, erasedAt}` object per
   `erased_user_tombstones` row, ordered by `authUserId` text (the order of
   PostgreSQL's `ORDER BY auth_user_id`), `erasedAt` as above. The marker that
   reserves a checkpoint's sequence has the nil UUID
   `00000000-0000-0000-0000-000000000000` as `erasureRequestId` (never a
   request id).
-- Java writes checkpoints (default-off producer below). Not part of v1 in Java:
-  key distribution and rotation. Durable recording stays default-off and
-  `verifiedCoverage` stays false.
+- Java writes checkpoints (default-off producer below). Durable recording
+  stays default-off and `verifiedCoverage` stays false.
+
+### Trust and key rotation (format v2)
+
+The consumer's **trust document** is pre-distributed and never read from the
+evidence. It is JSON (`format` `parkio-erasure-evidence-trust`, `version` 1)
+with the pinned `databaseIdentity` and the producer `keys`: `keyId`,
+`producerId`, `notBefore`, optional `notAfter`, `retired`, and `keyHex`, an
+HMAC secret of at least 32 bytes. It therefore holds secrets: never commit
+one (fixtures are synthetic and live only under tests). Loader errors name the
+field and key id, never a secret.
+
+- **databaseIdentity** is `postgresql:<system_identifier>:<datname>`.
+  `system_identifier` is set by initdb and survives physical replication and
+  failover, so the identity names the cluster lineage, not a DSN.
+  `pg_control_system()` is readable without superuser rights (PostgreSQL 16).
+  The auth service refuses to start when its trust document is pinned to
+  another database than the one it uses.
+- **Verifier checks**, in order and with the same messages in Python and Java:
+  kind; `schemaVersion` 2; `databaseIdentity` equals the trust; `keyId`
+  known (`unknown producer key`); the key's `producerId` equals the object's
+  (`producer key belongs to another producer`); not retired
+  (`retired producer key`); verification instant not before `notBefore`
+  (`producer key not yet valid`); signature; digests.
+- **Producer rule**: sign only with a key that is not retired and inside
+  `[notBefore, notAfter)`. The auth store checks this at startup, before an
+  operation reserves anything, and for every signed object; otherwise the
+  write is `DURABLE_RECORDING_UNAVAILABLE` and nothing is reserved. The store
+  verifies what it reads with the whole trust, so after a rotation it still
+  reads the frontier and records the previous key signed.
+- `notAfter` ends a key's **signing** period. A verifier keeps accepting what a
+  key signed while it was valid: objects are write-once and cannot be
+  re-signed, so old evidence stays valid while its key is trusted and not
+  retired. Retiring a key revokes it: everything it signed is refused.
+- Rotation and custody steps: `docs/operations/erasure-evidence-key-custody.md`.
 
 ### Off-host object-lock store (auth-service adapter)
 
 `ObjectLockDurableErasureRecordStore` implements the durable record port on an
 S3-compatible bucket with **object lock** (and therefore versioning), writing
-format v1. No store product has been chosen (§9 item 1); the adapter assumes
+format v2. No store product has been chosen (§9 item 1); the adapter assumes
 the S3 API with object-lock semantics and is tested only against a disposable
 MinIO bucket.
 
@@ -336,12 +377,40 @@ MinIO bucket.
 - Every object version is written with a retention lock
   (`retention-mode` GOVERNANCE or COMPLIANCE, `retention` duration; both
   required). Nothing is overwritten or deleted by the adapter.
+  **COMPLIANCE is the intended mode for the real evidence store** (owner
+  decision B2, 2026-10-03). Under GOVERNANCE, a principal allowed to bypass
+  governance retention can delete a locked version; COMPLIANCE refuses that
+  until the retention ends. `ObjectLockDurableErasureRecordStoreIT` shows
+  both on the disposable bucket. GOVERNANCE stays accepted for disposable
+  test buckets. The retention duration follows the erasure-evidence policy
+  and is not chosen here; no real bucket is provisioned.
 - The **first version** of a record or marker is canonical: a later write only
   adds a version, a version delete is refused by the lock, and a plain delete
   only adds a delete marker; none of them changes what is read. The frontier
-  (the one rewritten object) is read from its latest version.
+  (the one rewritten object) is read as its **highest verified version**
+  (`expectedThrough`, then `highestReserved`), not as the version listed
+  first: S3 lists versions by modification time, and a backward clock step on
+  the store host makes a later version list as older (a MinIO probe on such a
+  host saw 102 stale first-listed versions in 14,467 writes). Frontier
+  contents only grow, so the highest verified version is the current one.
+  Versions that fail verification are ignored while another one verifies; if
+  none does, recovery fails with that error. Ignored versions are tamper
+  evidence: recovery reports their number (`ignoredFrontierVersions`), and the
+  store logs a warning whenever that number grows. The store reads each
+  version once (versions never change); recovery reads them all.
+  `ObjectLockEvidenceObjects` reads the frontier only through all of its
+  versions: `find` refuses the frontier key and `findAll` refuses every other
+  key.
 - Identical retry returns the existing record; a different body under the same
-  request id is a conflict. Store I/O refuses to run inside a database
+  request id is a conflict.
+- Every put returns a **receipt** for the canonical version of the record: its
+  version id, the SHA-256 of its bytes, and the retention mode and
+  retain-until date that the store reports for that version (read back, not
+  assumed). A store that reports no lock on the version fails the put. An
+  identical retry and a conflict return the receipt of the existing canonical
+  version. auth-service logs it (`erasure durable receipt`) and does not store
+  it in its database; the bucket stays the source of truth.
+- Store I/O refuses to run inside a database
   transaction. Any store or verification failure is
   `DURABLE_RECORDING_UNAVAILABLE` (the request stays `PENDING_DURABLE`).
 - One auth instance may write a bucket at a time (writes are serialised in the
@@ -351,9 +420,11 @@ MinIO bucket.
 - Configuration `parkio.privacy.account-erasure.durable-store.object-lock.*`
   (`PARKIO_ERASURE_STORE_*`): `enabled` (default `false`), `endpoint`,
   `region`, `bucket`, `access-key`, `secret-key`, `retention-mode`,
-  `retention`, `database-identity`, `producer-id`, `producer-key`,
-  `connect-timeout`, `call-timeout`. When enabled, a missing setting or a
-  bucket without object lock stops startup (names only, never values).
+  `retention`, `trust-file` (the trust document), `producer-key-id` (the
+  signing key), `connect-timeout`, `call-timeout`. When enabled, a missing
+  setting, an invalid trust document, a signing key that is not in it or may
+  not sign now, a trust document pinned to another database, or a bucket
+  without object lock stops startup (names only, never values).
 
 ### Checkpoints (auth-service producer)
 
@@ -458,7 +529,9 @@ use `sequence`.
    Still disabled in production. Do not un-HOLD #104. Implemented default-off
    without a caller or schedule (Checkpoints, §7); the cadence is an operator
    decision.
-3. Real off-host WORM/versioned store and `keyId` rotation.
+3. Real off-host WORM/versioned store and `keyId` rotation. `keyId`
+   rotation is implemented (format v2, trust document, pinned database
+   identity); the real store is not provisioned.
 4. Restore-hosted-beta consumes the latest trusted checkpoint + pending
    tail; expose stays refused when the tail is unknown.
    `verifiedCoverage` stays false until a later, separate certification.
@@ -488,7 +561,8 @@ changes. No production enablement.
 
 1. **Off-host store location.** Must not be the primary host. Product
    choice (object-lock bucket vs equivalent WORM). Isolated directory
-   is not that store.
+   is not that store. The lock mode is decided (COMPLIANCE, B2); the
+   product, region, credentials and retention duration are still open.
 2. **Public DELETE status.** Either add `DURABLY_RECORDED` /
    `PENDING_DURABLE` to the API, or keep returning `IN_PROGRESS` until
    persist-ack and document that today's immediate `IN_PROGRESS` is

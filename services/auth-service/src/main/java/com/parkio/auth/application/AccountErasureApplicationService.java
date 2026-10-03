@@ -2,6 +2,7 @@ package com.parkio.auth.application;
 
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.InboxEventRepository;
@@ -381,6 +382,10 @@ public class AccountErasureApplicationService {
         if (result.conflict()) {
             throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
         }
+        DurableErasureReceipt receipt = result.receipt();
+        log.info("erasure durable receipt requestId={} created={} versionId={} sha256={} lock={} until={}",
+                candidate.erasureRequestId(), result.created(), receipt.versionId(), receipt.sha256(),
+                receipt.retentionMode(), receipt.retainUntil());
     }
 
     /**

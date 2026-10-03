@@ -1,0 +1,33 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [
+        2
+      ],
+      "expectedThrough": 3,
+      "gaps": [
+        2
+      ],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": null,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [],
+      "requiredThrough": null,
+      "verdict": "BLOCKED"
+    }
+  ],
+  "description": "Record 1's bytes were copied over record 2's key. Both verify (the key is not signed), so sequence 2 is a gap: BLOCKED.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}
