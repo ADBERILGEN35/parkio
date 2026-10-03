@@ -30,6 +30,31 @@ The repository rollback script handles only image/config rollback to a recorded
 manifest. It must refuse to claim data rollback and does not reverse migrations
 or erasure semantics.
 
+### Running the image/config rollback from GitHub Actions (U13 CL-F06)
+
+A rollback runs as a new workflow run, so it has to fetch the manifest from the
+earlier deploy run.
+
+1. Open the job summary of the deploy run you want to return to. Its "Rollback
+   reference" section shows `RUN_ID/invite-production-manifest-<sha>`, together
+   with the manifest's SHA-256.
+2. Dispatch `invite-production-deploy.yml` on `api` with `action=rollback`, the
+   current api SHA as `git_sha`, and that reference as `manifest_artifact`.
+
+The rollback job then works in three steps:
+
+- **Resolve** (`scripts/ci/resolve-rollback-manifest-run.sh`). It refuses any
+  reference that is not a successful `workflow_dispatch` run of this workflow on
+  `api` holding exactly that unexpired artifact.
+- **Download.** It downloads the artifact by run id.
+- **Verify** (`scripts/ci/verify-rollback-manifest.sh`). The manifest must have
+  `schemaVersion` 1 and profile `invite-production`, a `gitSha` equal to that
+  run's commit, and image references in its `imageTag`.
+
+Only then does it run the rollback. Manifest artifacts are kept for 90 days.
+`hosted-beta-deploy.yml` (deprecated path) works the same way, with the
+`deploy-manifest-live-<sha>` artifact of its deploy job.
+
 ## Dark acceptance endpoint and backup scheduler (PROD-DEPLOY-01A-R3)
 
 Two rollbacks are independent of image/config rollback and of each other.
