@@ -1,8 +1,13 @@
 # Internal service identity and Kafka authentication (design, CL-F16)
 
-> **Status: proposed, for review.** Design and threat model only (Asana U18 / CL-F16).
-> Nothing here is implemented, and no secret, credential or infrastructure changes with
-> this document. Implementation tasks are created after the design is approved.
+> **Status: direction approved (owner decision A4, 2026-10-03); not implemented.** Design and
+> threat model only (Asana U18 / CL-F16). The approval covers the direction in section 6:
+> short-lived per-service signed tokens with endpoint permissions enforced by each callee,
+> segmentation, dedicated credentials and per-participant erasure ACK topics. `SASL_PLAINTEXT`
+> is limited to isolated development and test networks; transport security in production is an
+> explicit rollout gate (section 10, item 4). Section 10 lists which decisions are taken and
+> which are still open. Nothing here is implemented, and no secret, credential or
+> infrastructure changes with this document; implementation tasks are created separately.
 > Inventory baseline: `api` at `f3778407` (2026-10-02). The erasure rows (2.2, 2.3, 11) and the
 > consumer group ids (6) were re-checked on `api` at `fd3b81f0` (2026-10-02, after U05). Where
 > this document and the code disagree, the code is authoritative.
@@ -175,7 +180,10 @@ Erasure ACK binding, either:
 - keep one topic and have auth derive the participant from the record's topic or a
   verifiable signature instead of the self-declared `serviceName`.
 
-## 6. Proposed direction (for approval)
+## 6. Approved direction
+
+Approved by the owner on 2026-10-03 (decision A4) as written below, with the Kafka
+transport limitation in section 10, item 4.
 
 1. **HTTP:** option B for service-to-service calls, with the endpoint matrix enforced by
    each callee; U1 for user-initiated requests; the two user-impersonating calls replaced
@@ -185,8 +193,10 @@ Erasure ACK binding, either:
    Kafka on networks reachable only by their users.
 3. **Kafka:** K1 with per-service ACLs, per-participant erasure ACK topics and topic
    provisioning by a separate admin job (services lose CREATE/DELETE/ALTER in
-   production; development keeps auto-provisioning behind its flag). `SASL_SSL` or K2
-   when encryption in transit becomes a requirement.
+   production; development keeps auto-provisioning behind its flag). SCRAM over
+   `SASL_PLAINTEXT` is allowed only on isolated development and test networks. Production
+   transport security (`SASL_SSL` or K2) is an explicit rollout gate before P5 reaches
+   production.
 4. **Operators:** keep the extra operator tokens; give operator scripts their own
    credential instead of the services' value.
 5. **Waitlist:** a dedicated `PARKIO_WAITLIST_HASH_SECRET` without fallback, with a plan
@@ -237,7 +247,7 @@ evidence.
 | P2 Service tokens, observe-only | Keys per service; callers send a service token next to `X-Gateway-Auth`; callees verify and record allowed/denied against the matrix but still accept the shared secret. | flag off | zero unexplained denials over an agreed window |
 | P3 Enforce `/internal/**` | A valid token from an allowed caller is required; the shared secret alone is refused there; operator scripts use operator credentials. | flag off | allowed callers 2xx, others 403 in CI and runtime validation |
 | P4 User context | The gateway forwards the user token; services validate it and ignore user headers; the two impersonating calls move to scoped internal endpoints. | flag off per service | header-only requests rejected; user flows green |
-| P5 Kafka | Add a SASL listener next to PLAINTEXT, create SCRAM users, move services one at a time; ACLs first with `allow.everyone.if.no.acl.found=true` while authorizer denials are observed, then `false`; per-participant ACK topics with auth reading old and new during the move; provisioning job; remove PLAINTEXT. | re-enable PLAINTEXT listener | wrong-principal produce/consume and topic creation denied; erasure end-to-end green |
+| P5 Kafka | Add a SASL listener next to PLAINTEXT, create SCRAM users, move services one at a time; ACLs first with `allow.everyone.if.no.acl.found=true` while authorizer denials are observed, then `false`; per-participant ACK topics with auth reading old and new during the move; provisioning job; remove PLAINTEXT. `SASL_PLAINTEXT` only on isolated development and test networks; production waits for the transport-security gate (section 10, item 4). | re-enable PLAINTEXT listener | wrong-principal produce/consume and topic creation denied; erasure end-to-end green; in production, the chosen transport security is in place |
 | P6 Retire the shared secret | Remove it from business services and scripts; rotate all credentials; drop the accepted-secrets path. | redeploy previous release | no service accepts `X-Gateway-Auth` alone |
 
 Sequencing constraints: P3 needs the U05 participant ACK work settled (erasure ACKs move
@@ -276,19 +286,28 @@ between HTTP and Kafka there); P5's ACK topics change the erasure contract
 | Kafka SCRAM + ACLs (K1) | one SCRAM credential per service, admin and exporter principals | per credential, overlap by creating the new one first | broker authorizer |
 | Operator credentials | one per operator role | per role | none |
 
-## 10. Decisions needed
+## 10. Decisions
 
-1. Approve the HTTP direction (B + U1 + scoped internal endpoints) or choose another.
-2. Shared verification code versus the "no shared module" rule in
-   [`kafka-transport.md`](kafka-transport.md): duplicate a small verifier per service, or
-   allow one security library.
-3. Token lifetime and clock-skew budget.
-4. Kafka: SCRAM or mTLS, and when encryption in transit becomes required.
-5. Erasure ACK binding: per-participant topics or derivation in auth.
-6. Operator endpoints: stay under `/internal` with operator credentials, or move behind
-   the admin API with an audited admin JWT.
-7. Waitlist hash key separation and what happens to existing hashes.
-8. Whether the private live network-isolation record can be shared with reviewers.
+Owner decision A4 (2026-10-03) approved the direction in section 6. Item by item:
+
+1. **HTTP direction: approved.** B + U1 + scoped internal endpoints: short-lived
+   per-service signed tokens, with the endpoint matrix enforced by each callee.
+2. **Shared verification code versus the "no shared module" rule** in
+   [`kafka-transport.md`](kafka-transport.md): **open.** Choose between a small verifier
+   duplicated per service and one security library.
+3. **Token lifetime and clock-skew budget: open.**
+4. **Kafka: approved with a gate.** SCRAM with per-service ACLs (K1). `SASL_PLAINTEXT` only on
+   isolated development and test networks. Transport security in production (`SASL_SSL` or
+   mTLS) is an explicit rollout gate: P5 does not reach production until it is chosen and
+   in place.
+5. **Erasure ACK binding: approved.** Per-participant ACK topics.
+6. **Operator endpoints: approved as section 6, item 4.** Operator scripts get dedicated
+   credentials instead of the services' value.
+7. **Waitlist hash key separation and existing hashes: open.**
+8. **Sharing the private live network-isolation record with reviewers: open.**
+
+Items 2, 3, 7 and 8 need owner decisions before the phases that depend on them (P2 for 2
+and 3). Segmentation (E) is approved as part of section 6.
 
 ## 11. Code references
 
