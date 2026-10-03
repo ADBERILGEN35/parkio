@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="tr">
+<html lang="tr" data-i18n-title="waitlist.page.withdraw.title">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -28,17 +28,7 @@
     <p class="legal-note" data-i18n="waitlist.page.withdraw.note">Destek veya silme talepleri için: info@parkio.dev</p>
   </div>
 </main>
-<script src="/i18n.js?v=w01l7" defer></script>
+<script src="/i18n.js?v=w01l8" defer></script>
 <script src="/waitlist.js?v=w01l7" defer></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  function applyTitle(locale) {
-    if (!window.ParkioI18n) return;
-    document.title = window.ParkioI18n.t(locale === 'en' ? 'en' : 'tr', 'waitlist.page.withdraw.title');
-  }
-  document.addEventListener('parkio:locale', function (e) { applyTitle(e.detail.locale); });
-  applyTitle(window.ParkioI18n ? window.ParkioI18n.resolveLocale() : 'tr');
-});
-</script>
 </body>
 </html>
