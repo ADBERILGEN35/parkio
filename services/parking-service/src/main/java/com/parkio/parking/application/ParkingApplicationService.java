@@ -605,8 +605,13 @@ public class ParkingApplicationService {
         return 1;
     }
 
-    /** Nearby search filtering out expired/filled/rejected/illegal spots. */
+    /**
+     * Nearby search filtering out expired/filled/rejected/illegal spots. Coordinates
+     * follow the Public Explore rules (finite, latitude -90..90, longitude -180..180) and
+     * are checked before the spot query runs or the search is logged (CL-F38b).
+     */
     public List<ParkingSpot> searchNearby(SearchNearbyQuery query) {
+        requireCoordinates(query.latitude(), query.longitude());
         Instant now = clock.instant();
         double radius = resolveRadius(query.radiusMeters());
         int limit = resolveLimit(query.limit());
@@ -630,12 +635,22 @@ public class ParkingApplicationService {
         return visible;
     }
 
+    private static void requireCoordinates(double latitude, double longitude) {
+        if (!Double.isFinite(latitude) || latitude < -90.0 || latitude > 90.0) {
+            throw new IllegalArgumentException("latitude must be a finite value between -90 and 90");
+        }
+        if (!Double.isFinite(longitude) || longitude < -180.0 || longitude > 180.0) {
+            throw new IllegalArgumentException("longitude must be a finite value between -180 and 180");
+        }
+    }
+
     /** Resolves the search radius: default when absent, else bounded to (0, max]. */
     private double resolveRadius(Double requested) {
         if (requested == null) {
             return searchSettings.defaultRadiusMeters();
         }
-        if (requested <= 0 || requested > searchSettings.maxRadiusMeters()) {
+        // NaN fails every comparison below, so it needs its own check.
+        if (!Double.isFinite(requested) || requested <= 0 || requested > searchSettings.maxRadiusMeters()) {
             throw new IllegalArgumentException(
                     "radius must be between 0 (exclusive) and " + searchSettings.maxRadiusMeters() + " meters");
         }

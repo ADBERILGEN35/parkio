@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": 3,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": null,
+      "verdict": "ACCEPT_ISOLATED"
+    },
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": 3,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002"
+      ],
+      "requiredThrough": 3,
+      "verdict": "ACCEPT_ISOLATED"
+    }
+  ],
+  "description": "Two records and a checkpoint at sequence 3 (non-ASCII ledger text).",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}
