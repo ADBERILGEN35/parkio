@@ -42,6 +42,9 @@ export function AdminWaitlistPage() {
   const [params, setParams] = useSearchParams();
   const [exportError, setExportError] = useState<unknown>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportTruncation, setExportTruncation] = useState<{ matching: number; limit: number } | null>(null);
+  const [confirmedFrom, setConfirmedFrom] = useState('');
+  const [confirmedTo, setConfirmedTo] = useState('');
 
   const status = (params.get('status') ?? '') as WaitlistSubscriptionStatus | '';
   const createdFrom = params.get('createdFrom') ?? '';
@@ -77,13 +80,17 @@ export function AdminWaitlistPage() {
 
   async function onExportConfirmed() {
     setExportError(null);
+    setExportTruncation(null);
     setExporting(true);
     try {
-      const csv = await waitlistApi.exportConfirmedCsv({
-        createdFrom: createdFrom || undefined,
-        createdTo: createdTo || undefined,
+      const result = await waitlistApi.exportConfirmedCsv({
+        confirmedFrom: confirmedFrom || undefined,
+        confirmedTo: confirmedTo || undefined,
       });
-      downloadCsv('parkio-waitlist-confirmed.csv', csv);
+      downloadCsv('parkio-waitlist-confirmed.csv', result.csv);
+      if (result.truncated) {
+        setExportTruncation({ matching: result.matchingRows ?? 0, limit: result.rowLimit ?? 0 });
+      }
     } catch (error) {
       setExportError(error);
     } finally {
@@ -155,6 +162,28 @@ export function AdminWaitlistPage() {
           <Button type="button" variant="ghost" onClick={() => setParams(new URLSearchParams())}>
             {t('common.reset')}
           </Button>
+        </div>
+        <div className="mt-md flex flex-col gap-sm md:flex-row md:items-end">
+          <label>
+            <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedFrom')}</span>
+            <Input
+              type="datetime-local"
+              value={confirmedFrom ? confirmedFrom.slice(0, 16) : ''}
+              onChange={(e) =>
+                setConfirmedFrom(e.target.value ? new Date(e.target.value).toISOString() : '')
+              }
+            />
+          </label>
+          <label>
+            <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedTo')}</span>
+            <Input
+              type="datetime-local"
+              value={confirmedTo ? confirmedTo.slice(0, 16) : ''}
+              onChange={(e) =>
+                setConfirmedTo(e.target.value ? new Date(e.target.value).toISOString() : '')
+              }
+            />
+          </label>
           <Button type="button" onClick={() => void onExportConfirmed()} disabled={exporting}>
             {exporting ? t('waitlist.exporting') : t('waitlist.exportConfirmed')}
           </Button>
@@ -163,6 +192,11 @@ export function AdminWaitlistPage() {
           <div className="mt-sm">
             <FriendlyApiErrorMessage error={exportError} />
           </div>
+        ) : null}
+        {exportTruncation ? (
+          <p role="status" className="mb-0 mt-sm text-body-sm font-semibold text-on-surface">
+            {t('waitlist.exportTruncated', exportTruncation)}
+          </p>
         ) : null}
         <p className="mb-0 mt-sm text-body-sm text-on-surface-variant">{t('waitlist.exportNote')}</p>
       </Card>

@@ -96,15 +96,47 @@ describe('waitlist api', () => {
     server.use(
       http.get(`${BASE}/waitlist/export`, () =>
         HttpResponse.text('email,city,role,source,createdAt,consentTimestamp\n"a@b.c",,,,,\n', {
-          headers: { 'Content-Type': 'text/csv' },
+          headers: {
+            'Content-Type': 'text/csv',
+            'X-Parkio-Export-Truncated': 'false',
+            'X-Parkio-Export-Matching-Rows': '1',
+            'X-Parkio-Export-Row-Limit': '50000',
+          },
         }),
       ),
     );
     const api = createWaitlistApi(
       createApiClient({ baseURL: BASE, tokenStorage: new MemoryTokenStorage() }),
     );
-    const csv = await api.exportConfirmedCsv();
-    expect(csv).toContain('email,city');
-    expect(csv).toContain('a@b.c');
+    const result = await api.exportConfirmedCsv();
+    expect(result.csv).toContain('email,city');
+    expect(result.csv).toContain('a@b.c');
+    expect(result).toMatchObject({ truncated: false, matchingRows: 1, rowLimit: 50000 });
+  });
+
+  it('filters the export by confirmation time and reports truncation', async () => {
+    let query = '';
+    server.use(
+      http.get(`${BASE}/waitlist/export`, ({ request }) => {
+        query = new URL(request.url).search;
+        return HttpResponse.text('email\n', {
+          headers: {
+            'Content-Type': 'text/csv',
+            'X-Parkio-Export-Truncated': 'true',
+            'X-Parkio-Export-Matching-Rows': '61234',
+            'X-Parkio-Export-Row-Limit': '50000',
+          },
+        });
+      }),
+    );
+    const api = createWaitlistApi(
+      createApiClient({ baseURL: BASE, tokenStorage: new MemoryTokenStorage() }),
+    );
+    const result = await api.exportConfirmedCsv({
+      confirmedFrom: '2026-09-01T00:00:00.000Z',
+      confirmedTo: '2026-10-01T00:00:00.000Z',
+    });
+    expect(query).toBe('?confirmedFrom=2026-09-01T00%3A00%3A00.000Z&confirmedTo=2026-10-01T00%3A00%3A00.000Z');
+    expect(result).toMatchObject({ truncated: true, matchingRows: 61234, rowLimit: 50000 });
   });
 });

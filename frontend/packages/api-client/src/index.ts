@@ -24,6 +24,7 @@ export {
   WAITLIST_ROLES,
   WAITLIST_SOURCE,
   type WaitlistApi,
+  type WaitlistExportResult,
   type WaitlistPayload,
   type WaitlistResult,
   type WaitlistRole,

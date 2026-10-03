@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders, withLocale } from '@/test/utils';
@@ -6,6 +6,7 @@ import { AdminWaitlistPage } from './AdminWaitlistPage';
 
 const adminList = vi.fn();
 const adminSummary = vi.fn();
+const exportConfirmedCsv = vi.fn();
 
 vi.mock('@/app/AppRuntimeContext', async () => {
   const actual = await vi.importActual<typeof import('@/app/AppRuntimeContext')>(
@@ -17,7 +18,7 @@ vi.mock('@/app/AppRuntimeContext', async () => {
       waitlistApi: {
         adminSummary,
         adminList,
-        exportConfirmedCsv: vi.fn(),
+        exportConfirmedCsv,
       },
     }),
   };
@@ -80,5 +81,44 @@ describe('AdminWaitlistPage full name column', () => {
     renderPage();
     expect(await screen.findByText('Ad belirtilmemiş')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('columnheader', { name: 'Ad soyad' })).toBeInTheDocument());
+  });
+});
+
+describe('AdminWaitlistPage confirmed export', () => {
+  beforeEach(() => {
+    adminSummary.mockResolvedValue({ pending: 0, confirmed: 0, withdrawn: 0, total: 0 });
+    adminList.mockResolvedValue({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 });
+    exportConfirmedCsv.mockReset();
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:export'), revokeObjectURL: vi.fn() }));
+    // The download anchor would navigate, which jsdom does not implement.
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  });
+
+  it('exports by confirmation date and says when the export was truncated', async () => {
+    exportConfirmedCsv.mockResolvedValue({ csv: 'email\n', truncated: true, matchingRows: 61234, rowLimit: 50000 });
+    await withLocale('en');
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText('Confirmed from'), { target: { value: '2026-09-01T00:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Export confirmed CSV' }));
+
+    expect(
+      await screen.findByText(/Only the first 50000 of 61234 confirmed subscriptions were exported\./),
+    ).toHaveAttribute('role', 'status');
+    expect(exportConfirmedCsv).toHaveBeenCalledWith({
+      confirmedFrom: new Date('2026-09-01T00:00').toISOString(),
+      confirmedTo: undefined,
+    });
+  });
+
+  it('shows no truncation notice for a complete export', async () => {
+    exportConfirmedCsv.mockResolvedValue({ csv: 'email\n', truncated: false, matchingRows: 3, rowLimit: 50000 });
+    await withLocale('en');
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Export confirmed CSV' }));
+
+    await waitFor(() => expect(exportConfirmedCsv).toHaveBeenCalled());
+    expect(screen.queryByText(/Only the first/)).not.toBeInTheDocument();
   });
 });
