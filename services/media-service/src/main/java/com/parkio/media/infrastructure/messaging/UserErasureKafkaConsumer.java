@@ -3,10 +3,12 @@ package com.parkio.media.infrastructure.messaging;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.application.AccountErasureHandler;
 import com.parkio.media.application.event.UserErasureRequestedEvent;
+import com.parkio.media.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.platform.messaging.EventEnvelope;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.messaging.handler.annotation.Header;
@@ -22,10 +24,13 @@ public class UserErasureKafkaConsumer {
 
     private final AccountErasureHandler handler;
     private final ObjectMapper objectMapper;
+    private final boolean restoreReplayEnabled;
 
-    public UserErasureKafkaConsumer(AccountErasureHandler handler, ObjectMapper objectMapper) {
+    public UserErasureKafkaConsumer(AccountErasureHandler handler, ObjectMapper objectMapper,
+                                    @Value("${parkio.privacy.restore-replay.enabled:false}") boolean restoreReplayEnabled) {
         this.handler = handler;
         this.objectMapper = objectMapper;
+        this.restoreReplayEnabled = restoreReplayEnabled;
     }
 
     @KafkaListener(
@@ -37,6 +42,16 @@ public class UserErasureKafkaConsumer {
                           Acknowledgment ack) throws Exception {
         EventEnvelope envelope = objectMapper.readValue(record.value(), EventEnvelope.class);
         String eventType = eventTypeHeader != null ? eventTypeHeader : envelope.eventType();
+        if (UserErasureRestoreReplayRequestedEvent.TYPE.equals(eventType)) {
+            if (restoreReplayEnabled) {
+                handler.replayForRestore(
+                        objectMapper.treeToValue(envelope.payload(), UserErasureRestoreReplayRequestedEvent.class));
+            } else {
+                log.debug("Skipping {} on {}: restore replay is disabled", eventType, TOPIC);
+            }
+            ack.acknowledge();
+            return;
+        }
         if (!UserErasureRequestedEvent.TYPE.equals(eventType)) {
             log.debug("Ignoring event type {} on {}", eventType, TOPIC);
             ack.acknowledge();

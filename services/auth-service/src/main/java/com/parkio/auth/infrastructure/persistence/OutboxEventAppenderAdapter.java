@@ -6,6 +6,7 @@ import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
 import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.domain.event.UserErasureRequestedEvent;
+import com.parkio.auth.domain.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -72,6 +73,17 @@ public class OutboxEventAppenderAdapter implements OutboxEventAppender {
                 UserErasureRequestedEvent.AGGREGATE_TYPE,
                 event.erasureRequestId(),
                 UserErasureRequestedEvent.TYPE,
+                event,
+                event.occurredAt());
+    }
+
+    @Override
+    public void append(UserErasureRestoreReplayRequestedEvent event) {
+        appendInternal(
+                event.eventId(),
+                UserErasureRestoreReplayRequestedEvent.AGGREGATE_TYPE,
+                event.authUserId(),
+                UserErasureRestoreReplayRequestedEvent.TYPE,
                 event,
                 event.occurredAt());
     }

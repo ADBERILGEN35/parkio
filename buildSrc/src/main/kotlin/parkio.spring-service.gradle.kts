@@ -90,7 +90,9 @@ tasks.named<Test>("test") {
 //  - Locally (default): each suite is `@Testcontainers(disabledWithoutDocker = true)`, so the
 //    tests are discovered and *skipped* (not failed) when no Docker daemon is reachable.
 //  - In CI: pass `-Pparkio.integrationTest.requireDocker=true`. The task then fails fast when
-//    Docker is unavailable instead of silently skipping every suite and reporting a false green.
+//    Docker is unavailable instead of silently skipping every suite and reporting a false green,
+//    and it always executes: it neither restores a result from the build cache nor skips as up to
+//    date, because either would bypass that check and report tests that never ran.
 tasks.register<Test>("integrationTest") {
     description = "Runs @Tag(\"integration\") Testcontainers integration tests (requires Docker)."
     group = "verification"
@@ -106,6 +108,11 @@ tasks.register<Test>("integrationTest") {
     val requireDocker = providers.gradleProperty("parkio.integrationTest.requireDocker")
         .map(String::toBoolean).orElse(false)
     inputs.property("requireDocker", requireDocker)
+    // With requireDocker the run itself is the evidence (#205 review B1).
+    outputs.doNotCacheIf("parkio.integrationTest.requireDocker=true: the tests must execute") {
+        requireDocker.get()
+    }
+    outputs.upToDateWhen { !requireDocker.get() }
     doFirst {
         if (requireDocker.get()) {
             // Probe the daemon with `docker info`, bounded so a hung daemon can't stall the build.

@@ -1,5 +1,6 @@
 package com.parkio.media.infrastructure.config;
 
+import com.parkio.media.infrastructure.messaging.MediaKafkaConsumerConfig;
 import java.time.Duration;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.TopicConfig;
@@ -36,6 +37,17 @@ public class KafkaTopicsConfig {
     NewTopic mediaTopic() {
         // Hot topic (consumed by ai-validation and moderation).
         return topic(MEDIA, 6, Duration.ofDays(7));
+    }
+
+    /**
+     * Dead-letter topic of this service's consumer (one DLT per consuming service,
+     * kafka-transport.md): poison erasure commands from {@code parkio.privacy.erasure} land here.
+     * Like every other DLT it is provisioned with 14 days for triage and redrive; without it,
+     * dead-lettering fails where the broker does not auto-create topics.
+     */
+    @Bean
+    NewTopic mediaDeadLetterTopic() {
+        return topic(MediaKafkaConsumerConfig.DLT_MEDIA, 3, Duration.ofDays(14));
     }
 
     private NewTopic topic(String name, int partitions, Duration retention) {

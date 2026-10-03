@@ -39,9 +39,27 @@ public class MediaErasureJobStore {
 
     /**
      * A pending job; {@code ackEventId} is the deterministic ACK event id of the shared contract,
-     * and {@code authUserId} is what the remaining work needs to find the user's media.
+     * and {@code authUserId} is what the remaining work needs to find the user's media. A
+     * restore-replay job (V17) carries {@code restore} instead of an {@code erasureRequestId}.
      */
-    public record Job(UUID ackEventId, UUID erasureRequestId, UUID authUserId, int attempts) {
+    public record Job(UUID ackEventId, UUID erasureRequestId, UUID authUserId, int attempts, RestoreBinding restore) {
+
+        /** A job of a live erase request. */
+        public Job(UUID ackEventId, UUID erasureRequestId, UUID authUserId, int attempts) {
+            this(ackEventId, erasureRequestId, authUserId, attempts, null);
+        }
+
+        /** What the job erases for, for logs: the erase request, or the recovery attempt it replays. */
+        public String subject() {
+            return restore == null ? "requestId=" + erasureRequestId : "recoveryAttemptId=" + restore.recoveryAttemptId();
+        }
+    }
+
+    /**
+     * The restore binding of a restore-replay job (V17): its SUCCESS is the restore ACK for this
+     * recovery attempt, restored dataset and erasure set (docs/architecture/erasure-restore-replay-contract.md).
+     */
+    public record RestoreBinding(UUID recoveryAttemptId, String restoredDatasetId, String erasureSetDigest) {
     }
 
     /** A claim on a job: only its holder may record progress on the job or finalize it. */
@@ -75,6 +93,20 @@ public class MediaErasureJobStore {
     }
 
     /**
+     * Opens or touches a restore-replay job, under the same rules as {@link #open}. Must run inside
+     * the metadata erase transaction.
+     */
+    public void openRestore(UUID ackEventId, RestoreBinding restore, UUID authUserId, Instant now, Instant nextAttemptAt) {
+        jdbc.update("""
+                INSERT INTO media_erasure_jobs (ack_event_id, recovery_attempt_id, restored_dataset_id,
+                    erasure_set_digest, auth_user_id, attempts, next_attempt_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+                ON CONFLICT (ack_event_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+                """, ackEventId, restore.recoveryAttemptId(), restore.restoredDatasetId(), restore.erasureSetDigest(),
+                authUserId, Timestamp.from(nextAttemptAt), Timestamp.from(now), Timestamp.from(now));
+    }
+
+    /**
      * Takes the user's erasure fence exclusively for the rest of the caller's transaction: waits
      * for media writes already admitted and refuses new ones until it ends (see
      * {@link MediaOwnerFence}). Call it before any other statement of that transaction.
@@ -85,13 +117,18 @@ public class MediaErasureJobStore {
 
     public Optional<Job> find(UUID ackEventId) {
         return jdbc.query("""
-                SELECT ack_event_id, erasure_request_id, auth_user_id, attempts
+                SELECT ack_event_id, erasure_request_id, auth_user_id, attempts,
+                    recovery_attempt_id, restored_dataset_id, erasure_set_digest
                 FROM media_erasure_jobs WHERE ack_event_id = ?
                 """, (rs, i) -> new Job(
                         rs.getObject("ack_event_id", UUID.class),
                         rs.getObject("erasure_request_id", UUID.class),
                         rs.getObject("auth_user_id", UUID.class),
-                        rs.getInt("attempts")),
+                        rs.getInt("attempts"),
+                        rs.getObject("recovery_attempt_id", UUID.class) == null ? null : new RestoreBinding(
+                                rs.getObject("recovery_attempt_id", UUID.class),
+                                rs.getString("restored_dataset_id"),
+                                rs.getString("erasure_set_digest"))),
                 ackEventId).stream().findFirst();
     }
 
