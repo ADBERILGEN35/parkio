@@ -28,6 +28,9 @@ on:
       - "scripts/test_backup_metrics.py"
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
+      - "scripts/nonroot-volume-migration.sh"
+      - "scripts/test-nonroot-volume-migration.sh"
+      - "scripts/lib/nonroot-volume-map.tsv"
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
@@ -70,6 +73,9 @@ on:
       - "scripts/test_backup_metrics.py"
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
+      - "scripts/nonroot-volume-migration.sh"
+      - "scripts/test-nonroot-volume-migration.sh"
+      - "scripts/lib/nonroot-volume-map.tsv"
       - "docker/docker-compose.invite-*.yml"
       - "infra/systemd/parkio-invite-backup.service"
       - "scripts/observability-validate.sh"
@@ -277,6 +283,12 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+
+      - name: Non-root volume migration tool (disposable volumes)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/nonroot-volume-migration.sh scripts/test-nonroot-volume-migration.sh
+          ./scripts/test-nonroot-volume-migration.sh
 
       - name: Backup dry-run manifest
         run: |
