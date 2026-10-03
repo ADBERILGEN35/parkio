@@ -91,6 +91,7 @@ GATEWAY_ALLOWED = {
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT",
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION",
     "PARKIO_WAITLIST_FULL_NAME_REQUIRED",
+    "PARKIO_WAITLIST_EXPORT_MAX_ROWS",
 }
 AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_MODE",
@@ -135,6 +136,7 @@ aenv = dis["services"]["auth-service"]["environment"]
 check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED") == "false")
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
+check("gateway export row cap mapped", genv.get("PARKIO_WAITLIST_EXPORT_MAX_ROWS") == "50000")
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
 check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
 check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
