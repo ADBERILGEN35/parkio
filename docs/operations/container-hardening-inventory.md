@@ -2,8 +2,9 @@
 
 Every service of the production Compose models runs with `security_opt: no-new-privileges:true`
 and `cap_drop: [ALL]`; a service adds back only the capabilities listed below. Since B8 every
-service except ClamAV also runs with a read-only root filesystem (`read_only: true`). It writes
-only to its volumes and to the tmpfs mounts listed under "Read-only root filesystem".
+service except ClamAV and, until B8b, web also runs with a read-only root filesystem
+(`read_only: true`). It writes only to its volumes and to the mounts listed under "Read-only root
+filesystem".
 `scripts/assert-compose-hardening.sh` renders the models and fails on any other state
 (`scripts/lib/assert-compose-hardening.mjs`, run by the invite-production PR job).
 
@@ -64,19 +65,24 @@ root and needs them to prepare a data directory or switch to its service user.
    `ln -f -s /run/lock /var/lock` at every start. That rewrites a symlink inside `/var`, which a
    tmpfs cannot cover without hiding the rest of `/var`. The local probe failed on exactly that
    (`ln: /var/lock/lock: Read-only file system`). Changing this needs a different init or image.
+5. **web keeps a writable root until B8b.** Its read-only root needs a tmpfs over
+   `/etc/nginx/conf.d`. Only the image from B9 (#198) renders that directory at start; the
+   current image ships its server config there, and a tmpfs would hide it. B8b removes this
+   exception once #198 is on `api`, with `/etc/nginx/conf.d`, `/var/cache/nginx`, `/var/run` and
+   `/tmp` as tmpfs.
 
 ## Read-only root filesystem (B8)
 
-| Service | tmpfs | Why |
+| Service | Writable mounts besides volumes | Why |
 |---|---|---|
-| Parkio JVM services (10) | `/tmp` (128 MB) | JVM perf data, Tomcat/Netty work files, multipart uploads (media: up to 12 MB per part). tmpfs counts against the container memory limit. |
+| Parkio JVM services except media (9) | tmpfs `/tmp` (128 MB) | JVM perf data, Tomcat and Netty work files. tmpfs pages count against the container memory limit. |
+| media-service | anonymous volume `/tmp` (disk) | Tomcat writes each multipart upload (up to 15 MB per request) to `/tmp` before the service reads it. As tmpfs, those bodies would count against the 768 MB limit next to a 65% heap. |
 | postgres-* (10) | `/var/run/postgresql`, `/tmp` | socket and lock files; `PGDATA` is the volume |
 | redis | `/tmp` | data in the `/data` volume |
 | kafka | `/tmp`, `/etc/kafka` (1777), `/var/log/kafka` (1777) | the cp-kafka entrypoint renders `/etc/kafka` from its templates and writes GC logs at every start |
 | minio, minio-setup | `/tmp` | data in `/data`; mc keeps its config in `/tmp/.mc` |
 | alertmanager | `/tmp` | `render-config.sh` writes the runtime config there |
 | loki, tempo, grafana | `/tmp` | data in their volumes |
-| web | `/etc/nginx/conf.d`, `/var/cache/nginx`, `/var/run`, `/tmp` | the entrypoint renders `conf.d` from the image template (B9, #198), so this needs the B9 image |
 | caddy | `/tmp` | certificates and config in the `caddy-data`/`caddy-config` volumes |
 | prometheus, kafka-exporter, blackbox-exporter, node-exporter, promtail | — | write only to their volumes, or nothing |
 
@@ -92,8 +98,20 @@ again:
   node-exporter.
 
 None logged a read-only or permission error. The evidence is in
-`agent-tools/parkio-u18-readonly-rootfs/` (not committed). The JVM services and web are covered
-by the CI runtime, chaos and performance workflows, which start the full stack.
+`agent-tools/parkio-u18-readonly-rootfs/` (not committed). The JVM services are covered by the CI
+runtime, chaos and performance workflows, which start the full stack, and the media upload path
+by the real-stack E2E in local mode (`frontend-real-e2e.yml`).
+
+The tmpfs mounts keep Docker's default `noexec`, so nothing can load native code from `/tmp`.
+That includes the libraries that extract themselves there:
+- Netty's epoll transport does not load. Netty and Reactor Netty then use the NIO transport
+  (probe with the gateway's Netty jars on `eclipse-temurin:21-jre`: `noexec` → "failed to map
+  segment from shared object", epoll unavailable; `exec` tmpfs or a volume → available).
+- The snappy and zstd Kafka codecs would fail the same way. Parkio's producers set no
+  compression, so they are not loaded.
+
+If NIO ever shows a cost, the fix is to ship the native library in the image (Netty loads it
+from `java.library.path` first), not to make `/tmp` executable.
 
 ## Verification
 

@@ -79,6 +79,7 @@ test('a writable root filesystem fails outside the recorded exception (B8)', () 
       'media-service': hardened({ read_only: false }),
       kafka: hardened({ read_only: undefined }),
       clamav: hardened({ read_only: false, cap_add: ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'] }),
+      web: hardened({ read_only: undefined, cap_add: ['CHOWN', 'NET_BIND_SERVICE', 'SETGID', 'SETUID'] }),
     },
   });
   assert.deepEqual(failures.sort(), [

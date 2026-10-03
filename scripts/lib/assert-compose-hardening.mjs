@@ -27,8 +27,12 @@ export const DOCKER_SOCKET_EXCEPTIONS = new Set(['promtail']);
 /** Services allowed to share the host PID namespace; see the inventory for why. */
 export const HOST_PID_EXCEPTIONS = new Set(['node-exporter']);
 
-/** Services allowed a writable root filesystem; see the inventory for why (B8). */
-export const WRITABLE_ROOT_EXCEPTIONS = new Set(['clamav']);
+/**
+ * Services allowed a writable root filesystem; see the inventory for why (B8). web is temporary:
+ * its read-only root needs a tmpfs over /etc/nginx/conf.d, which only works with the image that
+ * renders that directory at start (B9, #198).
+ */
+export const WRITABLE_ROOT_EXCEPTIONS = new Set(['clamav', 'web']);
 
 function capabilityProfile(service) {
   return service.startsWith('postgres-') ? 'postgres' : service;

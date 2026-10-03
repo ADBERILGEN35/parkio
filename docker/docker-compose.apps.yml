@@ -54,8 +54,8 @@ x-app-common: &app-common
   stop_grace_period: 45s
   # Baseline container hardening (defense in depth; images already run as non-root uid
   # 10001). no-new-privileges blocks setuid escalation; an HTTP/JVM service needs no
-  # Linux capabilities, so drop them all. The root filesystem is read-only (B8); the JVM,
-  # Tomcat/Netty and multipart uploads (media: up to 12 MB per part) write only to /tmp.
+  # Linux capabilities, so drop them all. The root filesystem is read-only (B8); the JVM and
+  # Tomcat/Netty write only to /tmp (media-service overrides it below).
   security_opt:
     - no-new-privileges:true
   cap_drop:
@@ -285,6 +285,11 @@ services:
       context: ..
       dockerfile: services/media-service/Dockerfile
     ports: ["8084:8084"]
+    # Read-only root (B8): Tomcat writes each multipart upload (up to 15 MB per request) to /tmp
+    # before the service reads it. A tmpfs would count those bodies against mem_limit next to a
+    # 65% heap, so /tmp is an anonymous disk-backed volume here instead.
+    tmpfs: []
+    volumes: ["/tmp"]
     environment:
       <<: *app-env-common
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-media:5432/${POSTGRES_MEDIA_DB:-parkio_media}

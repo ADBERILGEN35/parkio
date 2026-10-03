@@ -100,8 +100,10 @@ AUTH_ALLOWED = {
 }
 
 # Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh against the
-# inventory, so this drift check ignores it; volumes, binds and images stay strict.
+# inventory, so this drift check ignores it, including media-service's anonymous /tmp volume
+# (docs/operations/container-hardening-inventory.md). Other volumes, binds and images stay strict.
 HARDENING_KEYS = ("read_only", "tmpfs")
+HARDENING_SCRATCH_VOLUMES = {"media-service": "/tmp"}
 
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
@@ -121,6 +123,17 @@ def strip_allowlisted_env(model):
     for svc in m.get("services", {}).values():
         for key in HARDENING_KEYS:
             svc.pop(key, None)
+    for name, target in HARDENING_SCRATCH_VOLUMES.items():
+        svc = m.get("services", {}).get(name)
+        if not svc or "volumes" not in svc:
+            continue
+        svc["volumes"] = [
+            v for v in svc["volumes"]
+            if not (isinstance(v, dict) and v.get("type") == "volume" and not v.get("source")
+                    and v.get("target") == target)
+        ]
+        if not svc["volumes"]:
+            svc.pop("volumes")
     return m
 
 # 1. disabled default vs base
