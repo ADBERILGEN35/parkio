@@ -2,18 +2,37 @@ name: Restore replay harness
 
 # U02: every erasure participant's restore-replay tests and the auth coordinator's, against real
 # disposable dependencies (PostgreSQL, Kafka, and MinIO for media), with the executed count per
-# participant in the job summary. Isolated CI resources only; nothing deploys or restores.
+# participant in the job summary. Isolated CI resources only; nothing deploys or restores. This
+# proves each service on its own, not an end-to-end replay through a restore entry point.
 #
 # The media class pulls the private ghcr.io MinIO image, as backend-integration.yml does, so a fork
 # PR fails closed instead of skipping.
+#
+# Restore replay depends on more than the erasure classes: relays, routing, application.yml,
+# migrations and the build. So the harness runs for every change to the services, the build logic
+# or Gradle (the backend paths of backend-integration.yml), and again after the merge into api.
 
 on:
   pull_request:
     paths:
-      - "services/**/src/main/java/**/*Erasure*"
-      - "services/**/src/main/java/**/*RestoreReplay*"
-      - "services/**/src/test/java/**/*Erasure*IT.java"
-      - "services/**/src/test/java/**/*RestoreReplay*IT.java"
+      - "services/**"
+      - "buildSrc/**"
+      - "gradle/**"
+      - "build.gradle*"
+      - "settings.gradle*"
+      - "gradle.properties"
+      - "scripts/ci/restore-replay-harness.sh"
+      - "scripts/ci/test-restore-replay-harness.sh"
+      - ".github/workflows/restore-replay-harness.yml"
+  push:
+    branches: [api]
+    paths:
+      - "services/**"
+      - "buildSrc/**"
+      - "gradle/**"
+      - "build.gradle*"
+      - "settings.gradle*"
+      - "gradle.properties"
       - "scripts/ci/restore-replay-harness.sh"
       - "scripts/ci/test-restore-replay-harness.sh"
       - ".github/workflows/restore-replay-harness.yml"
