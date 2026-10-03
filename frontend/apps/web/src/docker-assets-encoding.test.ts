@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * config — regression guard for the encoding bug fixed in R6.3A.
  */
 describe('docker build assets', () => {
-  const files = ['../Dockerfile', '../nginx.conf'];
+  const files = ['../Dockerfile', '../nginx.conf', '../docker/15-parkio-web-csp.envsh'];
 
   it.each(files)('%s is UTF-8 without NUL bytes', (rel) => {
     const raw = readFileSync(resolve(__dirname, rel));
@@ -20,6 +20,12 @@ describe('docker build assets', () => {
     const text = readFileSync(resolve(__dirname, '../Dockerfile'), 'utf8');
     expect(text.split('\n')[0]).toMatch(/^(#|FROM|ARG)/);
     expect(text).toMatch(/^FROM /m);
+  });
+
+  it('the CSP entrypoint script has LF line endings (sourced by /bin/sh in the image)', () => {
+    const raw = readFileSync(resolve(__dirname, '../docker/15-parkio-web-csp.envsh'), 'utf8');
+    expect(raw.includes('\r')).toBe(false);
+    expect(raw.startsWith('#!/bin/sh\n')).toBe(true);
   });
 
   it('nginx.conf declares the SPA fallback', () => {

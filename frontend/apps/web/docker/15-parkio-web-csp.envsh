@@ -1,0 +1,38 @@
+#!/bin/sh
+# Parkio web image: connect-src of the image Content-Security-Policy (CL-F39.4, owner decision B9).
+# The nginx entrypoint sources this file before it renders /etc/nginx/templates/*.template, so
+# the exported PARKIO_WEB_CSP_CONNECT_SRC reaches nginx.conf.
+#
+# - PARKIO_WEB_CSP_CONNECT_SRC set: used as given. This is the explicit override for a run without
+#   the production edge, for example a local container: 'self' http://localhost:8080
+# - Otherwise it is built from the same inputs as the Caddy SPA policy (docker/caddy/Caddyfile):
+#   'self' https://$PARKIO_DOMAIN https://$PARKIO_MEDIA_DOMAIN $PARKIO_MAP_CONNECT_SRC
+#
+# A missing or malformed value stops the container. An image without its deployment's origins
+# would block API calls; it does not fall back to a looser policy.
+
+parkio_web_csp_fail() {
+  echo "parkio-web-csp: $*" >&2
+  exit 1
+}
+
+parkio_web_csp_host() {
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+}
+
+if [ -n "${PARKIO_WEB_CSP_CONNECT_SRC:-}" ]; then
+  printf '%s' "$PARKIO_WEB_CSP_CONNECT_SRC" | grep -Eq "^[A-Za-z0-9 '*:/._-]+$" \
+    || parkio_web_csp_fail "PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources (letters, digits, ' * : / . _ -)"
+else
+  [ -n "${PARKIO_DOMAIN:-}" ] && [ -n "${PARKIO_MEDIA_DOMAIN:-}" ] \
+    || parkio_web_csp_fail "set PARKIO_DOMAIN and PARKIO_MEDIA_DOMAIN (the values Caddy uses), or PARKIO_WEB_CSP_CONNECT_SRC for a run without the edge"
+  parkio_web_csp_host "$PARKIO_DOMAIN" || parkio_web_csp_fail "PARKIO_DOMAIN is not a host name"
+  parkio_web_csp_host "$PARKIO_MEDIA_DOMAIN" || parkio_web_csp_fail "PARKIO_MEDIA_DOMAIN is not a host name"
+  parkio_web_csp_map="${PARKIO_MAP_CONNECT_SRC:-https://api.maptiler.com}"
+  for parkio_web_csp_source in $parkio_web_csp_map; do
+    printf '%s' "$parkio_web_csp_source" | grep -Eq '^https://(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$' \
+      || parkio_web_csp_fail "PARKIO_MAP_CONNECT_SRC entries must be https://host sources"
+  done
+  PARKIO_WEB_CSP_CONNECT_SRC="'self' https://$PARKIO_DOMAIN https://$PARKIO_MEDIA_DOMAIN $parkio_web_csp_map"
+fi
+export PARKIO_WEB_CSP_CONNECT_SRC

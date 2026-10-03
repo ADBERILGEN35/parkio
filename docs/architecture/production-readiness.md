@@ -359,6 +359,19 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
   `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, and a
   conservative `Permissions-Policy`. Keep `connect-src` aligned with the API,
   media and geocoding origins configured for the environment.
+  The web image sends its own CSP as well. Caddy's SPA header block deletes `Server`, which
+  defers the whole block to response time. Caddy's CSP and its other security headers therefore
+  replace the image's on the edge, and the image's policy applies only where no edge replaces it.
+
+  Since B9 the image's `connect-src` is rendered at container start from the same
+  `PARKIO_DOMAIN`, `PARKIO_MEDIA_DOMAIN` and `PARKIO_MAP_CONNECT_SRC` as Caddy's. Every other
+  directive is equal to Caddy's or stricter: `worker-src 'self'` without `blob:`. So the SPA
+  reaches the same origins whichever policy is enforced, alone or both together. The image
+  refuses to start without those inputs, unless it is given an explicit
+  `PARKIO_WEB_CSP_CONNECT_SRC` for a run without the edge.
+
+  `src/cspEdgeCombination.test.ts` checks the policies, and Runtime validation checks the live
+  headers: the image's upstream, and Caddy's at the edge.
 
 ## Auth token storage
 
