@@ -55,6 +55,12 @@ tasks.register<Test>("integrationTest") {
     val requireDocker = providers.gradleProperty("parkio.integrationTest.requireDocker")
         .map(String::toBoolean).orElse(false)
     inputs.property("requireDocker", requireDocker)
+    // With requireDocker the run itself is the evidence: a build-cache restore or an up-to-date skip
+    // would bypass the Docker check below and report tests that never ran (#205 review B1).
+    outputs.doNotCacheIf("parkio.integrationTest.requireDocker=true: the tests must execute") {
+        requireDocker.get()
+    }
+    outputs.upToDateWhen { !requireDocker.get() }
     doFirst {
         if (requireDocker.get()) {
             val available = try {
