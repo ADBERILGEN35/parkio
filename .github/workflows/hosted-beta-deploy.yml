@@ -180,11 +180,15 @@ jobs:
           fi
           ./scripts/deploy-hosted-beta.sh
 
+      # The rollback needs only the manifest. deploy-artifacts/ also holds the Compose model
+      # rendered from the runner's real docker/.env (secrets) and the smoke logs, and artifacts of
+      # this public repository are downloadable, so the upload is an allowlist (#204 review N6).
       - name: Upload post-deploy manifest
         uses: actions/upload-artifact@v4
         with:
           name: deploy-manifest-live-${{ needs.build-images.outputs.git_sha }}
-          path: deploy-artifacts/
+          path: deploy-artifacts/deploy-*.json
+          if-no-files-found: error
           retention-days: 90
 
       - name: Record the rollback reference
