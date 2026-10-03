@@ -188,12 +188,18 @@ check("overlay bind mount (create_host_path=false, rw)",
       and create_host_path_safe
       and not mounts[0].get("read_only"), json.dumps(mounts))
 check("overlay sets EXPORT_DIR", g["environment"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR") == "/var/lib/parkio/waitlist-ops-inbox")
+check(
+    "overlay sets export pause control dir on the inbox bind",
+    g["environment"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE")
+    == "/var/lib/parkio/waitlist-ops-inbox/.export-pause",
+)
 g2 = json.loads(json.dumps(g)); d2 = json.loads(json.dumps(dis["services"]["gateway-service"]))
 for k in ("group_add",):
     g2.pop(k, None)
 g2["volumes"] = [v for v in g2.get("volumes", []) if v.get("target") != "/var/lib/parkio/waitlist-ops-inbox"] or None
 if g2["volumes"] is None: g2.pop("volumes")
 g2["environment"].pop("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR", None)
+g2["environment"].pop("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_PAUSE_FILE", None)
 g2["environment"]["PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED"] = "false"
 check("overlay adds nothing else to gateway", g2 == d2)
 check("overlay fails without PARKIO_WAITLIST_OPS_INBOX_GID", missing_gid_fails)

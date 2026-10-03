@@ -1,0 +1,36 @@
+# Dedicated coordination tests. Does not replace individual #101/#102/#103 jobs.
+name: Ops erasure NR coordination
+
+on:
+  pull_request:
+    paths:
+      - "scripts/recovery_coordination/**"
+      - "scripts/lib/recovery-coordination.sh"
+      - "scripts/backup-hosted-beta.sh"
+      - "scripts/restore-drill-01.sh"
+      - "docs/operations/ops-erasure-nr-coordination.md"
+      - ".github/workflows/ops-erasure-nr-coordination.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Synthetic coordination lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Coordinator tests
+        run: python3 -m unittest scripts.recovery_coordination.test_coordinator -v
+      - name: Isolated writer-control adapter
+        run: python3 -m unittest scripts.recovery_coordination.test_writer_control -v
+      - name: Isolated systemd adapter
+        run: python3 -m unittest scripts.recovery_coordination.test_systemd_control -v
+      - name: Reuse #102 synthetic tests
+        run: python3 -m unittest scripts.test_offhost_erasure_recovery -v
+      - name: Reuse #103 recovery-guard tests
+        run: python3 -m unittest scripts.newrelic_log_pilot.test_budget_recovery_guard -v
+      - name: Reuse #101 operational-state tests
+        run: python3 -m unittest discover -s scripts/operational_state_backup -p 'test_*.py' -v
