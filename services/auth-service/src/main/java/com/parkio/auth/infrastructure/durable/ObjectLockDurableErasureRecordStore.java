@@ -4,13 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.durable.DurableErasureEvidence;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
+import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedCheckpoint;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedFrontier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
 import com.parkio.auth.application.durable.DurableEvidenceException;
 import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.port.CapturedErasureLedger;
+import com.parkio.auth.application.port.DurableErasureCheckpoint;
+import com.parkio.auth.application.port.DurableErasureCheckpointStore;
 import com.parkio.auth.application.port.DurableErasurePutResult;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
+import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import io.minio.messages.RetentionMode;
@@ -23,6 +28,7 @@ import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,12 +51,16 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *   <li>Store I/O refuses to run inside a database transaction.</li>
  * </ul>
  *
+ * <p>Signed checkpoints of the tombstone ledger (contract stage 2) take sequences from the same
+ * space as records; see {@link #publishCheckpoint(ErasureLedgerCapture)}.
+ *
  * <p>Writes are serialised in this JVM; the frontier is read-modify-written, so one auth
  * instance may write a bucket at a time. Any store or verification failure throws
  * {@link AuthErrorCode#DURABLE_RECORDING_UNAVAILABLE}, which leaves the request
  * {@code PENDING_DURABLE} for the retry worker.
  */
-public final class ObjectLockDurableErasureRecordStore implements DurableErasureRecordStore {
+public final class ObjectLockDurableErasureRecordStore
+        implements DurableErasureRecordStore, DurableErasureCheckpointStore {
 
     private static final Logger log = LoggerFactory.getLogger(ObjectLockDurableErasureRecordStore.class);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -105,6 +115,38 @@ public final class ObjectLockDurableErasureRecordStore implements DurableErasure
         return pending.sequence() <= expectedThrough ? Optional.of(toRecord(pending, stored.get())) : Optional.empty();
     }
 
+    /**
+     * Captures the tombstone ledger and publishes it as the next signed checkpoint. The capture
+     * runs inside this writer's lock, so no record can take a sequence between the snapshot and
+     * the checkpoint's reservation: every record below the checkpoint's sequence was reserved
+     * before the snapshot, after its tombstone committed, and its tombstone is in the snapshot.
+     * The sequence is reserved only after the capture committed, so a failed capture publishes
+     * nothing. A checkpoint reservation left without its checkpoint (a store failure or crash
+     * after the marker) is filled by the next checkpoint, which keeps the rule above (that
+     * sequence, too, was reserved before this snapshot) and closes the gap below the frontier.
+     */
+    @Override
+    public synchronized DurableErasureCheckpoint publishCheckpoint(ErasureLedgerCapture capture) {
+        requireNoTransaction();
+        CapturedErasureLedger ledger = Objects.requireNonNull(capture.capture(), "capture");
+        requireNoTransaction();
+        OptionalLong abandoned = abandonedCheckpointReservation();
+        long sequence = abandoned.isPresent() ? abandoned.getAsLong() : reserveCheckpointSequence();
+        advanceFrontier(null, sequence);
+        String key = DurableErasureEvidence.checkpointKey(sequence);
+        String versionId = publish(key,
+                DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, producer));
+        ObjectLockBucket.StoredVersion canonical = bucket.oldest(key)
+                .orElseThrow(() -> unavailable("checkpoint " + key + " is not readable after publication"));
+        if (!canonical.versionId().equals(versionId)) {
+            throw unavailable("checkpoint " + key + " was published by another writer");
+        }
+        VerifiedCheckpoint verified = verifyCheckpoint(canonical);
+        advanceFrontier(sequence, sequence);
+        return new DurableErasureCheckpoint(sequence, ledger.entries().size(), verified.ledgerDigest(),
+                ledger.coveredThrough(), abandoned.isPresent());
+    }
+
     /** Read access to the bucket's evidence, for recovery checks. */
     public ObjectLockEvidenceObjects evidence() {
         return objects;
@@ -148,6 +190,41 @@ public final class ObjectLockDurableErasureRecordStore implements DurableErasure
         }
     }
 
+    /** The lowest sequence a checkpoint reserved without publishing its checkpoint, if any. */
+    private OptionalLong abandonedCheckpointReservation() {
+        for (String key : bucket.keys("sequences/")) {
+            long sequence = sequenceOf(key);
+            if (isCheckpointReservation(bucket.oldest(key).orElseThrow())
+                    && bucket.oldest(DurableErasureEvidence.checkpointKey(sequence)).isEmpty()) {
+                return OptionalLong.of(sequence);
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    /** The next free sequence, reserved with a checkpoint marker; the first marker version wins. */
+    private long reserveCheckpointSequence() {
+        long highest = 0;
+        for (String key : bucket.keys("sequences/")) {
+            highest = Math.max(highest, sequenceOf(key));
+        }
+        for (long next = highest + 1; ; next++) {
+            String key = DurableErasureEvidence.sequenceKey(next);
+            if (bucket.oldest(key).isPresent()) {
+                continue;
+            }
+            String versionId = publish(key,
+                    DurableErasureEvidence.sequenceMarker(next, DurableErasureEvidence.CHECKPOINT_RESERVATION));
+            if (bucket.oldest(key).orElseThrow().versionId().equals(versionId)) {
+                return next;
+            }
+        }
+    }
+
+    private static boolean isCheckpointReservation(ObjectLockBucket.StoredVersion marker) {
+        return DurableErasureEvidence.CHECKPOINT_RESERVATION.toString().equals(markerRequestId(marker));
+    }
+
     /** Raises the signed boundary; it never decreases and highestReserved never trails it. */
     private void advanceFrontier(Long expectedThrough, long highestReserved) {
         Optional<VerifiedFrontier> current = frontier();
@@ -168,6 +245,16 @@ public final class ObjectLockDurableErasureRecordStore implements DurableErasure
         } catch (DurableEvidenceException ex) {
             log.error("durable store frontier failed verification: {}", ex.getMessage());
             throw unavailable("frontier failed verification");
+        }
+    }
+
+    private VerifiedCheckpoint verifyCheckpoint(ObjectLockBucket.StoredVersion stored) {
+        try {
+            return verifier.verifyCheckpoint(stored.bytes());
+        } catch (DurableEvidenceException ex) {
+            log.error("durable store checkpoint {} version {} failed verification: {}",
+                    stored.key(), stored.versionId(), ex.getMessage());
+            throw unavailable("checkpoint failed verification");
         }
     }
 

@@ -35,6 +35,7 @@ from recovery_persist_protocol import (  # noqa: E402
     IsolatedErasureCoordinator,
     IsolatedVersionedStore,
     SequenceAllocator,
+    checkpoint_producer_is_disabled,
     erasure_record_id,
     production_durable_recording_is_disabled,
     recover_latest_trusted,
@@ -78,6 +79,31 @@ class PersistProtocolTest(unittest.TestCase):
         self.assertTrue(restore_erasure_ledger_still_unverified(ROOT))
         self.assertTrue(persist_before_ack_is_not_implemented(ROOT))
         self.assertTrue(production_durable_recording_is_disabled(ROOT))
+
+    def test_checkpoint_producer_stays_disabled_without_a_caller(self):
+        self.assertTrue(checkpoint_producer_is_disabled(ROOT))
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            yml = root / "services/auth-service/src/main/resources/application.yml"
+            java = root / "services/auth-service/src/main/java/com/parkio/auth"
+            yml.parent.mkdir(parents=True)
+            (java / "application").mkdir(parents=True)
+            yml.write_text("checkpoint:\n  enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:true}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "disabled by default"):
+                checkpoint_producer_is_disabled(root)
+            yml.write_text("checkpoint:\n  enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}\n", encoding="utf-8")
+            (java / "application/ErasureCheckpointProducer.java").write_text(
+                "class ErasureCheckpointProducer { void produce() { store.publishCheckpoint(capture); } }",
+                encoding="utf-8")
+            self.assertTrue(checkpoint_producer_is_disabled(root))
+            (java / "application/CheckpointSchedule.java").write_text(
+                "class CheckpointSchedule { ErasureCheckpointProducer producer; }", encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "CheckpointSchedule.java must not call"):
+                checkpoint_producer_is_disabled(root)
+            (java / "application/CheckpointSchedule.java").write_text(
+                "class CheckpointSchedule { void run() { store.publishCheckpoint(capture); } }", encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "CheckpointSchedule.java must not call"):
+                checkpoint_producer_is_disabled(root)
 
     def test_public_status_stays_in_progress_until_complete(self):
         view = self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")

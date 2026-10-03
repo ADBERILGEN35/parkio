@@ -47,6 +47,23 @@ SIGNED_FRONTIER = (
     "schemaVersion", "kind", "expectedThrough", "highestReserved",
     "databaseIdentity", "producerId", "frontierDigest",
 )
+# Sequence markers that reserve a checkpoint's sequence carry this erasureRequestId (format v1
+# has one marker shape; the nil UUID is never a request id). The auth-service producer fills a
+# checkpoint reservation left without its checkpoint with its next checkpoint.
+CHECKPOINT_RESERVATION_ID = "00000000-0000-0000-0000-000000000000"
+# The only auth-service main sources that may mention the checkpoint producer or publish a
+# checkpoint: the producer, its default-off wiring, the store port and the store adapter.
+CHECKPOINT_PRODUCER_SOURCES = {
+    "ErasureCheckpointProducer": (
+        "application/ErasureCheckpointProducer.java",
+        "infrastructure/durable/ErasureCheckpointConfig.java",
+    ),
+    "publishCheckpoint(": (
+        "application/ErasureCheckpointProducer.java",
+        "application/port/DurableErasureCheckpointStore.java",
+        "infrastructure/durable/ObjectLockDurableErasureRecordStore.java",
+    ),
+}
 
 
 def erasure_record_id(erasure_request_id):
@@ -612,4 +629,23 @@ def production_durable_recording_is_disabled(root=None):
         if "implements DurableErasureRecordStore" in text and (
                 "java.nio.file" in text or "java.io.File" in text or "Paths.get" in text):
             raise ContractError("local directory must not be a production durability provider")
+    return True
+
+
+def checkpoint_producer_is_disabled(root=None):
+    """Guard: checkpoints stay off by default and no service code calls the producer.
+
+    The cadence is an operator decision, so the producer has no schedule and no caller.
+    """
+    root = Path(root or Path(__file__).resolve().parents[2])
+    yml = (root / "services/auth-service/src/main/resources/application.yml").read_text(encoding="utf-8")
+    if "enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}" not in yml:
+        raise ContractError("erasure checkpoints must stay disabled by default")
+    main_java = root / "services/auth-service/src/main/java/com/parkio/auth"
+    for path in sorted(main_java.rglob("*.java")):
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(main_java).as_posix()
+        for needle, allowed in CHECKPOINT_PRODUCER_SOURCES.items():
+            if needle in text and relative not in allowed:
+                raise ContractError(f"{relative} must not call the checkpoint producer ({needle})")
     return True

@@ -48,7 +48,7 @@ public final class DurableErasureEvidenceVerifier {
     public record VerifiedFrontier(long expectedThrough, long highestReserved, String producerId) {
     }
 
-    public record VerifiedCheckpoint(long sequence, String producerId) {
+    public record VerifiedCheckpoint(long sequence, String producerId, String ledgerDigest) {
     }
 
     /**
@@ -144,7 +144,8 @@ public final class DurableErasureEvidenceVerifier {
                 || !DurableErasureEvidence.ledgerDigest(body.get("entries")).equals(body.get("ledgerDigest"))) {
             throw new DurableEvidenceException("checkpoint ledger digest mismatch");
         }
-        return new VerifiedCheckpoint(integral(body, "sequence"), String.valueOf(body.get("producerId")));
+        return new VerifiedCheckpoint(integral(body, "sequence"), String.valueOf(body.get("producerId")),
+                String.valueOf(body.get("ledgerDigest")));
     }
 
     /**
