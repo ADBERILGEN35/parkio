@@ -1,0 +1,132 @@
+name: Rollback manifest acceptance
+
+# U13 CL-F06: a rollback runs as a new workflow run and must fetch the manifest of an earlier
+# deploy run. This workflow fetches a real one the way both deploy workflows' rollback jobs do,
+# checks that wrong references fail closed, and dry-runs the rollback with it. Nothing deploys,
+# and the manifest's contents are not printed.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ci/resolve-rollback-manifest-run.sh"
+      - "scripts/ci/verify-rollback-manifest.sh"
+      - "scripts/ci/test-rollback-manifest-retrieval.sh"
+      - "scripts/rollback-hosted-beta.sh"
+      - "scripts/rollback-invite-production.sh"
+      - ".github/workflows/rollback-manifest-acceptance.yml"
+      - ".github/workflows/invite-production-deploy.yml"
+      - ".github/workflows/hosted-beta-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  acceptance:
+    name: Fetch an earlier deploy run's manifest and dry-run the rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unit tests (fake GitHub API, synthetic manifests)
+        run: ./scripts/ci/test-rollback-manifest-retrieval.sh
+
+      - name: Find the latest successful invite-production deploy run with a manifest
+        id: source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          api, repo = os.environ["GITHUB_API_URL"], os.environ["GITHUB_REPOSITORY"]
+          def get(path):
+              req = urllib.request.Request(f"{api}/repos/{repo}/{path}", headers={
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Accept": "application/vnd.github+json"})
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return json.load(resp)
+          runs = get("actions/workflows/invite-production-deploy.yml/runs"
+                     "?event=workflow_dispatch&branch=api&status=success&per_page=50")["workflow_runs"]
+          for run in runs:
+              name = f"invite-production-manifest-{run['head_sha']}"
+              arts = [a for a in get(f"actions/runs/{run['id']}/artifacts?name={name}")["artifacts"]
+                      if not a["expired"]]
+              if len(arts) == 1:
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                      out.write(f"reference={run['id']}/{name}\nrun_id={run['id']}\nartifact={name}\n")
+                  print(f"source run {run['id']} ({run['created_at']}), artifact {name}")
+                  break
+          else:
+              raise SystemExit("::error::no successful invite-production deploy run on api has an "
+                               "unexpired manifest artifact (they are kept 90 days)")
+          PY
+
+      - name: Resolve that run as the rollback job does
+        id: resolved
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PARKIO_MANIFEST_REFERENCE: ${{ steps.source.outputs.reference }}
+        run: |
+          ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+            --workflow invite-production-deploy.yml --branch api --reference "$PARKIO_MANIFEST_REFERENCE"
+
+      - name: Wrong references fail closed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+          ARTIFACT: ${{ steps.source.outputs.artifact }}
+        run: |
+          set -uo pipefail
+          refused() { # description, reference
+            ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+              --workflow invite-production-deploy.yml --branch api --reference "$2"
+            rc=$?
+            if [ "$rc" -ne 3 ]; then echo "::error::$1 was not refused (exit $rc)"; exit 1; fi
+            echo "refused as expected: $1"
+          }
+          refused "this run (another workflow, pull_request)" "$GITHUB_RUN_ID/$ARTIFACT"
+          refused "a run id that does not exist" "1/$ARTIFACT"
+          refused "an artifact name without the run id" "$ARTIFACT"
+          refused "an artifact the run does not hold" "$RUN_ID/invite-production-manifest-0000000000000000000000000000000000000000"
+
+      - name: Download the manifest from that run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.resolved.outputs.artifact }}
+          run-id: ${{ steps.resolved.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: deploy-artifacts/invite-production
+
+      - name: Verify the manifest
+        id: manifest
+        env:
+          PARKIO_MANIFEST_GIT_SHA: ${{ steps.resolved.outputs.head_sha }}
+        run: |
+          ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts/invite-production \
+            --profile invite-production --git-sha "$PARKIO_MANIFEST_GIT_SHA"
+
+      - name: Dry-run the rollback to that manifest (no deploy)
+        env:
+          PARKIO_ENV_FILE: docker/.env.invite-production.example
+          PARKIO_DEPLOY_ARTIFACT_DIR: ${{ runner.temp }}/rollback-dry-run
+          PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          ./scripts/rollback-invite-production.sh --manifest "$PARKIO_VERIFIED_MANIFEST" --dry-run
+          # The rollback manifest it writes must target exactly the earlier deploy's images.
+          python3 - "$PARKIO_VERIFIED_MANIFEST" "$PARKIO_DEPLOY_ARTIFACT_DIR" <<'PY'
+          import glob, json, sys
+          target = json.load(open(sys.argv[1]))
+          written = glob.glob(f"{sys.argv[2]}/rollback-to-*.json")
+          assert len(written) == 1, f"expected one rollback manifest, found {written}"
+          rollback = json.load(open(written[0]))
+          assert rollback["action"] == "rollback", rollback["action"]
+          for key in ("gitSha", "imageTag", "images", "deploymentProfile"):
+              assert rollback[key] == target[key], f"{key} differs from the earlier deploy's manifest"
+          print(f"rollback dry-run targets {target['imageTag']} for {len(target['images'])} services")
+          PY

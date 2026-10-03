@@ -37,7 +37,7 @@ on:
         required: false
         type: string
       manifest_artifact:
-        description: "For rollback: workflow artifact containing a secret-free deploy manifest"
+        description: "For rollback: RUN_ID/ARTIFACT of the earlier deploy run's secret-free manifest (that run's job summary prints it)"
         required: false
         type: string
       invite_edge_mode:
@@ -330,6 +330,21 @@ jobs:
             deploy-artifacts/invite-production/invite-edge-resource-budget.json
           if-no-files-found: error
           retention-days: 90
+
+      - name: Record the rollback reference
+        env:
+          PARKIO_MANIFEST_ARTIFACT: invite-production-manifest-${{ steps.meta.outputs.git_sha }}
+        run: |
+          set -euo pipefail
+          # A later rollback run downloads this run's manifest by run id (U13 CL-F06).
+          {
+            echo "### Rollback reference"
+            echo "manifest_artifact for a later rollback: \`${GITHUB_RUN_ID}/${PARKIO_MANIFEST_ARTIFACT}\`"
+            echo
+            echo '```'
+            (cd deploy-artifacts/invite-production && sha256sum deploy-*.json)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   runner-acceptance:
     name: Non-deploy production runner acceptance
@@ -683,6 +698,10 @@ jobs:
     environment: invite-production
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 60
+    # actions: read lets the job download the manifest artifact of the earlier deploy run.
+    permissions:
+      contents: read
+      actions: read
     env:
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
       # actions/setup-node resolves `node-version-file` with
@@ -738,21 +757,47 @@ jobs:
           ./scripts/azure/render-invite-production-env.sh --output "$PARKIO_ENV_FILE"
           test "$(stat -c '%a' "$PARKIO_ENV_FILE")" = 600
 
+      # The manifest is an artifact of the earlier deploy run, which download-artifact can only
+      # reach with that run's id and a token (U13 CL-F06). The run must be a successful
+      # workflow_dispatch of this workflow on api holding exactly that artifact.
+      - name: Resolve the deploy run that holds the manifest
+        id: manifest_run
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PARKIO_MANIFEST_REFERENCE: ${{ inputs.manifest_artifact }}
+        run: |
+          ./scripts/ci/resolve-rollback-manifest-run.sh --repo "$GITHUB_REPOSITORY" \
+            --workflow invite-production-deploy.yml --branch api --reference "$PARKIO_MANIFEST_REFERENCE"
+
       - name: Download secret-free rollback manifest
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.manifest_artifact }}
+          name: ${{ steps.manifest_run.outputs.artifact }}
+          run-id: ${{ steps.manifest_run.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
           path: ${{ env.PARKIO_SOURCE_PATH }}/deploy-artifacts/invite-production
+
+      - name: Verify the rollback manifest
+        id: manifest
+        working-directory: ${{ env.PARKIO_SOURCE_DIR }}
+        env:
+          PARKIO_MANIFEST_GIT_SHA: ${{ steps.manifest_run.outputs.head_sha }}
+        run: |
+          ./scripts/ci/verify-rollback-manifest.sh --dir deploy-artifacts/invite-production \
+            --profile invite-production --git-sha "$PARKIO_MANIFEST_GIT_SHA"
 
       - name: Rollback exact environment with quarantined log
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
         run: |
           set -euo pipefail
-          manifest="$(find deploy-artifacts/invite-production -maxdepth 1 -type f -name 'deploy-*.json' -print -quit)"
-          test -n "$manifest"
+          manifest="$PARKIO_VERIFIED_MANIFEST"
+          test -f "$manifest"
           set +e
           ./scripts/rollback-invite-production.sh --manifest "$manifest" > "$PARKIO_JOB_LOG" 2>&1
           status=$?
