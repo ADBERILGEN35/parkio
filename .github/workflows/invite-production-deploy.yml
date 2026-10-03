@@ -728,13 +728,15 @@ jobs:
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
         env:
           PARKIO_DARK_GATEWAY_INPUT: ${{ inputs.dark_gateway_url }}
+          # Pass operator input through the environment, never interpolate it in shell source.
+          PARKIO_MANIFEST_REFERENCE: ${{ inputs.manifest_artifact }}
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
             --expected-sha '${{ inputs.git_sha }}' \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
-          test -n '${{ inputs.manifest_artifact }}'
+          test -n "$PARKIO_MANIFEST_REFERENCE"
           source ./scripts/lib/dark-gateway-url.sh
           resolved="${PARKIO_DARK_GATEWAY_INPUT:-$PARKIO_DARK_GATEWAY_ALLOWED_URL}"
           parkio_validate_dark_gateway_url "$resolved"
