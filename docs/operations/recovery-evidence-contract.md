@@ -477,7 +477,12 @@ aggregates stay excluded.
 Restore ACKs are
 `{recoveryAttemptId, restoredDatasetId, participant, erasureSetDigest}`.
 Live `erasure_service_acks` stay request-scoped and cannot authorize a
-new restore.
+new restore. Replay commands, ACKs and the coordinator's verdict are specified
+in `docs/architecture/erasure-restore-replay-contract.md`: one replay command
+per user of the trusted erasure set, an ACK per participant and user written in
+the replay transaction (the U05 outbox), and `COMPLETE` only when every
+configured participant acknowledged every user for this attempt, dataset and
+digest. Default-off on both sides.
 
 ### #104 reuse vs replacement
 

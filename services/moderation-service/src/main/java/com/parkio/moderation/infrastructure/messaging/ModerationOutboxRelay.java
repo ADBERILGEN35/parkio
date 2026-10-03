@@ -13,6 +13,7 @@ import com.parkio.moderation.domain.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.moderation.domain.event.UserRestoredEvent;
 import com.parkio.moderation.domain.event.UserSuspendedEvent;
 import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.moderation.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.moderation.infrastructure.config.KafkaTopicsConfig;
 import com.parkio.moderation.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.moderation.infrastructure.persistence.jpa.OutboxEventJpaRepository;
@@ -208,8 +209,10 @@ public class ModerationOutboxRelay {
 
     /** Routes case-lifecycle events and outward moderator actions to their topics. */
     static String topicFor(String eventType) {
-        // Erasure ACKs go to the auth-owned parkio.privacy.erasure topic (U05 ACK outbox).
-        if (UserErasureAcknowledgedEvent.TYPE.equals(eventType)) {
+        // Erasure ACKs, live (U05) and restore replay (U02), go to the auth-owned
+        // parkio.privacy.erasure topic.
+        if (UserErasureAcknowledgedEvent.TYPE.equals(eventType)
+                || UserErasureRestoreAcknowledgedEvent.TYPE.equals(eventType)) {
             return KafkaTopicsConfig.PRIVACY_ERASURE;
         }
         if (CASE_TYPES.contains(eventType)) {
