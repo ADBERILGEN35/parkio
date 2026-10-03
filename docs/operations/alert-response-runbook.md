@@ -48,6 +48,8 @@ Paging architecture, secrets, silences, and the synthetic probe:
 
 - **Parkio - Outbox and DLQ** dashboard.
 - For dead-letters: `scripts/outbox-deadletter-recovery.sh`
+- Erasure messages (event types `UserErasure*`, or `AccountErasureStuck`): see
+  [Erasure messages](dlq-redrive-runbook.md#erasure-messages). Retry them; never acknowledge them.
 - For Kafka DLT: `scripts/kafka-dlt-redrive.sh` (dry-run first).
 
 ## Infra: Postgres / Redis / MinIO / ClamAV {#postgresdown}

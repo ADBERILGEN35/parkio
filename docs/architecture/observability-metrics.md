@@ -778,8 +778,10 @@ you act.
    so a redrive that double-delivers is safe.
 
 4. **When NOT to redrive:** the event is obsolete/superseded, the payload is irreparably
-   malformed, or the downstream contract no longer accepts it. Acknowledge it so it remains
-   retained but stops paging:
+   malformed, or the downstream contract no longer accepts it. This never applies to erasure
+   messages (event types `UserErasure*`). They hold up an account erasure: retry them, and
+   follow [Erasure messages](../operations/dlq-redrive-runbook.md#erasure-messages).
+   Acknowledge other rows so they remain retained but stop paging:
 
    ```bash
    PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh acknowledge \
