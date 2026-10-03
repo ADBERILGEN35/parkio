@@ -57,7 +57,11 @@ The rollback job then works in three steps:
   run's commit, and image references in its `imageTag`. With `@SHA256` in the
   reference, the file must also have that SHA-256.
 
-Only then does it run the rollback. Manifest artifacts are kept for 90 days.
+Only then does it run the rollback. Manifest artifacts are kept for 90 days, the
+maximum for a public repository, so a rollback can only return to an api deploy
+from that window. `rollback-manifest-acceptance.yml` has the same precondition:
+it fails closed when no such deploy exists, and warns two weeks before its source
+manifest expires.
 `hosted-beta-deploy.yml` (deprecated path) works the same way, with the
 `deploy-manifest-live-<sha>` artifact of its `Deploy (self-hosted beta)` job.
 

@@ -11,6 +11,7 @@ on:
       - "scripts/ci/resolve-rollback-manifest-run.sh"
       - "scripts/ci/verify-rollback-manifest.sh"
       - "scripts/ci/test-rollback-manifest-retrieval.sh"
+      - "scripts/ci/test_deploy_workflow_guards.py"
       - "scripts/rollback-hosted-beta.sh"
       - "scripts/rollback-invite-production.sh"
       - ".github/workflows/rollback-manifest-acceptance.yml"
@@ -34,8 +35,18 @@ jobs:
       - name: Unit tests (fake GitHub API, synthetic manifests)
         run: ./scripts/ci/test-rollback-manifest-retrieval.sh
 
+      - name: Install validation tools
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
+
+      - name: Deploy workflow guards (no operator text as shell source, allowlisted uploads)
+        run: python3 scripts/ci/test_deploy_workflow_guards.py
+
       # The latest real deploy (deploy job successful) is the source. A build-only run (deploy
       # skipped) that still holds its manifest, if one exists, must be refused.
+      #
+      # Manifest artifacts are kept 90 days, the maximum for a public repository. This check, like
+      # a rollback itself, can therefore only reach an api deploy from that window (#204 review
+      # N5). The summary records when the source manifest expires and warns two weeks ahead.
       - name: Find the latest successful invite-production deploy run with a manifest
         id: source
         env:
@@ -43,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request
+          import datetime, json, os, urllib.request
           api, repo = os.environ["GITHUB_API_URL"], os.environ["GITHUB_REPOSITORY"]
           def get(path):
               req = urllib.request.Request(f"{api}/repos/{repo}/{path}", headers={
@@ -64,17 +75,30 @@ jobs:
                          if j["name"] == "Deploy invite-production"]
               kind = {"success": "deployed", "skipped": "build_only"}.get(deploys[0]) if len(deploys) == 1 else None
               if kind and kind not in found:
-                  found[kind] = f"{run['id']}/{name}"
+                  found[kind] = (f"{run['id']}/{name}", arts[0]["expires_at"])
                   print(f"{kind} run {run['id']} ({run['created_at']}), artifact {name}")
               if len(found) == 2:
                   break
           if "deployed" not in found:
-              raise SystemExit("::error::no successful invite-production deploy run on api has an "
-                               "unexpired manifest artifact (they are kept 90 days)")
-          run_id, artifact = found["deployed"].split("/", 1)
+              print("::error::No successful invite-production deploy run on api holds an unexpired "
+                    "manifest. Artifacts are kept 90 days, the maximum for a public repository, so "
+                    "this check needs an api deploy from that window, as a rollback does. That is a "
+                    "missing precondition, not a code defect: a new api deploy restores it. The unit "
+                    "tests above still cover the resolver and the verifier.")
+              raise SystemExit(1)
+          reference, expires_at = found["deployed"]
+          expires = datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+          days_left = (expires - datetime.datetime.now(datetime.timezone.utc)).days
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"Source deploy manifest: `{reference}`, expires {expires_at} ({days_left} days).\n")
+          if days_left < 14:
+              print(f"::warning::The source deploy manifest {reference} expires on {expires_at}. After "
+                    "that, this check and a rollback to that deploy fail closed until a new api deploy.")
+          run_id, artifact = reference.split("/", 1)
+          build_only = found.get("build_only", ("", ""))[0]
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-              out.write(f"reference={found['deployed']}\nrun_id={run_id}\nartifact={artifact}\n"
-                        f"build_only_reference={found.get('build_only', '')}\n")
+              out.write(f"reference={reference}\nrun_id={run_id}\nartifact={artifact}\n"
+                        f"build_only_reference={build_only}\n")
           PY
 
       - name: Resolve that run as the rollback job does
