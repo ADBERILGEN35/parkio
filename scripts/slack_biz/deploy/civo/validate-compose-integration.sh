@@ -167,6 +167,7 @@ if "web" in dis["services"]:
     scenv = sentinel["services"]["caddy"].get("environment", {})
     check("sentinel CSP inputs reach caddy",
           scenv.get("PARKIO_DOMAIN") == "api.csp-sentinel.invalid"
+          and scenv.get("PARKIO_MEDIA_DOMAIN") == "media.csp-sentinel.invalid"
           and scenv.get("PARKIO_MAP_CONNECT_SRC") == "https://tiles.csp-sentinel.invalid https://*.maps.csp-sentinel.invalid")
     for label, model in (("example inputs", dis), ("sentinel inputs", sentinel)):
         value = model["services"]["web"].get("environment", {}).get("PARKIO_WEB_CSP_CONNECT_SRC")
