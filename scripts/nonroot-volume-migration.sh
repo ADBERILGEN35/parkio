@@ -17,7 +17,8 @@
 # and a path containing a newline (the manifest is line based). apply also refuses an evidence
 # directory that already holds a manifest for the volume, so the original owners are never lost. Every docker step runs in a
 # throwaway helper container with no network, a read-only root and only the capabilities it
-# needs. Exit codes: 0 done, 1 verification failed, 2 usage, 3 refused.
+# needs. Exit codes: 0 done, 1 verification failed, 2 usage, 3 refused, 4 a helper step failed (the line
+# names the step; after a failed chown the manifest is already written, so restore can roll back).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,6 +29,7 @@ HELPER=(docker run --rm --network none --read-only --security-opt no-new-privile
 usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
 die() { echo "nonroot-volume-migration: $*" >&2; exit 2; }
 refuse() { echo "nonroot-volume-migration: REFUSED: $*" >&2; exit 3; }
+helper_failed() { echo "nonroot-volume-migration: HELPER FAILED step=$1 volume=$2${3:+; $3}" >&2; exit 4; }
 
 mode="${1:-}"
 [ $# -gt 0 ] && shift
@@ -97,6 +99,10 @@ manifest_of() {
     'find /v -xdev -exec stat -c "%u %g %a %A %n" {} + | sort -k5'
 }
 
+path_count() {
+  "${HELPER[@]}" --cap-add DAC_READ_SEARCH -v "$1:/v:ro" --entrypoint sh "$HELPER_IMAGE" -c 'find /v -xdev | wc -l'
+}
+
 status_of() { # owners-histogram target -> COMPLIANT | NEEDS_CHOWN
   if [ "$1" = "${1%%,*}" ] && [ "${1#* }" = "$2" ]; then echo COMPLIANT; else echo NEEDS_CHOWN; fi
 }
@@ -128,7 +134,7 @@ for row in "${rows[@]}"; do
     [ "$mode" = plan ] || refuse "no volume labelled $project/$key"
     continue
   fi
-  inspection="$(owners_of "$volume")"
+  inspection="$(owners_of "$volume")" || helper_failed inspect "$volume"
   histogram="$(sed -n 1p <<<"$inspection")"
   newline_paths="$(sed -n 2p <<<"$inspection")"
   status="$(status_of "$histogram" "$owner")"
@@ -159,12 +165,20 @@ for row in "${selected[@]}"; do
   before="$evidence/$volume.before.manifest"
 
   if [ "$mode" = apply ]; then
-    manifest_of "$volume" > "$before"
+    manifest_of "$volume" > "$before" || helper_failed manifest "$volume"
+    # The manifest must list every path before anything changes (line counts are exact: paths
+    # with a newline were refused in pass 1).
+    paths="$(path_count "$volume")" || helper_failed count "$volume"
+    listed="$(grep -c . "$before" || true)"
+    [ "$paths" = "$listed" ] && grep -q ' /v$' "$before" \
+      || helper_failed manifest "$volume" "it lists $listed of $paths paths; nothing was changed"
     (cd "$evidence" && sha256sum "$(basename "$before")" > "$(basename "$before").sha256")
-    "${HELPER[@]}" --cap-add CHOWN --cap-add DAC_READ_SEARCH -v "$volume:/v" \
-      --entrypoint chown "$HELPER_IMAGE" -R -h "$owner" /v
-    after="$(owners_of "$volume" | sed -n 1p)"
-    manifest_of "$volume" > "$evidence/$volume.after.manifest"
+    # FOWNER: chown clears the set-id bits of an entry root does not own, which is a mode change.
+    "${HELPER[@]}" --cap-add CHOWN --cap-add DAC_READ_SEARCH --cap-add FOWNER -v "$volume:/v" \
+      --entrypoint chown "$HELPER_IMAGE" -R -h "$owner" /v \
+      || helper_failed chown "$volume" "restore from $before"
+    after="$(owners_of "$volume" | sed -n 1p)" || helper_failed verify "$volume"
+    manifest_of "$volume" > "$evidence/$volume.after.manifest" || helper_failed manifest "$volume"
     if [ "$(status_of "$after" "$owner")" = COMPLIANT ]; then
       echo "service=$svc volume=$volume applied owners=\"$after\" manifest=$before"
     else
@@ -174,8 +188,9 @@ for row in "${selected[@]}"; do
   else
     # Paths the manifest lists get their recorded owner and mode back. Paths created since apply
     # get the owner the volume root had; paths deleted since apply are skipped and counted.
+    # FSETID: chmod would otherwise drop the set-gid bit of an entry whose group is not root's.
     summary="$("${HELPER[@]}" -i --tmpfs /tmp --cap-add CHOWN --cap-add DAC_READ_SEARCH --cap-add FOWNER \
-      -v "$volume:/v" --entrypoint sh "$HELPER_IMAGE" -c '
+      --cap-add FSETID -v "$volume:/v" --entrypoint sh "$HELPER_IMAGE" -c '
       set -eu
       cat > /tmp/m
       bad=$(grep -cvE "^[0-9]+ [0-9]+ [0-7]+ [-dlcbps][-rwxsStT]{9} /v(/.*)?$" /tmp/m || true)
@@ -195,9 +210,10 @@ for row in "${selected[@]}"; do
       awk "\$4 !~ /^l/ {print \$3}" /tmp/keep | sort -u | while read -r m; do
         awk -v m="$m" "\$4 !~ /^l/ && \$3 == m" /tmp/keep | cut -d" " -f5- | tr "\n" "\0" | xargs -0 -r chmod "$m"
       done
-      echo "missing=$(( $(wc -l < /tmp/m) - $(wc -l < /tmp/keep) )) new=$(wc -l < /tmp/new) new_owner=$root_owner"' < "$before")"
+      echo "missing=$(( $(wc -l < /tmp/m) - $(wc -l < /tmp/keep) )) new=$(wc -l < /tmp/new) new_owner=$root_owner"' < "$before")" \
+      || helper_failed restore "$volume" "run restore again; it reapplies the whole manifest"
     restored="$evidence/$volume.restored.manifest"
-    manifest_of "$volume" > "$restored"
+    manifest_of "$volume" > "$restored" || helper_failed manifest "$volume"
     check="$(verify_restore "$before" "$restored")"
     if [ "$check" = "mismatched=0 new_wrong_owner=0" ]; then
       echo "service=$svc volume=$volume restored $summary owners=\"$(owners_of "$volume" | sed -n 1p)\""

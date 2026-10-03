@@ -56,7 +56,9 @@ create_volume data '
   mkdir -p /v/a/b && echo x > /v/a/b/f && echo y > /v/top && echo z > "/v/with space"
   chmod 0700 /v/a && chmod 4755 /v/top
   ln -s /etc/passwd /v/link-out && ln -s a/b/f /v/link-in
-  chown 999:1000 /v/a/b/f'
+  chown 999:1000 /v/a/b/f
+  mkdir /v/shared && chown 1:2 /v/shared && chmod 2775 /v/shared
+  echo s > /v/shared/tool && chown 1:2 /v/shared/tool && chmod 2755 /v/shared/tool'
 create_volume extra 'echo e > /v/e'
 create_volume blocked 'echo b > /v/b'
 create_volume newline 'echo n > "/v/line
@@ -67,7 +69,7 @@ before_owners="$(owners "$DATA")"
 echo "=== plan ==="
 run_tool plan --project "$PROJECT"
 if [ "$rc" = 0 ] \
-  && grep -q "service=svc-data volume=$DATA target=999:1000 readiness=ready status=NEEDS_CHOWN owners=\"7 0:0,1 999:1000\"" <<<"$out" \
+  && grep -q "service=svc-data volume=$DATA target=999:1000 readiness=ready status=NEEDS_CHOWN owners=\"7 0:0,2 1:2,1 999:1000\"" <<<"$out" \
   && grep -q "service=svc-absent volume=$PROJECT/absent target=70:70 readiness=ready status=ABSENT" <<<"$out"; then
   ok "plan reports owners per volume and marks the missing one ABSENT"
 else
@@ -89,6 +91,11 @@ run_tool apply --project "$PROJECT" --service svc-newline --confirm-project "$PR
 run_tool apply --project "$PROJECT" --service svc-unknown --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
 [ "$rc" = 2 ] && ok "apply rejects a service without a map row" || bad "unknown service: rc=$rc $out"
 
+if out="$(PARKIO_NONROOT_HELPER_IMAGE=busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  "$TOOL" apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/helper" 2>&1)"; then rc=0; else rc=$?; fi
+[ "$rc" = 4 ] && grep -q 'HELPER FAILED step=inspect' <<<"$out" && [ "$(owners "$DATA")" = "$before_owners" ] \
+  && ok "a failing helper step exits 4 and names the step" || bad "helper failure: rc=$rc $out"
+
 docker run -d --name "$CONSUMER" --network none -v "$DATA:/data" "$HELPER_IMAGE" sleep 300 >/dev/null
 run_tool apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
 [ "$rc" = 3 ] && grep -q 'mounted by running container' <<<"$out" && ok "apply refuses a volume a running container mounts" || bad "consumer: rc=$rc $out"
@@ -103,7 +110,7 @@ docker rm -f "$CONSUMER" >/dev/null
 
 echo "=== apply ==="
 run_tool apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
-if [ "$rc" = 0 ] && [ "$(owners "$DATA")" = "8 999:1000" ] && [ "$(owners "${PROJECT}_extra")" = "2 999:1000" ]; then
+if [ "$rc" = 0 ] && [ "$(owners "$DATA")" = "10 999:1000" ] && [ "$(owners "${PROJECT}_extra")" = "2 999:1000" ]; then
   ok "apply gives every path of both volumes the target owner"
 else
   bad "apply: rc=$rc $out"
@@ -139,6 +146,9 @@ fi
   && [ "$(stat_in "$DATA" created-later)" = "0:0 644" ] \
   && ok "restore puts back the set-uid bit and the mixed owners" \
   || bad "after restore: top=$(stat_in "$DATA" top) f=$(stat_in "$DATA" a/b/f) new=$(stat_in "$DATA" created-later)"
+[ "$(stat_in "$DATA" shared)" = "1:2 2775" ] && [ "$(stat_in "$DATA" shared/tool)" = "1:2 2755" ] \
+  && ok "restore puts back set-gid bits on entries whose group is not root's" \
+  || bad "set-gid after restore: dir=$(stat_in "$DATA" shared) file=$(stat_in "$DATA" shared/tool)"
 run_tool restore --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
 [ "$rc" = 0 ] && grep -q "restored missing=1 new=1" <<<"$out" && ok "restore can run again with the same result" || bad "second restore: rc=$rc $out"
 

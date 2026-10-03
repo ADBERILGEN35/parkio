@@ -21,7 +21,8 @@ scripts/nonroot-volume-migration.sh restore --project P --service S... --confirm
 - **apply** works through every selected volume in two passes.
   - The first pass checks them all, so a refusal never leaves a service half migrated.
   - The second pass then, for each volume:
-    - writes `<volume>.before.manifest` (uid, gid, mode and path of every entry) and its `.sha256`;
+    - writes `<volume>.before.manifest` (uid, gid, mode and path of every entry), checks that it
+      lists every path in the volume, and writes its `.sha256`;
     - runs `chown -R -h` to the target owner;
     - verifies that every path now has the target owner.
 - **restore** reads that manifest after checking its checksum.
@@ -34,9 +35,13 @@ scripts/nonroot-volume-migration.sh restore --project P --service S... --confirm
 **Volumes** are found by their Compose labels (`com.docker.compose.project`, `.volume`), never by
 name.
 
-**Helper container.** Every step runs in a throwaway busybox container, pinned by digest, with:
-- no network and a read-only root;
-- `cap_drop ALL`, and only `DAC_READ_SEARCH`, plus `CHOWN` and `FOWNER` when it writes.
+**Helper container.** Every step runs in a throwaway busybox container, pinned by digest, with no
+network, a read-only root and `cap_drop ALL`. It adds back only:
+- `DAC_READ_SEARCH`, to read every directory;
+- for apply: `CHOWN`, and `FOWNER`, because `chown` clears the set-id bits of an entry root does not
+  own, which is a mode change;
+- for restore: `CHOWN`, `FOWNER`, and `FSETID`, because without it `chmod` drops the set-gid bit of an
+  entry whose group is not root's.
 
 **apply and restore refuse:**
 - a missing or different `--confirm-project`;
@@ -47,10 +52,17 @@ name.
 apply also refuses an evidence directory that already holds a manifest for the volume. A second
 apply would otherwise record the migrated owners as the originals.
 
-Exit codes: 0 done, 1 verification failed, 2 usage, 3 refused.
+Exit codes: 0 done, 1 verification failed, 2 usage, 3 refused, 4 a helper step failed.
+- The line for exit 4 names the step.
+- After a failed `chown` the manifest is already written, so restore can roll back.
 
 The manifests list every path in the volume, for example MinIO object keys, so store them as
 restricted evidence.
+
+**Limitation: extended attributes.** The manifest records owners and modes, not extended
+attributes. `chown` removes a file capability (`security.capability`), and restore does not bring
+it back. None of the data volumes in the map holds executables with file capabilities. Check a
+volume with `getcap -r` before migrating it if that could change.
 
 ## Targets (`scripts/lib/nonroot-volume-map.tsv`)
 
@@ -107,14 +119,15 @@ project. It covers:
 - a refusal on a service's second volume, which leaves the first untouched;
 - apply on two volumes, including a symlink to a path on the helper's read-only root;
 - the manifest checksum;
-- restore of mixed owners and a set-uid bit;
+- restore of mixed owners, a set-uid bit, and set-gid bits on entries whose group is not root's;
+- a helper step that fails, which must exit 4 and name the step;
 - restore after files were added and deleted;
 - a second restore;
 - a restore that cannot match, which must report it.
 
 Local evidence is in `agent-tools/parkio-u18-nonroot-tooling/` (not committed).
-- **Test suite:** 22/22.
-- **Mutants:** 10 of 11 were killed. The survivor removes `-h`, which is equivalent: `chown -R`
+- **Test suite:** 24/24.
+- **Mutants:** 13 of 14 were killed. The survivor removes `-h`, which is equivalent: `chown -R`
   already defaults to `-P` in busybox and coreutils. A variant that traverses symlinks (`-R -L`) is
   killed.
 - **Real images**, on disposable volumes created the way the root-start services create them:

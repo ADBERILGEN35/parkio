@@ -39,18 +39,20 @@ socket mount.
 
 ```nginx
 # Matching uses nginx's normalized $uri, and the normalized URI is what reaches Docker, so
-# encoded or dot-segment paths cannot reach an endpoint the map does not list.
+# encoded or dot-segment paths cannot reach an endpoint the map does not list. Patterns end in
+# \z, not $: PCRE's $ also matches before a final newline, so ".../networks%0A" would match.
 map "$request_method:$uri" $parkio_docker_allowed {
   default 0;
-  "~^(GET|HEAD):/_ping$" 1;
-  "~^GET:/v1\.[0-9]+/networks$" 1;
-  "~^GET:/v1\.[0-9]+/containers/json$" 1;
-  "~^GET:/v1\.[0-9]+/containers/[A-Za-z0-9][A-Za-z0-9_.-]*/json$" 1;
-  "~^GET:/v1\.[0-9]+/containers/[A-Za-z0-9][A-Za-z0-9_.-]*/logs$" 1;
+  "~^(GET|HEAD):/_ping\z" 1;
+  "~^GET:/v1\.[0-9]+/networks\z" 1;
+  "~^GET:/v1\.[0-9]+/containers/json\z" 1;
+  "~^GET:/v1\.[0-9]+/containers/[A-Za-z0-9][A-Za-z0-9_.-]*/json\z" 1;
+  "~^GET:/v1\.[0-9]+/containers/[A-Za-z0-9][A-Za-z0-9_.-]*/logs\z" 1;
 }
 server {
   listen 2375;
   location / {
+    if ($uri ~ "[[:cntrl:]]") { return 403; }   # no control character anywhere in the path
     if ($parkio_docker_allowed = 0) { return 403; }
     proxy_pass http://unix:/var/run/docker.sock:$uri$is_args$args;
     proxy_http_version 1.1;
@@ -91,10 +93,20 @@ no port.
   and `export`, `POST /containers/create`, `POST …/exec` and `POST …/stop`.
 - So did the two traversal attempts, `/containers/json/../../images/json` and an encoded
   `%2F..%2F` path.
+- **Control characters (#202 review N1).** With `$` anchors, `/v1.42/networks%0A` matched and the
+  raw line feed reached the upstream request line; Docker refused it with 400. With `\z` and the
+  control-character rule:
+  - `%0A`, `%0D` and `%09` in the path get 403 from the proxy;
+  - `%00` gets 400 from nginx's URI parser before any location runs;
+  - the access log shows no upstream for any of them (`$upstream_status` is `-`).
+  - The test is 24/24.
 - The non-root, capability-free variant served the allowed list (200) and refused
   `/images/json` (403).
 
 ## What remains exposed
+
+**Owner decision needed:** whether the `Config.Env` exposure below is acceptable for the stacks that
+run promtail, or which mitigation to take: a filtering proxy, or file-based collection.
 
 - **Container metadata, including secrets.** `GET /containers/{id}/json` returns every
   container's `Config.Env`, which holds secrets. A path allowlist cannot filter a response body.
