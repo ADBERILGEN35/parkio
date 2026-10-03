@@ -266,4 +266,9 @@ parkio:
           lock-timeout: ${PARKIO_ERASURE_CHECKPOINT_LOCK_TIMEOUT:12s}
           statement-timeout: ${PARKIO_ERASURE_CHECKPOINT_STATEMENT_TIMEOUT:20s}
       participants: ${PARKIO_ACCOUNT_ERASURE_PARTICIPANTS:user,parking,media,moderation,gamification,notification,analytics,ai-validation}
+      # Restore replay of a trusted erasure set during an isolated recovery, with participant ACKs
+      # bound to the recovery attempt, restored dataset and erasure set
+      # (docs/architecture/erasure-restore-replay-contract.md). Off by default; nothing starts it.
+      restore-replay:
+        enabled: ${PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED:false}
       stuck-poll-ms: 60000
