@@ -1,13 +1,14 @@
 # Internal service identity and Kafka authentication (design, CL-F16)
 
 > **Status: direction approved (owner decision A4, 2026-10-03); not implemented.** Design and
-> threat model only (Asana U18 / CL-F16). The approval covers the direction in section 6:
+> threat model only (Asana U18 / CL-F16). The approval covers section 6, items 1–4:
 > short-lived per-service signed tokens with endpoint permissions enforced by each callee,
 > segmentation, dedicated credentials and per-participant erasure ACK topics. `SASL_PLAINTEXT`
 > is limited to isolated development and test networks; transport security in production is an
-> explicit rollout gate (section 10, item 4). Section 10 lists which decisions are taken and
-> which are still open. Nothing here is implemented, and no secret, credential or
-> infrastructure changes with this document; implementation tasks are created separately.
+> explicit rollout gate (section 10, item 4). Item 5 (waitlist hash key) is open. Section 10
+> separates what is decided, what is only recommended and what is open. Nothing here is
+> implemented, and no secret, credential or infrastructure changes with this document;
+> implementation tasks are created separately.
 > Inventory baseline: `api` at `f3778407` (2026-10-02). The erasure rows (2.2, 2.3, 11) and the
 > consumer group ids (6) were re-checked on `api` at `fd3b81f0` (2026-10-02, after U05). Where
 > this document and the code disagree, the code is authoritative.
@@ -182,8 +183,12 @@ Erasure ACK binding, either:
 
 ## 6. Approved direction
 
-Approved by the owner on 2026-10-03 (decision A4) as written below, with the Kafka
-transport limitation in section 10, item 4.
+Owner decision A4 (2026-10-03) approves items 1–4 below, within the limits in section 10:
+- the Kafka mechanism (item 3) and the location of the operator endpoints (item 4) are
+  recommendations still to be confirmed;
+- `SASL_PLAINTEXT` is limited to isolated development and test networks.
+
+Item 5 is open (section 10, item 7).
 
 1. **HTTP:** option B for service-to-service calls, with the endpoint matrix enforced by
    each callee; U1 for user-initiated requests; the two user-impersonating calls replaced
@@ -193,14 +198,16 @@ transport limitation in section 10, item 4.
    Kafka on networks reachable only by their users.
 3. **Kafka:** K1 with per-service ACLs, per-participant erasure ACK topics and topic
    provisioning by a separate admin job (services lose CREATE/DELETE/ALTER in
-   production; development keeps auto-provisioning behind its flag). SCRAM over
-   `SASL_PLAINTEXT` is allowed only on isolated development and test networks. Production
-   transport security (`SASL_SSL` or K2) is an explicit rollout gate before P5 reaches
-   production.
+   production; development keeps auto-provisioning behind its flag). The mechanism is a
+   recommendation, not yet confirmed: SCRAM (K1). `SASL_PLAINTEXT` is allowed only on
+   isolated development and test networks. Production transport security (`SASL_SSL` or K2)
+   is an explicit rollout gate before P5 reaches production.
 4. **Operators:** keep the extra operator tokens; give operator scripts their own
-   credential instead of the services' value.
-5. **Waitlist:** a dedicated `PARKIO_WAITLIST_HASH_SECRET` without fallback, with a plan
-   for existing hashes (they were computed with whatever key was active).
+   credential instead of the services' value. Dedicated credentials are approved; keeping
+   these endpoints under `/internal` is the recommendation (section 10, item 6).
+5. **Waitlist (open, section 10, item 7):** proposed: a dedicated `PARKIO_WAITLIST_HASH_SECRET`
+   without fallback, with a plan for existing hashes (they were computed with whatever key
+   was active).
 
 ACL sketch for K1 (prefixes are literal topic names unless marked):
 
@@ -296,18 +303,22 @@ Owner decision A4 (2026-10-03) approved the direction in section 6. Item by item
    [`kafka-transport.md`](kafka-transport.md): **open.** Choose between a small verifier
    duplicated per service and one security library.
 3. **Token lifetime and clock-skew budget: open.**
-4. **Kafka: approved with a gate.** SCRAM with per-service ACLs (K1). `SASL_PLAINTEXT` only on
-   isolated development and test networks. Transport security in production (`SASL_SSL` or
-   mTLS) is an explicit rollout gate: P5 does not reach production until it is chosen and
-   in place.
+4. **Kafka: approved with a gate.** Kafka authentication with per-service ACLs.
+   `SASL_PLAINTEXT` is allowed only on isolated development and test networks. Transport
+   security in production (`SASL_SSL` or mTLS) is an explicit rollout gate: P5 does not reach
+   production until it is chosen and in place. The mechanism is recommended but not yet
+   confirmed: SCRAM (K1).
 5. **Erasure ACK binding: approved.** Per-participant ACK topics.
-6. **Operator endpoints: approved as section 6, item 4.** Operator scripts get dedicated
-   credentials instead of the services' value.
+6. **Operator credentials: approved.** Operator scripts get dedicated credentials instead of
+   the services' value. Where the endpoints live is recommended but not yet confirmed: keep
+   them under `/internal` with those credentials (section 6, item 4), rather than move them
+   behind the admin API.
 7. **Waitlist hash key separation and existing hashes: open.**
 8. **Sharing the private live network-isolation record with reviewers: open.**
 
 Items 2, 3, 7 and 8 need owner decisions before the phases that depend on them (P2 for 2
-and 3). Segmentation (E) is approved as part of section 6.
+and 3). The recommendations in items 4 and 6 need the owner's confirmation before P5 and P3.
+Segmentation (E) is approved as part of section 6.
 
 ## 11. Code references
 
