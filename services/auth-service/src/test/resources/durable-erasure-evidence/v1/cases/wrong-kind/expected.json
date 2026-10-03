@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "error": "not a pending record",
+      "requiredThrough": null
+    }
+  ],
+  "description": "Record 2 claims another kind.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}
