@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doThrow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.media.application.event.UserErasureRequestedEvent;
+import com.parkio.media.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.media.application.port.ErasureAckOutbox;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.infrastructure.messaging.MediaOutboxRelay;
@@ -552,6 +553,98 @@ class MediaAccountErasurePostgresMinioIT {
                 .isPresent();
     }
 
+    // U02 restore replay (docs/architecture/erasure-restore-replay-contract.md): the restored objects
+    // are deleted before the attempt-bound ACK, which is keyed by the user.
+
+    @Test
+    void restoreReplayDeletesTheRestoredObjectsBeforeTheAttemptBoundAck() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID bystander = UUID.randomUUID();
+        String restored = storeObject(user); // an object brought back with the restored dataset
+        String unrelated = storeObject(bystander);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+
+        handler.replayForRestore(replay);
+
+        assertThat(objectExists(restored)).isFalse();
+        assertThat(objectExists(unrelated)).isTrue();
+        assertErased(user);
+        assertThat(restoreJobRows(replay)).isZero();
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+
+        relay(liveBroker()).run();
+        List<ConsumerRecord<String, String>> published = records(ERASURE_TOPIC, user, Duration.ofSeconds(20));
+        assertThat(published).hasSize(1);
+        JsonNode envelope = objectMapper.readTree(published.get(0).value());
+        assertThat(envelope.get("eventType").asText()).isEqualTo("UserErasureRestoreAcknowledged");
+        assertThat(envelope.get("aggregateId").asText()).isEqualTo(user.toString());
+        JsonNode payload = envelope.get("payload");
+        assertThat(payload.get("eventId").asText()).isEqualTo(AccountErasureHandler.restoreAckEventId(replay).toString());
+        assertThat(payload.get("recoveryAttemptId").asText()).isEqualTo(replay.recoveryAttemptId().toString());
+        assertThat(payload.get("restoredDatasetId").asText()).isEqualTo(replay.restoredDatasetId());
+        assertThat(payload.get("erasureSetDigest").asText()).isEqualTo(replay.erasureSetDigest());
+        assertThat(payload.get("authUserId").asText()).isEqualTo(user.toString());
+        assertThat(payload.get("serviceName").asText()).isEqualTo("media");
+        assertThat(payload.get("status").asText()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void restoreReplayStorageOutageWithholdsTheAckUntilALaterAttemptDeletesTheObjects() {
+        UUID user = UUID.randomUUID();
+        String restored = storeObject(user);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+        MINIO.getDockerClient().pauseContainerCmd(MINIO.getContainerId()).exec();
+        try {
+            handler.replayForRestore(replay); // metadata commits; the object phase fails against the paused store
+        } finally {
+            MINIO.getDockerClient().unpauseContainerCmd(MINIO.getContainerId()).exec();
+        }
+
+        assertThat(restoreJobRows(replay)).isEqualTo(1);
+        assertThat(restoreAckRows(user)).isZero();
+        assertThat(objectExists(restored)).isTrue();
+
+        assertThat(worker.process(AccountErasureHandler.restoreAckEventId(replay)))
+                .isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+        assertThat(objectExists(restored)).isFalse();
+        assertErased(user);
+        assertThat(restoreJobRows(replay)).isZero();
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+    }
+
+    @Test
+    void restoreReplayRedeliveryQueuesOneAckAndAnotherAttemptAFreshOne() {
+        UUID user = UUID.randomUUID();
+        storeObject(user);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+
+        handler.replayForRestore(replay);
+        handler.replayForRestore(replay);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+
+        handler.replayForRestore(restoreReplay(user, UUID.randomUUID()));
+        assertThat(restoreAckRows(user)).isEqualTo(2);
+        assertErased(user);
+        assertThat(count("SELECT COUNT(*) FROM media_erasure_jobs WHERE auth_user_id = ?", user)).isZero();
+    }
+
+    @Test
+    void anErasureJobCarriesExactlyOneBinding() {
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO media_erasure_jobs (ack_event_id, erasure_request_id, recovery_attempt_id,
+                    restored_dataset_id, erasure_set_digest, auth_user_id, attempts, next_attempt_at, created_at,
+                    updated_at)
+                VALUES (?, ?, ?, 'backup-stamp', ?, ?, 0, now(), now(), now())
+                """, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "e".repeat(64), UUID.randomUUID()))
+                .hasMessageContaining("ck_media_erasure_jobs_binding");
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO media_erasure_jobs (ack_event_id, auth_user_id, attempts, next_attempt_at, created_at,
+                    updated_at)
+                VALUES (?, ?, 0, now(), now(), now())
+                """, UUID.randomUUID(), UUID.randomUUID()))
+                .hasMessageContaining("ck_media_erasure_jobs_binding");
+    }
+
     private boolean lockClaim(UUID jobId, UUID token, Instant now) {
         return Boolean.TRUE.equals(new TransactionTemplate(transactionManager).execute(
                 status -> jobs.lockClaim(jobId, token, now)));
@@ -713,5 +806,23 @@ class MediaAccountErasurePostgresMinioIT {
             }
         }
         return matches;
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay(UUID user, UUID attempt) {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), attempt, "backup-stamp-2026-10-03",
+                "e".repeat(64), user, Instant.parse("2026-09-29T08:16:00Z"), Instant.now());
+    }
+
+    private long restoreJobRows(UserErasureRestoreReplayRequestedEvent replay) {
+        return count("SELECT COUNT(*) FROM media_erasure_jobs WHERE ack_event_id = ?",
+                AccountErasureHandler.restoreAckEventId(replay));
+    }
+
+    private long restoreAckRows(UUID user) {
+        return count("""
+                SELECT COUNT(*) FROM outbox_events
+                WHERE aggregate_type = 'AccountErasure' AND event_type = 'UserErasureRestoreAcknowledged'
+                  AND aggregate_id = ?
+                """, user);
     }
 }

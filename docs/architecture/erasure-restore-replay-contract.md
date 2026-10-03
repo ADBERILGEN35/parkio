@@ -93,8 +93,12 @@ skips. The ACK echoes the attempt, dataset and digest it was asked for. The coor
 participant, decides whether they match the attempt.
 
 **Media** must additionally delete the restored objects before `SUCCESS`, as in U05: object
-deletion confirmed and no write of unknown outcome. Its restore ACK is written when the object
-erase job completes, so the job carries the restore binding. That is media's own slice.
+deletion confirmed and no write of unknown outcome. The replay runs both U05 phases: the
+metadata erase commits with a `media_erasure_jobs` row that carries the restore binding instead
+of an erase request (V17: `recovery_attempt_id`, `restored_dataset_id`, `erasure_set_digest`;
+exactly one binding per job), and the worker queues `UserErasureRestoreAcknowledged`, with the
+job id as event id, in the transaction that deletes the job once every stored object of the user
+is confirmed gone. A redelivery reopens the same job; another attempt opens its own.
 
 ## Rollout
 
@@ -102,8 +106,8 @@ erase job completes, so the job carries the restore binding. That is media's own
 |-------------|-------|-----------------|
 | coordinator (auth) | 1 | #184 |
 | gamification (pilot) | 1 | #184 |
-| user, parking, moderation, notification, analytics, ai-validation | 2 | this PR |
-| media (objects) | own slice | not started |
+| user, parking, moderation, notification, analytics, ai-validation | 2 | #185 |
+| media (objects) | 3 | this PR |
 
 In slice 2 the participants queue the restore ACK through `ErasureAckOutbox.appendRestoreAck`, next
 to the live `append`, and their U05 ACK-outbox ITs cover the replay on real PostgreSQL and Kafka.

@@ -19,10 +19,12 @@ import com.parkio.media.application.port.ErasureAckOutbox;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.media.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.StoredMedia;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -99,6 +101,33 @@ class MediaObjectErasureWorkerTest {
         verify(ackOutbox).append(ack.capture());
         assertThat(ack.getValue().eventId()).isEqualTo(jobId);
         assertThat(ack.getValue().erasureRequestId()).isEqualTo(requestId);
+        assertThat(ack.getValue().authUserId()).isEqualTo(owner);
+        assertThat(ack.getValue().serviceName()).isEqualTo("media");
+        assertThat(ack.getValue().status()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void aRestoreJobQueuesTheAttemptBoundAckInsteadOfTheLiveOne() {
+        RestoreBinding restore = new RestoreBinding(UUID.randomUUID(), "backup-stamp-2026-10-03", "f".repeat(64));
+        when(jobs.find(jobId)).thenReturn(Optional.of(new Job(jobId, null, owner, 0, restore)));
+        when(jobs.remainingMedia(owner)).thenReturn(List.of());
+        when(storage.versionsUnder(namespace)).thenReturn(List.of());
+        when(jobs.countMedia(owner)).thenReturn(0L);
+
+        assertThat(worker.process(jobId)).isEqualTo(MediaObjectErasureWorker.Outcome.ACK_QUEUED);
+
+        InOrder order = inOrder(jobs, ackOutbox);
+        order.verify(jobs).holdOwner(owner);
+        order.verify(jobs).lockClaim(jobId, token, NOW);
+        ArgumentCaptor<UserErasureRestoreAcknowledgedEvent> ack =
+                ArgumentCaptor.forClass(UserErasureRestoreAcknowledgedEvent.class);
+        order.verify(ackOutbox).appendRestoreAck(ack.capture());
+        order.verify(jobs).delete(jobId);
+        verify(ackOutbox, never()).append(any());
+        assertThat(ack.getValue().eventId()).isEqualTo(jobId);
+        assertThat(ack.getValue().recoveryAttemptId()).isEqualTo(restore.recoveryAttemptId());
+        assertThat(ack.getValue().restoredDatasetId()).isEqualTo(restore.restoredDatasetId());
+        assertThat(ack.getValue().erasureSetDigest()).isEqualTo(restore.erasureSetDigest());
         assertThat(ack.getValue().authUserId()).isEqualTo(owner);
         assertThat(ack.getValue().serviceName()).isEqualTo("media");
         assertThat(ack.getValue().status()).isEqualTo("SUCCESS");
