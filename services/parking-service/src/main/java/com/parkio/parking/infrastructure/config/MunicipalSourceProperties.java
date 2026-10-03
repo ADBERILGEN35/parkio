@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.config;
 
 import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import java.time.Duration;
+import org.springframework.util.unit.DataSize;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "parkio.municipal")
@@ -291,6 +292,10 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
         private Duration readTimeout = Duration.ofSeconds(5);
         private int maxRetries = 2;
+        /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
+        private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+        /** Whole-response time bound from request start (CL-F23); a slow drip is cut off here. */
+        private Duration maxResponseTime = Duration.ofSeconds(30);
         private boolean schedulerEnabled;
         private long fixedDelayMs = 120000;
         private Long staleAfterSeconds;
@@ -317,6 +322,10 @@ public class MunicipalSourceProperties {
         public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public DataSize getMaxResponseSize() { return maxResponseSize; }
+        public void setMaxResponseSize(DataSize maxResponseSize) { this.maxResponseSize = maxResponseSize; }
+        public Duration getMaxResponseTime() { return maxResponseTime; }
+        public void setMaxResponseTime(Duration maxResponseTime) { this.maxResponseTime = maxResponseTime; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
         public long getFixedDelayMs() { return fixedDelayMs; }
@@ -340,6 +349,10 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
         private Duration readTimeout = Duration.ofSeconds(10);
         private int maxRetries = 1;
+        /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
+        private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+        /** Whole-response time bound from request start (CL-F23); a slow drip is cut off here. */
+        private Duration maxResponseTime = Duration.ofSeconds(30);
         private boolean schedulerEnabled;
         private long fixedDelayMs = 120000;
         private Long staleAfterSeconds;
@@ -365,6 +378,10 @@ public class MunicipalSourceProperties {
         public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public DataSize getMaxResponseSize() { return maxResponseSize; }
+        public void setMaxResponseSize(DataSize maxResponseSize) { this.maxResponseSize = maxResponseSize; }
+        public Duration getMaxResponseTime() { return maxResponseTime; }
+        public void setMaxResponseTime(Duration maxResponseTime) { this.maxResponseTime = maxResponseTime; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
         public long getFixedDelayMs() { return fixedDelayMs; }
@@ -388,6 +405,10 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
         private Duration readTimeout = Duration.ofSeconds(10);
         private int maxRetries = 1;
+        /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
+        private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+        /** Whole-response time bound from request start (CL-F23); a slow drip is cut off here. */
+        private Duration maxResponseTime = Duration.ofSeconds(30);
         private boolean schedulerEnabled;
         /** 6 hours — inventory-only; no live occupancy cadence. */
         private long fixedDelayMs = 21_600_000L;
@@ -414,6 +435,10 @@ public class MunicipalSourceProperties {
         public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public DataSize getMaxResponseSize() { return maxResponseSize; }
+        public void setMaxResponseSize(DataSize maxResponseSize) { this.maxResponseSize = maxResponseSize; }
+        public Duration getMaxResponseTime() { return maxResponseTime; }
+        public void setMaxResponseTime(Duration maxResponseTime) { this.maxResponseTime = maxResponseTime; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
         public long getFixedDelayMs() { return fixedDelayMs; }
@@ -441,6 +466,10 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(5);
         private Duration readTimeout = Duration.ofSeconds(30);
         private int maxRetries = 1;
+        /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
+        private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+        /** Whole-response time bound from request start (CL-F23); a slow drip is cut off here. */
+        private Duration maxResponseTime = Duration.ofSeconds(30);
         private boolean schedulerEnabled;
         /** 24h — static/stale inventory; no live occupancy polling cadence. */
         private long fixedDelayMs = 86_400_000L;
@@ -475,6 +504,10 @@ public class MunicipalSourceProperties {
         public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public DataSize getMaxResponseSize() { return maxResponseSize; }
+        public void setMaxResponseSize(DataSize maxResponseSize) { this.maxResponseSize = maxResponseSize; }
+        public Duration getMaxResponseTime() { return maxResponseTime; }
+        public void setMaxResponseTime(Duration maxResponseTime) { this.maxResponseTime = maxResponseTime; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
         public long getFixedDelayMs() { return fixedDelayMs; }
@@ -499,6 +532,10 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(5);
         private Duration readTimeout = Duration.ofSeconds(30);
         private int maxRetries = 1;
+        /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
+        private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+        /** Whole-response time bound from request start (CL-F23); a slow drip is cut off here. */
+        private Duration maxResponseTime = Duration.ofSeconds(30);
         private boolean schedulerEnabled;
         /** 24h — static inventory; no live occupancy polling cadence. */
         private long fixedDelayMs = 86_400_000L;
@@ -527,6 +564,10 @@ public class MunicipalSourceProperties {
         public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = Math.max(0, maxRetries); }
+        public DataSize getMaxResponseSize() { return maxResponseSize; }
+        public void setMaxResponseSize(DataSize maxResponseSize) { this.maxResponseSize = maxResponseSize; }
+        public Duration getMaxResponseTime() { return maxResponseTime; }
+        public void setMaxResponseTime(Duration maxResponseTime) { this.maxResponseTime = maxResponseTime; }
         public boolean isSchedulerEnabled() { return schedulerEnabled; }
         public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
         public long getFixedDelayMs() { return fixedDelayMs; }
