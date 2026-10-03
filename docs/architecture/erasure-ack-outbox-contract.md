@@ -513,14 +513,19 @@ and are deleted before the ACK. A PUT that could still be applied blocks
 
 Transport retention predates U05 and applies to every service; U05 adds no
 retention period and changes none. Owner decision B6 (2026-10-03) accepts the
-source-policy bounds for these copies:
+source-policy bounds for the erasure transport copies:
 - published outbox rows: P7D;
 - `parkio.privacy.erasure`: 14 days;
-- DLT topics: 14 days.
+- the eight provisioned DLT topics: 14 days.
 
-PRIV-001 ("Transport copies") lists them. It also explains two things: Kafka
-deletes by segment, and the live broker's topic configuration has not been
-checked. The decision is not a legal approval.
+PRIV-001 ("Transport copies") lists them, and records three further points:
+- `parkio.dlt.media` is used but not provisioned, so source sets no bound for it.
+- The domain topics (7 or 30 days) also carry earlier event copies, and B6 does
+  not cover them.
+- Kafka deletes by segment, and the live broker's topic configuration has not
+  been checked.
+
+The decision is not a legal approval.
 
 How the per-service ITs check this (whole-schema residue scan, every
 uuid/text/json column):

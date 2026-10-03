@@ -64,7 +64,8 @@ acks upsert by `(erasure_request_id, service_name)`.
 | Gateway waitlist | Email-only, not `authUserId` — out of this workflow |
 | SPA telemetry | Designed without user id / coords / facility ids |
 | Backups | Not mutated. 14-day retention. Ledger `erasure-tombstones.json` in stamp |
-| Transport copies (published outbox rows, Kafka records) | Not erased; bounded by transport retention (see "Transport copies" below) |
+| Erasure transport copies (published outbox rows, erasure command and ACK records, dead-lettered records) | Not erased; bounded by transport retention (see "Transport copies" below) |
+| Earlier events on the domain topics (for example `parkio.parking.spot`) | Not erased; topic retention 7 or 30 days in source; not covered by B6 (see "Transport copies" below) |
 
 ## Per-service handlers
 
@@ -121,16 +122,30 @@ Left unchanged (no account user id): ranking evaluation tables, municipal operat
 
 ## Transport copies
 
-Owner decision B6 (2026-10-03) accepts the source-policy bounds below for the copies of
-erasure requests, ACKs and earlier events that remain in transport after `SUCCESS`. This is a
-privacy-owner decision about the documented source configuration. It is not a legal approval,
-and it does not state that the live broker was checked.
+Owner decision B6 (2026-10-03) accepts the source-policy bounds below for the erasure transport
+copies that remain after `SUCCESS`:
+- the published outbox rows, which include the ACK row and earlier event rows;
+- the erasure command and ACK records on `parkio.privacy.erasure`;
+- dead-lettered records.
+
+This is a privacy-owner decision about the documented source configuration. It is not a legal
+approval, and it does not state that the live broker was checked.
 
 | Copy | Where | Bound set in source |
 |------|-------|---------------------|
 | Published outbox rows (the ACK row, earlier event copies) | `outbox_events` in all nine services | `RetentionCleanupJob` deletes published rows after `PARKIO_OUTBOX_RETENTION`, default `P7D`. The job is on by default (`PARKIO_OUTBOX_RETENTION_ENABLED`). |
 | Erasure requests and ACKs | Kafka topic `parkio.privacy.erasure` | `retention.ms` 14 days, set when auth-service creates the topic |
-| Dead-lettered records | Kafka DLT topics `parkio.dlt.<service>` (auth, user, gamification, moderation, notification, analytics, aivalidation) | `retention.ms` 14 days, set when each service creates its DLT |
+| Dead-lettered records | Kafka DLT topics `parkio.dlt.<service>` (auth, user, parking, gamification, moderation, notification, analytics, aivalidation) | `retention.ms` 14 days, set when each service creates its DLT |
+| Dead-lettered media records | `parkio.dlt.media` | **No bound in source.** media-service publishes to this DLT, but no service provisions it, so no retention is set. With broker auto-creation off (`docker/docker-compose.yml`), dead-lettering for media may fail. Fixing the provisioning is a separate code change. |
+
+Not covered by B6: the domain topics also carry copies of earlier events about the user (for
+example a spot or session event with the user id). Their retention in source is:
+- 7 days: `parkio.auth.user`, `parkio.user.profile`, `parkio.media.media`,
+  `parkio.notification.notification`, `parkio.aivalidation.result`;
+- 30 days: `parkio.parking.spot`, `parkio.parking.session`, `parkio.gamification.score`,
+  `parkio.moderation.case`, `parkio.moderation.action`.
+
+Accepting or shortening those bounds needs a separate owner decision.
 
 Limits of these bounds:
 
