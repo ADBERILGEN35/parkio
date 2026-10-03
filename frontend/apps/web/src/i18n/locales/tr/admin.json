@@ -184,7 +184,7 @@
     "subtitle": "Kayıt bildirim listesine kim katıldı, onayladı veya ayrıldı.",
     "distinction": "Bunlar yalnızca e-posta bildirim abonelikleridir — Parkio uygulama hesapları değildir. Onaylı bekleme listesi durumu ürün girişi vermez.",
     "countsTitle": "Sayımlar (tüm abonelikler)",
-    "countsNote": "Bu toplamlar tüm bildirim-listesi aboneliklerini kapsar ve aşağıdaki filtreleri yok sayar. Filtreler yalnızca tabloya ve onaylı CSV dışa aktarımının tarih aralığına uygulanır.",
+    "countsNote": "Bu toplamlar tüm bildirim-listesi aboneliklerini kapsar ve aşağıdaki filtreleri yok sayar. Kayıt tarihi filtreleri tabloya uygulanır; onaylı CSV dışa aktarımı kendi onay tarihi aralığını kullanır.",
     "counts": {
       "pending": "Bekleyen: {{count}}",
       "confirmed": "Onaylı: {{count}}",
@@ -195,6 +195,9 @@
     "statusLabel": "Durum",
     "createdFrom": "Kayıt başlangıcı",
     "createdTo": "Kayıt bitişi",
+    "confirmedFrom": "Onay başlangıcı",
+    "confirmedTo": "Onay bitişi",
+    "exportTruncated": "{{matching}} onaylı abonelikten yalnızca ilk {{limit}} tanesi dışa aktarıldı. Geri kalanını dışa aktarmak için onay tarihi aralığını daraltın.",
     "exportConfirmed": "Onaylıları CSV olarak dışa aktar",
     "exporting": "Dışa aktarılıyor…",
     "exportNote": "Dışa aktarım yalnızca onaylı abonelikleri içerir. Jetonlar ve kötüye kullanım karmaları asla dışa aktarılmaz.",

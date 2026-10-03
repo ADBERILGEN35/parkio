@@ -3,6 +3,7 @@ package com.parkio.gateway.presentation.waitlist;
 import com.parkio.gateway.application.waitlist.WaitlistAdmissionsDisabledException;
 import com.parkio.gateway.application.waitlist.WaitlistConsentTimestampException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
+import com.parkio.gateway.application.waitlist.WaitlistExportFilterException;
 import com.parkio.gateway.application.waitlist.WaitlistFullNameException;
 import com.parkio.gateway.application.waitlist.WaitlistRateLimitExceededException;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
@@ -79,6 +80,12 @@ public class WaitlistExceptionHandler {
                 exchange,
                 "WAITLIST_ADMISSIONS_DISABLED",
                 "Waitlist registration is temporarily unavailable. Please try again later."));
+    }
+
+    @ExceptionHandler(WaitlistExportFilterException.class)
+    public Mono<ApiError> exportFilter(WaitlistExportFilterException ex, ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+        return Mono.just(error(exchange, "WAITLIST_EXPORT_FILTER_INVALID", ex.getMessage()));
     }
 
     @ExceptionHandler(WaitlistTokenException.class)
