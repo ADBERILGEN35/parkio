@@ -1,0 +1,75 @@
+[
+  {
+    "canonical": "{\"A\":true,\"a\":{\"c\":null,\"d\":[3,2,1]},\"b\":1}",
+    "name": "key order",
+    "value": {
+      "A": true,
+      "a": {
+        "c": null,
+        "d": [
+          3,
+          2,
+          1
+        ]
+      },
+      "b": 1
+    }
+  },
+  {
+    "canonical": "{\"s\":\"quote\\\" backslash\\\\ slash/ nl\\n tab\\t cr\\r bs\\b ff\\f nul\\u0000 us\\u001f del\\u007f\"}",
+    "name": "escapes",
+    "value": {
+      "s": "quote\" backslash\\ slash/ nl\n tab\t cr\r bs\b ff\f nul\u0000 us\u001f del"
+    }
+  },
+  {
+    "canonical": "{\"bmp-end\":\"\\uffff\",\"emoji\":\"\\ud83d\\ude00\",\"tr\":\"\\u015f \\u011f \\u00fc \\u0130 \\u0131\"}",
+    "name": "non-ascii",
+    "value": {
+      "bmp-end": "￿",
+      "emoji": "😀",
+      "tr": "ş ğ ü İ ı"
+    }
+  },
+  {
+    "canonical": "{\"z\":3,\"\\uffff\":1,\"\\ud83d\\ude00\":2}",
+    "name": "astral key order",
+    "value": {
+      "z": 3,
+      "￿": 1,
+      "😀": 2
+    }
+  },
+  {
+    "canonical": "{\"big\":123456789012345678901234567890,\"long\":9007199254740993,\"neg\":-42,\"zero\":0}",
+    "name": "integers",
+    "value": {
+      "big": 123456789012345678901234567890,
+      "long": 9007199254740993,
+      "neg": -42,
+      "zero": 0
+    }
+  },
+  {
+    "canonical": "{\"list\":[],\"map\":{},\"nested\":[{},[]]}",
+    "name": "empty containers",
+    "value": {
+      "list": [],
+      "map": {},
+      "nested": [
+        {},
+        []
+      ]
+    }
+  },
+  {
+    "canonical": "[\"\",\"a\",\"\\u015f\",\"\\n\"]",
+    "name": "strings in lists",
+    "value": [
+      "",
+      "a",
+      "ş",
+      "\n"
+    ]
+  }
+]

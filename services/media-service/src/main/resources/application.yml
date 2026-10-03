@@ -149,6 +149,29 @@ parkio:
     # old and new secret overlap with no downtime. Empty when no rotation is in progress.
     internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
   media:
+    # U05 account erasure, phase 2: every stored version of the user's objects is removed outside
+    # the metadata transaction and confirmed gone by a fresh listing before the media row is
+    # deleted; the SUCCESS ACK is queued (and the job deleted) only once nothing of the user is
+    # left, no object write of the user is recorded in media_object_writes (V16), under the
+    # owner's erasure fence and only by an attempt whose claim is still live. A write of unknown
+    # outcome is settled only once its object (a version, not a delete marker) has been observed,
+    # and the observation is committed before that object is removed; until then the job stays
+    # pending (gauge parkio.media.object_writes.outcome_unknown). No time limit settles it.
+    # Pending jobs are retried with exponential backoff (base..max) by this poll. An attempt checks
+    # attempt-budget-ms before every storage call; a listing call is one ListObjectVersions request
+    # of at most listing-page-size entries (an exact-key lookup adds a HEAD when it lists nothing),
+    # so it ends within two storage call-timeouts after its budget; the service refuses to start
+    # unless lease-ms >= attempt-budget-ms + 2 x storage call-timeout + 10s. Disabling the poll
+    # stops retries (no SUCCESS).
+    erasure-worker:
+      enabled: ${PARKIO_MEDIA_ERASURE_WORKER_ENABLED:true}
+      poll-interval-ms: 30000
+      batch-size: 20
+      lease-ms: 120000
+      base-backoff-ms: 5000
+      max-backoff-ms: 900000
+      attempt-budget-ms: 60000
+      listing-page-size: 100
     # Application-level upload constraints.
     max-file-size: 10MB
     max-image-width: ${PARKIO_MEDIA_MAX_IMAGE_WIDTH:8000}
@@ -175,20 +198,23 @@ parkio:
       read-timeout: ${PARKIO_MEDIA_SCANNER_READ_TIMEOUT:10s}
     storage:
       bucket: ${PARKIO_MEDIA_BUCKET:parkio-media}
-      # S3-compatible endpoints (MinIO in local/dev). Credentials are injected;
-      # the defaults below are LOCAL DEV ONLY and must be overridden everywhere
-      # else (ai-context/07).
+      # S3-compatible endpoints (MinIO in local/dev). Credentials are injected and have
+      # no defaults: startup fails without them, and MinIO's well-known minioadmin
+      # default is refused outside the dev profile (application-dev.yml, ai-context/07).
       # endpoint: SDK PUT/stat/DELETE (container-reachable in compose: minio:9000).
       endpoint: ${PARKIO_MEDIA_STORAGE_ENDPOINT:http://localhost:9000}
       # public-endpoint: host embedded in presigned GET URLs (browser-reachable).
       public-endpoint: ${PARKIO_MEDIA_STORAGE_PUBLIC_ENDPOINT:http://localhost:9000}
-      access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:minioadmin}
-      secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:minioadmin}
+      access-key: ${PARKIO_MEDIA_STORAGE_ACCESS_KEY:}
+      secret-key: ${PARKIO_MEDIA_STORAGE_SECRET_KEY:}
       region: ${PARKIO_MEDIA_STORAGE_REGION:us-east-1}
       connect-timeout: ${PARKIO_MEDIA_STORAGE_CONNECT_TIMEOUT:2s}
       read-timeout: ${PARKIO_MEDIA_STORAGE_READ_TIMEOUT:10s}
       write-timeout: ${PARKIO_MEDIA_STORAGE_WRITE_TIMEOUT:10s}
       call-timeout: ${PARKIO_MEDIA_STORAGE_CALL_TIMEOUT:15s}
+      # All four timeouts must be positive (0 would mean "no timeout"). A request body is never
+      # transmitted twice: the storage client makes every body one-shot (no follow-up after a
+      # reply, no retry once sent), follows no redirect and uses no proxy (U05 object write ledger).
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

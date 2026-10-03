@@ -139,6 +139,10 @@ public class AuthApplicationService {
         String email = AuthUser.normalizeEmail(command.email());
         passwordPolicy.validate(command.rawPassword());
         registrationGate.assertRegistrationAllowed(email, command.inviteToken());
+        // In INVITE mode the invite is checked before the e-mail (CL-F14.1): only a valid
+        // invite holder may learn that an address is registered. A later rejection rolls
+        // this transaction back, so the invite is not used up by a failed registration.
+        registrationGate.consumeInviteIfRequired(email, command.inviteToken());
 
         if (authUsers.existsByEmail(email)) {
             throw new AuthException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
@@ -148,8 +152,6 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new IllegalStateException("USER role is not seeded"));
 
         Instant now = clock.instant();
-        registrationGate.consumeInviteIfRequired(email, command.inviteToken());
-
         String rawVerificationToken = tokenGenerator.generate();
         Instant verificationExpiresAt = now.plus(emailVerificationTtl);
         String passwordHash = passwordHasher.hash(command.rawPassword());
@@ -203,10 +205,9 @@ public class AuthApplicationService {
                 .orElseThrow(() -> new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN));
 
         Instant now = clock.instant();
-        if (user.emailVerified()) {
-            return user;
-        }
-        if (user.emailVerificationTokenExpired(now)) {
+        // Verification clears the token, so a verified account matches only through a link
+        // stored before that: it is spent like any used link and returns no account (CL-F35).
+        if (user.emailVerified() || user.emailVerificationTokenExpired(now)) {
             throw new AuthException(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
         }
         user.verifyEmail(now);

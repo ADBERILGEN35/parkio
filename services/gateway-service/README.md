@@ -47,8 +47,10 @@ The gateway is the **only public ingress** for backend APIs. It:
   externalized (`PARKIO_GATEWAY_INTERNAL_SECRET`, no production default → fail closed);
   the gateway's own user-status `WebClient` sends it too;
 - manages a request correlation id (`X-Correlation-Id`): forwards a client-supplied
-  one or generates it, propagates it downstream, echoes it on the response, and
-  includes it as `traceId` in error bodies.
+  one only if, once trimmed, it is 1-128 characters of `A-Z a-z 0-9 . _ : -` (anything
+  else, such as CR/LF, spaces, non-ASCII or an oversized value, is replaced), otherwise
+  generates a UUID; propagates it downstream, echoes it on the response, and includes
+  it as `traceId` in error bodies.
 - passes the client `Idempotency-Key` header through unchanged. Parking
   create/claim/verify and media upload validate and persist idempotency in their
   owning service databases; the gateway holds no idempotency state.

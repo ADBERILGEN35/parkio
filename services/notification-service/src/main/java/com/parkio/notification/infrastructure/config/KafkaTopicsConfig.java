@@ -25,6 +25,8 @@ public class KafkaTopicsConfig {
 
     public static final String NOTIFICATION = "parkio.notification.notification";
     public static final String DLT_NOTIFICATION = "parkio.dlt.notification";
+    /** Owned and provisioned by auth-service; notification-service only publishes erasure ACKs to it. */
+    public static final String PRIVACY_ERASURE = "parkio.privacy.erasure";
 
     private final int replicas;
 

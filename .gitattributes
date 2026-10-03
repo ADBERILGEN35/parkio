@@ -36,6 +36,10 @@ gradlew.bat text eol=crlf
 frontend/apps/mobile-v2/src/features/map/vendor/maplibre-gl.js text eol=lf
 frontend/apps/mobile-v2/src/features/map/vendor/maplibre-gl.css text eol=lf
 
+# Durable erasure evidence fixtures are compared byte for byte by the Python and
+# Java interop tests (scripts/test-durable-erasure-evidence-interop.py).
+services/auth-service/src/test/resources/durable-erasure-evidence/** text eol=lf
+
 # Binary assets — never diff or normalize.
 *.png binary
 *.jpg binary
