@@ -47,8 +47,10 @@ The gateway is the **only public ingress** for backend APIs. It:
   externalized (`PARKIO_GATEWAY_INTERNAL_SECRET`, no production default → fail closed);
   the gateway's own user-status `WebClient` sends it too;
 - manages a request correlation id (`X-Correlation-Id`): forwards a client-supplied
-  one or generates it, propagates it downstream, echoes it on the response, and
-  includes it as `traceId` in error bodies.
+  one only if, once trimmed, it is 1-128 characters of `A-Z a-z 0-9 . _ : -` (anything
+  else, such as CR/LF, spaces, non-ASCII or an oversized value, is replaced), otherwise
+  generates a UUID; propagates it downstream, echoes it on the response, and includes
+  it as `traceId` in error bodies.
 - passes the client `Idempotency-Key` header through unchanged. Parking
   create/claim/verify and media upload validate and persist idempotency in their
   owning service databases; the gateway holds no idempotency state.
@@ -154,7 +156,12 @@ env-overridable via `PARKIO_AUTH_SERVICE_URI`, `PARKIO_SESSION_EPOCH_CACHE_TTL`,
 
 ¹ Public: `POST /api/v1/auth/register`, `login`, `refresh-token`, `logout`; and
 `GET /api/v1/auth/.well-known/jwks.json`. Any other auth path is protected.
-Actuator `health`/`info` are public.
+Actuator `health`/`info` are public. `/actuator/prometheus` is for the internal scrape only.
+Caddy blocks the path, and the gateway answers `404` to any request that the Caddy edge relayed:
+Caddy sets `X-Parkio-Edge-Relay` on everything it forwards to the gateway. In production the
+gateway runs with `SERVER_FORWARD_HEADERS_STRATEGY=framework`, which removes `Forwarded` and
+`X-Forwarded-*` before the gateway's filters run, so that marker is the signal there; the
+standard proxy headers are still refused for setups without that strategy.
 ² See the role matrix below: user-facing report/appeal endpoints need only an
 authenticated user; case/appeal management requires `MODERATOR`/`ADMIN`. Account-level
 actions (suspend/restore/trust/score, appeal resolution) are further restricted to

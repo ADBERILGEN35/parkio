@@ -8,6 +8,7 @@ on:
       - "scripts/restore-drill.sh"
       - "docker/docker-compose.staging-verification.yml"
       - "docker/docker-compose.restore-drill.yml"
+      - "docker/docker-compose.restored-application-verification.yml"
       - "docs/operations/evidence/**"
       - "docs/operations/wp-06-02*.md"
       - "services/gateway-service/src/main/resources/application.yml"
@@ -89,6 +90,15 @@ jobs:
           docker compose --env-file docker/.env \
             -f docker/docker-compose.yml \
             -f docker/docker-compose.staging-verification.yml config >/dev/null
+
+      - name: Restored-application verification overlay publishes loopback only
+        run: |
+          set -euo pipefail
+          python3 scripts/staging/test_assert_loopback_published_ports.py
+          docker compose --env-file docker/.env \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.restored-application-verification.yml config --format json \
+            | python3 scripts/staging/assert-loopback-published-ports.py
 
       - name: Run WP-06.2 governance tests
         run: |
