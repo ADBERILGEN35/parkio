@@ -181,7 +181,16 @@ public class AuthApplicationService {
         }
 
         AuthUser user = authUsers.findByEmail(email).orElse(null);
-        if (user == null || !passwordHasher.matches(command.rawPassword(), user.passwordHash())) {
+        boolean passwordMatches;
+        if (user == null) {
+            // As costly as a wrong password for a real account, so the time does not tell an
+            // unknown e-mail apart (CL-F14.2).
+            passwordHasher.compareWithoutAccount(command.rawPassword());
+            passwordMatches = false;
+        } else {
+            passwordMatches = passwordHasher.matches(command.rawPassword(), user.passwordHash());
+        }
+        if (!passwordMatches) {
             LoginFailureTracker.LoginFailureOutcome outcome = loginFailures.recordFailure(email, now);
             if (outcome.lockoutApplied()) {
                 log.warn(
