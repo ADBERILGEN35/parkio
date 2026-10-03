@@ -12,6 +12,8 @@
 # `-Pparkio.integrationTest.requireDocker=true` makes the run FAIL FAST if the
 # runner has no Docker daemon, instead of silently skipping every suite and
 # reporting a false-green build. ubuntu-latest ships Docker out of the box.
+# With that flag the tasks also always execute: no build-cache restore and no
+# up-to-date skip can stand in for a run (checked after the run below).
 
 name: Backend integration tests
 
@@ -26,6 +28,7 @@ on:
       - "settings.gradle*"
       - "gradle.properties"
       - "docker/**"
+      - "scripts/ci/check-integration-test-not-reused.sh"
       - ".github/workflows/backend-integration.yml"
   workflow_dispatch:
 
@@ -76,6 +79,15 @@ jobs:
 
       - name: Run Testcontainers integration tests
         run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
+
+      # A cached or up-to-date result must not stand in for a run (#205 review B1). One module of
+      # each integrationTest definition (the buildSrc convention and the platform's own) is run again
+      # with a docker stub that always fails; the task must execute and fail closed.
+      - name: Integration tests are never reused without running
+        run: |
+          set -euo pipefail
+          ./scripts/ci/check-integration-test-not-reused.sh --module :services:analytics-service
+          ./scripts/ci/check-integration-test-not-reused.sh --module :platform:parkio-platform
 
       - name: Upload integration test reports on failure
         if: failure()
