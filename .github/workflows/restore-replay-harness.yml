@@ -42,10 +42,11 @@ permissions:
   contents: read
   packages: read
 
-# A newer push to a PR cancels its older run; runs for pushes to api are never cancelled, so every
-# merge gets its own result (#205 review N-R1).
+# A newer push to a PR cancels its older run (#205 review N-R1). Every other run, a push to api in
+# particular, gets a group of its own commit: GitHub keeps at most one pending run per group and
+# replaces it when another queues, so a shared group could still drop a merge's run (#208 N4).
 concurrency:
-  group: restore-replay-harness-${{ github.ref }}
+  group: restore-replay-harness-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
