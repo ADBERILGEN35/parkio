@@ -1,8 +1,0 @@
-{
-  "databaseIdentity": "auth-db:interop-fixture",
-  "note": "Synthetic fixture keys; not secrets and never used outside tests.",
-  "otherProducerId": "interop-other-producer",
-  "otherProducerKeyHex": "7061726b696f2d64757261626c652d696e7465726f702d6f746865722d6e6f742d612d736563726574",
-  "producerId": "interop-fixture-producer",
-  "producerKeyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574"
-}

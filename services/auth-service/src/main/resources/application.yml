@@ -239,9 +239,11 @@ parkio:
       durable-recording-retry-worker-base-backoff-ms: 5000
       durable-recording-retry-worker-max-backoff-ms: 900000
       durable-recording-retry-worker-lease-ms: 120000
-      # Off-host object-lock store for durable erasure records (evidence format v1). Off by
-      # default. Bucket, credentials, retention and the producer key are operator inputs with
-      # no defaults; when enabled, a missing one (or a bucket without object lock) stops startup.
+      # Off-host object-lock store for durable erasure records (evidence format v2). Off by
+      # default. Bucket, credentials, retention, the trust document (pinned database identity
+      # and producer keys; secret material) and the signing key id are operator inputs with no
+      # defaults; when enabled, a missing or invalid one (or a bucket without object lock) stops
+      # startup. Key custody: docs/operations/erasure-evidence-key-custody.md.
       durable-store:
         object-lock:
           enabled: ${PARKIO_ERASURE_STORE_OBJECT_LOCK_ENABLED:false}
@@ -252,9 +254,8 @@ parkio:
           secret-key: ${PARKIO_ERASURE_STORE_SECRET_KEY:}
           retention-mode: ${PARKIO_ERASURE_STORE_RETENTION_MODE:}
           retention: ${PARKIO_ERASURE_STORE_RETENTION:}
-          database-identity: ${PARKIO_ERASURE_STORE_DATABASE_IDENTITY:}
-          producer-id: ${PARKIO_ERASURE_STORE_PRODUCER_ID:}
-          producer-key: ${PARKIO_ERASURE_STORE_PRODUCER_KEY:}
+          trust-file: ${PARKIO_ERASURE_STORE_TRUST_FILE:}
+          producer-key-id: ${PARKIO_ERASURE_STORE_PRODUCER_KEY_ID:}
           connect-timeout: ${PARKIO_ERASURE_STORE_CONNECT_TIMEOUT:5s}
           call-timeout: ${PARKIO_ERASURE_STORE_CALL_TIMEOUT:15s}
         # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published

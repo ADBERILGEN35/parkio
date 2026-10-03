@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002",
+        "a1b2c3d4-0000-4000-8000-000000000003"
+      ],
+      "requiredThrough": null,
+      "verdict": "ACCEPT_ISOLATED"
+    },
+    {
+      "abandonedReservations": [],
+      "expectedThrough": 3,
+      "gaps": [],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": 3,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [
+        "a1b2c3d4-0000-4000-8000-000000000001",
+        "a1b2c3d4-0000-4000-8000-000000000002",
+        "a1b2c3d4-0000-4000-8000-000000000003"
+      ],
+      "requiredThrough": 3,
+      "verdict": "ACCEPT_ISOLATED"
+    }
+  ],
+  "description": "Three records, their sequence markers and the frontier, as the Python producer writes them. Java must write byte-identical objects.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

@@ -10,7 +10,6 @@ import com.parkio.auth.application.port.DurableErasureRecord;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,16 +19,16 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Java producer and verifier against the cross-language fixtures (format v1): Java writes
+ * Java producer and verifier against the cross-language fixtures (format v2): Java writes
  * byte-identical objects to the Python reference producer, which the Python verifier accepts,
- * and reaches the same verdict or error as the Python verifier for every case.
+ * reaches the same verdict or error as the Python verifier for every case under the case's
+ * trust and verification instant, and its trust-document loader accepts and refuses the same
+ * documents with the same messages.
  */
 class DurableErasureEvidenceInteropTest {
 
     private static final String DATABASE = DurableEvidenceFixtures.producer().path("databaseIdentity").asText();
-    private static final ProducerKey PRODUCER = new ProducerKey(
-            DurableEvidenceFixtures.producer().path("producerId").asText(),
-            DurableEvidenceFixtures.key("producerKeyHex"));
+    private static final TrustedKey PRODUCER = DurableEvidenceFixtures.signingKey();
 
     @Test
     void javaWritesTheReferenceRecordsMarkersAndFrontierByteForByte() {
@@ -125,9 +124,30 @@ class DurableErasureEvidenceInteropTest {
     }
 
     @Test
-    void producerKeyNeverPrintsTheKey() {
-        assertThat(PRODUCER.toString()).doesNotContain(DurableEvidenceFixtures.producer().path("producerKeyHex").asText())
-                .contains("<redacted>");
+    void trustedKeyNeverPrintsTheKey() {
+        String secretHex = java.util.HexFormat.of().formatHex(PRODUCER.key());
+        String secretText = new String(PRODUCER.key(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(PRODUCER.toString()).doesNotContain(secretHex).doesNotContain(secretText).contains("<redacted>");
+    }
+
+    @Test
+    void trustDocumentLoaderMatchesTheReferenceLoader() {
+        JsonNode cases = DurableEvidenceFixtures.json("trust-documents.json");
+        assertThat(cases.size()).isGreaterThanOrEqualTo(14);
+        for (JsonNode trustCase : cases) {
+            String name = trustCase.path("name").asText();
+            byte[] document = trustCase.path("document").toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if (trustCase.path("error").isNull()) {
+                EvidenceTrust trust = EvidenceTrust.parse(document);
+                assertThat(trust.databaseIdentity()).as(name).isEqualTo(DATABASE);
+                assertThat(trust.key(PRODUCER.keyId())).as(name).isPresent();
+            } else {
+                assertThatThrownBy(() -> EvidenceTrust.parse(document))
+                        .as(name)
+                        .isInstanceOf(DurableEvidenceException.class)
+                        .hasMessage(trustCase.path("error").asText());
+            }
+        }
     }
 
     static Stream<String> cases() {
@@ -138,15 +158,8 @@ class DurableErasureEvidenceInteropTest {
     @MethodSource("cases")
     void javaVerifierReachesTheReferenceOutcome(String caseName) {
         JsonNode expected = DurableEvidenceFixtures.json("cases/" + caseName + "/expected.json");
-        Map<String, byte[]> keys = new HashMap<>();
-        for (JsonNode producer : expected.path("trustedProducers")) {
-            String id = producer.asText();
-            keys.put(id, id.equals(PRODUCER.producerId())
-                    ? DurableEvidenceFixtures.key("producerKeyHex")
-                    : DurableEvidenceFixtures.key("otherProducerKeyHex"));
-        }
         DurableErasureEvidenceVerifier verifier = new DurableErasureEvidenceVerifier(
-                expected.path("expectedDatabaseIdentity").asText(), keys);
+                DurableEvidenceFixtures.trust(expected), Instant.parse(expected.path("verifiedAt").asText()));
         EvidenceObjects store = DurableEvidenceFixtures.store(caseName);
 
         for (JsonNode check : expected.path("checks")) {

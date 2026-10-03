@@ -11,7 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.AccountErasureApplicationService;
 import com.parkio.auth.application.LoginFailureTracker;
 import com.parkio.auth.application.durable.DurableErasureEvidence;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
@@ -99,9 +100,9 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String BUCKET = "parkio-erasure-evidence-precision-it";
     private static final String DATABASE = "auth-db:object-lock-precision-it";
-    private static final ProducerKey PRODUCER = new ProducerKey(
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-object-lock-precision-it-key-2026a",
             "auth-object-lock-precision-it",
-            "object-lock-precision-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8));
+            "object-lock-precision-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8), Instant.parse("2026-01-01T00:00:00Z"));
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
@@ -174,7 +175,8 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
         @Bean
         @Primary
         DurableErasureRecordStore objectLockStoreWithFailingFrontier(FrontierFailingMinioClient client) {
-            return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(client, BUCKET), DATABASE, PRODUCER,
+            return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(client, BUCKET),
+                    new EvidenceTrust(DATABASE, java.util.List.of(PRODUCER)), PRODUCER.keyId(),
                     RetentionMode.GOVERNANCE, Duration.ofDays(1), CLOCK);
         }
     }
