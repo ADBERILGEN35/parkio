@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Cross-language durable erasure evidence fixtures (format v1).
+"""Cross-language durable erasure evidence fixtures (format v2).
 
 The committed fixtures under services/auth-service/src/test/resources/
-durable-erasure-evidence/v1 are the contract between the Python persist protocol
+durable-erasure-evidence/v2 are the contract between the Python persist protocol
 (reference producer and verifier) and the Java producer and verifier in
 auth-service. This file checks the Python side; DurableErasureEvidenceInteropTest
 checks the Java side against the same bytes and verdicts.
@@ -26,8 +26,11 @@ sys.path.insert(0, str(ROOT / "scripts/lib"))
 
 from recovery_evidence_contract import ContractError, canonical_bytes, sign  # noqa: E402
 from recovery_persist_protocol import (  # noqa: E402
+    SCHEMA_VERSION,
     SIGNED_PENDING,
+    EvidenceTrust,
     IsolatedVersionedStore,
+    TrustedKey,
     signed_subset,
     verify_pending,
 )
@@ -36,6 +39,21 @@ GENERATOR = ROOT / "scripts/generate-durable-erasure-evidence-fixtures.py"
 _spec = importlib.util.spec_from_file_location("durable_fixture_generator", GENERATOR)
 fixtures = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fixtures)
+
+
+def committed_secrets():
+    """Key secrets by keyId, read from the committed producer.json (not from the generator)."""
+    producer = json.loads((fixtures.FIXTURE_DIR / "producer.json").read_text(encoding="utf-8"))
+    return {key["keyId"]: bytes.fromhex(key["keyHex"]) for key in producer["keys"]}
+
+
+def case_trust(expected):
+    secrets = committed_secrets()
+    return EvidenceTrust(expected["trust"]["databaseIdentity"], [
+        TrustedKey(key["keyId"], key["producerId"], secrets[key["keyId"]], key["notBefore"],
+                   key["notAfter"], key["retired"])
+        for key in expected["trust"]["keys"]
+    ])
 
 
 class DurableErasureEvidenceInteropTest(unittest.TestCase):
@@ -48,7 +66,7 @@ class DurableErasureEvidenceInteropTest(unittest.TestCase):
 
     def test_every_case_matches_its_expected_verdict(self):
         names = json.loads((fixtures.FIXTURE_DIR / "cases.json").read_text(encoding="utf-8"))
-        self.assertGreaterEqual(len(names), 15)
+        self.assertGreaterEqual(len(names), 23)
         for name in names:
             case_dir = fixtures.FIXTURE_DIR / "cases" / name
             expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
@@ -63,8 +81,7 @@ class DurableErasureEvidenceInteropTest(unittest.TestCase):
                 for check in expected["checks"]:
                     with self.subTest(case=name, required_through=check["requiredThrough"]):
                         actual = fixtures.evaluate(
-                            store, expected["expectedDatabaseIdentity"],
-                            expected["trustedProducers"], check["requiredThrough"],
+                            store, case_trust(expected), expected["verifiedAt"], check["requiredThrough"],
                         )
                         self.assertEqual(actual, check)
 
@@ -77,10 +94,24 @@ class DurableErasureEvidenceInteropTest(unittest.TestCase):
                 outcomes.add(check.get("verdict") or check["error"])
         for outcome in ("ACCEPT_ISOLATED", "UNKNOWN", "BLOCKED", "producer signature mismatch",
                         "pending body digest mismatch", "database identity mismatch",
-                        "unknown producer", "not a pending record", "frontier signature mismatch",
+                        "unknown producer key", "not a pending record", "frontier signature mismatch",
                         "frontier digest mismatch", "checkpoint ledger digest mismatch",
-                        "missing records or unknown tail; recovery BLOCKED"):
+                        "missing records or unknown tail; recovery BLOCKED", "retired producer key",
+                        "producer key not yet valid", "producer key belongs to another producer",
+                        "unsupported schema version"):
             self.assertIn(outcome, outcomes)
+
+    def test_trust_documents_match_the_reference_loader(self):
+        cases = json.loads((fixtures.FIXTURE_DIR / "trust-documents.json").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(cases), 14)
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                try:
+                    EvidenceTrust.from_document(case["document"])
+                    error = None
+                except ContractError as exc:
+                    error = str(exc)
+                self.assertEqual(error, case["error"])
 
     def test_canonical_json_cases_are_python_canonical_bytes(self):
         cases = json.loads((fixtures.FIXTURE_DIR / "canonical-json.json").read_text(encoding="utf-8"))
@@ -96,7 +127,7 @@ class DurableErasureEvidenceInteropTest(unittest.TestCase):
             f"{item['erasureRequestId']}\n{item['authUserId']}\n{item['erasedAt']}".encode("utf-8")
         ).hexdigest()
         body = {
-            "schemaVersion": 1,
+            "schemaVersion": SCHEMA_VERSION,
             "kind": "erasure-pending-record",
             "erasureRecordId": f"records/{item['erasureRequestId']}.json",
             "erasureRequestId": item["erasureRequestId"],
@@ -105,15 +136,16 @@ class DurableErasureEvidenceInteropTest(unittest.TestCase):
             "sequence": 1,
             "databaseIdentity": fixtures.DATABASE_IDENTITY,
             "producerId": fixtures.PRODUCER_ID,
+            "keyId": fixtures.KEY_ID,
             "bodyDigest": legacy,
         }
-        body["signature"] = sign(signed_subset(body, SIGNED_PENDING), fixtures.PRODUCER_KEY)
+        body["signature"] = sign(signed_subset(body, SIGNED_PENDING), fixtures.KEYS[fixtures.KEY_ID]["key"])
         with tempfile.TemporaryDirectory() as raw_tmp:
             store = IsolatedVersionedStore(Path(raw_tmp))
             store.put_if_absent(body["erasureRecordId"], canonical_bytes(body))
             with self.assertRaisesRegex(ContractError, "pending body digest mismatch"):
-                verify_pending(store, body["erasureRecordId"], fixtures.DATABASE_IDENTITY,
-                               {fixtures.PRODUCER_ID: fixtures.PRODUCER_KEY})
+                verify_pending(store, body["erasureRecordId"], fixtures.STANDARD_TRUST,
+                               at=fixtures.VERIFIED_AT)
 
 
 if __name__ == "__main__":

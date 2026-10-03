@@ -51,12 +51,12 @@ PARKIO_ENV_FILE=docker/.env \
 ## Full hosted-beta restore (EMERGENCY) — BLOCKED
 
 A non-dry-run production restore exits 3 (`parkio_restore_refuse_unverified_production`),
-even when the recovery cutoff equals the stamp clock. Env flags such as
-`PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes` do not bypass it. Shown for the argument shape only:
+even when the recovery cutoff equals the stamp clock. No environment flag bypasses it
+(`PARKIO_ALLOW_LIVE_MINIO_RESTORE`, which earlier versions of this runbook cited, is not read
+by any script). Shown for the argument shape only:
 
 ```bash
 PARKIO_ENV_FILE=docker/.env \
-  PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes \
   ./scripts/restore-hosted-beta.sh \
   --manifest /var/backups/parkio/<stamp>/backup-manifest.json \
   --recovery-cutoff <ISO-8601-UTC>
@@ -78,11 +78,11 @@ via `parkio_restore_refuse_unsupported_production_scope`):
 
 ```bash
 ./scripts/restore-hosted-beta.sh --manifest ... --yes --only databases
-MINIO_RESTORE_BUCKET=<isolated-or-live> PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes \
+MINIO_RESTORE_BUCKET=<isolated-or-live> \
   ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 ```
 
-Live MinIO restore **overwrites the destination bucket**. Isolated drills must set `MINIO_RESTORE_BUCKET` to a throwaway name. Live restore requires `PARKIO_ALLOW_LIVE_MINIO_RESTORE=yes` plus typing `RESTORE` unless `--yes`.
+Live MinIO restore **overwrites the destination bucket**. Isolated drills must set `MINIO_RESTORE_BUCKET` to a throwaway name. A live MinIO restore is BLOCKED on the current code (see above); no flag enables it.
 
 Operator stop points:
 

@@ -13,39 +13,48 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * Durable erasure evidence format v1, shared with the Python persist protocol
+ * Durable erasure evidence format v2, shared with the Python persist protocol
  * ({@code scripts/lib/recovery_persist_protocol.py}). This class writes the objects a store
- * adapter publishes: signed pending records, sequence-allocation markers and the signed
- * expected-boundary frontier. Bytes are canonical JSON ({@link CanonicalJson}); signatures
- * are hex HMAC-SHA256 over the canonical signed subset. The cross-language fixtures under
- * {@code src/test/resources/durable-erasure-evidence/v1} pin byte equality with Python.
+ * adapter publishes: signed pending records, signed checkpoints, sequence-allocation markers
+ * and the signed expected-boundary frontier. Bytes are canonical JSON ({@link CanonicalJson});
+ * signatures are hex HMAC-SHA256 over the canonical signed subset, which includes the signing
+ * key's {@code keyId} (v2; v1 objects had none). The cross-language fixtures under
+ * {@code src/test/resources/durable-erasure-evidence/v2} pin byte equality with Python.
  *
- * <p>Store I/O, sequence allocation, key distribution and flags are not part of this class.
+ * <p>Store I/O, sequence allocation, key windows, trust and flags are not part of this class.
  */
 public final class DurableErasureEvidence {
 
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final String KIND_PENDING = "erasure-pending-record";
     public static final String KIND_CHECKPOINT = "erasure-checkpoint";
     public static final String KIND_FRONTIER = "erasure-expected-frontier";
     public static final String KIND_SEQUENCE_ALLOCATION = "sequence-allocation";
     public static final String KIND_LEDGER = "erasure-ledger";
     public static final String FRONTIER_KEY = "frontier/expected-through.json";
+    /** The capture protocol of a checkpoint: READ COMMITTED read under a SHARE table lock. */
+    public static final String CAPTURE_PROTOCOL_TABLE_SHARE_LOCK = "table-share-lock";
+    /**
+     * The {@code erasureRequestId} of a sequence marker that reserves a checkpoint's sequence.
+     * Format v1 has one marker shape; the nil UUID is never a request id.
+     */
+    public static final UUID CHECKPOINT_RESERVATION = new UUID(0L, 0L);
 
     public static final List<String> SIGNED_PENDING = List.of(
             "schemaVersion", "kind", "erasureRecordId", "erasureRequestId",
-            "authUserId", "sequence", "databaseIdentity", "producerId", "bodyDigest");
+            "authUserId", "sequence", "databaseIdentity", "producerId", "keyId", "bodyDigest");
     public static final List<String> SIGNED_CHECKPOINT = List.of(
-            "schemaVersion", "kind", "sequence", "databaseIdentity", "producerId",
+            "schemaVersion", "kind", "sequence", "databaseIdentity", "producerId", "keyId",
             "ledgerDigest", "captureProtocol");
     public static final List<String> SIGNED_FRONTIER = List.of(
             "schemaVersion", "kind", "expectedThrough", "highestReserved",
-            "databaseIdentity", "producerId", "frontierDigest");
+            "databaseIdentity", "producerId", "keyId", "frontierDigest");
 
     private DurableErasureEvidence() {
     }
@@ -64,7 +73,7 @@ public final class DurableErasureEvidence {
     }
 
     /**
-     * {@code erasedAt} as written into records (format v1): the ISO-8601 instant truncated to
+     * {@code erasedAt} as written into records: the ISO-8601 instant truncated to
      * microseconds, PostgreSQL's precision. Truncation alone does not make an instant and its
      * database copy format the same: the JDBC driver rounds sub-microsecond digits when it writes,
      * so a nanosecond instant can come back one microsecond later. Producers therefore store the
@@ -109,7 +118,7 @@ public final class DurableErasureEvidence {
     }
 
     public static byte[] pendingRecord(DurableErasureRecord record, long sequence,
-                                       String databaseIdentity, ProducerKey producer) {
+                                       String databaseIdentity, TrustedKey signingKey) {
         Objects.requireNonNull(record, "record");
         String erasedAt = erasedAt(record.erasedAt());
         if (!bodyDigest(record.authUserId(), record.erasureRequestId(), erasedAt).equals(record.bodyDigest())) {
@@ -125,15 +134,56 @@ public final class DurableErasureEvidence {
         body.put("erasedAt", erasedAt);
         body.put("sequence", requirePositive(sequence));
         body.put("databaseIdentity", requireText(databaseIdentity, "databaseIdentity"));
-        body.put("producerId", producer.producerId());
+        body.put("producerId", signingKey.producerId());
+        body.put("keyId", signingKey.keyId());
         body.put("bodyDigest", record.bodyDigest());
-        body.put("signature", sign(body, SIGNED_PENDING, producer.key()));
+        body.put("signature", sign(body, SIGNED_PENDING, signingKey.key()));
         return CanonicalJson.bytes(body);
+    }
+
+    /**
+     * A signed checkpoint: the whole tombstone ledger captured under the lock protocol, one
+     * {@code {authUserId, erasedAt}} entry per tombstone ordered by {@code authUserId} (the order
+     * of PostgreSQL's {@code ORDER BY auth_user_id}), bound by {@code ledgerDigest}.
+     */
+    public static byte[] checkpoint(long sequence, List<ErasureLedgerEntry> entries,
+                                    String databaseIdentity, TrustedKey signingKey) {
+        List<Map<String, Object>> ledger = ledgerEntries(entries);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("schemaVersion", SCHEMA_VERSION);
+        body.put("kind", KIND_CHECKPOINT);
+        body.put("sequence", requirePositive(sequence));
+        body.put("databaseIdentity", requireText(databaseIdentity, "databaseIdentity"));
+        body.put("producerId", signingKey.producerId());
+        body.put("keyId", signingKey.keyId());
+        body.put("ledgerDigest", ledgerDigest(ledger));
+        body.put("captureProtocol", CAPTURE_PROTOCOL_TABLE_SHARE_LOCK);
+        body.put("entries", ledger);
+        body.put("signature", sign(body, SIGNED_CHECKPOINT, signingKey.key()));
+        return CanonicalJson.bytes(body);
+    }
+
+    /**
+     * Ledger entries in canonical order. Lowercase UUID text sorts like PostgreSQL's uuid order
+     * (unsigned bytes); {@link UUID#compareTo} compares signed longs and would not.
+     */
+    static List<Map<String, Object>> ledgerEntries(List<ErasureLedgerEntry> entries) {
+        Objects.requireNonNull(entries, "entries");
+        Map<String, Map<String, Object>> byUser = new TreeMap<>();
+        for (ErasureLedgerEntry entry : entries) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("authUserId", entry.authUserId().toString());
+            item.put("erasedAt", erasedAt(entry.erasedAt()));
+            if (byUser.put(entry.authUserId().toString(), item) != null) {
+                throw new IllegalArgumentException("duplicate ledger entry for one authUserId");
+            }
+        }
+        return List.copyOf(byUser.values());
     }
 
     /** The signed expected boundary; {@code highestReserved} is never below {@code expectedThrough}. */
     public static byte[] frontier(long expectedThrough, long highestReserved,
-                                  String databaseIdentity, ProducerKey producer) {
+                                  String databaseIdentity, TrustedKey signingKey) {
         if (expectedThrough < 0 || highestReserved < expectedThrough) {
             throw new IllegalArgumentException(
                     "frontier needs 0 <= expectedThrough <= highestReserved: "
@@ -145,9 +195,10 @@ public final class DurableErasureEvidence {
         body.put("expectedThrough", expectedThrough);
         body.put("highestReserved", highestReserved);
         body.put("databaseIdentity", requireText(databaseIdentity, "databaseIdentity"));
-        body.put("producerId", producer.producerId());
+        body.put("producerId", signingKey.producerId());
+        body.put("keyId", signingKey.keyId());
         body.put("frontierDigest", frontierDigest(expectedThrough, highestReserved));
-        body.put("signature", sign(body, SIGNED_FRONTIER, producer.key()));
+        body.put("signature", sign(body, SIGNED_FRONTIER, signingKey.key()));
         return CanonicalJson.bytes(body);
     }
 

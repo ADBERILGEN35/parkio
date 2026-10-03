@@ -8,7 +8,8 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.RecoveryVerdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verdict;
 import com.parkio.auth.application.durable.DurableEvidenceException;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +28,6 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,8 +55,9 @@ class ObjectLockFrontierVersionOrderIT {
     private static final String ACCESS_KEY = "parkio-test";
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String DATABASE = "auth-db:frontier-order-it";
-    private static final ProducerKey PRODUCER =
-            new ProducerKey("auth-frontier-order-it", "frontier-order-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8));
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-frontier-order-it-key-2026a", "auth-frontier-order-it",
+            "frontier-order-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8), Instant.parse("2026-01-01T00:00:00Z"));
+    private static final EvidenceTrust TRUST = new EvidenceTrust(DATABASE, List.of(PRODUCER));
     private static final AtomicInteger BUCKETS = new AtomicInteger();
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -135,7 +136,8 @@ class ObjectLockFrontierVersionOrderIT {
     void aFrontierWithoutAnyVerifiedVersionStillFailsClosed() {
         bucket().put(DurableErasureEvidence.FRONTIER_KEY,
                 DurableErasureEvidence.frontier(1, 1, DATABASE,
-                        new ProducerKey(PRODUCER.producerId(), "another-key-not-a-secret".getBytes(StandardCharsets.UTF_8))),
+                        TrustedKey.active(PRODUCER.keyId(), PRODUCER.producerId(),
+                                "another-key-not-a-secret".getBytes(StandardCharsets.UTF_8), PRODUCER.notBefore())),
                 RetentionMode.GOVERNANCE, ZonedDateTime.now(ZoneOffset.UTC).plusDays(1));
 
         assertThatThrownBy(() -> verifier().recover(new ObjectLockEvidenceObjects(bucket()), null))
@@ -144,7 +146,7 @@ class ObjectLockFrontierVersionOrderIT {
     }
 
     private ObjectLockDurableErasureRecordStore store(MinioClient minio) {
-        return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minio, bucketName), DATABASE, PRODUCER,
+        return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minio, bucketName), TRUST, PRODUCER.keyId(),
                 RetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
     }
 
@@ -175,7 +177,7 @@ class ObjectLockFrontierVersionOrderIT {
     }
 
     private static DurableErasureEvidenceVerifier verifier() {
-        return new DurableErasureEvidenceVerifier(DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()));
+        return new DurableErasureEvidenceVerifier(TRUST, Instant.now());
     }
 
     private static DurableErasureRecord record() {

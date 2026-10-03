@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The evidence objects of an object-lock bucket as the format v1 verifier reads them: records,
+ * The evidence objects of an object-lock bucket as the format v2 verifier reads them: records,
  * sequence markers and checkpoints by their first (canonical) version; the frontier, the only
  * object that is rewritten, through all its versions ({@link #findAll}), because the listing
  * order by modification time is not the write order after a backward clock step. Delete
