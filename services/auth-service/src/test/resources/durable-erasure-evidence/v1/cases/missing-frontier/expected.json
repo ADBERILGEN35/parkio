@@ -1,0 +1,24 @@
+{
+  "checks": [
+    {
+      "abandonedReservations": [],
+      "expectedThrough": null,
+      "gaps": [],
+      "latestTrustedCheckpoint": null,
+      "latestTrustedSequence": null,
+      "listedMaximumSequence": 3,
+      "pendingRequestIds": [],
+      "requiredThrough": null,
+      "verdict": "UNKNOWN"
+    },
+    {
+      "error": "UNKNOWN: missing records or unknown tail; recovery BLOCKED",
+      "requiredThrough": 1
+    }
+  ],
+  "description": "No independently durable expected boundary: UNKNOWN.",
+  "expectedDatabaseIdentity": "auth-db:interop-fixture",
+  "trustedProducers": [
+    "interop-fixture-producer"
+  ]
+}

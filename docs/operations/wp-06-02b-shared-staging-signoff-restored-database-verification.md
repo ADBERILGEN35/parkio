@@ -29,7 +29,9 @@ See final report section 4.
 
 - Overlay: `docker/docker-compose.restored-application-verification.yml`
 - Orchestrator: `scripts/staging/run-wp062b-restored-stack-verification.sh`
-- Ports: 18xxx / 15xxx reserved range; `assert_host_ports_free`
+- Ports: 18xxx / 15xxx reserved range; `assert_host_ports_free`. All are published on
+  127.0.0.1 only (CL-F29.1); reach them from another machine through an SSH tunnel. The
+  staging-verification workflow fails if a published port binds another address.
 - DBs: `*_wp062b_src` then `*_drill_wp062b_*` with `parkio_wp062_restore_marker`
 - Kafka: isolated broker in project (`ISOLATED_BROKER`)
 - Redis: empty rebuilt (`EMPTY_REBUILT`)
