@@ -11,7 +11,11 @@ public interface EvidenceObjects {
 
     Optional<byte[]> find(String key);
 
-    /** Every stored version of {@code key}; a store without versions returns at most one. */
+    /**
+     * Every stored version of {@code key}; a store without versions returns at most one. Used for
+     * the frontier, the only object that is rewritten; the verifier takes its highest verified
+     * version.
+     */
     default List<byte[]> findAll(String key) {
         return find(key).map(List::of).orElse(List.of());
     }

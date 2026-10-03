@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.durable.DurableErasureEvidence;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
+import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.FrontierVersions;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedCheckpoint;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedFrontier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
@@ -14,22 +15,28 @@ import com.parkio.auth.application.port.CapturedErasureLedger;
 import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.application.port.DurableErasureCheckpointStore;
 import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import io.minio.messages.Retention;
 import io.minio.messages.RetentionMode;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -75,6 +82,7 @@ public final class ObjectLockDurableErasureRecordStore
     private final RetentionMode retentionMode;
     private final Duration retention;
     private final Clock clock;
+    private final AtomicInteger reportedIgnoredFrontierVersions = new AtomicInteger();
 
     /**
      * Signs with {@code signingKeyId} from {@code trust} and verifies what it reads with the whole
@@ -166,11 +174,32 @@ public final class ObjectLockDurableErasureRecordStore
                                            boolean writtenNow) {
         VerifiedPending pending = verify(stored);
         DurableErasureRecord existing = toRecord(pending, stored);
+        DurableErasureReceipt receipt = receipt(stored);
         if (!existing.bodyDigest().equals(candidate.bodyDigest())) {
-            return DurableErasurePutResult.conflict(existing);
+            return DurableErasurePutResult.conflict(existing, receipt);
         }
         advanceFrontier(pending.sequence(), pending.sequence());
-        return writtenNow ? DurableErasurePutResult.created(existing) : DurableErasurePutResult.existing(existing);
+        return writtenNow
+                ? DurableErasurePutResult.created(existing, receipt)
+                : DurableErasurePutResult.existing(existing, receipt);
+    }
+
+    /** The canonical version's id, the SHA-256 of its bytes, and the lock the store reports on it. */
+    private DurableErasureReceipt receipt(ObjectLockBucket.StoredVersion stored) {
+        Retention retention = bucket.retention(stored.key(), stored.versionId());
+        if (retention == null || retention.mode() == null || retention.retainUntilDate() == null) {
+            throw unavailable("record " + stored.key() + " has no retention lock");
+        }
+        return new DurableErasureReceipt(stored.versionId(), sha256Hex(stored.bytes()), retention.mode().name(),
+                retention.retainUntilDate().toInstant());
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
     }
 
     /**
@@ -250,12 +279,18 @@ public final class ObjectLockDurableErasureRecordStore
     }
 
     private Optional<VerifiedFrontier> frontier() {
+        FrontierVersions versions;
         try {
-            return verifier().verifyFrontierVersions(objects.findAll(DurableErasureEvidence.FRONTIER_KEY));
+            versions = verifier().verifyFrontierVersions(objects.findAll(DurableErasureEvidence.FRONTIER_KEY));
         } catch (DurableEvidenceException ex) {
             log.error("durable store frontier failed verification: {}", ex.getMessage());
             throw unavailable("frontier failed verification");
         }
+        int ignored = versions.ignoredVersions();
+        if (ignored > reportedIgnoredFrontierVersions.getAndAccumulate(ignored, Math::max)) {
+            log.warn("durable store ignores {} frontier version(s) that failed verification", ignored);
+        }
+        return versions.highest();
     }
 
     private VerifiedCheckpoint verifyCheckpoint(ObjectLockBucket.StoredVersion stored) {
