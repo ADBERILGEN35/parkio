@@ -3,8 +3,9 @@
 // (`docker compose config --format json`) and requires every service to run with
 // no-new-privileges and cap_drop ALL, to add back only the capabilities recorded for it, and
 // to mount the Docker socket or share the host PID namespace only where the inventory
-// (docs/operations/container-hardening-inventory.md) documents an exception. Privileged
-// containers are refused outright.
+// (docs/operations/container-hardening-inventory.md) documents an exception, and to run with a
+// read-only root filesystem unless the inventory records why not (B8). Privileged containers
+// are refused outright.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +26,9 @@ export const DOCKER_SOCKET_EXCEPTIONS = new Set(['promtail']);
 
 /** Services allowed to share the host PID namespace; see the inventory for why. */
 export const HOST_PID_EXCEPTIONS = new Set(['node-exporter']);
+
+/** Services allowed a writable root filesystem; see the inventory for why (B8). */
+export const WRITABLE_ROOT_EXCEPTIONS = new Set(['clamav']);
 
 function capabilityProfile(service) {
   return service.startsWith('postgres-') ? 'postgres' : service;
@@ -67,6 +71,9 @@ export function evaluateHardening(config) {
     }
     if (service.pid === 'host' && !HOST_PID_EXCEPTIONS.has(name)) {
       failures.push(`${name}: shares the host PID namespace`);
+    }
+    if (service.read_only !== true && !WRITABLE_ROOT_EXCEPTIONS.has(name)) {
+      failures.push(`${name}: root filesystem is not read-only`);
     }
   }
   return { services: services.length, failures };

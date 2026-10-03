@@ -99,6 +99,10 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
 
+# Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh against the
+# inventory, so this drift check ignores it; volumes, binds and images stay strict.
+HARDENING_KEYS = ("read_only", "tmpfs")
+
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
 
@@ -114,6 +118,9 @@ def strip_allowlisted_env(model):
     for svc in MINIO_IMAGE_SERVICES:
         if svc in m.get("services", {}):
             m["services"][svc].pop("image", None)
+    for svc in m.get("services", {}).values():
+        for key in HARDENING_KEYS:
+            svc.pop(key, None)
     return m
 
 # 1. disabled default vs base

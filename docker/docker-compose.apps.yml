@@ -54,12 +54,14 @@ x-app-common: &app-common
   stop_grace_period: 45s
   # Baseline container hardening (defense in depth; images already run as non-root uid
   # 10001). no-new-privileges blocks setuid escalation; an HTTP/JVM service needs no
-  # Linux capabilities, so drop them all. Stronger read-only-rootfs is tracked as a
-  # follow-up (needs live multipart-upload validation — see runtime-sizing.md).
+  # Linux capabilities, so drop them all. The root filesystem is read-only (B8); the JVM,
+  # Tomcat/Netty and multipart uploads (media: up to 12 MB per part) write only to /tmp.
   security_opt:
     - no-new-privileges:true
   cap_drop:
     - ALL
+  read_only: true
+  tmpfs: ["/tmp:size=128m"]
   # Cap the process/thread count so a thread leak or fork loop cannot exhaust host PIDs.
   pids_limit: 512
   environment: &app-env-common

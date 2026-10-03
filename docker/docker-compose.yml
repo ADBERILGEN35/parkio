@@ -38,11 +38,17 @@ x-hardening: &hardening
     - no-new-privileges:true
   cap_drop:
     - ALL
+# Read-only root filesystems (owner decision B8) are set per service below, with the tmpfs
+# mounts each image needs; clamav is the documented exception (its init script rewrites the
+# /var/lock symlink at every start).
 
 x-postgres-common: &postgres-common
   <<: *hardening
   # The entrypoint creates and chowns PGDATA, then switches to the postgres user.
   cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+  # Read-only root (B8): the socket and lock files live in /var/run/postgresql.
+  read_only: true
+  tmpfs: [/var/run/postgresql, /tmp]
   image: ${POSTGRES_IMAGE:-postgres:16-alpine}
   restart: unless-stopped
   logging: *default-logging
@@ -170,6 +176,8 @@ services:
   # ------------------------------------------------------------------------- #
   redis:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     # Runs redis-server as root (the command is not "redis-server", so the entrypoint
     # does not switch users) and writes into /data, which the image owns as redis.
     cap_add: [DAC_OVERRIDE]
@@ -208,6 +216,10 @@ services:
   # ------------------------------------------------------------------------- #
   kafka:
     <<: *hardening
+    read_only: true
+    # The cp-kafka entrypoint renders /etc/kafka from its templates and writes GC logs to
+    # /var/log/kafka at every start.
+    tmpfs: [/tmp, "/etc/kafka:mode=1777", "/var/log/kafka:mode=1777"]
     image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.7.1}
     container_name: parkio-kafka
     restart: unless-stopped
@@ -242,6 +254,7 @@ services:
 
   kafka-exporter:
     <<: *hardening
+    read_only: true
     image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter:v1.8.0}
     container_name: parkio-kafka-exporter
     restart: unless-stopped
@@ -261,6 +274,7 @@ services:
   # Prometheus scrapes /probe; targets are on the backend network (MinIO, Redis, ClamAV, Postgres).
   blackbox-exporter:
     <<: *hardening
+    read_only: true
     image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
     container_name: parkio-blackbox-exporter
     restart: unless-stopped
@@ -280,6 +294,8 @@ services:
   # ------------------------------------------------------------------------- #
   minio:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     image: ${MINIO_IMAGE:-ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c}
     container_name: parkio-minio
     restart: unless-stopped
@@ -303,6 +319,8 @@ services:
   # One-shot: create the media bucket so media-service has somewhere to write.
   minio-setup:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     image: ${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}
     container_name: parkio-minio-setup
     depends_on:
@@ -361,6 +379,7 @@ services:
   # ------------------------------------------------------------------------- #
   prometheus:
     <<: *hardening
+    read_only: true
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     container_name: parkio-prometheus
     restart: unless-stopped
@@ -401,6 +420,9 @@ services:
 
   alertmanager:
     <<: *hardening
+    read_only: true
+    # render-config.sh writes the runtime config to /tmp.
+    tmpfs: [/tmp]
     image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
     container_name: parkio-alertmanager
     restart: unless-stopped
@@ -428,6 +450,8 @@ services:
 
   loki:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
     container_name: parkio-loki
     restart: unless-stopped
@@ -451,6 +475,7 @@ services:
 
   promtail:
     <<: *hardening
+    read_only: true
     image: ${PROMTAIL_IMAGE:-grafana/promtail:2.9.8}
     container_name: parkio-promtail
     restart: unless-stopped
@@ -492,6 +517,7 @@ services:
   # like Tempo it carries no container healthcheck — liveness is observed via up{job=...}.
   node-exporter:
     <<: *hardening
+    read_only: true
     image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
     container_name: parkio-node-exporter
     restart: unless-stopped
@@ -524,6 +550,8 @@ services:
   # blocks app startup.
   tempo:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
     container_name: parkio-tempo
     restart: unless-stopped
@@ -543,6 +571,8 @@ services:
 
   grafana:
     <<: *hardening
+    read_only: true
+    tmpfs: [/tmp]
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: parkio-grafana
     restart: unless-stopped

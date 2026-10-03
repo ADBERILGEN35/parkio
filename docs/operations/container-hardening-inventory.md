@@ -1,7 +1,9 @@
 # Container hardening inventory (CL-F29.3)
 
 Every service of the production Compose models runs with `security_opt: no-new-privileges:true`
-and `cap_drop: [ALL]`; a service adds back only the capabilities listed below.
+and `cap_drop: [ALL]`; a service adds back only the capabilities listed below. Since B8 every
+service except ClamAV also runs with a read-only root filesystem (`read_only: true`). It writes
+only to its volumes and to the tmpfs mounts listed under "Read-only root filesystem".
 `scripts/assert-compose-hardening.sh` renders the models and fails on any other state
 (`scripts/lib/assert-compose-hardening.mjs`, run by the invite-production PR job).
 
@@ -58,8 +60,40 @@ root and needs them to prepare a data directory or switch to its service user.
    blackbox-exporter, promtail). Switching them to a non-root user changes the owner their
    existing data volumes need, which is a host-side migration outside this change; with
    `cap_drop: [ALL]` root keeps only the capabilities listed above.
-4. **No read-only root filesystem yet.** Each service needs its writable paths mapped to
-   volumes or tmpfs and a runtime validation; tracked as a follow-up.
+4. **ClamAV keeps a writable root filesystem.** Its init script runs
+   `ln -f -s /run/lock /var/lock` at every start. That rewrites a symlink inside `/var`, which a
+   tmpfs cannot cover without hiding the rest of `/var`. The local probe failed on exactly that
+   (`ln: /var/lock/lock: Read-only file system`). Changing this needs a different init or image.
+
+## Read-only root filesystem (B8)
+
+| Service | tmpfs | Why |
+|---|---|---|
+| Parkio JVM services (10) | `/tmp` (128 MB) | JVM perf data, Tomcat/Netty work files, multipart uploads (media: up to 12 MB per part). tmpfs counts against the container memory limit. |
+| postgres-* (10) | `/var/run/postgresql`, `/tmp` | socket and lock files; `PGDATA` is the volume |
+| redis | `/tmp` | data in the `/data` volume |
+| kafka | `/tmp`, `/etc/kafka` (1777), `/var/log/kafka` (1777) | the cp-kafka entrypoint renders `/etc/kafka` from its templates and writes GC logs at every start |
+| minio, minio-setup | `/tmp` | data in `/data`; mc keeps its config in `/tmp/.mc` |
+| alertmanager | `/tmp` | `render-config.sh` writes the runtime config there |
+| loki, tempo, grafana | `/tmp` | data in their volumes |
+| web | `/etc/nginx/conf.d`, `/var/cache/nginx`, `/var/run`, `/tmp` | the entrypoint renders `conf.d` from the image template (B9, #198), so this needs the B9 image |
+| caddy | `/tmp` | certificates and config in the `caddy-data`/`caddy-config` volumes |
+| prometheus, kafka-exporter, blackbox-exporter, node-exporter, promtail | — | write only to their volumes, or nothing |
+
+Each image was started locally the way the production model starts it: `cap_drop ALL`,
+`no-new-privileges`, the same `cap_add`, `--read-only` and these tmpfs mounts. Each was checked
+for readiness and one real operation, restarted once (which empties the tmpfs), and checked
+again:
+- PostgreSQL and PostGIS: a table write survives the restart;
+- Redis: SET plus an AOF rewrite, and the key survives;
+- Kafka: a topic survives the restart;
+- MinIO with mc: bucket and object;
+- the HTTP readiness of Prometheus, Alertmanager, Loki, Tempo, Grafana, Caddy, the exporters and
+  node-exporter.
+
+None logged a read-only or permission error. The evidence is in
+`agent-tools/parkio-u18-readonly-rootfs/` (not committed). The JVM services and web are covered
+by the CI runtime, chaos and performance workflows, which start the full stack.
 
 ## Verification
 
