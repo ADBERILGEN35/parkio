@@ -16,6 +16,7 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +73,10 @@ public final class DurableErasureEvidenceVerifier {
         }
     }
 
+    private static final Comparator<VerifiedFrontier> FRONTIER_ORDER = Comparator
+            .comparingLong(VerifiedFrontier::expectedThrough)
+            .thenComparingLong(VerifiedFrontier::highestReserved);
+
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
@@ -117,6 +122,34 @@ public final class DurableErasureEvidenceVerifier {
         return Optional.of(new VerifiedFrontier(expectedThrough, highestReserved, String.valueOf(body.get("producerId"))));
     }
 
+    /**
+     * The frontier as the highest of its verified versions. The frontier is the one object that
+     * is rewritten, and a versioned store (object lock) keeps every version but may list them out
+     * of write order (by modification time, after a backward clock step). Its contents only grow,
+     * so the highest verified version is the current one. Versions that fail verification are
+     * ignored while another version verifies; if none does, the first failure is thrown.
+     */
+    public Optional<VerifiedFrontier> verifyFrontierVersions(List<byte[]> versions) {
+        VerifiedFrontier highest = null;
+        DurableEvidenceException firstFailure = null;
+        for (byte[] version : versions) {
+            try {
+                VerifiedFrontier frontier = verifyFrontier(Optional.of(version)).orElseThrow();
+                if (highest == null || FRONTIER_ORDER.compare(frontier, highest) > 0) {
+                    highest = frontier;
+                }
+            } catch (DurableEvidenceException ex) {
+                if (firstFailure == null) {
+                    firstFailure = ex;
+                }
+            }
+        }
+        if (highest == null && firstFailure != null) {
+            throw firstFailure;
+        }
+        return Optional.ofNullable(highest);
+    }
+
     public VerifiedCheckpoint verifyCheckpoint(byte[] raw) {
         Map<String, Object> body = parse(raw);
         verifySigned(body, KIND_CHECKPOINT, "not a checkpoint", SIGNED_CHECKPOINT, "producer signature mismatch");
@@ -144,7 +177,7 @@ public final class DurableErasureEvidenceVerifier {
         Set<Long> published = new TreeSet<>();
         pending.forEach(item -> published.add(item.sequence()));
         checkpoints.forEach(item -> published.add(item.sequence()));
-        Optional<VerifiedFrontier> frontier = verifyFrontier(store.find(FRONTIER_KEY));
+        Optional<VerifiedFrontier> frontier = verifyFrontierVersions(store.findAll(FRONTIER_KEY));
         List<Long> abandoned = abandonedReservations(store, published);
         Long listedMaximum = published.isEmpty() ? null : Collections.max(published);
 

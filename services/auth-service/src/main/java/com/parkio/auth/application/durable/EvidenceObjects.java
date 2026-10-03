@@ -11,6 +11,11 @@ public interface EvidenceObjects {
 
     Optional<byte[]> find(String key);
 
+    /** Every stored version of {@code key}; a store without versions returns at most one. */
+    default List<byte[]> findAll(String key) {
+        return find(key).map(List::of).orElse(List.of());
+    }
+
     default byte[] get(String key) {
         return find(key).orElseThrow(() -> new DurableEvidenceException("missing publication " + key));
     }

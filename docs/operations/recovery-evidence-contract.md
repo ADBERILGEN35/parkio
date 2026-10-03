@@ -380,7 +380,15 @@ MinIO bucket.
 - The **first version** of a record or marker is canonical: a later write only
   adds a version, a version delete is refused by the lock, and a plain delete
   only adds a delete marker; none of them changes what is read. The frontier
-  (the one rewritten object) is read from its latest version.
+  (the one rewritten object) is read as its **highest verified version**
+  (`expectedThrough`, then `highestReserved`), not as the version listed
+  first: S3 lists versions by modification time, and a backward clock step on
+  the store host makes a later version list as older (a MinIO probe on such a
+  host saw 102 stale first-listed versions in 14,467 writes). Frontier
+  contents only grow, so the highest verified version is the current one.
+  Versions that fail verification are ignored while another one verifies; if
+  none does, recovery fails with that error. The store reads each version once
+  (versions never change); recovery reads them all.
 - Identical retry returns the existing record; a different body under the same
   request id is a conflict. Store I/O refuses to run inside a database
   transaction. Any store or verification failure is
