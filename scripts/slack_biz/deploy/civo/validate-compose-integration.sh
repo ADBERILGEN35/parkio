@@ -99,10 +99,13 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
 
-# Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh against the
-# inventory, so this drift check ignores it, including media-service's anonymous /tmp volume
+# Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh, which records
+# every tmpfs entry and media-service's anonymous /tmp volume, so this drift check leaves them to it
 # (docs/operations/container-hardening-inventory.md). Other volumes, binds and images stay strict.
 HARDENING_KEYS = ("read_only", "tmpfs")
+# Kafka GC logs capped to fit the /var/log/kafka tmpfs (B8).
+KAFKA_ALLOWED = {"KAFKA_GC_LOG_OPTS"}
+KAFKA_GC_LOG_OPTS = "-Xlog:gc*:file=/var/log/kafka/kafkaServer-gc.log:time,tags:filecount=2,filesize=8M"
 HARDENING_SCRATCH_VOLUMES = {"media-service": "/tmp"}
 
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
@@ -123,6 +126,10 @@ def strip_allowlisted_env(model):
     for svc in m.get("services", {}).values():
         for key in HARDENING_KEYS:
             svc.pop(key, None)
+    if "kafka" in m.get("services", {}):
+        kenv = m["services"]["kafka"].get("environment", {})
+        for k in KAFKA_ALLOWED:
+            kenv.pop(k, None)
     for name, target in HARDENING_SCRATCH_VOLUMES.items():
         svc = m.get("services", {}).get(name)
         if not svc or "volumes" not in svc:
@@ -156,6 +163,8 @@ check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICAT
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
+check("kafka GC logs capped for the tmpfs",
+      dis["services"].get("kafka", {}).get("environment", {}).get("KAFKA_GC_LOG_OPTS") == KAFKA_GC_LOG_OPTS)
 check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
 check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
 check(

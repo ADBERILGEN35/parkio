@@ -39,8 +39,9 @@ x-hardening: &hardening
   cap_drop:
     - ALL
 # Read-only root filesystems (owner decision B8) are set per service below, with the tmpfs
-# mounts each image needs; clamav is the documented exception (its init script rewrites the
-# /var/lock symlink at every start).
+# mounts each image needs. Every tmpfs has a size: its pages count against the container's
+# memory limit. scripts/lib/assert-compose-hardening.mjs records each mount, and
+# docs/operations/container-hardening-inventory.md explains each size.
 
 x-postgres-common: &postgres-common
   <<: *hardening
@@ -48,7 +49,7 @@ x-postgres-common: &postgres-common
   cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
   # Read-only root (B8): the socket and lock files live in /var/run/postgresql.
   read_only: true
-  tmpfs: [/var/run/postgresql, /tmp]
+  tmpfs: ["/var/run/postgresql:size=1m", "/tmp:size=16m"]
   image: ${POSTGRES_IMAGE:-postgres:16-alpine}
   restart: unless-stopped
   logging: *default-logging
@@ -177,7 +178,7 @@ services:
   redis:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=8m"]
     # Runs redis-server as root (the command is not "redis-server", so the entrypoint
     # does not switch users) and writes into /data, which the image owns as redis.
     cap_add: [DAC_OVERRIDE]
@@ -218,8 +219,8 @@ services:
     <<: *hardening
     read_only: true
     # The cp-kafka entrypoint renders /etc/kafka from its templates and writes GC logs to
-    # /var/log/kafka at every start.
-    tmpfs: [/tmp, "/etc/kafka:mode=1777", "/var/log/kafka:mode=1777"]
+    # /var/log/kafka at every start. KAFKA_GC_LOG_OPTS below keeps those logs within that tmpfs.
+    tmpfs: ["/tmp:size=16m", "/etc/kafka:size=8m,mode=1777", "/var/log/kafka:size=32m,mode=1777"]
     image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.7.1}
     container_name: parkio-kafka
     restart: unless-stopped
@@ -243,6 +244,9 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # At most three 8 MB GC log files (the image default is ten of 100 MB), so they fit the
+      # 32 MB tmpfs above, whose pages count against the memory limit.
+      KAFKA_GC_LOG_OPTS: "-Xlog:gc*:file=/var/log/kafka/kafkaServer-gc.log:time,tags:filecount=2,filesize=8M"
     volumes: ["kafka-data:/var/lib/kafka/data"]
     networks: [parkio-backend]
     healthcheck:
@@ -295,7 +299,7 @@ services:
   minio:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=16m"]
     image: ${MINIO_IMAGE:-ghcr.io/adberilgen35/parkio/minio@sha256:efba309ba4dc89e48f37304db52a0b854c0e701ba944ca02205c4e292c1a756c}
     container_name: parkio-minio
     restart: unless-stopped
@@ -320,7 +324,7 @@ services:
   minio-setup:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=8m"]
     image: ${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}
     container_name: parkio-minio-setup
     depends_on:
@@ -354,6 +358,11 @@ services:
     # The init script prepares /var/lib/clamav and the run directories, then runs
     # freshclam and clamd as the clamav user.
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    # Read-only root (B8). /var/lock links to /run/lock, where the init script creates its lock
+    # link; clamd keeps its socket and the stream of each scan in /tmp (media caps an upload at
+    # 12 MB) and its size-capped logs in /var/log/clamav.
+    read_only: true
+    tmpfs: ["/tmp:size=128m", "/run/clamav:size=1m", "/run/lock:size=1m", "/var/log/clamav:size=16m"]
     image: ${CLAMAV_IMAGE:-clamav/clamav:1.4}
     container_name: parkio-clamav
     restart: unless-stopped
@@ -422,7 +431,7 @@ services:
     <<: *hardening
     read_only: true
     # render-config.sh writes the runtime config to /tmp.
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=8m"]
     image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
     container_name: parkio-alertmanager
     restart: unless-stopped
@@ -451,7 +460,7 @@ services:
   loki:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=16m"]
     image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
     container_name: parkio-loki
     restart: unless-stopped
@@ -551,7 +560,7 @@ services:
   tempo:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=16m"]
     image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
     container_name: parkio-tempo
     restart: unless-stopped
@@ -572,7 +581,7 @@ services:
   grafana:
     <<: *hardening
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp:size=32m"]
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: parkio-grafana
     restart: unless-stopped
