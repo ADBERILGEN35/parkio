@@ -228,8 +228,12 @@ public class WaitlistApplicationService {
     /**
      * Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)},
      * at most {@code parkio.waitlist.export.max-rows} of them. The match is counted first, so the
-     * caller can report truncation before streaming; the rows then come one keyset page at a time,
-     * so memory stays bounded by the page size whatever the volume.
+     * caller can report truncation before streaming; the count and the pages are separate reads,
+     * so a row confirmed while the export runs can be streamed although it was not counted. The
+     * rows come one keyset page at a time without a database cursor. Memory does not grow with
+     * the matching volume, but it is not one page either: the HTTP layer prefetches a bounded
+     * number of buffers (Reactor Netty asks for up to 128 pages), and at the default cap of 50,000
+     * rows the whole export is 50 pages.
      */
     public Mono<WaitlistExport> export(Instant confirmedFrom, Instant confirmedTo) {
         int limit = properties.getExport().getMaxRows();
