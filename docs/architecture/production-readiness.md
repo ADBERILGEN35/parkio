@@ -363,12 +363,14 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
   defers the whole block to response time. Caddy's CSP and its other security headers therefore
   replace the image's on the edge, and the image's policy applies only where no edge replaces it.
 
-  Since B9 the image's `connect-src` is rendered at container start from the same
-  `PARKIO_DOMAIN`, `PARKIO_MEDIA_DOMAIN` and `PARKIO_MAP_CONNECT_SRC` as Caddy's. Every other
-  directive is equal to Caddy's or stricter: `worker-src 'self'` without `blob:`. So the SPA
-  reaches the same origins whichever policy is enforced, alone or both together. The image
-  refuses to start without those inputs, unless it is given an explicit
-  `PARKIO_WEB_CSP_CONNECT_SRC` for a run without the edge.
+  Since B9 the image's `connect-src` is rendered at container start from the same inputs as
+  Caddy's: `PARKIO_DOMAIN`, `PARKIO_MEDIA_DOMAIN` and `PARKIO_MAP_CONNECT_SRC`. The production
+  Compose model passes the finished source list as one `PARKIO_WEB_CSP_CONNECT_SRC` (#200),
+  which keeps bare production host names out of web's environment for the dark ACME guard; a
+  plain `docker run` can pass the three inputs instead. Every other directive is equal to
+  Caddy's or stricter: `worker-src 'self'` without `blob:`. So the SPA reaches the same origins
+  whichever policy is enforced, alone or both together. The image refuses to start without its
+  origins, or with a value that is not one line of CSP sources.
 
   `src/cspEdgeCombination.test.ts` checks the policies, and Runtime validation checks the live
   headers: the image's upstream, and Caddy's at the edge.
