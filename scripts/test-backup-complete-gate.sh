@@ -161,6 +161,10 @@ if [[ "$1" == exec ]]; then
   exit 2
 fi
 if [[ "$1" == run ]]; then
+  if [[ -n "${DOCKER_RUN_LOG:-}" ]]; then
+    printf '%s\n' "$@" >> "${DOCKER_RUN_LOG}"
+    echo "=== end docker run ===" >> "${DOCKER_RUN_LOG}"
+  fi
   dest=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == -v || "$1" == --volume ]]; then
@@ -691,6 +695,32 @@ if [ -f "${old_off}/COMPLETE" ]; then
   ok "previous good stamp survives offsite failure"
 else
   bad "offsite failure must not prune the last good stamp"
+fi
+
+# CL-F29.2: the plaintext mirror belongs to the invoking user and is private (no a+rwX).
+case_perm="${WORK}/mirror-permissions"
+mkdir -p "${case_perm}"
+reset_fakes
+rc=0
+DOCKER_RUN_LOG="${case_perm}/docker-run.log" \
+  bash "${ROOT}/scripts/backup-minio.sh" "${case_perm}/stamp" > "${case_perm}/count.txt" || rc=$?
+user_arg="$(awk 'previous == "--user" { print; exit } { previous = $0 }' "${case_perm}/docker-run.log" 2>/dev/null || true)"
+if [ "${rc}" -eq 0 ] && [ "${user_arg}" = "$(id -u):$(id -g)" ]; then
+  ok "MinIO mirror container runs as the invoking user"
+else
+  bad "MinIO mirror container must run as $(id -u):$(id -g) (rc=${rc}, --user '${user_arg}')"
+fi
+if grep -q 'umask 077' "${case_perm}/docker-run.log" 2>/dev/null \
+  && ! grep -q 'chmod' "${case_perm}/docker-run.log" 2>/dev/null; then
+  ok "MinIO mirror container uses umask 077 and changes no permissions"
+else
+  bad "MinIO mirror container must use umask 077 and must not chmod the mirror"
+fi
+open_entries="$(find "${case_perm}/stamp/minio" -perm /077 2>/dev/null | wc -l)"
+if [ -d "${case_perm}/stamp/minio/parkio-media" ] && [ "${open_entries}" -eq 0 ]; then
+  ok "MinIO mirror tree grants no group/other permissions"
+else
+  bad "MinIO mirror tree must grant no group/other permissions (${open_entries} entries do)"
 fi
 
 echo

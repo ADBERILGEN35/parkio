@@ -192,8 +192,9 @@ Parkio carries two related identifiers:
 - `X-Correlation-Id` remains the support-facing request id and is represented in API errors,
   event envelopes and legacy Kafka headers as `traceId`.
 
-1. `gateway-service` forwards a client-supplied `X-Correlation-Id` or generates a
-   UUID, then echoes it on the HTTP response.
+1. `gateway-service` forwards a client-supplied `X-Correlation-Id` only if, once
+   trimmed, it is 1-128 characters of `A-Z a-z 0-9 . _ : -`; otherwise (or when it is
+   absent) it generates a UUID. It then echoes the forwarded value on the HTTP response.
 2. Every downstream HTTP service puts that value into MDC as `correlationId` for the
    request lifetime. If called without the header, the service generates a UUID. Micrometer
    tracing separately puts the OTel `traceId` and `spanId` into MDC.

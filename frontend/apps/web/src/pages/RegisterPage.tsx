@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import type { CheckEmailState } from '@/pages/CheckEmailPage';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { setPendingProfile } from '@/auth/pendingProfile';
 import { localeFromSearchParam } from '@/i18n/localeFromSearchParam';
@@ -114,7 +115,8 @@ export function RegisterPage() {
       );
       trackProductEvent('auth_signup_api_succeeded');
       showSuccess(t('auth:register.success'));
-      navigate(`/check-email?email=${encodeURIComponent(values.email.trim())}`);
+      // The address travels in navigation state, never in the URL (CL-F39.1).
+      navigate('/check-email', { state: { email: values.email.trim() } satisfies CheckEmailState });
     } catch (error) {
       trackProductEvent('auth_signup_failed', {
         authFailureReason: mapSignupFailureReason(error),
