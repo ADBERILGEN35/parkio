@@ -121,8 +121,10 @@ into service code (`ai-context/01`):
   embedded in presigned GET URLs, e.g. `http://localhost:9000` for local beta) /
   `PARKIO_MEDIA_BUCKET` / `PARKIO_MEDIA_STORAGE_ACCESS_KEY` /
   `PARKIO_MEDIA_STORAGE_SECRET_KEY` (names must match `parkio.media.*` in
-  `application.yml`). SigV4 signs the `Host` header — presigned URLs must be
-  generated with the same host the browser will use.
+  `application.yml`; required — media-service refuses to start without them, and
+  refuses MinIO's `minioadmin` default outside the `dev` profile). SigV4 signs the
+  `Host` header — presigned URLs must be generated with the same host the browser
+  will use.
 - `gateway-service` → `PARKIO_<SVC>_SERVICE_URI` (downstream route targets, e.g.
   `http://user-service:8082`). These resolve the `${PARKIO_*_SERVICE_URI}` placeholders in
   the gateway's `application.yml`; their dev defaults (`localhost:808x`) only work when the

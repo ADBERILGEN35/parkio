@@ -1,17 +1,29 @@
 import { Button, ErrorMessage, Icon, Input } from '@parkio/ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { showError, showSuccess } from '@/lib/toast';
 
+/**
+ * Navigation state the register page passes. The address is kept out of the URL so it
+ * does not end up in browser history, server/proxy logs or referrers (CL-F39.1). Without
+ * state (a direct visit) the field starts empty and the visitor types the address.
+ */
+export type CheckEmailState = { email?: string };
+
+function emailFromState(state: unknown): string {
+  const email = (state as CheckEmailState | null)?.email;
+  return typeof email === 'string' ? email : '';
+}
+
 export function CheckEmailPage() {
   const { authApi } = useParkioSdk();
   const { t, i18n } = useTranslation(['auth', 'common', 'errors']);
-  const [searchParams] = useSearchParams();
-  const [email, setEmail] = useState(searchParams.get('email') ?? '');
+  const location = useLocation();
+  const [email, setEmail] = useState(() => emailFromState(location.state));
   const [message, setMessage] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();

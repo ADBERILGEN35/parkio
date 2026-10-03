@@ -1,0 +1,22 @@
+{
+  "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+  "keys": [
+    {
+      "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d666978747572652d6e6f742d612d736563726574",
+      "keyId": "interop-fixture-key-2026a",
+      "producerId": "interop-fixture-producer"
+    },
+    {
+      "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d726f74617465642d6e6f742d612d736563726574",
+      "keyId": "interop-fixture-key-2026b",
+      "producerId": "interop-fixture-producer"
+    },
+    {
+      "keyHex": "7061726b696f2d64757261626c652d696e7465726f702d6f746865722d6e6f742d612d736563726574",
+      "keyId": "interop-other-key-2026a",
+      "producerId": "interop-other-producer"
+    }
+  ],
+  "note": "Synthetic fixture keys; not secrets and never used outside tests.",
+  "signedAt": "2026-09-29T08:20:00Z"
+}

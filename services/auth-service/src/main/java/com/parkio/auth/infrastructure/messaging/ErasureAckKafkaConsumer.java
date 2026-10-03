@@ -2,7 +2,9 @@ package com.parkio.auth.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.AccountErasureApplicationService;
+import com.parkio.auth.application.ErasureRestoreReplayService;
 import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.auth.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.platform.messaging.EventEnvelope;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -21,10 +23,13 @@ public class ErasureAckKafkaConsumer {
     private static final Logger log = LoggerFactory.getLogger(ErasureAckKafkaConsumer.class);
 
     private final AccountErasureApplicationService erasure;
+    private final ErasureRestoreReplayService restoreReplay;
     private final ObjectMapper objectMapper;
 
-    public ErasureAckKafkaConsumer(AccountErasureApplicationService erasure, ObjectMapper objectMapper) {
+    public ErasureAckKafkaConsumer(AccountErasureApplicationService erasure, ErasureRestoreReplayService restoreReplay,
+                                   ObjectMapper objectMapper) {
         this.erasure = erasure;
+        this.restoreReplay = restoreReplay;
         this.objectMapper = objectMapper;
     }
 
@@ -40,6 +45,9 @@ public class ErasureAckKafkaConsumer {
         if (UserErasureAcknowledgedEvent.TYPE.equals(eventType)) {
             erasure.handleAcknowledgement(
                     objectMapper.treeToValue(envelope.payload(), UserErasureAcknowledgedEvent.class));
+        } else if (UserErasureRestoreAcknowledgedEvent.TYPE.equals(eventType)) {
+            restoreReplay.handleAcknowledgement(
+                    objectMapper.treeToValue(envelope.payload(), UserErasureRestoreAcknowledgedEvent.class));
         } else {
             log.debug("Ignoring event type {} on {}", eventType, TOPIC);
         }

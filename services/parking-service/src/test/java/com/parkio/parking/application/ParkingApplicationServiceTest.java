@@ -941,6 +941,42 @@ class ParkingApplicationServiceTest {
                 .satisfies(s -> assertThat(s.radiusMeters()).isEqualTo(2000.0));
     }
 
+    @Test
+    void nearbySearchRejectsNonFiniteOrOutOfRangeCoordinatesWithoutSearchingOrLogging() {
+        double[][] invalid = {
+                {Double.NaN, 29.0}, {41.0, Double.NaN},
+                {Double.POSITIVE_INFINITY, 29.0}, {41.0, Double.NEGATIVE_INFINITY},
+                {90.000001, 29.0}, {-91.0, 29.0}, {41.0, 180.000001}, {41.0, -181.0}};
+        for (double[] coordinates : invalid) {
+            assertThatThrownBy(() -> service.searchNearby(
+                    new SearchNearbyQuery(UUID.randomUUID(), coordinates[0], coordinates[1], null, null)))
+                    .as("lat=%s lng=%s", coordinates[0], coordinates[1])
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        assertThat(searchLogs.all).isEmpty();
+    }
+
+    @Test
+    void nearbySearchRejectsNonFiniteRadiusWithoutLogging() {
+        for (double radius : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> service.searchNearby(
+                    new SearchNearbyQuery(UUID.randomUUID(), 41.0, 29.0, radius, null)))
+                    .as("radius=%s", radius)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        assertThat(searchLogs.all).isEmpty();
+    }
+
+    @Test
+    void nearbySearchAcceptsCoordinateBoundaries() {
+        service.searchNearby(new SearchNearbyQuery(UUID.randomUUID(), 90.0, 180.0, null, null));
+        service.searchNearby(new SearchNearbyQuery(UUID.randomUUID(), -90.0, -180.0, null, null));
+
+        assertThat(searchLogs.all).hasSize(2);
+    }
+
     // --- Spot media access URL (parking-mediated photo viewing) -----------
 
     @Test

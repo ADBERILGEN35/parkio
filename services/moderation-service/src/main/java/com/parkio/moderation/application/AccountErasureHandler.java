@@ -1,8 +1,10 @@
 package com.parkio.moderation.application;
 
 import com.parkio.moderation.application.event.UserErasureRequestedEvent;
+import com.parkio.moderation.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.moderation.application.port.ErasureAckOutbox;
 import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.moderation.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.moderation.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.moderation.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +54,29 @@ public class AccountErasureHandler {
                 SERVICE_NAME, "SUCCESS", clock.instant()));
         log.info("erasure committed requestId={} service={} status=SUCCESS_QUEUED",
                 event.erasureRequestId(), SERVICE_NAME);
+    }
+
+    /**
+     * Replays one user's erasure for an isolated recovery and records the attempt-bound restore ACK
+     * in the outbox within the same transaction (docs/architecture/erasure-restore-replay-contract.md).
+     * The erase is the live one, so a replay is idempotent; the ACK echoes the attempt, dataset and
+     * erasure-set digest it was asked for, and the coordinator decides whether they match.
+     */
+    @Transactional
+    public void replayForRestore(UserErasureRestoreReplayRequestedEvent event) {
+        eraseLocal(event.authUserId());
+        ackOutbox.appendRestoreAck(new UserErasureRestoreAcknowledgedEvent(
+                restoreAckEventId(event), event.recoveryAttemptId(), event.restoredDatasetId(),
+                event.erasureSetDigest(), event.authUserId(), SERVICE_NAME, "SUCCESS", clock.instant()));
+        log.info("erasure restore replay committed attempt={} service={} status=SUCCESS_QUEUED",
+                event.recoveryAttemptId(), SERVICE_NAME);
+    }
+
+    /** One restore ACK per consumed replay event; a redelivery re-derives the same id. */
+    static UUID restoreAckEventId(UserErasureRestoreReplayRequestedEvent event) {
+        String key = event.eventId() + ":" + event.recoveryAttemptId() + ":" + event.authUserId() + ":"
+                + SERVICE_NAME + ":restore-ack";
+        return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

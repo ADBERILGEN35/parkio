@@ -148,6 +148,9 @@ public final class AuthUser {
         }
         this.emailVerified = true;
         this.emailVerifiedAt = verifiedAt;
+        // A verification link is single use (CL-F35).
+        this.emailVerificationTokenHash = null;
+        this.emailVerificationExpiresAt = null;
         if (status == AuthUserStatus.PENDING_VERIFICATION) {
             this.status = AuthUserStatus.ACTIVE;
         }
