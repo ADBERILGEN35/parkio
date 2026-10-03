@@ -99,6 +99,9 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
 
+# Web image CSP connect-src (CL-F39.4, B9), rendered in Compose from Caddy's inputs.
+WEB_ALLOWED = {"PARKIO_WEB_CSP_CONNECT_SRC"}
+
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
 
@@ -111,6 +114,12 @@ def strip_allowlisted_env(model):
         genv.pop(k, None)
     for k in AUTH_ALLOWED:
         aenv.pop(k, None)
+    if "web" in m["services"]:
+        wenv = m["services"]["web"].setdefault("environment", {})
+        for k in WEB_ALLOWED:
+            wenv.pop(k, None)
+        if not wenv:
+            m["services"]["web"].pop("environment")
     for svc in MINIO_IMAGE_SERVICES:
         if svc in m.get("services", {}):
             m["services"][svc].pop("image", None)
@@ -136,6 +145,19 @@ check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICAT
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
+if "web" in dis["services"]:
+    wenv = dis["services"]["web"].get("environment", {})
+    cenv = dis["services"]["caddy"].get("environment", {})
+    # The same source list as the Caddyfile SPA policy, including its map default.
+    expected_csp = " ".join([
+        "'self'",
+        f"https://{cenv.get('PARKIO_DOMAIN')}",
+        f"https://{cenv.get('PARKIO_MEDIA_DOMAIN')}",
+        cenv.get("PARKIO_MAP_CONNECT_SRC") or "https://api.maptiler.com",
+    ])
+    check("web CSP connect-src rendered from Caddy's inputs",
+          wenv.get("PARKIO_WEB_CSP_CONNECT_SRC") == expected_csp,
+          wenv.get("PARKIO_WEB_CSP_CONNECT_SRC") or "unset")
 check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
 check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
 check(
