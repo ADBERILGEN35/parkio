@@ -201,6 +201,23 @@ describe.skipIf(!hasSh)('15-parkio-web-csp.envsh', () => {
       'PARKIO_MAP_CONNECT_SRC entries must be https://host sources',
     ],
     [{ PARKIO_WEB_CSP_CONNECT_SRC: "'self'; script-src *" }, 'PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources'],
+    // grep matches line by line: a valid first line must not carry a second one into nginx.conf.
+    [
+      { PARKIO_WEB_CSP_CONNECT_SRC: "'self'\n\"; add_header X-Injected 1; #" },
+      'PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources',
+    ],
+    [{ PARKIO_WEB_CSP_CONNECT_SRC: "'self' https://api.parkio.test\n" }, 'PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources'],
+    [{ PARKIO_WEB_CSP_CONNECT_SRC: "'self'\r" }, 'PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources'],
+    [{ PARKIO_DOMAIN: 'api.parkio.test\nmedia.parkio.test', PARKIO_MEDIA_DOMAIN: 'media.parkio.test' }, 'PARKIO_DOMAIN is not a host name'],
+    [{ PARKIO_DOMAIN: 'api.parkio.test', PARKIO_MEDIA_DOMAIN: 'media.parkio.test\n' }, 'PARKIO_MEDIA_DOMAIN is not a host name'],
+    [
+      { PARKIO_DOMAIN: 'api.parkio.test', PARKIO_MEDIA_DOMAIN: 'media.parkio.test', PARKIO_MAP_CONNECT_SRC: 'https://api.maptiler.com\nhttps://tiles.example' },
+      'PARKIO_MAP_CONNECT_SRC entries must be https://host sources',
+    ],
+    [
+      { PARKIO_DOMAIN: 'api.parkio.test', PARKIO_MEDIA_DOMAIN: 'media.parkio.test', PARKIO_MAP_CONNECT_SRC: 'https://api.maptiler.com\thttps://tiles.example' },
+      'PARKIO_MAP_CONNECT_SRC entries must be https://host sources',
+    ],
   ])('stops the container for %j', (env, message) => {
     const run = runEnvsh(env as Record<string, string>);
 
