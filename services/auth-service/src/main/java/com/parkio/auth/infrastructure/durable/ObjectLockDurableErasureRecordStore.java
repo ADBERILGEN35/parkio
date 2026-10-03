@@ -164,7 +164,7 @@ public final class ObjectLockDurableErasureRecordStore implements DurableErasure
 
     private Optional<VerifiedFrontier> frontier() {
         try {
-            return verifier.verifyFrontier(objects.find(DurableErasureEvidence.FRONTIER_KEY));
+            return verifier.verifyFrontierVersions(objects.findAll(DurableErasureEvidence.FRONTIER_KEY));
         } catch (DurableEvidenceException ex) {
             log.error("durable store frontier failed verification: {}", ex.getMessage());
             throw unavailable("frontier failed verification");

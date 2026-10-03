@@ -9,8 +9,10 @@ import java.util.Optional;
 /**
  * The evidence objects of an object-lock bucket as the format v1 verifier reads them: records,
  * sequence markers and checkpoints by their first (canonical) version; the frontier, the only
- * object that is rewritten, by its latest version. Delete markers are ignored. Needs nothing
- * but the bucket, so recovery can run after the primary host and its database are gone.
+ * object that is rewritten, through all its versions ({@link #findAll}), because the listing
+ * order by modification time is not the write order after a backward clock step. Delete
+ * markers are ignored. Needs nothing but the bucket, so recovery can run after the primary host
+ * and its database are gone.
  */
 public final class ObjectLockEvidenceObjects implements EvidenceObjects {
 
@@ -28,6 +30,11 @@ public final class ObjectLockEvidenceObjects implements EvidenceObjects {
     @Override
     public List<String> list(String prefix) {
         return bucket.keys(prefix);
+    }
+
+    @Override
+    public List<byte[]> findAll(String key) {
+        return bucket.allVersions(key).stream().map(ObjectLockBucket.StoredVersion::bytes).toList();
     }
 
     @Override
