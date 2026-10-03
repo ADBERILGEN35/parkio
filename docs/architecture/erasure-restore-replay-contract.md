@@ -100,10 +100,15 @@ erase job completes, so the job carries the restore binding. That is media's own
 
 | Participant | Slice | Source on `api` |
 |-------------|-------|-----------------|
-| coordinator (auth) | 1 | this PR |
-| gamification (pilot) | 1 | this PR |
-| user, parking, moderation, notification, analytics, ai-validation | per participant | not started |
+| coordinator (auth) | 1 | #184 |
+| gamification (pilot) | 1 | #184 |
+| user, parking, moderation, notification, analytics, ai-validation | 2 | this PR |
 | media (objects) | own slice | not started |
+
+In slice 2 the participants queue the restore ACK through `ErasureAckOutbox.appendRestoreAck`, next
+to the live `append`, and their U05 ACK-outbox ITs cover the replay on real PostgreSQL and Kafka.
+Moderation routes outbox rows by event type, so its relay names the restore ACK type explicitly; the
+others route the `AccountErasure` aggregate type, which already covers it.
 
 The isolated recovery harness, with real per-service PostgreSQL, Kafka and MinIO across all
 participants, is the acceptance test once every participant has its slice.

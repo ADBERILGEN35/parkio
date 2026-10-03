@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.user.application.event.UserErasureRequestedEvent;
+import com.parkio.user.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.user.infrastructure.messaging.UserOutboxRelay;
 import com.parkio.user.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -234,6 +235,73 @@ class AccountErasureAckOutboxPostgresIT {
                 .containsExactlyInAnyOrder(AccountErasureHandler.ackEventId(event), AccountErasureHandler.ackEventId(replay));
     }
 
+    // U02 restore replay (docs/architecture/erasure-restore-replay-contract.md): the replayed erase and
+    // its attempt-bound ACK use the same outbox; the restore ACK is keyed by the user.
+
+    @Test
+    void restoreReplayErasesAndPublishesTheAttemptBoundAck() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID bystander = UUID.randomUUID();
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+        seedProfileGraph(user);
+        seedProfileGraph(bystander);
+        Map<String, Long> bystanderBefore = graphCounts(bystander);
+
+        handler.replayForRestore(replay);
+
+        assertErased(user);
+        assertThat(graphCounts(bystander)).isEqualTo(bystanderBefore);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+        relay(brokerTemplate(KAFKA.getBootstrapServers(), 30_000)).run();
+        List<ConsumerRecord<String, String>> published = ackRecords(user, Duration.ofSeconds(20));
+        assertThat(published).hasSize(1);
+        JsonNode envelope = objectMapper.readTree(published.get(0).value());
+        assertThat(envelope.get("eventType").asText()).isEqualTo("UserErasureRestoreAcknowledged");
+        assertThat(envelope.get("aggregateType").asText()).isEqualTo("AccountErasure");
+        assertThat(envelope.get("aggregateId").asText()).isEqualTo(user.toString());
+        JsonNode payload = envelope.get("payload");
+        assertThat(payload.get("eventId").asText()).isEqualTo(AccountErasureHandler.restoreAckEventId(replay).toString());
+        assertThat(payload.get("recoveryAttemptId").asText()).isEqualTo(replay.recoveryAttemptId().toString());
+        assertThat(payload.get("restoredDatasetId").asText()).isEqualTo(replay.restoredDatasetId());
+        assertThat(payload.get("erasureSetDigest").asText()).isEqualTo(replay.erasureSetDigest());
+        assertThat(payload.get("authUserId").asText()).isEqualTo(user.toString());
+        assertThat(payload.get("serviceName").asText()).isEqualTo("user");
+        assertThat(payload.get("status").asText()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void restoreReplayCommitFailureLeavesNeitherTheEraseNorTheAck() {
+        UUID user = UUID.randomUUID();
+        seedProfileGraph(user);
+        Map<String, Long> before = graphCounts(user);
+
+        installCommitFailure();
+        try {
+            assertThatThrownBy(() -> handler.replayForRestore(restoreReplay(user, UUID.randomUUID())));
+        } finally {
+            dropCommitFailure();
+        }
+
+        assertThat(graphCounts(user)).isEqualTo(before);
+        assertThat(count("SELECT COUNT(*) FROM erased_user_tombstones WHERE auth_user_id = ?", user)).isZero();
+        assertThat(restoreAckRows(user)).isZero();
+    }
+
+    @Test
+    void restoreReplayRedeliveryQueuesOneAckAndAnotherAttemptAFreshOne() {
+        UUID user = UUID.randomUUID();
+        seedProfileGraph(user);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+
+        handler.replayForRestore(replay);
+        handler.replayForRestore(replay);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+
+        handler.replayForRestore(restoreReplay(user, UUID.randomUUID()));
+        assertThat(restoreAckRows(user)).isEqualTo(2);
+        assertErased(user);
+    }
+
     private void assertErased(UUID user) {
         assertThat(count("SELECT COUNT(*) FROM erased_user_tombstones WHERE auth_user_id = ?", user)).isEqualTo(1);
         assertThat(graphCounts(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
@@ -359,5 +427,18 @@ class AccountErasureAckOutboxPostgresIT {
             }
         }
         return matches;
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay(UUID user, UUID attempt) {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), attempt, "backup-stamp-2026-10-03",
+                "e".repeat(64), user, Instant.parse("2026-09-29T08:16:00Z"), Instant.now());
+    }
+
+    private long restoreAckRows(UUID user) {
+        return count("""
+                SELECT COUNT(*) FROM outbox_events
+                WHERE aggregate_type = 'AccountErasure' AND event_type = 'UserErasureRestoreAcknowledged'
+                  AND aggregate_id = ?
+                """, user);
     }
 }
