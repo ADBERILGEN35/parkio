@@ -113,6 +113,8 @@ export default defineConfig({
     url: BASE_URL,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
+    // Vite's own output in the run log: startup, dependency optimisation and full reloads.
+    stdout: 'pipe',
     env: {
       VITE_API_BASE_URL: `${BASE_URL}/api/v1`,
     },

@@ -221,10 +221,12 @@ real browser with deterministic network mocks:
 - It is **not** part of `pnpm test`. Vitest is scoped to `src/**`, so it never
   picks up the `.spec.ts` in `e2e/`.
 - Frontend CI runs every mocked spec in `e2e/`. The *Browser regression (e2e)*
-  job runs `e2e:regression` (default dev server, desktop and 360 px),
-  `e2e:muni09` and `e2e:y04a`. Each run goes through
+  job runs each suite as its own step: `e2e:regression:desktop` and
+  `e2e:regression:360` (default dev server), `e2e:muni09:desktop`,
+  `e2e:muni09:360` and `e2e:y04a`. Each run goes through
   `scripts/assert-playwright-report.mjs`, so skipped, flaky or missing tests
-  fail. The other specs have their own steps in the main job.
+  fail. A failing run keeps its trace, and the job uploads `test-results/`.
+  The other specs have their own steps in the main job.
 
 Run it explicitly (one-time browser install on a fresh machine):
 

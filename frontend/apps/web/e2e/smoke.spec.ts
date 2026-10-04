@@ -362,16 +362,26 @@ test('parking: open spot details and claim spot', async ({ page }) => {
   await spaGoto(page, `/spots/${SPOT_ID}`);
 
   await expect(page.getByRole('heading', { name: '12 Curb Lane' })).toBeVisible();
-  // Claiming is irreversible (marks the spot filled for everyone) so it requires
-  // an explicit confirm before the request fires.
+  // Parking here saves the user's location and marks the spot filled for everyone, so it asks
+  // for an explicit confirmation before the request fires.
   await page.getByRole('button', { name: 'I parked here', exact: true }).click();
   await expect(
     page.getByText('This saves your parked location and marks the spot filled for everyone. Continue?'),
   ).toBeVisible();
+
+  // The claim starts a parking session; the app reads it back before it confirms.
+  const calls: string[] = [];
+  page.on('request', (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname.startsWith('/api/v1/')) calls.push(`${request.method()} ${pathname.slice('/api/v1'.length)}`);
+  });
   await page.getByRole('button', { name: 'Yes, I parked here' }).click();
   await expect(
     page.getByRole('main').getByText('Parked — your session is active and the spot is marked filled.'),
   ).toBeVisible();
+  const claim = calls.indexOf(`POST /parking/spots/${SPOT_ID}/claim`);
+  expect(claim, calls.join(', ')).toBeGreaterThanOrEqual(0);
+  expect(calls.slice(claim + 1), calls.join(', ')).toContain('GET /parking/sessions/active');
 });
 
 test('parking: report and verify spot flows', async ({ page }) => {
