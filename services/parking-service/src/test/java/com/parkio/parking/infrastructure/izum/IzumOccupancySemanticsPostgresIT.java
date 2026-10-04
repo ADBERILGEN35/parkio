@@ -149,6 +149,13 @@ class IzumOccupancySemanticsPostgresIT {
         // counts, is not "availability exposed" (#246 review N1).
         var buckets = qualityReport.countIzumFreshnessBuckets(300, 900, Instant.now());
         assertThat(buckets.availabilityExposed()).isEqualTo(readings - 2);
+        // So does the district projection (#246 delta review D2).
+        var projections = qualityReport.listActiveFacilityProjections(100, 300, 900, Instant.now());
+        UUID openId = facilityOf(changed.get(2).get("ufid").asText());
+        assertThat(projections).filteredOn(p -> p.facilityId().equals(facilityOf(closedUfid))).singleElement()
+                .satisfies(p -> assertThat(p.izumAvailabilityExposed()).isFalse());
+        assertThat(projections).filteredOn(p -> p.facilityId().equals(openId)).singleElement()
+                .satisfies(p -> assertThat(p.izumAvailabilityExposed()).isTrue());
     }
 
     private Instant latestFetchedAt() {

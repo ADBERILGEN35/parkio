@@ -84,12 +84,12 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Backend clean build
-        run: ./gradlew --no-daemon clean build
-
-      - name: Backend integration tests
-        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
-
+      # Unit tests run in backend-ci.yml ("Build & unit tests") on every PR, and
+      # integration tests run in backend-integration.yml, whose path filter
+      # contains this workflow's product paths (docker/**, services/**). The CI
+      # gate takes test evidence from those jobs. Repeating both here added
+      # about 15.6 min (median, 22 runs) to the slowest PR check without new
+      # coverage. The images below build the jars from source inside Docker.
       - name: Frontend dependency install
         working-directory: frontend
         run: pnpm install --frozen-lockfile

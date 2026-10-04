@@ -42,7 +42,7 @@ Later commits change only the measurement harness and this document, not the web
 | `/verify-email?token=…` | no | pass | pass | The success toast is measured with all four toast palettes. Focus cycles while the toast is open (see Observations). |
 | `/terms` | no | pass | pass | Reached by in-app navigation. A direct request is redirected by nginx to the marketing site, measured below. |
 | `/privacy` | no | pass | pass | As `/terms`. |
-| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. Known `target-size` issues: two on the dev server, three on the release image (see Known issues). No `main` landmark (best practice; see Observations). |
+| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. The two synthetic car parks lie within the query's 5 km of the default origin, as the API returns them. One known `target-size` entry, the release image's attribution text link (see Known issues). No `main` landmark (best practice; see Observations). |
 | `/map` | yes | pass | pass | No `h1` (best practice). |
 | `/upload` | yes | pass | pass | |
 | `/profile` | yes | pass | pass | |
@@ -119,14 +119,24 @@ pnpm --filter @parkio/web e2e:a11y                           # Vite dev server +
 A11Y_WEB_URL=http://localhost:18080 pnpm --filter @parkio/web exec playwright test -c playwright.a11y.config.ts --project a11y-web
 ```
 
-Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason. An entry matches only the exact node it documents: the whole axe selector, a piece of its HTML and, where given, the failing check's message key, size and related node. Another node, or a worse failure of the same node, still fails the run. After each run, `test-results/a11y/a11y-web-known-issues.json` lists how often each entry was seen, and the run log names the entries no page matched (#242 review N1).
+Per-page JSON results land in `frontend/apps/web/test-results/a11y/`; `e2e:a11y` clears that folder first, so it holds only the current run. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason. An entry matches only the exact node it documents: the whole axe selector, a piece of its HTML and, where given, the failing check's message key, size and related node. Another node still fails the run. A worse failure of the same node fails it only where the entry pins that size: the MapLibre attribution link entry pins its height (14 px) but not its width, which follows the font (#247 review N1). After each run, `test-results/a11y/a11y-web-known-issues.json` lists how often each entry was seen, and the run log names the entries no page matched (#242 review N1).
 
 ## Known issues (documented, not fixed)
 
-All three were found once `/explore` was measured with the public-explore flag on. All are WCAG 2.5.8 Target Size (Minimum, AA). The toggle and the markers need a map layout change, tracked in Asana 1219147334320125.
-
 | Page | Rule | Where | What |
 |---|---|---|---|
-| `/explore` | `target-size` | `summary.maplibregl-ctrl-attrib-button` | At desktop width, MapLibre's attribution toggle (bottom-right) sits under the floating zoom rail, so only 24x6 px of it can be clicked. The rail moves left only when a results sidebar is open, which `/explore` does not have. |
-| `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line shows a 55x14 px "MapLibre" text link. WCAG 2.5.8 exempts such inline links, but axe measures them. The dev server, which has no MapTiler key, does not show it. |
-| `/explore` | `target-size` | `button[data-facility-id=…]` | Until the map has framed the results, two car parks about 1.4 km apart cover each other at the starting zoom (40x2 px left). It is reported only when axe runs before the framing, which is a matter of timing. |
+| `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line can show a 14 px high "MapLibre" text link. WCAG 2.5.8 exempts targets inline in a line of text, and the line carries the map data credits MapTiler and OpenStreetMap require, but axe measures the link. The dev server, which has no MapTiler key, does not report it. |
+
+### Asana 1219147334320125: one fixed, one open
+
+Two further `target-size` issues showed up on `/explore` once it was measured with the public-explore flag on.
+
+- **Attribution toggle under the zoom rail: fixed.** At desktop width, MapLibre's attribution toggle sat under the floating zoom rail's zoom-out button, so only 24x6 px of it could be clicked.
+  - On `/explore` at desktop width the rail now sits 3rem up (`md:bottom-12`).
+  - `/map` keeps its rail beside the results sidebar, and phones are unchanged.
+  - The failure returns if the change is reverted.
+- **Overlapping markers: open, needs an owner decision.** The failure this suite measured came from its mocks. The synthetic car parks were in Istanbul, 330 km from the explore query's İzmir origin, so the map framed both cities and the two markers covered each other. The mocks are now within the query's 5 km, about 3 km apart, the shape the API returns.
+  - The product still has the overlap. The 12 real İzmir car parks of the İZUM test fixture, near the default origin, overlap after framing.
+  - Some are only 120–212 m apart, for example "04 Ziya Gökalp" and its neighbours. Markers are 40x40 px and the frame sits at about zoom 13–15, so markers that close cover each other.
+  - axe reports `partiallyObscured` markers at 1280x720, 360x800 and 390x844, but none at 1440x900 or 1920x1080 (#248 review B1).
+  - Clustering or collision handling is the open owner decision. This suite, with its mocks 3 km apart, does not see the overlap.
