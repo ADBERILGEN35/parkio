@@ -50,7 +50,8 @@ function isSameFormValue(a: unknown, b: unknown): boolean {
       a.every((item, index) => isSameFormValue(item, b[index]))
     );
   }
-  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  // Object.is: two invalid Dates (NaN time) are the same value too.
+  if (a instanceof Date && b instanceof Date) return Object.is(a.getTime(), b.getTime());
   if (isPlainObject(a) && isPlainObject(b)) return !hasFormChanges(a, b);
   // Any other object (a File, a Blob) is the same value only when it is the same instance.
   return false;

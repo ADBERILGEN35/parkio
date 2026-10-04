@@ -6,8 +6,23 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface MunicipalOccupancySnapshotRepository {
+    /**
+     * {@code available} is false when ingest stored the reading as UNAVAILABLE (for example an İZUM
+     * car park reported closed, or one without a free-space count): it has no occupancy to publish.
+     */
     record Snapshot(Integer capacityTotal, Integer occupiedSpaces, Integer availableSpaces,
-                    Instant fetchedAt, Long sourceAgeSeconds, boolean valid) {}
+                    Instant fetchedAt, Long sourceAgeSeconds, boolean valid, boolean available) {
+        public Snapshot(Integer capacityTotal, Integer occupiedSpaces, Integer availableSpaces,
+                        Instant fetchedAt, Long sourceAgeSeconds, boolean valid) {
+            this(capacityTotal, occupiedSpaces, availableSpaces, fetchedAt, sourceAgeSeconds, valid, true);
+        }
+
+        /** A reading that can be published: stored as available and carrying a free-space count. */
+        public boolean publishable() {
+            return available && availableSpaces != null;
+        }
+    }
+
     boolean insertIfAbsent(UUID facilityId, UUID sourceId, UUID sourceLinkId,
                            UUID syncRunId, NormalizedMunicipalOccupancy occupancy);
     Optional<Snapshot> latestForFacility(UUID facilityId);

@@ -70,6 +70,9 @@ describe('hasFormChanges', () => {
     expect(hasFormChanges({ photo }, { photo: new File(['b'], 'a.jpg', { type: 'image/jpeg' }) })).toBe(true);
     expect(hasFormChanges({ at: new Date(0) }, { at: new Date(0) })).toBe(false);
     expect(hasFormChanges({ at: new Date(1) }, { at: new Date(0) })).toBe(true);
+    // An invalid Date has no time (NaN), and two of them are the same value (#244 review N1).
+    expect(hasFormChanges({ at: new Date('x') }, { at: new Date('x') })).toBe(false);
+    expect(hasFormChanges({ at: new Date('x') }, { at: new Date(0) })).toBe(true);
     expect(hasFormChanges({ nested: { a: 1 } }, { nested: { a: 1 } })).toBe(false);
   });
 });
