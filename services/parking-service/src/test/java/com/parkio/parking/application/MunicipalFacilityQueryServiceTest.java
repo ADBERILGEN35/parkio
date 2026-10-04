@@ -46,6 +46,36 @@ class MunicipalFacilityQueryServiceTest {
     }
 
     @Test
+    void closedOrCountLessIzumReadingsAreUnavailableWithoutSpaces() {
+        // CL-F22 (d): fresh readings, so only the stored status or the missing free count decide.
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        var facility = facility(
+                id, "Live lot", "IZELMAN A.S.", "IZELMAN A.S.",
+                MunicipalFacilityQueryService.IZUM_ATTRIBUTION,
+                MunicipalSourceIdentity.IZUM, Set.of(MunicipalSourceIdentity.IZUM));
+        when(facilities.findById(id)).thenReturn(Optional.of(facility));
+        var service = service(facilities, snapshots, new MunicipalSourceProperties(), new IzelmanProperties());
+
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        100, 20, 80, Instant.parse("2026-07-30T05:59:50Z"), null, true, false)));
+        var closed = service.findById(id).orElseThrow();
+        assertThat(closed.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(closed.availableSpaces()).isNull();
+        assertThat(closed.occupiedSpaces()).isNull();
+        assertThat(closed.capacityTotal()).isEqualTo(100);
+
+        when(snapshots.latestForFacility(id)).thenReturn(Optional.of(
+                new MunicipalOccupancySnapshotRepository.Snapshot(
+                        null, 20, null, Instant.parse("2026-07-30T05:59:50Z"), null, true)));
+        var noFreeCount = service.findById(id).orElseThrow();
+        assertThat(noFreeCount.freshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(noFreeCount.availableSpaces()).isNull();
+    }
+
+    @Test
     void izumAttributionContainingIzelmanDoesNotHideFacility() {
         UUID id = UUID.randomUUID();
         var facilities = mock(MunicipalFacilityRepository.class);
