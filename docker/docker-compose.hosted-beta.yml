@@ -104,6 +104,9 @@ services:
     cap_drop:
       - ALL
     cap_add: [NET_BIND_SERVICE]
+    # Read-only root (B8): certificates and config stay on the caddy-data/caddy-config volumes.
+    read_only: true
+    tmpfs: ["/tmp:size=8m"]
     stop_grace_period: 20s
     logging:
       driver: json-file
