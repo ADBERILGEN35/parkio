@@ -1,4 +1,4 @@
-import { expect, request, test, type Browser } from '@playwright/test';
+import { expect, request, test, type Browser, type Page } from '@playwright/test';
 
 const REQUIRED_CRAWLER_COPY = [
   'Oğuzhan Taşyaran',
@@ -132,6 +132,77 @@ test('waitlist mock submit via explicit meta shows success without claiming live
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeVisible();
 });
 
+/** Answers the waitlist API (CORS preflight included) with one fixed response (CL-F19). */
+async function mockWaitlistApi(
+  page: Page,
+  status: number,
+  body: string,
+  contentType = 'application/json',
+) {
+  await page.route('https://api.parkio.dev/api/v1/waitlist**', async (route) => {
+    const cors = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type, accept',
+    };
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    await route.fulfill({ status, headers: { ...cors, 'content-type': contentType }, body });
+  });
+}
+
+async function submitWaitlist(page: Page, baseURL: string | undefined) {
+  await page.goto(`${baseURL ?? '/'}?lang=en#waitlist`);
+  await page.locator('#waitlist-full-name').fill('Ayse Yilmaz');
+  await page.locator('#waitlist-email').fill('synthetic-clf19@example.com');
+  await page.locator('#waitlist-consent').check();
+  await page.locator('#waitlist-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
+}
+
+test('a 503 without the delivery-failure code is not reported as a saved signup (CL-F19)', async ({
+  page,
+  baseURL,
+}) => {
+  await mockWaitlistApi(page, 503, '<html>Service Unavailable</html>', 'text/html');
+  await submitWaitlist(page, baseURL);
+  const feedback = page.locator('[data-waitlist-feedback]');
+  await expect(feedback).toHaveAttribute('data-feedback-key', 'waitlist.error.generic');
+  await expect(feedback).not.toContainText(/saved/i);
+});
+
+test('the explicit delivery-failure code is reported as a saved signup (CL-F19)', async ({ page, baseURL }) => {
+  await mockWaitlistApi(page, 503, JSON.stringify({ code: 'WAITLIST_EMAIL_DELIVERY_FAILED' }));
+  await submitWaitlist(page, baseURL);
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute(
+    'data-feedback-key',
+    'waitlist.error.delivery',
+  );
+});
+
+for (const lang of ['en', 'tr']) {
+  test(`an invalid confirmation link says so without suggesting a retry (${lang}, CL-F19)`, async ({ page }) => {
+    await mockWaitlistApi(page, 400, JSON.stringify({ code: 'WAITLIST_TOKEN_INVALID' }));
+    await page.goto(`/waitlist/confirm/?token=fixture-expired&lang=${lang}`);
+    await page.locator('#waitlist-confirm-form button[type="submit"]').click();
+    const feedback = page.locator('[data-waitlist-feedback]');
+    await expect(feedback).toHaveAttribute('data-feedback-key', 'waitlist.page.confirm.invalid');
+    await expect(feedback).not.toContainText(/try again|tekrar dene/i);
+  });
+}
+
+test('an unsubscribe server error is not shown as an invalid link (CL-F19)', async ({ page }) => {
+  await mockWaitlistApi(page, 503, '', 'text/plain');
+  await page.goto('/waitlist/unsubscribe/?token=fixture&lang=en');
+  await page.locator('#waitlist-withdraw-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute(
+    'data-feedback-key',
+    'waitlist.page.token.serverError',
+  );
+});
+
 test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
   await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
   await page.locator('#waitlist-full-name').fill('Ayşe Yılmaz');
@@ -142,6 +213,79 @@ test('waitlist query mock bypass cannot fake success when meta remains api', asy
   // API call fails in static marketing harness — must not show mock success.
   await expect(page.locator('[data-waitlist-feedback]')).not.toContainText(/Teşekkürler|Thanks/i);
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeHidden();
+});
+
+// CL-F39.5: the local server sends the .htaccess headers, so these run under the served CSP.
+const HTML_PAGES = ['/', '/privacy/', '/terms/', '/waitlist/confirm/', '/waitlist/unsubscribe/', '/404.html'] as const;
+
+/** Records securitypolicyviolation events of each document the page loads. */
+async function recordCspViolations(page: Page): Promise<() => Promise<string[]>> {
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Object.defineProperty(window, '__cspViolations', { value: violations });
+    document.addEventListener('securitypolicyviolation', (event) => {
+      violations.push(`${event.effectiveDirective} ${event.blockedURI || 'inline'}`);
+    });
+  });
+  return () => page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations);
+}
+
+test('serves every page with a script policy without unsafe-inline, HSTS and no CSP violations', async ({
+  page,
+  baseURL,
+}) => {
+  const violations = await recordCspViolations(page);
+
+  for (const path of HTML_PAGES) {
+    const response = await page.goto(`${baseURL}${path}`);
+    const headers = response?.headers() ?? {};
+    const scriptSrc = (headers['content-security-policy'] ?? '')
+      .split(';')
+      .map((directive) => directive.trim())
+      .find((directive) => directive.startsWith('script-src'));
+    expect(scriptSrc, path).toBe("script-src 'self'");
+    expect(headers['strict-transport-security'], path).toMatch(/^max-age=\d+/);
+    await page.waitForLoadState('networkidle');
+    expect(await violations(), path).toEqual([]);
+  }
+});
+
+test('keeps the JSON-LD data block, which the script policy does not apply to', async ({ page, baseURL }) => {
+  const violations = await recordCspViolations(page);
+  await page.goto(baseURL ?? '/');
+
+  const jsonLd = JSON.parse((await page.locator('script[type="application/ld+json"]').textContent()) ?? '');
+  expect(jsonLd['@graph'].length).toBeGreaterThan(0);
+  expect(await violations()).toEqual([]);
+});
+
+test('the served CSP blocks an injected inline script', async ({ page, baseURL }) => {
+  const violations = await recordCspViolations(page);
+  await page.route('**/privacy/', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      '</body>',
+      '<script>document.documentElement.dataset.inlineScript = "ran";</script></body>',
+    );
+    await route.fulfill({ response, body });
+  });
+
+  await page.goto(`${baseURL}/privacy/`);
+
+  await expect.poll(violations).toContainEqual(expect.stringMatching(/^script-src/));
+  await expect(page.locator('html')).not.toHaveAttribute('data-inline-script', 'ran');
+});
+
+test('waitlist pages localize their title without inline script', async ({ page, baseURL }) => {
+  await page.goto(`${baseURL}/waitlist/confirm/`);
+  await expect(page).toHaveTitle('Parkio | Bildirim listesi onayı');
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await expect(page).toHaveTitle('Parkio | Confirm notification list');
+
+  await page.goto(`${baseURL}/waitlist/unsubscribe/?lang=tr`);
+  await expect(page).toHaveTitle('Parkio | Bildirim listesinden çıkış');
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await expect(page).toHaveTitle('Parkio | Leave notification list');
 });
 
 for (const width of [360, 390, 768, 1440]) {

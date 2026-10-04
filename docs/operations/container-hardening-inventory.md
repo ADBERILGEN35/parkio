@@ -146,3 +146,10 @@ from `java.library.path` first), not to make `/tmp` executable.
   (`agent-tools/parkio-u18-container-hardening/`) started the infrastructure services from
   volumes created without hardening and from fresh volumes, and ran write, topic, scan and
   readiness probes in each.
+
+## Follow-ups prepared under B8 (not applied)
+
+- Non-root images for the root-start services (exception 3): volume ownership tooling and targets
+  in `nonroot-volume-migration.md`.
+- promtail's Docker socket (exception 1): an allowlisting proxy, measured and prototyped, in
+  `../architecture/docker-socket-proxy-design.md`.

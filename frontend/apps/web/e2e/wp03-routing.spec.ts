@@ -94,11 +94,6 @@ const WP03_ALLOWED_REQUEST_CATEGORIES = [
   'deterministic-external-asset-stub',
 ] as const;
 
-const TINY_JPEG = Buffer.from(
-  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGcP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8Bf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8Bf//Z',
-  'base64',
-);
-
 function isLocalViteOrigin(url: URL, baseURL: string): boolean {
   const base = new URL(baseURL);
   return url.origin === base.origin;
@@ -110,7 +105,6 @@ function isMockedFrontendApi(url: URL): boolean {
 
 function isDeterministicExternalAssetHost(hostname: string): boolean {
   return (
-    hostname === 'images.unsplash.com' ||
     hostname.endsWith('.openstreetmap.org') ||
     hostname === 'api.maptiler.com' ||
     hostname === 'fonts.googleapis.com' ||
@@ -133,13 +127,6 @@ async function installHermeticNetworkGuard(page: Page) {
       return route.fallback();
     }
     if (isDeterministicExternalAssetHost(url.hostname)) {
-      if (url.hostname === 'images.unsplash.com') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'image/jpeg',
-          body: TINY_JPEG,
-        });
-      }
       return route.abort();
     }
 
@@ -601,6 +588,27 @@ test.describe('WP-03 canonical routing acceptance', () => {
   test.afterEach(async ({ page }) => {
     assertHermeticNetwork(page);
   });
+  test('auth pages draw their hero from the app and request no third-party image (CL-F39.2)', async ({
+    page,
+  }) => {
+    await installMockApi(page, { bootstrap: 'anonymous' });
+    const imageRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'image') imageRequests.push(request.url());
+    });
+
+    for (const path of ['/login', '/forgot-password']) {
+      await page.goto(path);
+      await expect(page.locator('main aside svg')).toBeVisible();
+    }
+
+    const appOrigin = new URL(page.url()).origin;
+    const thirdParty = imageRequests.filter(
+      (url) => !/^(data|blob):/.test(url) && new URL(url).origin !== appOrigin,
+    );
+    expect(thirdParty).toEqual([]);
+  });
+
   test('protected anonymous entry waits for bootstrap and preserves only a sanitized return path', async ({
     page,
   }) => {

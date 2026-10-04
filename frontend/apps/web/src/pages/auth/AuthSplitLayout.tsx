@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrandMark } from '@/components/brand/BrandMark';
+import { AuthHeroIllustration } from '@/pages/auth/AuthHeroIllustration';
 
 /**
  * Stitch auth split (`DESIGN_SYSTEM.md` §2.7 "Auth split"): a centered elevated
- * card with a 50/50 photo/form split on desktop. The photo pane carries the
- * brand logo (top-left), a gradient scrim and a neutral product statement (bottom-left).
+ * card with a 50/50 hero/form split on desktop. The hero pane carries a bundled
+ * illustration, the brand logo (top-left), a gradient scrim and a neutral product
+ * statement (bottom-left).
  * On mobile the hero collapses to a short top banner
  * and the form becomes the primary focus. Ambient blurred blobs sit behind the
  * card per the spec's decoration vocabulary.
@@ -49,27 +51,16 @@ export function AuthSplitLayout({
   );
 }
 
-const HERO_IMAGE_URL =
-  'https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=1100&q=60';
-
-/** Full-height photo panel with brand lockup and a neutral glass information card. */
+/**
+ * Full-height hero panel with brand lockup and a neutral glass information card. The
+ * illustration is bundled, so the auth pages request no third-party image (CL-F39.2).
+ */
 function AuthHero() {
   const { t } = useTranslation(['auth', 'common']);
-  const [imageOk, setImageOk] = useState(true);
 
   return (
     <aside className="relative h-44 overflow-hidden bg-gradient-to-br from-primary to-secondary md:h-auto">
-      {imageOk ? (
-        <img
-          src={HERO_IMAGE_URL}
-          alt=""
-          aria-hidden
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => setImageOk(false)}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : null}
+      <AuthHeroIllustration className="absolute inset-0 h-full w-full text-on-primary" />
 
       <div
         aria-hidden

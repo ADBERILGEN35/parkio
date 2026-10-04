@@ -12,6 +12,7 @@ import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenRepository;
 import com.parkio.auth.application.result.AccountDeletionStatusView;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.domain.event.UserErasureRequestedEvent;
@@ -46,6 +47,7 @@ import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -329,6 +331,34 @@ public class AccountErasureApplicationService {
             }
         }
         return replayed;
+    }
+
+    /**
+     * Auth's own share of a restore replay (docs/architecture/erasure-restore-replay-contract.md):
+     * brings one user of a trusted erasure set back to the erased end state in a restored database.
+     * The tombstone is kept, or recreated with the original {@code erasedAt}; active refresh and
+     * reset tokens are revoked; the account's login identifiers are replaced as when an erasure
+     * completes. Erasure request rows and their public status are not created or changed. Idempotent.
+     * Runs only inside the caller's transaction, so the caller can commit it together with auth's
+     * restore ACK.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void replayLocalErasureForRestore(UUID authUserId, Instant erasedAt) {
+        Instant now = erasureTime();
+        if (!tombstones.existsById(authUserId)) {
+            tombstones.save(new ErasedUserTombstoneEntity(authUserId, erasedAt));
+        }
+        refreshTokens.revokeAllActiveForUser(authUserId, RefreshTokenRevocationReason.ACCOUNT_ERASURE, now);
+        passwordResets.consumeActiveForUser(authUserId, now);
+        AuthUser user = users.findById(authUserId).orElse(null);
+        if (user == null || user.status() == AuthUserStatus.ERASED) {
+            return;
+        }
+        user.beginErasure(now);
+        String tombstoneEmail = "erased-" + user.id() + "@invalid.localhost";
+        user.finishErasure(tombstoneEmail, passwordHasher.hash(UUID.randomUUID().toString()), now);
+        users.save(user);
+        log.info("erasure restore replay service=auth status=ERASED");
     }
 
     /**
