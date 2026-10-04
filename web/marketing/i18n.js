@@ -496,7 +496,9 @@
         el.textContent = value;
       }
     });
-    const title = t(lang, 'meta.title');
+    // Pages other than the landing page name their title key on <html data-i18n-title>.
+    const titleKey = (document.documentElement.dataset && document.documentElement.dataset.i18nTitle) || 'meta.title';
+    const title = t(lang, titleKey);
     const desc = t(lang, 'meta.description');
     document.title = title;
     const metaDesc = document.querySelector('meta[name="description"]');

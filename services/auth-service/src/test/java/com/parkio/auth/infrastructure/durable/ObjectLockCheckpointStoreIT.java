@@ -11,7 +11,8 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verdic
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedCheckpoint;
 import com.parkio.auth.application.durable.DurableEvidenceException;
 import com.parkio.auth.application.durable.ErasureLedgerEntry;
-import com.parkio.auth.application.durable.ProducerKey;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.CapturedErasureLedger;
 import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.application.port.DurableErasureRecord;
@@ -37,7 +38,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -55,7 +55,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * Checkpoint publication in the object-lock store against a disposable MinIO bucket (the
- * captures are stubs; the PostgreSQL capture is ErasureCheckpointPostgresMinioIT): format v1
+ * captures are stubs; the PostgreSQL capture is ErasureCheckpointPostgresMinioIT): format v2
  * bytes under retention, sequences shared with records and monotonic, nothing published when the
  * capture fails, a reservation left by a failed publication filled by the next checkpoint, and a
  * consumer refusing an older checkpoint after a newer one. Synthetic keys and data only.
@@ -67,8 +67,10 @@ class ObjectLockCheckpointStoreIT {
     private static final String ACCESS_KEY = "parkio-test";
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String DATABASE = "auth-db:object-lock-checkpoint-it";
-    private static final ProducerKey PRODUCER = new ProducerKey(
-            "auth-object-lock-checkpoint-it", "object-lock-checkpoint-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8));
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-object-lock-checkpoint-it-key-2026a",
+            "auth-object-lock-checkpoint-it", "object-lock-checkpoint-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8),
+            Instant.parse("2026-01-01T00:00:00Z"));
+    private static final EvidenceTrust TRUST = new EvidenceTrust(DATABASE, List.of(PRODUCER));
     private static final Duration RETENTION = Duration.ofDays(1);
     private static final AtomicInteger BUCKETS = new AtomicInteger();
     private static final Instant ERASED_AT = Instant.parse("2026-09-29T08:16:00Z");
@@ -119,7 +121,7 @@ class ObjectLockCheckpointStoreIT {
         assertThat(published.bytes()).isEqualTo(DurableErasureEvidence.checkpoint(1, entries, DATABASE, PRODUCER));
         assertThat(bucket.oldest(DurableErasureEvidence.sequenceKey(1)).orElseThrow().bytes())
                 .isEqualTo(DurableErasureEvidence.sequenceMarker(1, DurableErasureEvidence.CHECKPOINT_RESERVATION));
-        assertThat(bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes())
+        assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier()))
                 .isEqualTo(DurableErasureEvidence.frontier(1, 1, DATABASE, PRODUCER));
         assertThat(checkpoint.ledgerDigest()).isEqualTo(verifier().verifyCheckpoint(published.bytes()).ledgerDigest());
         Retention retention = bucket.retention(key, published.versionId());
@@ -151,7 +153,7 @@ class ObjectLockCheckpointStoreIT {
     void aFailedCaptureReservesAndPublishesNothing() {
         store.putIfAbsent(record());
         List<String> before = bucket.keys("");
-        byte[] frontierBefore = bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes();
+        byte[] frontierBefore = ObjectLockTestBuckets.currentFrontier(bucket, verifier());
         int frontierVersionsBefore = bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY);
 
         assertThatThrownBy(() -> store.publishCheckpoint(() -> {
@@ -159,7 +161,7 @@ class ObjectLockCheckpointStoreIT {
         })).isInstanceOf(IllegalStateException.class).hasMessageContaining("lock timeout");
 
         assertThat(bucket.keys("")).isEqualTo(before);
-        assertThat(bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes()).isEqualTo(frontierBefore);
+        assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier())).isEqualTo(frontierBefore);
         assertThat(bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY)).isEqualTo(frontierVersionsBefore);
     }
 
@@ -232,7 +234,7 @@ class ObjectLockCheckpointStoreIT {
 
     private ObjectLockDurableErasureRecordStore store(MinioClient minio) {
         ObjectLockBucket target = new ObjectLockBucket(minio, bucketName);
-        return new ObjectLockDurableErasureRecordStore(target, DATABASE, PRODUCER, RetentionMode.GOVERNANCE, RETENTION, clock);
+        return new ObjectLockDurableErasureRecordStore(target, TRUST, PRODUCER.keyId(), RetentionMode.GOVERNANCE, RETENTION, clock);
     }
 
     private RecoveryVerdict recover() {
@@ -240,7 +242,7 @@ class ObjectLockCheckpointStoreIT {
     }
 
     private static DurableErasureEvidenceVerifier verifier() {
-        return new DurableErasureEvidenceVerifier(DATABASE, Map.of(PRODUCER.producerId(), PRODUCER.key()));
+        return new DurableErasureEvidenceVerifier(TRUST, Instant.now());
     }
 
     private static ErasureLedgerCapture capture(List<ErasureLedgerEntry> entries) {

@@ -10,6 +10,8 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.RecoveryVerdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verdict;
 import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedPending;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.EmailVerificationSender;
@@ -27,6 +29,7 @@ import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import com.parkio.auth.infrastructure.durable.ObjectLockDurableErasureRecordStore;
 import com.parkio.auth.infrastructure.durable.ObjectLockTestBuckets;
+import com.parkio.auth.infrastructure.durable.TrustDocuments;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureRequestJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureServiceAckJpaRepository;
@@ -34,7 +37,6 @@ import io.minio.MinioClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -57,7 +59,7 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * The erasure service with the object-lock store enabled through configuration, on real
  * PostgreSQL (Flyway) and a disposable MinIO object-lock bucket: a request is durably recorded
- * in evidence format v1 before COMPLETE, and an unreachable store leaves it PENDING_DURABLE,
+ * in evidence format v2 before COMPLETE, and an unreachable store leaves it PENDING_DURABLE,
  * without COMPLETE, until a retry after the store is back. Synthetic users and keys only.
  */
 @Tag("integration")
@@ -70,9 +72,10 @@ class AccountErasureObjectLockStorePostgresMinioIT {
     private static final String ACCESS_KEY = "parkio-test";
     private static final String SECRET_KEY = "parkio-test-secret";
     private static final String BUCKET = "parkio-erasure-evidence-service-it";
-    private static final String DATABASE = "auth-db:object-lock-service-it";
-    private static final String PRODUCER_ID = "auth-object-lock-service-it";
-    private static final String PRODUCER_KEY = "object-lock-service-it-key-not-a-secret";
+    private static final TrustedKey PRODUCER = TrustedKey.active("auth-object-lock-service-it-key-2026a",
+            "auth-object-lock-service-it", "object-lock-service-it-key-not-a-secret".getBytes(StandardCharsets.UTF_8),
+            Instant.parse("2026-01-01T00:00:00Z"));
+    private static volatile String trustFile;
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES =
@@ -117,9 +120,8 @@ class AccountErasureObjectLockStorePostgresMinioIT {
         registry.add(prefix + "secret-key", () -> SECRET_KEY);
         registry.add(prefix + "retention-mode", () -> "GOVERNANCE");
         registry.add(prefix + "retention", () -> "1d");
-        registry.add(prefix + "database-identity", () -> DATABASE);
-        registry.add(prefix + "producer-id", () -> PRODUCER_ID);
-        registry.add(prefix + "producer-key", () -> PRODUCER_KEY);
+        registry.add(prefix + "trust-file", AccountErasureObjectLockStorePostgresMinioIT::trustFile);
+        registry.add(prefix + "producer-key-id", PRODUCER::keyId);
         registry.add(prefix + "call-timeout", () -> "3s");
         // The store checks object lock at startup, so the bucket must exist first.
         try {
@@ -215,10 +217,18 @@ class AccountErasureObjectLockStorePostgresMinioIT {
     /** Request ids recoverable from the bucket alone (UNKNOWN only before the first record). */
     private List<String> recoveredRequestIds() {
         RecoveryVerdict verdict = new DurableErasureEvidenceVerifier(
-                DATABASE, Map.of(PRODUCER_ID, PRODUCER_KEY.getBytes(StandardCharsets.UTF_8)))
+                new EvidenceTrust(TrustDocuments.identity(POSTGRES), List.of(PRODUCER)), Instant.now())
                 .recover(((ObjectLockDurableErasureRecordStore) store).evidence(), null);
         assertThat(verdict.verdict()).isIn(Verdict.ACCEPT_ISOLATED, Verdict.UNKNOWN);
         return verdict.pending().stream().map(VerifiedPending::erasureRequestId).toList();
+    }
+
+    /** A trust document pinned to this container's database, written once. */
+    private static String trustFile() {
+        if (trustFile == null) {
+            trustFile = TrustDocuments.write(TrustDocuments.identity(POSTGRES), PRODUCER).toString();
+        }
+        return trustFile;
     }
 
     private AuthUser newUser() {

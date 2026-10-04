@@ -8,9 +8,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Binds {@code parkio.privacy.account-erasure.durable-store.object-lock.*}: an S3-compatible
- * bucket with object lock (versioning) that holds durable erasure evidence format v1. Off by
- * default. Bucket, credentials, retention and the producer key are operator inputs with no
- * defaults; when enabled, a missing one stops the service at startup.
+ * bucket with object lock (versioning) that holds durable erasure evidence format v2. Off by
+ * default. Bucket, credentials, retention, the trust document (pinned database identity and
+ * producer keys) and the signing key id are operator inputs with no defaults; when enabled, a
+ * missing one stops the service at startup.
  */
 @ConfigurationProperties(prefix = "parkio.privacy.account-erasure.durable-store.object-lock")
 public class ObjectLockStoreProperties {
@@ -25,9 +26,8 @@ public class ObjectLockStoreProperties {
     private String secretKey = "";
     private String retentionMode = "";
     private Duration retention;
-    private String databaseIdentity = "";
-    private String producerId = "";
-    private String producerKey = "";
+    private String trustFile = "";
+    private String producerKeyId = "";
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration callTimeout = Duration.ofSeconds(15);
 
@@ -38,9 +38,8 @@ public class ObjectLockStoreProperties {
         requireText(problems, "bucket", bucket);
         requireText(problems, "access-key", accessKey);
         requireText(problems, "secret-key", secretKey);
-        requireText(problems, "database-identity", databaseIdentity);
-        requireText(problems, "producer-id", producerId);
-        requireText(problems, "producer-key", producerKey);
+        requireText(problems, "trust-file", trustFile);
+        requireText(problems, "producer-key-id", producerKeyId);
         if (!RETENTION_MODES.contains(retentionMode)) {
             problems.add("retention-mode (GOVERNANCE or COMPLIANCE)");
         }
@@ -126,28 +125,20 @@ public class ObjectLockStoreProperties {
         this.retention = retention;
     }
 
-    public String getDatabaseIdentity() {
-        return databaseIdentity;
+    public String getTrustFile() {
+        return trustFile;
     }
 
-    public void setDatabaseIdentity(String databaseIdentity) {
-        this.databaseIdentity = databaseIdentity;
+    public void setTrustFile(String trustFile) {
+        this.trustFile = trustFile;
     }
 
-    public String getProducerId() {
-        return producerId;
+    public String getProducerKeyId() {
+        return producerKeyId;
     }
 
-    public void setProducerId(String producerId) {
-        this.producerId = producerId;
-    }
-
-    public String getProducerKey() {
-        return producerKey;
-    }
-
-    public void setProducerKey(String producerKey) {
-        this.producerKey = producerKey;
+    public void setProducerKeyId(String producerKeyId) {
+        this.producerKeyId = producerKeyId;
     }
 
     public Duration getConnectTimeout() {

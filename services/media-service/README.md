@@ -138,7 +138,7 @@ internal endpoint. See the parking-service README for the full flow.
   object metadata reflect the normalized output (`image/jpeg`, `.jpg`).
 - Duplicate detection uses the checksum of the normalized stored bytes, not the
   original upload bytes, so deduplication matches what is actually persisted.
-- Duplicate checksum → `409`.
+- Duplicate checksum → `409`, only for the same owner's file that is not deleted. Another owner's identical file and a deleted file do not count (CL-F38c).
 - **Malware scan** and **image normalization** (see below) are blocking checks before
   storage.
 

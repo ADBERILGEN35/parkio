@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.analytics.application.event.UserErasureRequestedEvent;
+import com.parkio.analytics.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.analytics.infrastructure.messaging.AnalyticsOutboxRelay;
 import com.parkio.analytics.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -17,13 +18,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +64,7 @@ import org.testcontainers.utility.DockerImageName;
 class AccountErasureAckOutboxPostgresIT {
 
     private static final String ERASURE_TOPIC = "parkio.privacy.erasure";
+    private static final List<String> TOPICS = List.of(ERASURE_TOPIC);
     private static final UUID SENTINEL = UUID.fromString("00000000-0000-4000-8000-000000000001");
 
     @Container
@@ -65,6 +73,25 @@ class AccountErasureAckOutboxPostgresIT {
     @Container
     static final KafkaContainer KAFKA =
             new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"));
+
+    /**
+     * The topics these tests publish to exist before the first send (#185 review N8). On a fresh
+     * broker the first send otherwise waits for topic auto-creation, which can outlast the
+     * producer's max.block.ms on a loaded host; the relay then records a failure and the test
+     * finds no record.
+     */
+    @BeforeAll
+    static void createTopics() throws Exception {
+        try (Admin admin = Admin.create(
+                Map.<String, Object>of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            Set<String> existing = admin.listTopics().names().get(60, TimeUnit.SECONDS);
+            List<NewTopic> missing = TOPICS.stream()
+                    .filter(topic -> !existing.contains(topic))
+                    .map(topic -> new NewTopic(topic, 1, (short) 1))
+                    .toList();
+            admin.createTopics(missing).all().get(60, TimeUnit.SECONDS);
+        }
+    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -169,6 +196,36 @@ class AccountErasureAckOutboxPostgresIT {
     }
 
     @Test
+    void aDeadLetteredErasureAckIsVisibleToTheDeadLetterGauges() {
+        UUID user = UUID.randomUUID();
+        UserErasureRequestedEvent event = request(user);
+        seed(user);
+        handler.handle(event);
+        UUID rowId = jdbc.queryForObject(
+                "SELECT id FROM outbox_events WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?",
+                UUID.class, event.erasureRequestId());
+        long openBefore = outbox.countByDeadLetteredTrue();
+        long acknowledgedBefore = outbox.countAcknowledgedDeadletters();
+        long retriesBefore = outbox.countRecoveryAuditByAction("RETRY");
+
+        // What the relay does after max-attempts failed publishes (B11: failures keep counting).
+        jdbc.update("UPDATE outbox_events SET dead_lettered = true WHERE id = ?", rowId);
+
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore + 1);
+        assertThat(outbox.findOldestOpenDeadletterCreatedAt()).isNotNull();
+
+        // What scripts/outbox-deadletter-recovery.sh records for a retry, and does for an acknowledge.
+        jdbc.update("""
+                INSERT INTO outbox_recovery_audit (id, outbox_event_id, action, operator_id, reason)
+                VALUES (?, ?, 'RETRY', 'synthetic-operator', 'synthetic')
+                """, UUID.randomUUID(), rowId);
+        assertThat(outbox.countRecoveryAuditByAction("RETRY")).isEqualTo(retriesBefore + 1);
+        jdbc.update("UPDATE outbox_events SET acknowledged_deadletter = true WHERE id = ?", rowId);
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore);
+        assertThat(outbox.countAcknowledgedDeadletters()).isEqualTo(acknowledgedBefore + 1);
+    }
+
+    @Test
     void duplicateDeliveryQueuesOneAckAndKeepsErasedState() {
         UUID user = UUID.randomUUID();
         UUID bystander = UUID.randomUUID();
@@ -270,6 +327,73 @@ class AccountErasureAckOutboxPostgresIT {
                 "SELECT published, failure_count FROM outbox_events WHERE aggregate_id = ?", aggregateId);
         assertThat(other.get("published")).isEqualTo(false);
         assertThat(((Number) other.get("failure_count")).intValue()).isEqualTo(1);
+    }
+
+    // U02 restore replay (docs/architecture/erasure-restore-replay-contract.md): the replayed erase and
+    // its attempt-bound ACK use the same outbox; the restore ACK is keyed by the user.
+
+    @Test
+    void restoreReplayErasesAndPublishesTheAttemptBoundAck() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID bystander = UUID.randomUUID();
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+        seed(user);
+        seed(bystander);
+        Map<String, Long> bystanderBefore = userRows(bystander);
+
+        handler.replayForRestore(replay);
+
+        assertErased(user);
+        assertThat(userRows(bystander)).isEqualTo(bystanderBefore);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+        relay(liveBroker()).run();
+        List<ConsumerRecord<String, String>> published = records(ERASURE_TOPIC, user, Duration.ofSeconds(20));
+        assertThat(published).hasSize(1);
+        JsonNode envelope = objectMapper.readTree(published.get(0).value());
+        assertThat(envelope.get("eventType").asText()).isEqualTo("UserErasureRestoreAcknowledged");
+        assertThat(envelope.get("aggregateType").asText()).isEqualTo("AccountErasure");
+        assertThat(envelope.get("aggregateId").asText()).isEqualTo(user.toString());
+        JsonNode payload = envelope.get("payload");
+        assertThat(payload.get("eventId").asText()).isEqualTo(AccountErasureHandler.restoreAckEventId(replay).toString());
+        assertThat(payload.get("recoveryAttemptId").asText()).isEqualTo(replay.recoveryAttemptId().toString());
+        assertThat(payload.get("restoredDatasetId").asText()).isEqualTo(replay.restoredDatasetId());
+        assertThat(payload.get("erasureSetDigest").asText()).isEqualTo(replay.erasureSetDigest());
+        assertThat(payload.get("authUserId").asText()).isEqualTo(user.toString());
+        assertThat(payload.get("serviceName").asText()).isEqualTo("analytics");
+        assertThat(payload.get("status").asText()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void restoreReplayCommitFailureLeavesNeitherTheEraseNorTheAck() {
+        UUID user = UUID.randomUUID();
+        seed(user);
+        Map<String, Long> before = userRows(user);
+
+        installCommitFailure();
+        try {
+            assertThatThrownBy(() -> handler.replayForRestore(restoreReplay(user, UUID.randomUUID())));
+        } finally {
+            dropCommitFailure();
+        }
+
+        assertThat(userRows(user)).isEqualTo(before);
+        assertThat(tombstones(user)).isZero();
+        assertThat(restoreAckRows(user)).isZero();
+    }
+
+    @Test
+    void restoreReplayRedeliveryQueuesOneAckAndAnotherAttemptAFreshOne() {
+        UUID user = UUID.randomUUID();
+        seed(user);
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(user, UUID.randomUUID());
+
+        handler.replayForRestore(replay);
+        handler.replayForRestore(replay);
+        assertThat(restoreAckRows(user)).isEqualTo(1);
+
+        handler.replayForRestore(restoreReplay(user, UUID.randomUUID()));
+        assertThat(restoreAckRows(user)).isEqualTo(2);
+        assertErased(user);
     }
 
     /**
@@ -439,5 +563,18 @@ class AccountErasureAckOutboxPostgresIT {
             }
         }
         return matches;
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay(UUID user, UUID attempt) {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), attempt, "backup-stamp-2026-10-03",
+                "e".repeat(64), user, Instant.parse("2026-09-29T08:16:00Z"), Instant.now());
+    }
+
+    private long restoreAckRows(UUID user) {
+        return count("""
+                SELECT COUNT(*) FROM outbox_events
+                WHERE aggregate_type = 'AccountErasure' AND event_type = 'UserErasureRestoreAcknowledged'
+                  AND aggregate_id = ?
+                """, user);
     }
 }

@@ -13,9 +13,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,9 +30,10 @@ import java.util.stream.LongStream;
  * Verifies durable erasure evidence the way the Python model does
  * ({@code verify_pending}, {@code verify_frontier}, {@code verify_checkpoint} and
  * {@code recover_latest_trusted} in {@code scripts/lib/recovery_persist_protocol.py}): same
- * checks, same order, same verdicts and the same error messages. The expected database
- * identity and the producer keys come from the consumer's own configuration, never from the
- * objects.
+ * checks, same order, same verdicts and the same error messages. The pinned database identity
+ * and the producer keys ({@link EvidenceTrust}) come from the consumer's own configuration,
+ * never from the objects. Every signed object must be format v2, name a trusted key of its own
+ * producer that is not retired and was valid ({@code notBefore}) at the verification instant.
  *
  * <p>Like the model, {@link Verdict#ACCEPT_ISOLATED} proves producer authenticity, byte
  * integrity and contiguity up to the signed frontier. It does not prove off-host WORM
@@ -52,9 +54,18 @@ public final class DurableErasureEvidenceVerifier {
     }
 
     /**
+     * The frontier read from all of its versions: the highest verified version (empty when the
+     * store holds no frontier) and the number of versions that failed verification and were
+     * ignored.
+     */
+    public record FrontierVersions(Optional<VerifiedFrontier> highest, int ignoredVersions) {
+    }
+
+    /**
      * Completeness uses the signed frontier, never the highest listed sequence: no frontier is
      * {@link Verdict#UNKNOWN}; a missing record in {@code 1..expectedThrough} is
-     * {@link Verdict#BLOCKED}.
+     * {@link Verdict#BLOCKED}. {@code ignoredFrontierVersions} counts frontier versions that failed
+     * verification: tamper evidence for the operator. They neither raise nor lower the boundary.
      */
     public record RecoveryVerdict(Verdict verdict,
                                   Long expectedThrough,
@@ -64,36 +75,33 @@ public final class DurableErasureEvidenceVerifier {
                                   List<Long> gaps,
                                   List<Long> abandonedReservations,
                                   List<VerifiedPending> pending,
-                                  String reason) {
+                                  String reason,
+                                  int ignoredFrontierVersions) {
 
         public boolean completenessEstablished() {
             return verdict == Verdict.ACCEPT_ISOLATED;
         }
     }
 
+    private static final Comparator<VerifiedFrontier> FRONTIER_ORDER = Comparator
+            .comparingLong(VerifiedFrontier::expectedThrough)
+            .thenComparingLong(VerifiedFrontier::highestReserved);
+
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
-    private final String expectedDatabaseIdentity;
-    private final Map<String, byte[]> trustedKeys;
+    private final EvidenceTrust trust;
+    private final Instant at;
 
-    public DurableErasureEvidenceVerifier(String expectedDatabaseIdentity, Map<String, byte[]> trustedKeys) {
-        this.expectedDatabaseIdentity = Objects.requireNonNull(expectedDatabaseIdentity, "expectedDatabaseIdentity");
-        Map<String, byte[]> keys = new HashMap<>();
-        trustedKeys.forEach((producer, key) -> keys.put(producer, key.clone()));
-        this.trustedKeys = Map.copyOf(keys);
+    /** Verifies against {@code trust} as of {@code at} (the consumer's clock). */
+    public DurableErasureEvidenceVerifier(EvidenceTrust trust, Instant at) {
+        this.trust = Objects.requireNonNull(trust, "trust");
+        this.at = Objects.requireNonNull(at, "at");
     }
 
     public VerifiedPending verifyPending(byte[] raw) {
         Map<String, Object> body = parse(raw);
-        if (!KIND_PENDING.equals(body.get("kind"))) {
-            throw new DurableEvidenceException("not a pending record");
-        }
-        requireDatabase(body);
-        byte[] key = producerKey(body);
-        if (!DurableErasureEvidence.signatureMatches(body, SIGNED_PENDING, key)) {
-            throw new DurableEvidenceException("producer signature mismatch");
-        }
+        verifySigned(body, KIND_PENDING, "not a pending record", SIGNED_PENDING, "producer signature mismatch");
         Map<String, Object> digestBody = new LinkedHashMap<>();
         for (String field : List.of("authUserId", "erasureRequestId", "erasedAt")) {
             if (!body.containsKey(field)) {
@@ -114,14 +122,8 @@ public final class DurableErasureEvidenceVerifier {
             return Optional.empty();
         }
         Map<String, Object> body = parse(raw.get());
-        if (!KIND_FRONTIER.equals(body.get("kind"))) {
-            throw new DurableEvidenceException("not an expected-boundary frontier");
-        }
-        requireDatabase(body);
-        byte[] key = producerKey(body);
-        if (!DurableErasureEvidence.signatureMatches(body, SIGNED_FRONTIER, key)) {
-            throw new DurableEvidenceException("frontier signature mismatch");
-        }
+        verifySigned(body, KIND_FRONTIER, "not an expected-boundary frontier", SIGNED_FRONTIER,
+                "frontier signature mismatch");
         long expectedThrough = integral(body, "expectedThrough");
         long highestReserved = integral(body, "highestReserved");
         if (!DurableErasureEvidence.frontierDigest(expectedThrough, highestReserved).equals(body.get("frontierDigest"))) {
@@ -130,16 +132,40 @@ public final class DurableErasureEvidenceVerifier {
         return Optional.of(new VerifiedFrontier(expectedThrough, highestReserved, String.valueOf(body.get("producerId"))));
     }
 
+    /**
+     * The frontier as the highest of its verified versions. The frontier is the one object that
+     * is rewritten, and a versioned store (object lock) keeps every version but may list them out
+     * of write order (by modification time, after a backward clock step). Its contents only grow,
+     * so the highest verified version is the current one. Versions that fail verification are
+     * ignored while another version verifies, and counted; if none verifies, the first failure is
+     * thrown.
+     */
+    public FrontierVersions verifyFrontierVersions(List<byte[]> versions) {
+        VerifiedFrontier highest = null;
+        DurableEvidenceException firstFailure = null;
+        int ignored = 0;
+        for (byte[] version : versions) {
+            try {
+                VerifiedFrontier frontier = verifyFrontier(Optional.of(version)).orElseThrow();
+                if (highest == null || FRONTIER_ORDER.compare(frontier, highest) > 0) {
+                    highest = frontier;
+                }
+            } catch (DurableEvidenceException ex) {
+                ignored++;
+                if (firstFailure == null) {
+                    firstFailure = ex;
+                }
+            }
+        }
+        if (highest == null && firstFailure != null) {
+            throw firstFailure;
+        }
+        return new FrontierVersions(Optional.ofNullable(highest), ignored);
+    }
+
     public VerifiedCheckpoint verifyCheckpoint(byte[] raw) {
         Map<String, Object> body = parse(raw);
-        if (!KIND_CHECKPOINT.equals(body.get("kind"))) {
-            throw new DurableEvidenceException("not a checkpoint");
-        }
-        requireDatabase(body);
-        byte[] key = producerKey(body);
-        if (!DurableErasureEvidence.signatureMatches(body, SIGNED_CHECKPOINT, key)) {
-            throw new DurableEvidenceException("producer signature mismatch");
-        }
+        verifySigned(body, KIND_CHECKPOINT, "not a checkpoint", SIGNED_CHECKPOINT, "producer signature mismatch");
         if (!body.containsKey("entries")
                 || !DurableErasureEvidence.ledgerDigest(body.get("entries")).equals(body.get("ledgerDigest"))) {
             throw new DurableEvidenceException("checkpoint ledger digest mismatch");
@@ -164,13 +190,16 @@ public final class DurableErasureEvidenceVerifier {
         Set<Long> published = new TreeSet<>();
         pending.forEach(item -> published.add(item.sequence()));
         checkpoints.forEach(item -> published.add(item.sequence()));
-        Optional<VerifiedFrontier> frontier = verifyFrontier(store.find(FRONTIER_KEY));
+        FrontierVersions frontierVersions = verifyFrontierVersions(store.findAll(FRONTIER_KEY));
+        Optional<VerifiedFrontier> frontier = frontierVersions.highest();
+        int ignored = frontierVersions.ignoredVersions();
         List<Long> abandoned = abandonedReservations(store, published);
         Long listedMaximum = published.isEmpty() ? null : Collections.max(published);
 
         if (frontier.isEmpty()) {
             return result(Verdict.UNKNOWN, null, null, List.of(), checkpoints, listedMaximum, abandoned,
-                    List.of(), "independently durable expected boundary is missing", requiredThroughSequence);
+                    List.of(), "independently durable expected boundary is missing", requiredThroughSequence,
+                    ignored);
         }
         long expectedThrough = frontier.get().expectedThrough();
         List<Long> gaps = LongStream.rangeClosed(1, expectedThrough)
@@ -180,24 +209,24 @@ public final class DurableErasureEvidenceVerifier {
         if (!gaps.isEmpty() || (expectedThrough == 0 && !abandoned.isEmpty())) {
             return result(Verdict.BLOCKED, expectedThrough, null, gaps, checkpoints, listedMaximum, abandoned,
                     List.of(), "expected boundary is present but published records are incomplete",
-                    requiredThroughSequence);
+                    requiredThroughSequence, ignored);
         }
         if (expectedThrough == 0) {
             return result(Verdict.ACCEPT_ISOLATED, 0L, null, gaps, checkpoints, listedMaximum, abandoned,
                     List.of(), "expected boundary is zero and no abandoned reservation remains",
-                    requiredThroughSequence);
+                    requiredThroughSequence, ignored);
         }
         List<VerifiedPending> trusted = pending.stream()
                 .filter(item -> item.sequence() <= expectedThrough)
                 .toList();
         return result(Verdict.ACCEPT_ISOLATED, expectedThrough, expectedThrough, gaps, checkpoints, listedMaximum,
-                abandoned, trusted, null, requiredThroughSequence);
+                abandoned, trusted, null, requiredThroughSequence, ignored);
     }
 
     private static RecoveryVerdict result(Verdict verdict, Long expectedThrough, Long latest, List<Long> gaps,
                                           List<VerifiedCheckpoint> checkpoints, Long listedMaximum,
                                           List<Long> abandoned, List<VerifiedPending> trusted, String reason,
-                                          Long requiredThroughSequence) {
+                                          Long requiredThroughSequence, int ignoredFrontierVersions) {
         Long latestCheckpoint = latest == null ? null : checkpoints.stream()
                 .map(VerifiedCheckpoint::sequence)
                 .filter(sequence -> sequence <= latest)
@@ -213,7 +242,7 @@ public final class DurableErasureEvidenceVerifier {
             }
         }
         return new RecoveryVerdict(verdict, expectedThrough, latest, latestCheckpoint, listedMaximum,
-                List.copyOf(gaps), List.copyOf(abandoned), List.copyOf(trusted), reason);
+                List.copyOf(gaps), List.copyOf(abandoned), List.copyOf(trusted), reason, ignoredFrontierVersions);
     }
 
     /** Reserved sequences without a published record or checkpoint (markers are unsigned). */
@@ -229,18 +258,22 @@ public final class DurableErasureEvidenceVerifier {
         return abandoned;
     }
 
-    private void requireDatabase(Map<String, Object> body) {
-        if (!expectedDatabaseIdentity.equals(body.get("databaseIdentity"))) {
+    /** The checks every signed kind shares, in the order the Python model applies them. */
+    private void verifySigned(Map<String, Object> body, String kind, String kindError, List<String> fields,
+                              String signatureError) {
+        if (!kind.equals(body.get("kind"))) {
+            throw new DurableEvidenceException(kindError);
+        }
+        if (!Long.valueOf(DurableErasureEvidence.SCHEMA_VERSION).equals(body.get("schemaVersion"))) {
+            throw new DurableEvidenceException("unsupported schema version");
+        }
+        if (!trust.databaseIdentity().equals(body.get("databaseIdentity"))) {
             throw new DurableEvidenceException("database identity mismatch");
         }
-    }
-
-    private byte[] producerKey(Map<String, Object> body) {
-        byte[] key = trustedKeys.get(String.valueOf(body.get("producerId")));
-        if (key == null || key.length == 0) {
-            throw new DurableEvidenceException("unknown producer");
+        TrustedKey key = trust.verifyingKey(body, at);
+        if (!DurableErasureEvidence.signatureMatches(body, fields, key.key())) {
+            throw new DurableEvidenceException(signatureError);
         }
-        return key;
     }
 
     @SuppressWarnings("unchecked")

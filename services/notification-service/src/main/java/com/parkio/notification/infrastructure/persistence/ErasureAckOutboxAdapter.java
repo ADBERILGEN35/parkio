@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.platform.tracing.KafkaTraceContextSupport;
 import com.parkio.notification.application.port.ErasureAckOutbox;
 import com.parkio.notification.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.notification.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.notification.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.notification.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import java.util.UUID;
@@ -38,17 +39,34 @@ public class ErasureAckOutboxAdapter implements ErasureAckOutbox {
                 UserErasureAcknowledgedEvent.AGGREGATE_TYPE,
                 event.erasureRequestId(),
                 UserErasureAcknowledgedEvent.TYPE,
-                serialize(event),
+                serialize(event, UserErasureAcknowledgedEvent.TYPE),
                 event.occurredAt(),
                 KafkaTraceContextSupport.currentOutboxTraceContext(),
                 false));
     }
 
-    private String serialize(UserErasureAcknowledgedEvent event) {
+    @Override
+    public void appendRestoreAck(UserErasureRestoreAcknowledgedEvent event) {
+        if (jpa.existsByEventId(event.eventId())) {
+            return;
+        }
+        jpa.save(new OutboxEventEntity(
+                UUID.randomUUID(),
+                event.eventId(),
+                UserErasureRestoreAcknowledgedEvent.AGGREGATE_TYPE,
+                event.authUserId(),
+                UserErasureRestoreAcknowledgedEvent.TYPE,
+                serialize(event, UserErasureRestoreAcknowledgedEvent.TYPE),
+                event.occurredAt(),
+                KafkaTraceContextSupport.currentOutboxTraceContext(),
+                false));
+    }
+
+    private String serialize(Object event, String type) {
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize " + UserErasureAcknowledgedEvent.TYPE + " event", e);
+            throw new IllegalStateException("Failed to serialize " + type + " event", e);
         }
     }
 }

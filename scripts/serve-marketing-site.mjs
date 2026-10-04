@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,17 @@ const contentTypes = new Map([
   ['.webmanifest', 'application/manifest+json; charset=utf-8'],
   ['.xml', 'application/xml; charset=utf-8'],
 ]);
+
+// The `Header always set` directives of .htaccess (mod_headers), so browser tests run under the
+// security headers the host is configured to send, CSP included (CL-F39.5). Other Apache
+// directives are not emulated; the live headers are checked after an authorized deploy.
+const htaccessHeaders = [
+  ...readFileSync(join(root, '.htaccess'), 'utf8').matchAll(/^\s*Header always set ([A-Za-z-]+) "([^"]*)"\s*$/gm),
+].map(([, name, value]) => [name, value]);
+
+if (!htaccessHeaders.some(([name]) => name === 'Content-Security-Policy')) {
+  throw new Error('web/marketing/.htaccess sets no Content-Security-Policy header.');
+}
 
 function resolveRequestPath(pathname) {
   const decoded = decodeURIComponent(pathname);
@@ -49,6 +60,7 @@ const server = createServer((request, response) => {
   response.statusCode = found ? 200 : 404;
   response.setHeader('Content-Type', contentTypes.get(extname(filePath)) ?? 'application/octet-stream');
   response.setHeader('X-Content-Type-Options', 'nosniff');
+  htaccessHeaders.forEach(([name, value]) => response.setHeader(name, value));
   createReadStream(filePath).pipe(response);
 });
 

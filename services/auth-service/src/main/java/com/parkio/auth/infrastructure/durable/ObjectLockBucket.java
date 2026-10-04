@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Versioned object-lock bucket I/O for durable erasure evidence. Every write creates a new
@@ -38,6 +39,7 @@ final class ObjectLockBucket {
 
     private final MinioClient client;
     private final String bucket;
+    private final Map<String, StoredVersion> versionCache = new ConcurrentHashMap<>();
 
     ObjectLockBucket(MinioClient client, String bucket) {
         this.client = Objects.requireNonNull(client, "client");
@@ -71,10 +73,17 @@ final class ObjectLockBucket {
         return versions.isEmpty() ? Optional.empty() : Optional.of(read(versions.get(versions.size() - 1)));
     }
 
-    /** The most recent version written under {@code key}, ignoring delete markers. */
-    Optional<StoredVersion> latest(String key) {
-        List<Item> versions = objectVersions(key);
-        return versions.isEmpty() ? Optional.empty() : Optional.of(read(versions.get(0)));
+    /**
+     * Every version of {@code key} except delete markers, in listing order (newest modification
+     * time first, which a backward clock step on the store host can disturb). A version's bytes
+     * never change, so each version is read once per bucket instance.
+     */
+    List<StoredVersion> allVersions(String key) {
+        List<StoredVersion> all = new ArrayList<>();
+        for (Item item : objectVersions(key)) {
+            all.add(versionCache.computeIfAbsent(key + "\n" + item.versionId(), ignored -> read(item)));
+        }
+        return all;
     }
 
     int versionCount(String key) {
