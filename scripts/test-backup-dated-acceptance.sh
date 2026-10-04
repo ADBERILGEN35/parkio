@@ -108,6 +108,20 @@ SH
 chmod +x "${BIN}/az"
 export PATH="${BIN}:${PATH}"
 
+# Every `env` the acceptance script or the drill starts goes through this shim, which logs its argv.
+# A secret passed to `env` as NAME=VALUE is readable by any local user in /proc/<pid>/cmdline (#220
+# review D1). The harness itself calls /usr/bin/env, so only the script's own calls are logged.
+ARGV_SHIM="${WORKROOT}/argv-shim"
+ARGV_LOG="${WORKROOT}/env-argv.log"
+mkdir -p "${ARGV_SHIM}"
+: > "${ARGV_LOG}"
+cat > "${ARGV_SHIM}/env" <<SH
+#!/bin/bash
+printf '%s\n' "\$*" >> "${ARGV_LOG}"
+exec /usr/bin/env "\$@"
+SH
+chmod +x "${ARGV_SHIM}/env"
+
 # shellcheck source=lib/backup-common.sh
 source "${ROOT}/scripts/lib/backup-common.sh"
 
@@ -166,7 +180,7 @@ new_case() { # name
 # drill must never see them.
 run_acceptance() { # extra args...; sets rc, out and REPORT
   local rc_=0 evidence="${EVIDENCE_DIR:-${CASE}/evidence}"
-  out="$(env BACKUP_OFFSITE_KIND="${KIND:-s3}" BACKUP_MC_DEST="${CASE}/offsite/parkio-backups" \
+  out="$(/usr/bin/env PATH="${ARGV_SHIM}:${PATH}" BACKUP_OFFSITE_KIND="${KIND:-s3}" BACKUP_MC_DEST="${CASE}/offsite/parkio-backups" \
     BACKUP_ENCRYPT_PASSPHRASE="${PHRASE-${PASSPHRASE}}" BACKUP_PRODUCTION_MODE=1 \
     BACKUP_AZURE_STORAGE_KEY=live-looking-storage-key PARKIO_RESEND_API_KEY=re_ABCDEFGHIJKLMNOPQRSTUV \
     PARKIO_DRILL_ID=rd-test-01 PARKIO_DRILL_FAKE_RC="${DRILL_RC:-0}" PARKIO_ENV_FILE="" BACKUP_MC_URL="" \
@@ -241,6 +255,19 @@ EVIDENCE_DIR="${CASE}/combined-mismatch" run_acceptance --combine "${BACKUP_RECO
 REPORT="${CASE}/combined-mismatch/acceptance.json"
 [ "${rc}" -eq 1 ] && grep -q "not for the same sealed stamp" "${REPORT}" \
   && ok "records for different seals do not combine into a PASS" || bad "combine mismatch (rc=${rc})"
+
+# A copy pulled into a directory not named after the stamp still combines: the record takes the
+# stamp from the copy's COMPLETE (#220 review N6).
+mv "${CASE}/drill/stamps/${STAMP}" "${CASE}/drill/stamps/renamed-copy"
+EVIDENCE_DIR="${CASE}/drill-evidence-renamed" run_acceptance --pulled "${CASE}/drill/stamps/renamed-copy" \
+  --expected-sha256sums "${SEAL}" --work "${CASE}/drill-work-renamed" --decrypt
+RENAMED_RECORD="${CASE}/drill-evidence-renamed/acceptance.json"
+EVIDENCE_DIR="${CASE}/combined-renamed" run_acceptance --combine "${BACKUP_RECORD}" "${RENAMED_RECORD}"
+REPORT="${CASE}/combined-renamed/acceptance.json"
+[ "${rc}" -eq 4 ] && grep -q "\"stamp\": \"${STAMP}\"" "${RENAMED_RECORD}" \
+  && [ "$(results)" = "complete=PASS remote-presence=PASS remote-integrity=PASS decrypt=PASS isolated-restore=NOT_RUN verdict=INCOMPLETE" ] \
+  && ok "a renamed drill-host copy keeps the sealed stamp name and combines (restore not requested: exit 4)" \
+  || bad "renamed copy (rc=${rc}): $(results 2>/dev/null) $(grep -o '"stamp": "[^"]*"' "${RENAMED_RECORD}" 2>/dev/null)"
 
 # ---- 4. drill host: the wrong seal, or a file outside it --------------------------------------
 new_case drill-wrong-seal
@@ -339,6 +366,10 @@ for refused in --allow-privacy-blocked --env-file --stamp; do
   drill_host "${SEAL}" --isolated-restore -- --recovery-cutoff 2026-10-04T03:30:01Z --container x "${refused}" y
   [ "${rc}" -eq 2 ] && ok "drill argument ${refused} is refused" || bad "drill ${refused}: rc=${rc}"
 done
+rm -rf "${CASE}/drill-evidence" "${CASE}/drill-work"
+drill_host "${SEAL}" --env-file "${CASE}/drill/drill.env"
+[ "${rc}" -eq 2 ] && grep -q "takes no --env-file" <<<"${out}" \
+  && ok "the drill host refuses --env-file instead of ignoring it" || bad "drill --env-file: rc=${rc} ${out}"
 run_acceptance --stamp-dir "${CASE}/backups/${STAMP}" --pulled "${CASE}/drill/stamps/${STAMP}" \
   --expected-sha256sums "${SEAL}" --work "${CASE}/work"
 [ "${rc}" -eq 2 ] && ok "a run is either the backup host or the drill host" || bad "both modes: rc=${rc}"
@@ -350,6 +381,13 @@ if [ "${listing}" = "$(printf 'COMPLETE\t103\nauth.sql.gz.enc\t128\nnested/objec
   ok "the Azure listing keeps this stamp's objects, relative to the stamp prefix"
 else
   bad "Azure listing: ${listing}"
+fi
+
+# ---- 10. no process argv carried the passphrase (#220 review D1) --------------------------------
+if grep -q -- "${PASSPHRASE}" "${ARGV_LOG}"; then
+  bad "the passphrase was an argv element of $(grep -c -- "${PASSPHRASE}" "${ARGV_LOG}") env call(s)"
+else
+  ok "no env call of the acceptance or the drill carried the passphrase on its argv ($(wc -l < "${ARGV_LOG}") calls logged)"
 fi
 
 echo

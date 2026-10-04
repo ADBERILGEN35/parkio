@@ -32,7 +32,7 @@ So an acceptance is two runs plus a combine step:
 | B | drill host, after §3 of the drill procedure (pull with a read-only SAS, then deny egress) | 3 (the drill host's copy, against run A's seal), 4, 5 | `--pulled` + `--expected-sha256sums` |
 | C | anywhere | one record: 1 and 2 from A, 3 from both, 4 from B (else A), 5 from B | `--combine` |
 
-On the drill host, the drill runs under `env -i` with an allowlist: `PARKIO_RESTORE_*`, `PARKIO_DRILL_*`, the passphrase, `PATH`/`HOME` and the Docker client settings. It gets only its own drill env file (`--drill-env-file`). The acceptance's offsite credentials and the production env file never reach it. If the drill host still fails the isolation preflight (for example, egress is not denied or a non-database container is running), outcome 5 is `NOT_RUN` with that reason, not a restore `FAIL`.
+On the drill host, the drill runs in a scrubbed environment: a subshell unsets every variable outside an allowlist (`PARKIO_RESTORE_*`, `PARKIO_DRILL_*`, the passphrase, `PATH`/`HOME`/`TMPDIR` and the Docker client settings) and then starts the drill. The passphrase therefore stays in the environment and never appears on a process argv, where any local user could read it. It gets only its own drill env file (`--drill-env-file`). The acceptance's offsite credentials and the production env file never reach it. If the drill host still fails the isolation preflight (for example, egress is not denied or a non-database container is running), outcome 5 is `NOT_RUN` with that reason, not a restore `FAIL`.
 
 ## Before running it
 
@@ -67,7 +67,9 @@ scripts/backup-dated-acceptance.sh --combine backup-host/acceptance.json drill-h
   --evidence ~/acceptance/<date>-<stamp>/combined
 ```
 
-The script sets the drill's `--stamp` (the verified copy), `--work`, `--evidence` and `--env-file`
+The drill host takes no `--env-file` or `PARKIO_ENV_FILE`; the copy is already pulled. The record's
+stamp name comes from the copy's `COMPLETE` (`stamp=`), so a copy pulled into a directory of another name
+still combines. The script sets the drill's `--stamp` (the verified copy), `--work`, `--evidence` and `--env-file`
 itself. It refuses them among the drill arguments, together with `--allow-privacy-blocked`.
 
 Exit codes:
