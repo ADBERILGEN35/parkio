@@ -836,6 +836,18 @@ parkio_backup_mc_docker() {
           chmod -R a+rwX /download
         '
       ;;
+    list)
+      docker run --rm --network "${network}" --entrypoint /bin/sh \
+        -e MC_URL="${BACKUP_MC_URL}" \
+        -e MC_ACCESS="${BACKUP_MC_ACCESS_KEY:?set BACKUP_MC_ACCESS_KEY}" \
+        -e MC_SECRET="${BACKUP_MC_SECRET_KEY:?set BACKUP_MC_SECRET_KEY}" \
+        -e MC_DEST="${dest}" \
+        "${mc_image}" -c '
+          set -eu
+          mc alias set offsite "$MC_URL" "$MC_ACCESS" "$MC_SECRET" >/dev/null
+          mc ls --recursive --json "$MC_DEST/"
+        '
+      ;;
     *)
       echo "ERROR: unknown mc docker action '${action}'." >&2
       return 1
@@ -899,6 +911,48 @@ parkio_backup_offsite_upload_azure() {
   fi
   mv "${complete_tmp}" "${dest_dir}/COMPLETE"
   return "${rc}"
+}
+
+# Lists one stamp's offsite objects as "<name><TAB><bytes>" lines, names relative to the stamp
+# prefix. Reads names and sizes only and downloads nothing, so remote presence can be recorded
+# apart from remote byte integrity (U14 dated acceptance).
+# Usage: parkio_backup_offsite_list <stamp>
+parkio_backup_offsite_list() {
+  local stamp="$1"
+  local kind listing
+  kind="$(parkio_backup_offsite_kind)"
+  case "${kind}" in
+    s3)
+      local mc_dest="${BACKUP_MC_DEST:?BACKUP_MC_DEST required}"
+      if [ -n "${BACKUP_MC_URL:-}" ]; then
+        listing="$(parkio_backup_mc_docker list "" "${mc_dest%/}/${stamp}")" || return 1
+      else
+        listing="$(mc ls --recursive --json "${mc_dest%/}/${stamp}/")" || return 1
+      fi
+      printf '%s\n' "${listing}" | jq -r 'select(.type == "file") | "\(.key)\t\(.size)"'
+      ;;
+    azure)
+      local account="${BACKUP_AZURE_STORAGE_ACCOUNT:-}"
+      local container="${BACKUP_AZURE_CONTAINER:-}"
+      parkio_backup_azure_resolve_auth || return 2
+      local extra=()
+      case "${PARKIO_AZURE_AUTH_MODE}" in
+        SAS) ;;
+        ACCOUNT_KEY) extra+=(--account-key "${AZURE_STORAGE_KEY:-${BACKUP_AZURE_STORAGE_KEY}}") ;;
+        LOGIN) extra+=(--auth-mode login) ;;
+      esac
+      # Intentionally no set -x around az (secrets may be in env/argv).
+      listing="$(az storage blob list --account-name "${account}" --container-name "${container}" \
+        --prefix "${stamp}/" --num-results "*" --query "[].[name, properties.contentLength]" \
+        --output tsv "${extra[@]}")" || return 1
+      printf '%s\n' "${listing}" | awk -F'\t' -v prefix="${stamp}/" \
+        'index($1, prefix) == 1 { print substr($1, length(prefix) + 1) "\t" $2 }'
+      ;;
+    *)
+      echo "ERROR: no offsite configured for listing." >&2
+      return 1
+      ;;
+  esac
 }
 
 parkio_backup_offsite_pull() {
