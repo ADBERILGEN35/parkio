@@ -17,8 +17,9 @@ application runtime YAML, or the workflow itself.
 
 ## What It Validates
 
-- Backend `./gradlew --no-daemon clean build`.
-- Backend `integrationTest` with `parkio.integrationTest.requireDocker=true`.
+- Backend build, unit tests and `integrationTest` are not repeated here: they run in
+  `backend-ci.yml` (every PR) and `backend-integration.yml` (backend, build and
+  Docker paths), which the CI gate reads for test evidence.
 - Frontend install, typecheck, lint, tests, and production build.
 - Hosted-beta compose render from `docker/.env.hosted-beta.example`.
 - Full compose stack build and startup on `ubuntu-latest`.
