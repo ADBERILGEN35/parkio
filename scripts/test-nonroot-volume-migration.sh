@@ -51,6 +51,25 @@ stat_in() { # volume, path below /v -> "uid:gid mode" of the path itself
 run_tool() { # sets out and rc
   if out="$("$TOOL" "$@" 2>&1)"; then rc=0; else rc=$?; fi
 }
+# A docker shim for one helper call at a time: SHIM_MODE=count makes the path count report 999
+# (the manifest then looks incomplete); SHIM_MODE=restore-transient fails the restore helper with
+# exit 1 before it runs. Every other call goes to the real docker.
+REAL_DOCKER="$(command -v docker)"
+mkdir -p "$WORK/shim"
+cat > "$WORK/shim/docker" <<SHIM
+#!/usr/bin/env bash
+case "\$*" in
+  *"find /v -xdev | wc -l"*) [ "\${SHIM_MODE:-}" != count ] || { echo 999; exit 0; } ;;
+  *"cat > /tmp/m"*) [ "\${SHIM_MODE:-}" != restore-transient ] || { cat >/dev/null; exit 1; } ;;
+esac
+exec "$REAL_DOCKER" "\$@"
+SHIM
+chmod +x "$WORK/shim/docker"
+run_shimmed() { # mode, tool args...; sets out and rc
+  local mode=$1
+  shift
+  if out="$(PATH="$WORK/shim:$PATH" SHIM_MODE="$mode" "$TOOL" "$@" 2>&1)"; then rc=0; else rc=$?; fi
+}
 
 create_volume data '
   mkdir -p /v/a/b && echo x > /v/a/b/f && echo y > /v/top && echo z > "/v/with space"
@@ -108,6 +127,17 @@ run_tool apply --project "$PROJECT" --service svc-data --confirm-project "$PROJE
 docker rm -f "$CONSUMER" >/dev/null
 [ "$(owners "$DATA")" = "$before_owners" ] && ok "refused runs change nothing" || bad "a refused run changed ownership"
 
+# A manifest that does not list every path stops apply before the checksum and the chown.
+run_shimmed count apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/count"
+[ "$rc" = 4 ] && grep -q 'HELPER FAILED step=manifest' <<<"$out" \
+  && grep -q 'of 999 paths; nothing was changed; apply again with a new --evidence-dir' <<<"$out" \
+  && [ ! -e "$EVIDENCE/count/$DATA.before.manifest.sha256" ] && [ "$(owners "$DATA")" = "$before_owners" ] \
+  && ok "an incomplete manifest exits 4, changes nothing and points to a new --evidence-dir" \
+  || bad "incomplete manifest: rc=$rc $out"
+run_tool apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/count"
+[ "$rc" = 3 ] && grep -q 'holds the manifest of an earlier apply' <<<"$out" \
+  && ok "the directory of that failed apply is refused, as the hint says" || bad "retry into the same directory: rc=$rc $out"
+
 echo "=== apply ==="
 run_tool apply --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
 if [ "$rc" = 0 ] && [ "$(owners "$DATA")" = "10 999:1000" ] && [ "$(owners "${PROJECT}_extra")" = "2 999:1000" ]; then
@@ -131,6 +161,27 @@ printf '0 0 777 -rwxrwxrwx /v/top\n' >> "$EVIDENCE/$DATA.before.manifest"
 run_tool restore --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
 [ "$rc" = 3 ] && grep -q 'does not match its .sha256' <<<"$out" && ok "restore refuses a manifest that changed after apply" || bad "tampered: rc=$rc $out"
 cp -- "$WORK/manifest.saved" "$EVIDENCE/$DATA.before.manifest"
+
+# A malformed manifest whose .sha256 was recomputed passes the checksum and fails in the helper,
+# the same way every time: the hint must not suggest running restore again.
+applied_owners="$(owners "$DATA")"
+cp -- "$EVIDENCE/$DATA.before.manifest.sha256" "$WORK/manifest.sha256.saved"
+printf 'not a manifest line\n' >> "$EVIDENCE/$DATA.before.manifest"
+(cd "$EVIDENCE" && sha256sum "$DATA.before.manifest" > "$DATA.before.manifest.sha256")
+run_tool restore --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
+if [ "$rc" = 4 ] && grep -q 'manifest has 1 malformed line(s)' <<<"$out" && grep -q 'HELPER FAILED step=restore' <<<"$out" \
+  && grep -q 'is not a usable manifest' <<<"$out" && grep -q 'a rerun fails the same way' <<<"$out" \
+  && ! grep -q 'run restore again' <<<"$out" && [ "$(owners "$DATA")" = "$applied_owners" ]; then
+  ok "restore of a malformed manifest exits 4, changes nothing and does not suggest a rerun"
+else
+  bad "malformed manifest: rc=$rc $out"
+fi
+cp -- "$WORK/manifest.saved" "$EVIDENCE/$DATA.before.manifest"
+cp -- "$WORK/manifest.sha256.saved" "$EVIDENCE/$DATA.before.manifest.sha256"
+run_shimmed restore-transient restore --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE"
+[ "$rc" = 4 ] && grep -q 'HELPER FAILED step=restore' <<<"$out" && grep -q 'run restore again; it reapplies the whole manifest' <<<"$out" \
+  && [ "$(owners "$DATA")" = "$applied_owners" ] \
+  && ok "a transient restore failure still says to run restore again" || bad "transient restore failure: rc=$rc $out"
 
 # While migrated, the service writes a new file and deletes one the manifest lists.
 docker run --rm --network none -v "$DATA:/v" --entrypoint sh "$HELPER_IMAGE" -c \
