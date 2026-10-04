@@ -29,6 +29,29 @@ public interface OutboxEventJpaRepository extends JpaRepository<OutboxEventEntit
     /** Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT). */
     long countByPublishedFalseAndDeadLetteredFalse();
 
+    /** Open dead-lettered rows awaiting inspection/redrive — {@code parkio.outbox.deadlettered.count}. */
+    @Query(
+            value =
+                    "SELECT COUNT(*) FROM outbox_events WHERE dead_lettered = true AND acknowledged_deadletter = false",
+            nativeQuery = true)
+    long countByDeadLetteredTrue();
+
+    /** Acknowledged dead-lettered rows retained for audit. */
+    @Query(value = "SELECT COUNT(*) FROM outbox_events WHERE dead_lettered = true AND acknowledged_deadletter = true",
+            nativeQuery = true)
+    long countAcknowledgedDeadletters();
+
+    /** Oldest open dead-letter creation time; {@code null} when no operator action is pending. */
+    @Query(
+            value =
+                    "SELECT MIN(created_at) FROM outbox_events WHERE dead_lettered = true AND acknowledged_deadletter = false",
+            nativeQuery = true)
+    Instant findOldestOpenDeadletterCreatedAt();
+
+    /** Recovery audit count by action for low-cardinality operator metrics. */
+    @Query(value = "SELECT COUNT(*) FROM outbox_recovery_audit WHERE action = :action", nativeQuery = true)
+    long countRecoveryAuditByAction(@Param("action") String action);
+
     /** Oldest relayable row's creation time (gauge input); {@code null} when the backlog is empty. */
     @Query(value = "SELECT MIN(created_at) FROM outbox_events WHERE published = false AND dead_lettered = false",
             nativeQuery = true)

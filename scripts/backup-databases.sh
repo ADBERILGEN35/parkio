@@ -137,8 +137,12 @@ elif [ "${failures}" -eq 0 ] && parkio_backup_allow_complete "${DEST_DIR}" "${fa
   if parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"; then
     PARKIO_BACKUP_FINALIZED=1
     if [ "$(parkio_backup_offsite_kind)" != "none" ]; then
+      rm -f "$(parkio_backup_offsite_receipt_path "${DEST_DIR}")"
       if ! parkio_backup_offsite_upload "${DEST_DIR}" "${MC_DEST}" "${STAMP}"; then
         echo "ERROR: offsite upload failed" >&2
+        failures=$((failures + 1))
+      elif ! parkio_backup_write_offsite_receipt "${DEST_DIR}" "${MC_DEST}" "${STAMP}"; then
+        echo "ERROR: offsite upload finished but its receipt was not written" >&2
         failures=$((failures + 1))
       fi
     fi

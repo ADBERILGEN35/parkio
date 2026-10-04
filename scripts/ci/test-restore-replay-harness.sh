@@ -17,14 +17,15 @@ cp -- "$ROOT/scripts/ci/restore-replay-harness.sh" "$TREE/scripts/ci/"
 
 # Fake Gradle: records its arguments, then writes one XML per participant class, stamped now
 # (UTC, as Gradle stamps JUnit XML). By default every participant has a live-path case and six
-# passing restore cases; gamification also has a RestoreReplay class whose one case name has no
-# "restore". FAKE_SCENARIO holds MODE:PARTICIPANT items:
+# passing restore cases (auth eleven, its minimum); gamification also has a RestoreReplay class
+# whose one case name has no "restore". FAKE_SCENARIO holds MODE:PARTICIPANT items:
 #   zero    - only the live-path case;
 #   count2  - two restore cases;
 #   count5  - five restore cases;
-#   skipped - six restore cases, one of them skipped;
-#   failed  - six restore cases, one of them failing;
-#   error   - six restore cases, one of them erroring;
+#   count10 - ten restore cases, one short of auth's minimum;
+#   skipped - six restore cases (auth eleven), one of them skipped;
+#   failed  - six restore cases (auth eleven), one of them failing;
+#   error   - six restore cases (auth eleven), one of them erroring;
 #   stale   - the suites carry a timestamp from 2020, as a build-cache restore would;
 #   recent  - the suites carry a timestamp two minutes before now, as a result restored from a
 #             run that ended just before this one would;
@@ -60,7 +61,7 @@ for p in ["auth", "user", "parking", "media", "moderation", "gamification", "not
     out = Path(f"services/{p}-service/build/test-results/integrationTest")
     out.mkdir(parents=True, exist_ok=True)
     cls = "AccountErasureAckOutboxPostgresIT"
-    count = {"zero": 0, "count2": 2, "count5": 5}.get(mode, 6)
+    count = {"zero": 0, "count2": 2, "count5": 5, "count10": 10}.get(mode, 11 if p == "auth" else 6)
     outcomes = ["pass"] * count
     if mode in ("skipped", "failed", "error"):
         outcomes[-1] = mode
@@ -91,9 +92,9 @@ run "" 0 --summary "$WORK/summary.md"
   && ok "live-path cases in the same class are run but not counted" || bad "live-path count: $(row user)"
 [ "$(row gamification)" = "| gamification | 7 | 3 | 0 | 0 | 0 | $ACK, AccountErasureRestoreReplayPostgresIT | PASS |" ] \
   && ok "every case of a RestoreReplay class counts" || bad "class count: $(row gamification)"
-[ "$(row auth)" = "| auth | 6 | 6 | 0 | 0 | 0 | $ACK | PASS |" ] \
-  && ok "auth is held to its own minimum of six" || bad "auth minimum: $(row auth)"
-[ -f "$WORK/summary.md" ] && grep -qx "harness=PASS" "$WORK/summary.md" && grep -qF "| auth | 6 | 6 |" "$WORK/summary.md" \
+[ "$(row auth)" = "| auth | 11 | 11 | 0 | 0 | 0 | $ACK | PASS |" ] \
+  && ok "auth is held to its own minimum of eleven" || bad "auth minimum: $(row auth)"
+[ -f "$WORK/summary.md" ] && grep -qx "harness=PASS" "$WORK/summary.md" && grep -qF "| auth | 11 | 11 |" "$WORK/summary.md" \
   && ok "--summary writes the table" || bad "summary file"
 mkdir -p "$WORK/caller"
 (cd "$WORK/caller" && run "" 0 --summary relative-summary.md)
@@ -122,7 +123,7 @@ sed -n 3,4p "$TREE/gradle-args" | tr '\n' ' ' | grep -qx -- "--max-workers=2 --c
 
 for case in "zero:user:| user | 0 | 3 | 0 | 0 | 0 | - | FAIL |" \
   "count2:parking:| parking | 2 | 3 | 0 | 0 | 0 | $ACK | FAIL |" \
-  "count5:auth:| auth | 5 | 6 | 0 | 0 | 0 | $ACK | FAIL |" \
+  "count10:auth:| auth | 10 | 11 | 0 | 0 | 0 | $ACK | FAIL |" \
   "skipped:notification:| notification | 5 | 3 | 0 | 1 | 0 | $ACK | FAIL |" \
   "failed:media:| media | 6 | 3 | 1 | 0 | 0 | $ACK | FAIL |" \
   "error:moderation:| moderation | 6 | 3 | 1 | 0 | 0 | $ACK | FAIL |" \
