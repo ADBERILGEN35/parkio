@@ -57,3 +57,23 @@ test('CLI exits non-zero for a skipped-only report and zero for a proven one', (
   assert.equal(run(good).status, 0);
   assert.equal(run(join(dir, 'missing.json')).status, 1);
 });
+
+function knownDefect(title, description = 'Known defect X (task 1)') {
+  const annotations = description === null ? [] : [{ type: 'fail', description }];
+  return {
+    title,
+    tests: [{ projectName: 'ownership-chromium', status: 'expected', expectedStatus: 'failed', annotations, results: [{ status: 'failed', annotations }] }],
+  };
+}
+
+test('accepts exactly the declared number of known defects, and none by default', () => {
+  const r = report([spec('a'), spec('b'), knownDefect('c')]);
+  assert.deepEqual(evaluateReport(r, { ...opts, knownDefects: 1 }).failures, []);
+  assert.ok(evaluateReport(r, opts).failures.some((f) => f.includes('declares exactly 0')));
+  assert.ok(evaluateReport(r, { ...opts, knownDefects: 2 }).failures.some((f) => f.includes('declares exactly 2')));
+});
+
+test('a test.fail() without a reason is not a known defect', () => {
+  const r = report([spec('a'), spec('b'), knownDefect('c', null)]);
+  assert.ok(evaluateReport(r, { ...opts, knownDefects: 1 }).failures.some((f) => f.includes('"c" status=expected final=failed')));
+});
