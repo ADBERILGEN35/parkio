@@ -1,0 +1,20 @@
+{
+  "description": "Policy for scripts/ci/ci_gate.py. The required checks come from the workflows' pull_request triggers; this file only adds the jobs that skip by design and the log lines that prove tests ran. An entry naming a workflow or job that no longer exists fails the gate.",
+  "ignore_workflows": ["ci-gate.yml"],
+  "allowed_skips": [
+    {"workflow": "invite-production-deploy.yml", "job": "Non-deploy production runner acceptance", "reason": "runs only on a workflow_dispatch from api"},
+    {"workflow": "invite-production-deploy.yml", "job": "Migrate legacy workspace bind mounts", "reason": "runs only on a workflow_dispatch from api"},
+    {"workflow": "invite-production-deploy.yml", "job": "Deploy invite-production", "reason": "runs only on a workflow_dispatch from api"},
+    {"workflow": "invite-production-deploy.yml", "job": "Rollback invite-production", "reason": "runs only on a workflow_dispatch from api"},
+    {"workflow": "staging-verification.yml", "job": "Restore drill + evidence bundle", "reason": "runs on the schedule or a dispatch that asks for a restore"},
+    {"workflow": "staging-verification.yml", "job": "Requested restore executed and succeeded", "reason": "runs on the schedule or a dispatch that asks for a restore"},
+    {"workflow": "web-build-image-acceptance.yml", "job": "web-image", "reason": "runs only for pull requests #87 and #91"},
+    {"workflow": "security-ci.yml", "job": "CodeQL (${{ matrix.language }})", "reason": "off while the repository variable CODEQL_ENABLED is not true"}
+  ],
+  "evidence": [
+    {"workflow": "backend-ci.yml", "job": "Build & unit tests", "label": "unit tests", "pattern": "Unit test evidence: (\\d+) tests", "min": 1},
+    {"workflow": "backend-integration.yml", "job": "Integration tests (Testcontainers)", "label": "integration tests", "pattern": "Integration test evidence: (\\d+) tests", "min": 1},
+    {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "label": "vitest tests", "pattern": "Tests\\s+(\\d+) passed", "min": 1},
+    {"workflow": "mobile-ci.yml", "job": "Mobile-v2 typecheck, lint, test & expo doctor", "label": "jest tests", "pattern": "Tests:\\s+(\\d+) passed", "min": 1}
+  ]
+}
