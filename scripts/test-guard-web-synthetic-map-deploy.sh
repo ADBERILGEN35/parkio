@@ -141,6 +141,10 @@ bundle() {
     synthetic) echo "${env_pre}VITE_MAPTILER_KEY:\"ci-web-build-security-synthetic\"};" >"$html/assets/index-a1.js" ;;
     synthetic-suffixed) echo "${env_pre}VITE_MAPTILER_KEY:\"ci-web-build-security-synthetic-run42\"};" >"$html/assets/index-a1.js" ;;
     sentinel) echo "${env_pre}VITE_MAPTILER_KEY:\"SECRET_SENTINEL_MAPTILER_PUBLIC_KEY\"};" >"$html/assets/index-a1.js" ;;
+    # U17 CL-F05R: example-env placeholders, the REPLACE_ME_ prefix, and a raw prefixed string.
+    example-replace-me) echo "${env_pre}VITE_MAPTILER_KEY:\"REPLACE_ME_maptiler_public_key\"};" >"$html/assets/index-a1.js" ;;
+    example-your-key) echo "${env_pre}VITE_MAPTILER_KEY:\"your_maptiler_key\"};" >"$html/assets/index-a1.js" ;;
+    replace-me-prefixed) echo "${env_pre}VITE_MAPTILER_KEY:\"REPLACE_ME_custom_v2\"};" >"$html/assets/index-a1.js" ;;
     empty) echo "${env_pre}VITE_MAPTILER_KEY:\"\"};" >"$html/assets/index-a1.js" ;;
     missing-key) echo "${env_pre}VITE_MAPTILER_STYLE:\"streets-v2\"};" >"$html/assets/index-a1.js" ;;
     no-env) echo 'console.log("no inlined env here");' >"$html/assets/index-a1.js" ;;
@@ -152,6 +156,10 @@ bundle() {
     raw-synthetic)
       echo "${env_pre}VITE_MAPTILER_KEY:\"${GOOD_KEY}\"};" >"$html/assets/index-a1.js"
       echo 'const k="ci-web-build-security-synthetic";' >"$html/assets/map-c3.js"
+      ;;
+    raw-replace-me)
+      echo "${env_pre}VITE_MAPTILER_KEY:\"${GOOD_KEY}\"};" >"$html/assets/index-a1.js"
+      echo 'const k="REPLACE_ME_tile_key";' >"$html/assets/map-c3.js"
       ;;
     no-html) rm -rf "$2/usr/share/nginx/html"; mkdir -p "$2/srv" ;;
     *) echo "unknown bundle kind $kind" >&2; exit 2 ;;
@@ -226,7 +234,7 @@ fake_image "$REPO:bad-manifest-alias" "$(cfg_id 2)" linux/amd64 "$REPO@$BAD_MANI
 fake_image "$REPO@$(dig mismatch)" "$(cfg_id 3)" linux/amd64 "$REPO@$(dig other)" good
 fake_image "$REPO:arm" "$(cfg_id 4)" linux/arm64 "" good
 n=10
-for kind in synthetic synthetic-suffixed sentinel empty missing-key no-env no-js conflicting raw-synthetic no-html; do
+for kind in synthetic synthetic-suffixed sentinel example-replace-me example-your-key replace-me-prefixed empty missing-key no-env no-js conflicting raw-synthetic raw-replace-me no-html; do
   n=$((n + 1))
   fake_image "$REPO:$kind" "$(cfg_id "$n")" linux/amd64 "" "$kind"
 done
@@ -255,9 +263,31 @@ guard 1 "unreadable compose config fails closed" --compose-config-json "$TMP/bro
 guard 1 "missing env file fails closed" --image "$REPO:good-tag" --env-file "$TMP/nope.env"
 
 # --- baked configuration ------------------------------------------------------
-for kind in synthetic synthetic-suffixed sentinel empty missing-key no-env no-js conflicting raw-synthetic no-html; do
+for kind in synthetic synthetic-suffixed sentinel example-replace-me example-your-key replace-me-prefixed empty missing-key no-env no-js conflicting raw-synthetic raw-replace-me no-html; do
   guard 1 "bundle '$kind' is blocked" --image "$REPO:$kind"
 done
+# Every map-key value the example env files carry is a placeholder to the classifier (U17
+# CL-F05R). The values come from the files themselves and are never printed.
+examples="$(python3 - "$ROOT" <<'PY'
+import re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for name in ("docker/.env.invite-production.example", "docker/.env.hosted-beta.example", "frontend/apps/web/.env.example"):
+    for line in (root / name).read_text().splitlines():
+        m = re.match(r"""^\s*#?\s*VITE_MAPTILER_KEY=["']?([^"'\s]*)["']?\s*$""", line)
+        if m and m.group(1):
+            print(f"{name}\t{m.group(1)}")
+PY
+)"
+if [ "$(printf '%s\n' "$examples" | grep -c .)" -ge 3 ]; then pass "example env files carry at least three map-key placeholders"; else bad "example env files carry at least three map-key placeholders"; fi
+while IFS=$'\t' read -r file value; do
+  [ -n "$value" ] || continue
+  if PYTHONPATH="$ROOT/scripts/lib" python3 -B -c 'import sys, web_bundle_map_config as m; sys.exit(0 if m.is_synthetic(sys.argv[1]) else 1)' "$value"; then
+    pass "example value from $file is classified as a placeholder"
+  else
+    bad "example value from $file is classified as a placeholder"
+  fi
+done <<<"$examples"
 guard 0 "valid non-synthetic image by digest passes" --image "$REPO@$GOOD_DIG" --evidence-out "$TMP/evidence.json"
 assert_no_key_leak "digest pass"
 if grep -q "fingerprint=$(printf '%s' "$GOOD_KEY" | sha256sum | cut -c1-12)" "$TMP/out"; then pass "pass line carries the key fingerprint"; else bad "pass line carries the key fingerprint"; fi
