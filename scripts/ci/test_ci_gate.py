@@ -167,6 +167,45 @@ class Judge(unittest.TestCase):
         self.assertEqual(ci_gate.evidence_count("\x1b[2m Tests \x1b[22m \x1b[1m\x1b[32m928 passed\x1b[39m", r"Tests\s+(\d+) passed"), 928)
 
 
+class JobLogDownload(unittest.TestCase):
+    def test_the_storage_redirect_is_followed_without_the_token(self):
+        seen = []
+
+        class FakeResponse:
+            def __init__(self, body):
+                self.body = body
+
+            def read(self):
+                return self.body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                seen.append(dict(request.header_items()))
+                raise ci_gate.urllib.error.HTTPError(request.full_url, 302, "Found",
+                                                     {"Location": "https://storage.example/log?sig=1"}, None)
+
+        def fake_urlopen(request, timeout):
+            seen.append(dict(request.header_items()))
+            return FakeResponse(b"Unit test evidence: 5 tests")
+
+        original = (ci_gate.urllib.request.build_opener, ci_gate.urllib.request.urlopen)
+        ci_gate.urllib.request.build_opener = lambda *handlers: FakeOpener()
+        ci_gate.urllib.request.urlopen = fake_urlopen
+        try:
+            text = ci_gate.GitHub("o/r", "secret-token").job_log(7)
+        finally:
+            ci_gate.urllib.request.build_opener, ci_gate.urllib.request.urlopen = original
+        self.assertEqual(text, "Unit test evidence: 5 tests")
+        self.assertIn("Authorization", seen[0])
+        self.assertNotIn("Authorization", seen[1])
+
+
 class Policy(unittest.TestCase):
     def test_a_policy_entry_for_a_missing_workflow_or_job_is_stale(self):
         stale = {"allowed_skips": [{"workflow": "deploy.yml", "job": "Gone", "reason": "x"}],

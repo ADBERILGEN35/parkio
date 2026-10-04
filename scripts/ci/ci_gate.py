@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -225,6 +226,13 @@ def judge(
 
 # --- GitHub API ---------------------------------------------------------------------------------------
 
+class _KeepRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface a redirect instead of following it with the Authorization header still attached."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401, N802
+        return None
+
+
 class GitHub:
     """REST reads with GH_TOKEN in CI; without it (local dry runs) through the gh CLI's own login."""
 
@@ -259,7 +267,23 @@ class GitHub:
         return self._get(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", [])
 
     def job_log(self, job_id: int) -> str:
-        return self._get(f"actions/jobs/{job_id}/logs", raw=True)
+        """The logs endpoint redirects to a pre-signed storage URL, which must not receive the token."""
+        if not self.token:
+            return self._get(f"actions/jobs/{job_id}/logs", raw=True)
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{self.repository}/actions/jobs/{job_id}/logs",
+            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"},
+        )
+        try:
+            with urllib.request.build_opener(_KeepRedirect).open(request, timeout=60) as response:
+                return response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as error:
+            if error.code not in (301, 302, 303, 307, 308):
+                raise
+            location = error.headers["Location"]
+        with urllib.request.urlopen(urllib.request.Request(location), timeout=120) as response:
+            return response.read().decode("utf-8", "replace")
 
 
 def changed_files(base_ref: str) -> list[str]:
@@ -309,7 +333,11 @@ def main(argv: list[str]) -> int:
 
     def job_log(job_id: int) -> str:
         if job_id not in logs:
-            logs[job_id] = github.job_log(job_id)
+            try:
+                logs[job_id] = github.job_log(job_id)
+            except (urllib.error.URLError, OSError) as error:
+                print(f"Could not read the log of job {job_id}: {error}")
+                logs[job_id] = ""
         return logs[job_id]
 
     failures, report = judge(required, runs, jobs, job_log)
