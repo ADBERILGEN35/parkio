@@ -328,7 +328,7 @@ else
   # Drill host: outcomes 1 and 2 belong to the backup-host record; the copy was pulled beforehand.
   # The stamp name comes from the copy's COMPLETE (stamp=), so a copy pulled into a directory of
   # another name still combines; the digest check below is what binds the copy to the seal.
-  STAMP="$(sed -n 's/^stamp=//p' "${PULLED_INPUT%/}/COMPLETE" 2>/dev/null | head -n 1)"
+  STAMP="$(sed -n 's/^stamp=//p' "${PULLED_INPUT%/}/COMPLETE" 2>/dev/null | head -n 1 || true)"
   [ -n "${STAMP}" ] || STAMP="$(basename "${PULLED_INPUT%/}")"
   LOCAL_SUMS=""
   OFFSITE_KIND=""
@@ -395,22 +395,19 @@ elif [ "${COPY_OK}" -ne 1 ]; then
 else
   # The drill gets a scrubbed environment: no offsite or provider credentials, no production
   # env file, only its own drill env file. Its isolation preflight would refuse anything else.
-  # The scrub unsets every other variable in a subshell that then execs the drill: passing
-  # NAME=VALUE pairs to `env -i` would put the passphrase on env's argv, readable by any local
-  # user in /proc/<pid>/cmdline (#220 review D1). Bash adds only PWD, SHLVL, _ and OLDPWD.
+  # Python builds that environment from an exact allowlist and execs the drill. Values stay in the
+  # environment block: NAME=VALUE pairs on `env -i` would put the passphrase on env's argv, readable
+  # by any local user in /proc/<pid>/cmdline (#220 review D1). Exported bash functions
+  # (BASH_FUNC_*%%) and names that are not identifiers, which bash cannot unset, are dropped too (N9).
   set +e
-  (
-    for name in $(compgen -e); do
-      case "${name}" in
-        PATH|HOME|TMPDIR|PARKIO_RESTORE_*|PARKIO_DRILL_*|BACKUP_ENCRYPT_PASSPHRASE|DOCKER_HOST|DOCKER_CONTEXT|DOCKER_CONFIG|DOCKER_CERT_PATH|DOCKER_TLS_VERIFY) ;;
-        *) unset "${name}" 2>/dev/null || export -n "${name}" ;;
-      esac
-    done
-    export LANG=C.UTF-8 HOME="${HOME:-/root}" TMPDIR="${TMPDIR:-/tmp}"
-    exec "${ROOT}/scripts/restore-drill-01.sh" --stamp "${COPY}" \
-      --work "${WORK}/restore-work" --evidence "${EVIDENCE}/isolated-restore" \
-      ${DRILL_ENV_FILE:+--env-file "${DRILL_ENV_FILE}"} "${RESTORE_ARGS[@]}"
-  ) > "${WORK}/restore-drill.log" 2>&1
+  LANG=C.UTF-8 HOME="${HOME:-/root}" TMPDIR="${TMPDIR:-/tmp}" python3 -c '
+import os, re, sys
+allowed = re.compile(r"(PATH|HOME|TMPDIR|LANG|PARKIO_RESTORE_\w+|PARKIO_DRILL_\w+|BACKUP_ENCRYPT_PASSPHRASE"
+                     r"|DOCKER_HOST|DOCKER_CONTEXT|DOCKER_CONFIG|DOCKER_CERT_PATH|DOCKER_TLS_VERIFY)")
+os.execve(sys.argv[1], sys.argv[1:], {k: v for k, v in os.environ.items() if allowed.fullmatch(k)})
+' "${ROOT}/scripts/restore-drill-01.sh" --stamp "${COPY}" \
+    --work "${WORK}/restore-work" --evidence "${EVIDENCE}/isolated-restore" \
+    ${DRILL_ENV_FILE:+--env-file "${DRILL_ENV_FILE}"} "${RESTORE_ARGS[@]}" > "${WORK}/restore-drill.log" 2>&1
   drill_rc=$?
   set -e
   drill_reason="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("reason",""))' \

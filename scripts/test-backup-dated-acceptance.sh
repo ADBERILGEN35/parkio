@@ -47,7 +47,7 @@ while [ "$#" -gt 0 ]; do
 done
 mkdir -p "${EVIDENCE}"
 printf '%s\n' "${args[@]}" > "${EVIDENCE}/../../drill-args"
-compgen -e | sort > "${EVIDENCE}/../../drill-env-names"
+python3 -c 'import os; print("\n".join(sorted(os.environ)))' > "${EVIDENCE}/../../drill-env-names"
 export PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=1
 : > "${EVIDENCE}/containers.txt"
 iso=(--containers-file "${EVIDENCE}/containers.txt")
@@ -184,6 +184,7 @@ run_acceptance() { # extra args...; sets rc, out and REPORT
     BACKUP_ENCRYPT_PASSPHRASE="${PHRASE-${PASSPHRASE}}" BACKUP_PRODUCTION_MODE=1 \
     BACKUP_AZURE_STORAGE_KEY=live-looking-storage-key PARKIO_RESEND_API_KEY=re_ABCDEFGHIJKLMNOPQRSTUV \
     PARKIO_DRILL_ID=rd-test-01 PARKIO_DRILL_FAKE_RC="${DRILL_RC:-0}" PARKIO_ENV_FILE="" BACKUP_MC_URL="" \
+    'BASH_FUNC_leaked_helper%%=() {  echo leaked; }' 'NOT-AN-IDENTIFIER=leaked' \
     bash "${TREE}/scripts/backup-dated-acceptance.sh" --evidence "${evidence}" "$@" 2>&1)" || rc_=$?
   rc="${rc_}"
   REPORT="${evidence}/acceptance.json"
@@ -229,10 +230,11 @@ expected="complete=NOT_RUN remote-presence=NOT_RUN remote-integrity=PASS decrypt
   || bad "drill host (rc=${rc}): $(results 2>/dev/null) $(head -c 400 "${CASE}/drill-evidence/isolated-restore/isolation.json" 2>/dev/null) ${out}"
 DRILL_RECORD="${REPORT}"
 if ! grep -q -E '^(BACKUP_MC_DEST|BACKUP_AZURE_STORAGE_KEY|BACKUP_PRODUCTION_MODE|PARKIO_RESEND_API_KEY|BACKUP_OFFSITE_KIND)$' "${CASE}/drill-env-names" \
+  && ! grep -q -E '^(BASH_FUNC_|NOT-AN-IDENTIFIER)' "${CASE}/drill-env-names" \
   && grep -qx "PARKIO_DRILL_ID" "${CASE}/drill-env-names" && grep -qx "BACKUP_ENCRYPT_PASSPHRASE" "${CASE}/drill-env-names" \
   && grep -qx -- "--env-file" "${CASE}/drill-args" && grep -qx "${CASE}/drill/drill.env" "${CASE}/drill-args" \
   && grep -qx "${CASE}/drill/stamps/${STAMP}" "${CASE}/drill-args"; then
-  ok "the drill sees no offsite or production variables, only its drill env file and the verified copy"
+  ok "the drill sees no offsite or production variable, exported bash function or non-identifier name; only its drill env file and the verified copy"
 else
   bad "drill environment or arguments: $(tr '\n' ' ' < "${CASE}/drill-env-names")"
 fi
@@ -280,6 +282,14 @@ printf 'plaintext\n' | gzip -c > "${CASE}/drill/stamps/${STAMP}/auth.sql.gz"
 drill_host "${SEAL}" --decrypt
 [ "${rc}" -eq 1 ] && grep -q "files outside the seal" "${REPORT}" \
   && ok "a drill-host copy with a file outside the seal fails integrity" || bad "drill extra file (rc=${rc}): $(results)"
+
+new_case drill-no-complete
+rm "${CASE}/drill/stamps/${STAMP}/COMPLETE"
+drill_host "${SEAL}" --decrypt
+[ "${rc}" -eq 1 ] && [ -f "${REPORT}" ] && grep -q "\"stamp\": \"${STAMP}\"" "${REPORT}" \
+  && [ "$(results)" = "complete=NOT_RUN remote-presence=NOT_RUN remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && ok "a drill-host copy without COMPLETE fails integrity with a record (stamp from the directory name)" \
+  || bad "drill copy without COMPLETE (rc=${rc}): $(results 2>/dev/null) ${out}"
 
 # ---- 5. the drill: not isolated, blocked, failed ------------------------------------------------
 new_case drill-not-isolated
