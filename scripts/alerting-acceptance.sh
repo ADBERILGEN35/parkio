@@ -193,7 +193,8 @@ log "receiver failure alert firing (AlertmanagerNotificationsFailing, integratio
 
 log "Alertmanager unreachable: stop it"
 "${COMPOSE[@]}" stop alerting-alertmanager
-wait_for "PrometheusNotificationsFailing firing" 240 prom_firing PrometheusNotificationsFailing
+# The rule holds for 5m, so this takes a little over five minutes.
+wait_for "PrometheusNotificationsFailing firing" 600 prom_firing PrometheusNotificationsFailing
 log "alertmanager unreachable alert firing (PrometheusNotificationsFailing)"
 
 log "evidence written (credentials not included): ${EVIDENCE}"

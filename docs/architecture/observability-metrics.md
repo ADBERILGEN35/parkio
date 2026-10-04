@@ -954,8 +954,9 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 2. Check that the Alertmanager container is running and healthy, and that Prometheus lists it under
    `Status -> Runtime & Build Information` (Alertmanagers).
 3. Read the send error in the Prometheus logs (DNS, connection refused, HTTP status).
-4. Once Alertmanager accepts alerts again, Prometheus re-sends the active ones. The alert resolves
-   after 5m without failed sends.
+4. Once Alertmanager accepts alerts again, Prometheus re-sends the active ones. This alert itself
+   may then arrive in the operator channel, describing an outage that has just ended. It resolves
+   about 2 minutes after sends succeed again.
 
 ## Adding a new metric
 

@@ -77,8 +77,8 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=2h
       - --web.enable-lifecycle
-      # Re-send active alerts every 10s instead of 1m, so the Alertmanager-unreachable case
-      # (PrometheusNotificationsFailing) shows within the acceptance run.
+      # Re-send active alerts every 10s instead of 1m, so the Alertmanager-unreachable case keeps
+      # failing sends in every 2m window until PrometheusNotificationsFailing fires (it holds 5m).
       - --rules.alert.resend-delay=10s
     volumes:
       - ./prometheus/alerting-acceptance/prometheus.yml:/etc/prometheus/prometheus.yml:ro
