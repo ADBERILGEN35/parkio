@@ -41,12 +41,16 @@ UNSUPPORTED_GLOB = re.compile(r"[?+\[\]]")
 # --- GitHub filter patterns -------------------------------------------------------------------
 
 def glob_regex(pattern: str) -> re.Pattern[str]:
-    """`**` matches across directories, `*` within one. Other glob syntax is refused, not guessed."""
+    """`**` matches across directories (`**/` also matches none), `*` within one directory.
+    Other glob syntax is refused, not guessed."""
     if UNSUPPORTED_GLOB.search(pattern):
         raise ValueError(f"filter pattern {pattern!r} uses syntax the gate does not implement")
     out, i = [], 0
     while i < len(pattern):
-        if pattern.startswith("**", i):
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
             out.append(".*")
             i += 2
         elif pattern[i] == "*":
@@ -241,6 +245,20 @@ class GitHub:
         self.token = token
 
     def _get(self, path: str, raw: bool = False):
+        """One GET, retried twice on a transient error (a connection error or an HTTP 5xx)."""
+        for attempt in range(3):
+            try:
+                return self._get_once(path, raw)
+            except urllib.error.HTTPError as error:
+                if error.code < 500 or attempt == 2:
+                    raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt == 2:
+                    raise
+            time.sleep(5 * (attempt + 1))
+        raise AssertionError("unreachable")
+
+    def _get_once(self, path: str, raw: bool):
         if not self.token:
             body = subprocess.run(["gh", "api", f"repos/{self.repository}/{path}"], check=True,
                                   capture_output=True).stdout
@@ -345,7 +363,9 @@ def main(argv: list[str]) -> int:
     if failures:
         print("CI gate FAILED:\n  " + "\n  ".join(failures))
         return 1
-    print(f"CI gate passed: {sum(len(v) for v in required.values())} required job(s) in {len(required)} workflow(s).")
+    judged = sum(1 for line in report if ": " in line)
+    print(f"CI gate passed: {judged} job(s) judged, from {sum(len(v) for v in required.values())} job "
+          f"definition(s) in {len(required)} workflow(s).")
     return 0
 
 

@@ -14,7 +14,7 @@
   "evidence": [
     {"workflow": "backend-ci.yml", "job": "Build & unit tests", "label": "unit tests", "pattern": "Unit test evidence: (\\d+) tests", "min": 1},
     {"workflow": "backend-integration.yml", "job": "Integration tests (Testcontainers)", "label": "integration tests", "pattern": "Integration test evidence: (\\d+) tests", "min": 1},
-    {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "label": "vitest tests", "pattern": "Tests\\s+(\\d+) passed", "min": 1},
-    {"workflow": "mobile-ci.yml", "job": "Mobile-v2 typecheck, lint, test & expo doctor", "label": "jest tests", "pattern": "Tests:\\s+(\\d+) passed", "min": 1}
+    {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "label": "vitest tests", "pattern": "Tests\\s+[^\\n]*?(\\d+) passed", "min": 1},
+    {"workflow": "mobile-ci.yml", "job": "Mobile-v2 typecheck, lint, test & expo doctor", "label": "jest tests", "pattern": "Tests:[^\\n]*?(\\d+) passed", "min": 1}
   ]
 }

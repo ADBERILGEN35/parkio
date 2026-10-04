@@ -11,10 +11,12 @@ job that ran zero tests. The gate does.
 1. **Changed files.** The files that differ from the merge-base with the base branch, as in the
    Frontend CI scope guard.
 2. **Required workflows.** A workflow is required when its `pull_request` trigger matches the
-   base branch and the changed files, by the same `branches`/`paths`/`paths-ignore` rules GitHub
-   uses to decide whether to run it. `scripts/ci/ci_gate.py` reads those filters from the
+   base branch and the changed files, by GitHub's own `branches`/`paths`/`paths-ignore` rules,
+   for the pattern syntax below. `scripts/ci/ci_gate.py` reads those filters from the
    workflow files themselves, so the gate cannot drift from them.
-   - It implements `*`, `**` and `!` patterns, which are all the workflows use.
+   - It implements `*` (within one directory), `**` (across directories; `**/` also matches no
+     directory, so `services/**/Dockerfile` covers `services/Dockerfile`) and leading `!`. That is
+     all the workflows use.
    - Other glob syntax is refused, by a unit test and at run time.
 3. **Required jobs.** Every job of a required workflow. A matrix job matches by its name pattern,
    for example every `Container scan (…)`.
@@ -55,6 +57,34 @@ gh api repos/ADBERILGEN35/parkio/pulls/<n>/files --jq '.[].filename' > /tmp/file
 python3 scripts/ci/ci_gate.py --repository ADBERILGEN35/parkio --head-sha <head sha> \
   --base-ref api --timeout-minutes 0 --changed-file-list /tmp/files.txt
 ```
+
+## Before it becomes a required check (owner decision)
+
+**The pull request controls the gate.** The gate runs on `pull_request`, from the pull request's
+merge commit. A pull request can therefore weaken it in three ways: an `allowed_skips` entry, a
+change to `scripts/ci/ci_gate.py`, or a workflow that drops its evidence step. That is the same
+trust level as every other pull-request workflow (the gate deliberately avoids
+`pull_request_target`). Before *CI gate* is made required, the owner should choose one of:
+- CODEOWNERS entries for `.github/ci-gate-policy.json`, `scripts/ci/` and `.github/workflows/`,
+  with code-owner review required in branch protection;
+- or running the base branch's script and policy, with the pull request's workflow files read
+  only as data.
+
+## Limitations
+
+- **Evidence is per job.** A pattern is summed over the job's whole log. Frontend CI sums every
+  package's vitest run, so one package dropping to zero tests is not noticed while the others still
+  run tests. The backend sums its modules the same way.
+- **Cached test results count.** The unit-test evidence counts the JUnit XML that Gradle restores
+  for a test task taken from its build cache. Integration tests are never cached (the reuse guard
+  in the integration workflow).
+- **Very large pull requests.** When a diff exceeds the 300 files that GitHub's path filters
+  read, a workflow can be skipped that the gate still requires. The gate then fails after waiting,
+  which fails closed.
+- **Reusable workflows.** A job that calls a reusable workflow is reported as missing, failing
+  closed. None exist today.
+- **Re-runs.** Re-running a failed workflow does not re-trigger the gate. Re-run *CI gate* by hand
+  afterwards.
 
 ## Not covered
 

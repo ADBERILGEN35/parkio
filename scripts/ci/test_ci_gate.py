@@ -70,6 +70,13 @@ class FilterPatterns(unittest.TestCase):
         self.assertFalse(ci_gate.filter_matches("docker/README.md", ["docker/**", "!docker/README.md"]))
         self.assertTrue(ci_gate.filter_matches("docker/a.yml", ["docker/**", "!docker/README.md"]))
 
+    def test_double_star_slash_also_matches_no_directory(self):
+        self.assertTrue(ci_gate.filter_matches("services/Dockerfile", ["services/**/Dockerfile"]))
+        self.assertTrue(ci_gate.filter_matches("services/a/b/Dockerfile", ["services/**/Dockerfile"]))
+        self.assertTrue(ci_gate.filter_matches("README.md", ["**/README.md"]))
+        self.assertTrue(ci_gate.filter_matches("docs/x/README.md", ["**/README.md"]))
+        self.assertFalse(ci_gate.filter_matches("services/Dockerfile.dev", ["services/**/Dockerfile"]))
+
     def test_unsupported_syntax_is_refused(self):
         with self.assertRaises(ValueError):
             ci_gate.glob_regex("docs/?.md")
@@ -163,6 +170,16 @@ class Judge(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIn("deploy.yml / Deploy: skipped (dispatch only)", report)
 
+    def test_the_repository_evidence_patterns_read_real_summary_lines(self):
+        policy = json.loads(ci_gate.POLICY.read_text(encoding="utf-8"))
+        pattern = {rule["label"]: rule["pattern"] for rule in policy["evidence"]}
+        self.assertEqual(ci_gate.evidence_count("      Tests  928 passed (928)", pattern["vitest tests"]), 928)
+        self.assertEqual(ci_gate.evidence_count("      Tests  925 passed | 3 skipped (928)", pattern["vitest tests"]), 925)
+        self.assertEqual(ci_gate.evidence_count("Tests:       560 passed, 560 total", pattern["jest tests"]), 560)
+        self.assertEqual(ci_gate.evidence_count("Tests:       2 skipped, 560 passed, 562 total", pattern["jest tests"]), 560)
+        self.assertEqual(ci_gate.evidence_count(
+            "Unit test evidence: 2898 tests in 12 modules (0 failures, 0 errors, 4 skipped)", pattern["unit tests"]), 2898)
+
     def test_evidence_ignores_ansi_colour_codes(self):
         self.assertEqual(ci_gate.evidence_count("\x1b[2m Tests \x1b[22m \x1b[1m\x1b[32m928 passed\x1b[39m", r"Tests\s+(\d+) passed"), 928)
 
@@ -204,6 +221,40 @@ class JobLogDownload(unittest.TestCase):
         self.assertEqual(text, "Unit test evidence: 5 tests")
         self.assertIn("Authorization", seen[0])
         self.assertNotIn("Authorization", seen[1])
+
+
+class TransientErrors(unittest.TestCase):
+    def test_a_transient_server_error_is_retried(self):
+        calls = []
+
+        def flaky(path, raw):
+            calls.append(path)
+            if len(calls) == 1:
+                raise ci_gate.urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
+            return {"ok": True}
+
+        github = ci_gate.GitHub("o/r", "t")
+        github._get_once = flaky
+        original_sleep = ci_gate.time.sleep
+        ci_gate.time.sleep = lambda seconds: None
+        try:
+            self.assertEqual(github._get("actions/runs"), {"ok": True})
+        finally:
+            ci_gate.time.sleep = original_sleep
+        self.assertEqual(len(calls), 2)
+
+    def test_a_client_error_is_not_retried(self):
+        github = ci_gate.GitHub("o/r", "t")
+        calls = []
+
+        def forbidden(path, raw):
+            calls.append(path)
+            raise ci_gate.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+
+        github._get_once = forbidden
+        with self.assertRaises(ci_gate.urllib.error.HTTPError):
+            github._get("actions/runs")
+        self.assertEqual(len(calls), 1)
 
 
 class Policy(unittest.TestCase):
