@@ -32,38 +32,15 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     page: 'explore',
     rule: 'target-size',
-    target: 'summary',
-    html: 'maplibregl-ctrl-attrib-button',
-    check: { messageKey: 'partiallyObscured', width: 24, height: 6, relatedHtml: 'data-testid="map-floating-zoom-out"' },
-    reason:
-      "MapLibre's attribution toggle (bottom-right) sits under the floating zoom rail's zoom-out button on " +
-      '/explore at desktop width, leaving 24x6 px of it clickable (WCAG 2.5.8). Measured once the public-explore ' +
-      'flag is on (#229 review N2 follow-up). Fix: Asana 1219147334320125.',
-  },
-  {
-    page: 'explore',
-    rule: 'target-size',
     target: 'a[href$="maplibre.org/"]',
     html: 'href="https://maplibre.org/"',
     // Plain "insufficient size" at the attribution's line height. The width follows the font, so it is
     // not pinned.
     check: { height: 14 },
     reason:
-      "The release image's map shows MapLibre's attribution text, whose 'MapLibre' link is 14 px high. It is " +
-      'an inline link inside the attribution line, which WCAG 2.5.8 exempts, but axe measures it as a target. ' +
-      'Recorded with the attribution toggle above (Asana 1219147334320125); the dev server, without a ' +
-      'MapTiler key, does not show it.',
-  },
-  {
-    page: 'explore',
-    rule: 'target-size',
-    target: /^button\[data-facility-id="a11y-facility-[12]"\]$/,
-    html: 'data-testid="municipal-facility-marker"',
-    // Covered by the other synthetic car park, not too small on its own; the size depends on the zoom.
-    check: { messageKey: 'partiallyObscured', relatedHtml: 'data-testid="municipal-facility-marker"' },
-    reason:
-      'Facility markers overlap until the explore map has framed them: at the starting zoom the two synthetic ' +
-      'car parks, about 1.4 km apart, cover each other (WCAG 2.5.8). Whether axe runs before or after the ' +
-      'framing is timing, so this entry is reported when seen. Fix: Asana 1219147334320125.',
+      "The release image's map attribution line credits MapLibre with a 14 px high link, next to the map data " +
+      "credits that MapTiler and OpenStreetMap require. WCAG 2.5.8 exempts it as an inline target constrained by " +
+      'the line height of the surrounding text; axe cannot tell, so it is listed here (Asana 1219147334320125). ' +
+      'The dev server, without a MapTiler key, does not show it.',
   },
 ];

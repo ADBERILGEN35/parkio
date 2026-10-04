@@ -34,8 +34,10 @@ export function MapFloatingControls({
   return (
     <div
       data-testid="map-floating-controls"
-      className={`pointer-events-none absolute z-[1055] flex flex-col items-end gap-1.5 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.25rem))] right-md md:bottom-md ${
-        sidebarOpen ? 'md:right-[420px]' : 'md:right-md'
+      className={`pointer-events-none absolute z-[1055] flex flex-col items-end gap-1.5 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.25rem))] right-md ${
+        // At the map's right edge on desktop, the rail sits above MapLibre's bottom-right attribution.
+        // Lower, its zoom-out button covered the attribution toggle (WCAG 2.5.8, Asana 1219147334320125).
+        sidebarOpen ? 'md:bottom-md md:right-[420px]' : 'md:bottom-12 md:right-md'
       }`}
     >
       {onFocusParkedCar ? (
