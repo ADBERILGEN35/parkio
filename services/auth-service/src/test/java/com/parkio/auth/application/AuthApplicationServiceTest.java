@@ -241,6 +241,8 @@ class AuthApplicationServiceTest {
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        // CL-F14.2: an unknown account still pays for one password comparison.
+        assertThat(passwordHasher.comparedWithoutAccount).containsExactly(VALID_PASSWORD);
     }
 
     @Test
@@ -1189,6 +1191,8 @@ class AuthApplicationServiceTest {
     }
 
     private static final class FakePasswordHasher implements PasswordHasher {
+        private final List<String> comparedWithoutAccount = new ArrayList<>();
+
         @Override
         public String hash(String rawPassword) {
             return "hashed:" + rawPassword;
@@ -1197,6 +1201,11 @@ class AuthApplicationServiceTest {
         @Override
         public boolean matches(String rawPassword, String passwordHash) {
             return passwordHash.equals(hash(rawPassword));
+        }
+
+        @Override
+        public void compareWithoutAccount(String rawPassword) {
+            comparedWithoutAccount.add(rawPassword);
         }
     }
 
