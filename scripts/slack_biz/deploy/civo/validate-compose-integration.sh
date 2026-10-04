@@ -71,6 +71,14 @@ else
   missing_gid_fails=true
 fi
 
+# Sentinel CSP inputs: web's connect-src must follow them. With the example defaults, a source
+# written out in the Compose file would match Caddy's too (#200 review N1).
+{ cat "$TMP/head.env"
+  echo "PARKIO_DOMAIN=api.csp-sentinel.invalid"
+  echo "PARKIO_MEDIA_DOMAIN=media.csp-sentinel.invalid"
+  echo 'PARKIO_MAP_CONNECT_SRC="https://tiles.csp-sentinel.invalid https://*.maps.csp-sentinel.invalid"'
+} > "$TMP/head-csp.env"
+render "$ROOT" "$TMP/head-csp.env" "$TMP/head-csp.json"
 python3 - "$TMP" "$missing_gid_fails" "$BASE_REF" "$(git rev-parse --short HEAD)" "$ROOT" <<'PY'
 import json, re, sys
 tmp, missing_gid_fails, base_ref, head, root = sys.argv[1:6]
@@ -91,6 +99,7 @@ GATEWAY_ALLOWED = {
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT",
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION",
     "PARKIO_WAITLIST_FULL_NAME_REQUIRED",
+    "PARKIO_WAITLIST_EXPORT_MAX_ROWS",
 }
 AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_MODE",
@@ -98,6 +107,9 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN",
     "PARKIO_REGISTRATION_INVITE_TTL",
 }
+
+# Web image CSP connect-src (CL-F39.4, B9), rendered in Compose from Caddy's inputs.
+WEB_ALLOWED = {"PARKIO_WEB_CSP_CONNECT_SRC"}
 
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
@@ -111,6 +123,12 @@ def strip_allowlisted_env(model):
         genv.pop(k, None)
     for k in AUTH_ALLOWED:
         aenv.pop(k, None)
+    if "web" in m["services"]:
+        wenv = m["services"]["web"].setdefault("environment", {})
+        for k in WEB_ALLOWED:
+            wenv.pop(k, None)
+        if not wenv:
+            m["services"]["web"].pop("environment")
     for svc in MINIO_IMAGE_SERVICES:
         if svc in m.get("services", {}):
             m["services"][svc].pop("image", None)
@@ -135,7 +153,28 @@ aenv = dis["services"]["auth-service"]["environment"]
 check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED") == "false")
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
+check("gateway export row cap mapped", genv.get("PARKIO_WAITLIST_EXPORT_MAX_ROWS") == "50000")
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
+if "web" in dis["services"]:
+    def expected_web_csp(model):
+        # The same source list as the Caddyfile SPA policy, including its map default.
+        cenv = model["services"]["caddy"].get("environment", {})
+        return " ".join([
+            "'self'",
+            f"https://{cenv.get('PARKIO_DOMAIN')}",
+            f"https://{cenv.get('PARKIO_MEDIA_DOMAIN')}",
+            cenv.get("PARKIO_MAP_CONNECT_SRC") or "https://api.maptiler.com",
+        ])
+    sentinel = load("head-csp")
+    scenv = sentinel["services"]["caddy"].get("environment", {})
+    check("sentinel CSP inputs reach caddy",
+          scenv.get("PARKIO_DOMAIN") == "api.csp-sentinel.invalid"
+          and scenv.get("PARKIO_MEDIA_DOMAIN") == "media.csp-sentinel.invalid"
+          and scenv.get("PARKIO_MAP_CONNECT_SRC") == "https://tiles.csp-sentinel.invalid https://*.maps.csp-sentinel.invalid")
+    for label, model in (("example inputs", dis), ("sentinel inputs", sentinel)):
+        value = model["services"]["web"].get("environment", {}).get("PARKIO_WEB_CSP_CONNECT_SRC")
+        check(f"web CSP connect-src rendered from Caddy's inputs ({label})",
+              value == expected_web_csp(model), value or "unset")
 check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
 check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
 check(
