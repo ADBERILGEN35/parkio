@@ -153,7 +153,8 @@ record = {
     "image": {
         "tag": tag,
         "id": image["Id"],
-        "repo_digests": image.get("RepoDigests") or [],
+        # A containerd image store lists a local content digest here even though nothing is pushed.
+        "local_repo_digests": image.get("RepoDigests") or [],
         "published": False,
         "created": image.get("Created"),
         "os": image.get("Os"),
