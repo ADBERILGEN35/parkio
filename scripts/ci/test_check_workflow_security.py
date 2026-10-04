@@ -81,6 +81,13 @@ class ScriptInjection(unittest.TestCase):
             problems = check.check_workflow("w.yml", workflow({"run": f"echo ${{{{ {expression} }}}}"}))
             self.assertEqual(len(problems), 1, expression)
 
+    def test_object_filters_on_github_are_refused(self):
+        # github.* yields every property of github, event and head_ref included (#238 review R4).
+        for expression in ("toJSON(github.*)", "join(github.*, ',')", "github.*.pull_request",
+                           "toJSON(GitHub . *.issue)"):
+            problems = check.check_workflow("w.yml", workflow({"run": f"echo ${{{{ {expression} }}}}"}))
+            self.assertEqual(len(problems), 1, expression)
+
     def test_similar_names_that_are_not_inputs_or_event_fields_pass(self):
         for expression in ("github.event_name", "github['event_name']", "github.event_path",
                            "steps.inputs_check.outputs.ok", "needs.version.outputs.version", "github.base_ref",

@@ -40,8 +40,9 @@ A script must not contain an expression that reads any of:
 The scripts are a step's `run:` and `shell:`, `defaults.run.shell` of the workflow and of each
 job, and the `script` input of `actions/github-script`. Context names match in any case and in
 dot or index syntax, as GitHub evaluates them: `Inputs.x`, `inputs['x']`, `github['head_ref']`
-and `toJSON(github.event)` are all refused. Values passed on through `env.*`, `steps.*.outputs`
-or `needs.*.outputs` are not traced; review those by hand.
+and `toJSON(github.event)` are all refused. So is the whole `github` context, as `toJSON(github)` or
+the object filter `github.*`, because it contains both fields. Values passed on through `env.*`,
+`steps.*.outputs` or `needs.*.outputs` are not traced; review those by hand.
 
 Such an expression is pasted into the script before the shell parses it, so a crafted value
 becomes code. Pass the value through `env:` instead and use it quoted:
