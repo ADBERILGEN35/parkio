@@ -2,6 +2,7 @@ package com.parkio.auth.application.port;
 
 import com.parkio.auth.application.durable.ErasureLedgerEntry;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,7 +22,12 @@ public interface ErasureRestoreRepository {
 
     Optional<RestoreAttempt> findAttempt(UUID recoveryAttemptId);
 
-    void insertAttempt(RestoreAttempt attempt, List<ErasureLedgerEntry> users);
+    /** Records the attempt, its users and the participants it requires (fixed from now on). */
+    void insertAttempt(RestoreAttempt attempt, List<ErasureLedgerEntry> users,
+                       Collection<String> requiredParticipants);
+
+    /** The participants the attempt requires, fixed when it started; empty when none were recorded. */
+    List<String> requiredParticipants(UUID recoveryAttemptId);
 
     boolean isAttemptUser(UUID recoveryAttemptId, UUID authUserId);
 

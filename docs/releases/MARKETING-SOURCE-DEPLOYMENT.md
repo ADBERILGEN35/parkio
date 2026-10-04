@@ -63,6 +63,11 @@ When 01E is authorized:
 6. Preserve `.htaccess`; do not weaken its security headers.
 7. Verify `/`, `/privacy/`, `/terms/`, `/robots.txt`, `/sitemap.xml`, `/404.html`, and all
    referenced assets from an independent browser and crawler-like client.
+8. Record the dated response headers of `https://parkio.dev/` and
+   `https://parkio.dev/waitlist/confirm/` (for example `curl -sSI`) and compare
+   `Content-Security-Policy` and `Strict-Transport-Security` with `web/marketing/.htaccess`;
+   load both pages in a browser and confirm the console shows no CSP violation. Confirm that
+   `http://parkio.dev/` redirects to HTTPS: browsers ignore HSTS sent over plain HTTP.
 
 No credential, FTP secret, resolved environment file, or Hostinger token belongs in Git.
 
@@ -73,6 +78,12 @@ commit `1edb16b2fcd5a44a3a5a9cf0dadd6466f67ea15c`. The repository baseline, not 
 Downloads ZIP, is the canonical rollback source after 01D.
 
 After rollback, verify the same critical URLs and hashes before declaring recovery.
+
+A rollback does not withdraw HSTS: browsers that received
+`Strict-Transport-Security: max-age=31536000` keep using HTTPS for parkio.dev for up to a
+year. Withdrawing it early requires serving `max-age=0` over HTTPS. The header deliberately
+omits `includeSubDomains` and `preload`, which would bind every `*.parkio.dev` host; adding
+either is an owner decision.
 
 ## Waitlist / gateway publication sequencing (W01B / W01F)
 
@@ -142,7 +153,11 @@ Rollback / containment:
 
 
 
-The deterministic validator checks the required `.htaccess` directives statically. Its
-local Node server validates routes, content types, links, assets, crawler equivalence, and
-responsive rendering, but it does not emulate Apache module behavior. Apache/Hostinger
-header verification remains an 01E post-deploy check.
+The deterministic validator checks the required `.htaccess` directives statically, including
+a `script-src` without `'unsafe-inline'`, an HSTS header, and no executable inline script,
+inline event handler or `javascript:` URL in any page (CL-F39.5). Its local Node server
+validates routes, content types, links, assets, crawler equivalence, and responsive rendering,
+and sends the `Header always set` directives of `.htaccess`, so the marketing Playwright suite
+runs under the configured CSP and fails on any CSP violation. It does not emulate other Apache
+module behavior (expiry, `FilesMatch`, `ErrorDocument`). Apache/Hostinger header verification
+remains an 01E post-deploy check (step 8 above).

@@ -41,9 +41,9 @@ Prometheus rendering replaces dots with underscores and suffixes counters with
 
 | Metric | Type | Services | Meaning |
 |---|---|---|---|
-| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
+| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation, analytics | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
 | `parkio.outbox.oldest.unpublished.age.seconds` | gauge | same | Age of the oldest relayable row (0 when empty). Alert when it exceeds a few relay intervals. |
-| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Open dead-lettered (poison) outbox rows retained in-table for inspection/redrive. Acknowledged/suppressed rows are excluded so alerts stop after deliberate operator action. |
+| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation, notification, analytics | Open dead-lettered (poison) outbox rows retained in-table for inspection/redrive. Acknowledged/suppressed rows are excluded so alerts stop after deliberate operator action. |
 | `parkio.outbox.deadlettered.acknowledged.count` | gauge | same | Dead-lettered rows intentionally acknowledged/suppressed by an operator and retained for audit. |
 | `parkio.outbox.deadlettered.oldest.age.seconds` | gauge | same | Age of the oldest open dead-lettered row. A high value means recovery did not happen or did not work. |
 | `parkio.outbox.publish.failed` | counter | same as dead-lettered | Per-row publish attempts that failed (all causes: broker error, unreadable payload, no topic mapping). A rising rate signals broker/contract trouble before rows dead-letter. |
@@ -62,9 +62,10 @@ query). The `parkio.outbox.publish.success` / `parkio.outbox.publish.failed` /
 suffix rule above; `parkio.outbox.publish.duration` and `parkio.outbox.batch.size`
 are recorded once per published row / per poll in the relay (no extra query).
 
-> **notification-service** exports the outbox backlog gauges but has **no relay yet**,
-> so it does not emit the dead-letter gauge/counters. **analytics-service** has no
-> producer outbox, so it exports neither.
+> **notification-service** and **analytics-service** relay their U05 erasure ACKs (and, for
+> notification, its own events) through an outbox. Since B11 they export the same backlog and
+> dead-letter gauges as the other relay-owning services, and their relays emit the counters
+> above.
 
 ### Notification delivery (notification-service)
 
@@ -778,8 +779,10 @@ you act.
    so a redrive that double-delivers is safe.
 
 4. **When NOT to redrive:** the event is obsolete/superseded, the payload is irreparably
-   malformed, or the downstream contract no longer accepts it. Acknowledge it so it remains
-   retained but stops paging:
+   malformed, or the downstream contract no longer accepts it. This never applies to erasure
+   messages (event types `UserErasure*`). They hold up an account erasure: retry them, and
+   follow [Erasure messages](../operations/dlq-redrive-runbook.md#erasure-messages).
+   Acknowledge other rows so they remain retained but stop paging:
 
    ```bash
    PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh acknowledge \

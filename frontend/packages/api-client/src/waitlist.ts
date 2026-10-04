@@ -24,6 +24,23 @@ export interface WaitlistResult {
   status: 'accepted' | 'confirmed' | 'withdrawn';
 }
 
+/** Confirmed-only CSV export: the CSV text and the gateway's truncation report. */
+export interface WaitlistExportResult {
+  csv: string;
+  /** True when more confirmed subscriptions matched than the export returned. */
+  truncated: boolean;
+  /** Rows that matched the filter when the export started, if the gateway reported it. */
+  matchingRows?: number;
+  /** The export's row limit, if the gateway reported it. */
+  rowLimit?: number;
+}
+
+function numberHeader(value: unknown): number | undefined {
+  if (typeof value !== 'string' || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function toQuery(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -70,16 +87,23 @@ export function createWaitlistApi(client: AxiosInstance) {
     },
 
     /**
-     * ADMIN/SUPER_ADMIN — confirmed-only CSV export.
-     * Returns raw CSV text; does not log the body.
+     * ADMIN/SUPER_ADMIN — confirmed-only CSV export, filtered by confirmation time.
+     * Returns the raw CSV text with the truncation report; does not log the body.
      */
-    exportConfirmedCsv(params: { createdFrom?: string; createdTo?: string } = {}): Promise<string> {
+    exportConfirmedCsv(
+      params: { confirmedFrom?: string; confirmedTo?: string } = {},
+    ): Promise<WaitlistExportResult> {
       return client
         .get<string>(`/waitlist/export${toQuery(params)}`, {
           responseType: 'text',
           headers: { Accept: 'text/csv' },
         })
-        .then((r) => r.data);
+        .then((r) => ({
+          csv: r.data,
+          truncated: r.headers['x-parkio-export-truncated'] === 'true',
+          matchingRows: numberHeader(r.headers['x-parkio-export-matching-rows']),
+          rowLimit: numberHeader(r.headers['x-parkio-export-row-limit']),
+        }));
     },
   };
 }
