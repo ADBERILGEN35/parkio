@@ -152,6 +152,11 @@
       'waitlist.page.withdraw.note': 'Destek veya silme talepleri için: info@parkio.dev',
       'waitlist.page.withdraw.success':
         'E-posta adresiniz bildirim listesinden silindi.',
+      'waitlist.page.confirm.invalid':
+        'Bu onay bağlantısı geçersiz veya süresi dolmuş. Listeye katılmak için ana sayfadan yeniden kaydolun.',
+      'waitlist.page.withdraw.invalid':
+        'Bu listeden çıkış bağlantısı geçersiz veya süresi dolmuş. Size gönderdiğimiz en son e-postadaki bağlantıyı kullanın ya da info@parkio.dev adresine yazın.',
+      'waitlist.page.token.serverError': 'İşleminiz şu anda tamamlanamadı. Lütfen daha sonra tekrar deneyin.',
       'business.kicker': 'İş modeli',
       'business.h2': 'Parkio bir iş olarak nasıl ilerliyor',
       'business.intro':
@@ -378,6 +383,11 @@
       'waitlist.page.withdraw.note': 'For support or deletion requests: info@parkio.dev',
       'waitlist.page.withdraw.success':
         'Your email was removed from the notification list.',
+      'waitlist.page.confirm.invalid':
+        'This confirmation link is invalid or has expired. To join the list, sign up again on the home page.',
+      'waitlist.page.withdraw.invalid':
+        'This unsubscribe link is invalid or has expired. Use the link in our most recent email, or write to info@parkio.dev.',
+      'waitlist.page.token.serverError': 'We could not complete this right now. Please try again later.',
       'business.kicker': 'Business',
       'business.h2': 'How Parkio works as a business',
       'business.intro':
