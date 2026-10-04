@@ -54,8 +54,8 @@ export interface PageMeasurement {
   violations: AxeRuleResult[];
   /** Violations listed in known-issues.ts: measured and documented, not fixed in this change. */
   knownViolations: AxeRuleResult[];
-  /** Results axe could not decide (for example contrast over an image); reviewed, not failed. */
-  incomplete: { id: string; nodes: number }[];
+  /** Results axe could not decide (for example contrast over an image): listed for manual review, not failed. */
+  incomplete: { id: string; nodes: number; targets: string[]; reasons: Record<string, number> }[];
   passedRules: number;
 }
 
@@ -95,7 +95,17 @@ export async function measurePage(page: Page, testInfo: TestInfo, name: string, 
     axeVersion: run.testEngine.version,
     violations,
     knownViolations,
-    incomplete: run.incomplete.map((rule) => ({ id: rule.id, nodes: rule.nodes.length })),
+    incomplete: run.incomplete.map((rule) => ({
+      id: rule.id,
+      nodes: rule.nodes.length,
+      targets: rule.nodes.map((node) => node.target.join(' ')),
+      reasons: rule.nodes.reduce<Record<string, number>>((acc, node) => {
+        // The first line after "Fix any of the following:" is axe's reason for not deciding.
+        const reason = (node.failureSummary ?? '').split('\n').map((line) => line.trim()).filter(Boolean)[1] ?? 'unspecified';
+        acc[reason] = (acc[reason] ?? 0) + 1;
+        return acc;
+      }, {}),
+    })),
     passedRules: run.passes.length,
   };
   writeReport(testInfo, `${testInfo.project.name}-${name}-${locale}`, measurement);
