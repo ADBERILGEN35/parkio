@@ -3,21 +3,32 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { API_BASE, server } from '@/test/server';
 import { renderWithProviders } from '@/test/utils';
 import { ResetPasswordPage } from './ResetPasswordPage';
 
-function renderPage(authRoles?: string[]) {
+function renderPage(authRoles?: string[], entry = '/reset-password?token=reset-token-1') {
   return renderWithProviders(
     <Routes>
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/login" element={<div>Login page</div>} />
     </Routes>,
-    { authRoles, initialEntries: ['/reset-password?token=reset-token-1'] },
+    { authRoles, initialEntries: [entry] },
   );
 }
 
 describe('ResetPasswordPage', () => {
+  it('renders in the language of the reset link over a stored preference (CL-F21)', async () => {
+    useLocaleStore.getState().setLocale('tr');
+
+    renderPage(undefined, '/reset-password?token=reset-token-1&lang=en');
+
+    expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument();
+    expect(useLocaleStore.getState().locale).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+
   it('validates confirmation before submitting', async () => {
     renderPage();
     const user = userEvent.setup();

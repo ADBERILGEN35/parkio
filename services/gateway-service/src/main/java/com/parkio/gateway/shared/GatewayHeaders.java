@@ -42,6 +42,13 @@ public final class GatewayHeaders {
      */
     public static final String TOKEN_SESSION_EPOCH_ATTRIBUTE = PlatformHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE;
 
+    /** Confirmed waitlist export: the row limit the export applied. */
+    public static final String EXPORT_ROW_LIMIT = "X-Parkio-Export-Row-Limit";
+    /** Confirmed waitlist export: how many rows matched the filter when the export started. */
+    public static final String EXPORT_MATCHING_ROWS = "X-Parkio-Export-Matching-Rows";
+    /** Confirmed waitlist export: {@code true} when more rows matched than were exported. */
+    public static final String EXPORT_TRUNCATED = "X-Parkio-Export-Truncated";
+
     private GatewayHeaders() {
     }
 }
