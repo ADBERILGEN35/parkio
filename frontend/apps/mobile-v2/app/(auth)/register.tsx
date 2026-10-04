@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { isStrongPassword, registerSchema } from '@parkio/validation';
+import { isStrongPassword, isWithinPasswordByteLimit, registerSchema } from '@parkio/validation';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -35,6 +35,8 @@ export default function RegisterScreen() {
   const [error, setError] = useState<{ message: string; traceId: string | null } | null>(null);
   const [consentError, setConsentError] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  // The auth service rejects passwords over 72 UTF-8 bytes (CL-F36): say so while typing.
+  const passwordTooLong = !isWithinPasswordByteLimit(password);
 
   const submit = async () => {
     // Hard gate: never POST register while mode is CLOSED.
@@ -50,6 +52,11 @@ export default function RegisterScreen() {
       trackProductEvent('auth_signup_attempted');
       trackProductEvent('auth_signup_failed', { authFailureReason: 'validation' });
       setNameError(t('common.requiredField'));
+      return;
+    }
+    if (passwordTooLong) {
+      trackProductEvent('auth_signup_attempted');
+      trackProductEvent('auth_signup_failed', { authFailureReason: 'validation' });
       return;
     }
     const parsed = registerSchema.safeParse({ email: email.trim(), password });
@@ -125,8 +132,8 @@ export default function RegisterScreen() {
           autoComplete="new-password"
           value={password}
           onChangeText={setPassword}
-          error={error?.message ?? null}
-          traceId={error?.traceId ?? null}
+          error={passwordTooLong ? t('auth.passwordTooLong') : (error?.message ?? null)}
+          traceId={passwordTooLong ? null : (error?.traceId ?? null)}
         />
         <PasswordChecklist password={password} />
       </View>
