@@ -280,6 +280,14 @@ parkio:
       clock-skew-seconds: ${PARKIO_JWT_CLOCK_SKEW_SECONDS:30}
       jwks-uri: ${PARKIO_AUTH_JWKS_URI:http://localhost:8081/api/v1/auth/.well-known/jwks.json}
       jwks-cache-ttl: ${PARKIO_AUTH_JWKS_CACHE_TTL:PT15M}
+      # Refreshes forced by an unknown kid (U10): one per cooldown, at most `budget` per
+      # window; unknown kids are remembered (bounded size, TTL); every fetch is time-bounded.
+      jwks-refresh-cooldown: ${PARKIO_AUTH_JWKS_REFRESH_COOLDOWN:PT30S}
+      jwks-refresh-budget: ${PARKIO_AUTH_JWKS_REFRESH_BUDGET:20}
+      jwks-refresh-budget-window: ${PARKIO_AUTH_JWKS_REFRESH_BUDGET_WINDOW:PT1H}
+      jwks-negative-cache-size: ${PARKIO_AUTH_JWKS_NEGATIVE_CACHE_SIZE:1000}
+      jwks-negative-cache-ttl: ${PARKIO_AUTH_JWKS_NEGATIVE_CACHE_TTL:PT5M}
+      jwks-fetch-timeout: ${PARKIO_AUTH_JWKS_FETCH_TIMEOUT:PT10S}
   gateway:
     public-surface:
       # When false, /actuator/info is off the public (non-loopback) surface.

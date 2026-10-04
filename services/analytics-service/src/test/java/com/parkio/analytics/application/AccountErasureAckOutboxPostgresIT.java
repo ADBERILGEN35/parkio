@@ -196,6 +196,36 @@ class AccountErasureAckOutboxPostgresIT {
     }
 
     @Test
+    void aDeadLetteredErasureAckIsVisibleToTheDeadLetterGauges() {
+        UUID user = UUID.randomUUID();
+        UserErasureRequestedEvent event = request(user);
+        seed(user);
+        handler.handle(event);
+        UUID rowId = jdbc.queryForObject(
+                "SELECT id FROM outbox_events WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?",
+                UUID.class, event.erasureRequestId());
+        long openBefore = outbox.countByDeadLetteredTrue();
+        long acknowledgedBefore = outbox.countAcknowledgedDeadletters();
+        long retriesBefore = outbox.countRecoveryAuditByAction("RETRY");
+
+        // What the relay does after max-attempts failed publishes (B11: failures keep counting).
+        jdbc.update("UPDATE outbox_events SET dead_lettered = true WHERE id = ?", rowId);
+
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore + 1);
+        assertThat(outbox.findOldestOpenDeadletterCreatedAt()).isNotNull();
+
+        // What scripts/outbox-deadletter-recovery.sh records for a retry, and does for an acknowledge.
+        jdbc.update("""
+                INSERT INTO outbox_recovery_audit (id, outbox_event_id, action, operator_id, reason)
+                VALUES (?, ?, 'RETRY', 'synthetic-operator', 'synthetic')
+                """, UUID.randomUUID(), rowId);
+        assertThat(outbox.countRecoveryAuditByAction("RETRY")).isEqualTo(retriesBefore + 1);
+        jdbc.update("UPDATE outbox_events SET acknowledged_deadletter = true WHERE id = ?", rowId);
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore);
+        assertThat(outbox.countAcknowledgedDeadletters()).isEqualTo(acknowledgedBefore + 1);
+    }
+
+    @Test
     void duplicateDeliveryQueuesOneAckAndKeepsErasedState() {
         UUID user = UUID.randomUUID();
         UUID bystander = UUID.randomUUID();
