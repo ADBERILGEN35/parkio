@@ -76,13 +76,15 @@ class ScriptInjection(unittest.TestCase):
 
     def test_index_syntax_and_whole_objects_are_refused(self):
         for expression in ("inputs['x']", 'inputs["x"]', "github['head_ref']", "github.event['pull_request'].title",
-                           "toJSON(github.event)", "toJSON(inputs)", "github [ 'event' ].issue.body"):
+                           "toJSON(github.event)", "toJSON(inputs)", "github [ 'event' ].issue.body",
+                           "toJSON(github)", "fromJSON(toJSON(GitHub)).event.issue.title"):
             problems = check.check_workflow("w.yml", workflow({"run": f"echo ${{{{ {expression} }}}}"}))
             self.assertEqual(len(problems), 1, expression)
 
     def test_similar_names_that_are_not_inputs_or_event_fields_pass(self):
         for expression in ("github.event_name", "github['event_name']", "github.event_path",
-                           "steps.inputs_check.outputs.ok", "needs.version.outputs.version", "github.base_ref"):
+                           "steps.inputs_check.outputs.ok", "needs.version.outputs.version", "github.base_ref",
+                           "steps.inputs.outputs.ok", "needs.github.outputs.sha", "matrix.inputs"):
             self.assertEqual(check.check_workflow("w.yml", workflow({"run": f"echo ${{{{ {expression} }}}}"})), [],
                              expression)
 
