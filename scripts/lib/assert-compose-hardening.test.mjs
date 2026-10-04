@@ -115,6 +115,22 @@ test('tmpfs mounts need a size, no exec and the recorded set (B8)', () => {
   ]);
 });
 
+test('a long-form tmpfs volume is refused and counts against the recorded set (B8)', () => {
+  const { failures } = evaluateHardening({
+    services: {
+      ...hardenedAs('redis', { volumes: [{ type: 'tmpfs', target: '/var/cache', tmpfs: { size: 1048576 } }] }),
+      ...hardenedAs('minio', { tmpfs: [], volumes: [{ type: 'tmpfs', target: '/tmp' }] }),
+    },
+  });
+  assert.deepEqual(failures.sort(), [
+    'minio: tmpfs /tmp has no size',
+    'minio: tmpfs /tmp is a long-form volume; declare it under tmpfs',
+    'minio: tmpfs [/tmp] differs from the recorded [/tmp:size=16m]',
+    'redis: tmpfs /var/cache is a long-form volume; declare it under tmpfs',
+    'redis: tmpfs [/tmp:size=8m /var/cache:size=1048576] differs from the recorded [/tmp:size=8m]',
+  ]);
+});
+
 test('anonymous volumes are limited to the recorded scratch mounts (B8)', () => {
   const scratch = (target) => ({ type: 'volume', target });
   const { failures } = evaluateHardening({
