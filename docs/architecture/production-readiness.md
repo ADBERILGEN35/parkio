@@ -372,16 +372,12 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
   whichever policy is enforced, alone or both together. The image refuses to start without its
   origins, or with a value that is not one line of CSP sources.
 
-  Since CL-F39.2, `img-src` no longer allows every `https:` host. Both policies allow `'self'`,
-  `data:`, `blob:` and the `connect-src` origins: the API, presigned media URLs, and the map. The
-  image derives its `img-src` from its `connect-src` at start, so the Compose model passes nothing
-  new, and a `PARKIO_WEB_CSP_IMG_SRC` in the environment is replaced rather than used. Auth pages
-  draw their artwork inline since #203.
-  - **Deploy order.** Web images built before #203 (`55d661dc`) load the auth-page photo from
-    `images.unsplash.com`. The narrowed Caddy policy blocks it. Only the photo is lost; the page
-    works.
-  - **What to do.** Move the web pin to an image built from #203 or later before deploying this
-    Caddyfile, or accept a missing auth-page photo until the pin moves.
+  Since CL-F39.2 the image's `img-src` no longer allows every `https:` host. It allows `'self'`,
+  `data:`, `blob:` and the `connect-src` origins: the API, presigned media URLs and the map. The
+  image derives it from its `connect-src` at start, so the Compose model passes nothing new, and
+  a `PARKIO_WEB_CSP_IMG_SRC` in the environment is replaced rather than used. Auth pages draw
+  their artwork inline since #203. Caddy's SPA policy is narrowed the same way in a separate
+  change, because `docker/` is outside frontend changes.
 
   `src/cspEdgeCombination.test.ts` checks the policies, and Runtime validation checks the live
   headers: the image's upstream, and Caddy's at the edge.
