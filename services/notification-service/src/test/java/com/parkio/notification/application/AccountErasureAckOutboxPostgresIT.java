@@ -18,13 +18,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +64,7 @@ import org.testcontainers.utility.DockerImageName;
 class AccountErasureAckOutboxPostgresIT {
 
     private static final String ERASURE_TOPIC = "parkio.privacy.erasure";
+    private static final List<String> TOPICS = List.of(ERASURE_TOPIC, "parkio.notification.notification");
     private static final UUID SENTINEL = UUID.fromString("00000000-0000-4000-8000-000000000001");
 
     @Container
@@ -66,6 +73,25 @@ class AccountErasureAckOutboxPostgresIT {
     @Container
     static final KafkaContainer KAFKA =
             new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"));
+
+    /**
+     * The topics these tests publish to exist before the first send (#185 review N8). On a fresh
+     * broker the first send otherwise waits for topic auto-creation, which can outlast the
+     * producer's max.block.ms on a loaded host; the relay then records a failure and the test
+     * finds no record.
+     */
+    @BeforeAll
+    static void createTopics() throws Exception {
+        try (Admin admin = Admin.create(
+                Map.<String, Object>of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            Set<String> existing = admin.listTopics().names().get(60, TimeUnit.SECONDS);
+            List<NewTopic> missing = TOPICS.stream()
+                    .filter(topic -> !existing.contains(topic))
+                    .map(topic -> new NewTopic(topic, 1, (short) 1))
+                    .toList();
+            admin.createTopics(missing).all().get(60, TimeUnit.SECONDS);
+        }
+    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -167,6 +193,36 @@ class AccountErasureAckOutboxPostgresIT {
         assertThat(payload.get("serviceName").asText()).isEqualTo("notification");
         assertThat(payload.get("status").asText()).isEqualTo("SUCCESS");
         assertThat(payload.hasNonNull("occurredAt")).isTrue();
+    }
+
+    @Test
+    void aDeadLetteredErasureAckIsVisibleToTheDeadLetterGauges() {
+        UUID user = UUID.randomUUID();
+        UserErasureRequestedEvent event = request(user);
+        seed(user);
+        handler.handle(event);
+        UUID rowId = jdbc.queryForObject(
+                "SELECT id FROM outbox_events WHERE aggregate_type = 'AccountErasure' AND aggregate_id = ?",
+                UUID.class, event.erasureRequestId());
+        long openBefore = outbox.countByDeadLetteredTrue();
+        long acknowledgedBefore = outbox.countAcknowledgedDeadletters();
+        long retriesBefore = outbox.countRecoveryAuditByAction("RETRY");
+
+        // What the relay does after max-attempts failed publishes (B11: failures keep counting).
+        jdbc.update("UPDATE outbox_events SET dead_lettered = true WHERE id = ?", rowId);
+
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore + 1);
+        assertThat(outbox.findOldestOpenDeadletterCreatedAt()).isNotNull();
+
+        // What scripts/outbox-deadletter-recovery.sh records for a retry, and does for an acknowledge.
+        jdbc.update("""
+                INSERT INTO outbox_recovery_audit (id, outbox_event_id, action, operator_id, reason)
+                VALUES (?, ?, 'RETRY', 'synthetic-operator', 'synthetic')
+                """, UUID.randomUUID(), rowId);
+        assertThat(outbox.countRecoveryAuditByAction("RETRY")).isEqualTo(retriesBefore + 1);
+        jdbc.update("UPDATE outbox_events SET acknowledged_deadletter = true WHERE id = ?", rowId);
+        assertThat(outbox.countByDeadLetteredTrue()).isEqualTo(openBefore);
+        assertThat(outbox.countAcknowledgedDeadletters()).isEqualTo(acknowledgedBefore + 1);
     }
 
     @Test

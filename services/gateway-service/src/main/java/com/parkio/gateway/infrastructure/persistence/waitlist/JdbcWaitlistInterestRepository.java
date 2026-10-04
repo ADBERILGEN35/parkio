@@ -3,6 +3,7 @@ package com.parkio.gateway.infrastructure.persistence.waitlist;
 import com.parkio.gateway.application.waitlist.WaitlistAdminCounts;
 import com.parkio.gateway.application.waitlist.WaitlistAdminEntry;
 import com.parkio.gateway.application.waitlist.WaitlistAdminPage;
+import com.parkio.gateway.application.waitlist.WaitlistExportCursor;
 import com.parkio.gateway.application.waitlist.WaitlistExportRow;
 import com.parkio.gateway.application.waitlist.WaitlistInterest;
 import com.parkio.gateway.application.waitlist.WaitlistInterestRepository;
@@ -164,23 +165,34 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     }
 
     @Override
-    public List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo) {
+    public long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo) {
+        List<Object> args = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM waitlist_interest");
+        appendExportFilter(sql, args, confirmedFrom, confirmedTo);
+        Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<WaitlistExportRow> exportConfirmedPage(Instant confirmedFrom, Instant confirmedTo,
+                                                       WaitlistExportCursor after, int limit) {
         List<Object> args = new ArrayList<>();
         StringBuilder sql = new StringBuilder("""
-                SELECT email, full_name, city, role, source, created_at, consent_timestamp
-                FROM waitlist_interest
-                WHERE status = 'CONFIRMED'
-                """);
-        if (createdFrom != null) {
-            sql.append(" AND created_at >= ?");
-            args.add(Timestamp.from(createdFrom));
+                SELECT id, confirmed_at, email, full_name, city, role, source, created_at, consent_timestamp
+                FROM waitlist_interest""");
+        appendExportFilter(sql, args, confirmedFrom, confirmedTo);
+        if (after != null) {
+            // Keyset: strictly after the last exported (confirmed_at, id), so pages never overlap or skip.
+            sql.append(" AND (confirmed_at > ? OR (confirmed_at = ? AND id > ?))");
+            args.add(Timestamp.from(after.confirmedAt()));
+            args.add(Timestamp.from(after.confirmedAt()));
+            args.add(after.id());
         }
-        if (createdTo != null) {
-            sql.append(" AND created_at < ?");
-            args.add(Timestamp.from(createdTo));
-        }
-        sql.append(" ORDER BY created_at ASC");
+        sql.append(" ORDER BY confirmed_at ASC, id ASC LIMIT ?");
+        args.add(limit);
         return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> new WaitlistExportRow(
+                rs.getObject("id", UUID.class),
+                rs.getTimestamp("confirmed_at").toInstant(),
                 rs.getString("email"),
                 rs.getString("full_name"),
                 rs.getString("city"),
@@ -188,6 +200,24 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("source"),
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("consent_timestamp").toInstant()), args.toArray());
+    }
+
+    /**
+     * Confirmed rows filtered by confirmation time. A confirmed row always carries
+     * {@code confirmed_at} (set by the confirm transition); the explicit check keeps the keyset
+     * ordering total.
+     */
+    private static void appendExportFilter(StringBuilder sql, List<Object> args, Instant confirmedFrom,
+                                           Instant confirmedTo) {
+        sql.append(" WHERE status = 'CONFIRMED' AND confirmed_at IS NOT NULL");
+        if (confirmedFrom != null) {
+            sql.append(" AND confirmed_at >= ?");
+            args.add(Timestamp.from(confirmedFrom));
+        }
+        if (confirmedTo != null) {
+            sql.append(" AND confirmed_at < ?");
+            args.add(Timestamp.from(confirmedTo));
+        }
     }
 
     @Override

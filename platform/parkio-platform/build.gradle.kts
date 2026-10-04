@@ -19,6 +19,9 @@ repositories {
 
 dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:${libs.versions.springBoot.get()}"))
+    // The Boot BOM pins a vulnerable Jackson. Services override it through the dependency-management
+    // plugin (jackson-bom.version); this keeps the platform's own classpaths on the same patched release.
+    api(platform("com.fasterxml.jackson:jackson-bom:${project.property("jacksonBomVersion")}"))
     api(libs.kafka.clients)
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
@@ -55,6 +58,12 @@ tasks.register<Test>("integrationTest") {
     val requireDocker = providers.gradleProperty("parkio.integrationTest.requireDocker")
         .map(String::toBoolean).orElse(false)
     inputs.property("requireDocker", requireDocker)
+    // With requireDocker the run itself is the evidence: a build-cache restore or an up-to-date skip
+    // would bypass the Docker check below and report tests that never ran (#205 review B1).
+    outputs.doNotCacheIf("parkio.integrationTest.requireDocker=true: the tests must execute") {
+        requireDocker.get()
+    }
+    outputs.upToDateWhen { !requireDocker.get() }
     doFirst {
         if (requireDocker.get()) {
             val available = try {

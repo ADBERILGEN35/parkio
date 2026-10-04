@@ -316,28 +316,26 @@ jobs:
             [analytics-service]=8089
           )
 
+          # The services' /tmp is a tmpfs since B8, which `docker compose cp` cannot read, so the
+          # responses are streamed out of the container instead of copied.
           for svc in "${!ports[@]}"; do
             port="${ports[$svc]}"
-            container_artifact="/tmp/${svc}-readiness.json"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
-              curl -fsS -o "$container_artifact" "http://localhost:${port}/actuator/health/readiness"
-            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-              "${svc}:${container_artifact}" "runtime-validation-artifacts/${svc}-readiness.json"
+              curl -fsS "http://localhost:${port}/actuator/health/readiness" \
+              > "runtime-validation-artifacts/${svc}-readiness.json"
           done
 
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -fsS -o /tmp/gateway-jwks.json \
-            http://localhost:8080/api/v1/auth/.well-known/jwks.json
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-            gateway-service:/tmp/gateway-jwks.json runtime-validation-artifacts/gateway-jwks.json
+            curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
+            > runtime-validation-artifacts/gateway-jwks.json
 
           capture_status() {
             local service="$1" artifact="$2" url="$3" container_artifact status
             container_artifact="/tmp/${artifact}"
             status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
               curl --path-as-is -sS -o "$container_artifact" -w '%{http_code}' "$url")"
-            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-              "${service}:${container_artifact}" "runtime-validation-artifacts/${artifact}" >/dev/null
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
+              cat "$container_artifact" > "runtime-validation-artifacts/${artifact}"
             printf '%s' "$status"
           }
 

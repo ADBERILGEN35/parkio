@@ -12,7 +12,7 @@ This runbook is for operators with shell access to the Parkio host. Recovery too
 ## Decision Rules
 
 - Retry/redrive only after the cause is understood or fixed.
-- Acknowledge only when the event is obsolete, superseded, manually remediated, or intentionally not safe to replay.
+- Acknowledge only when the event is obsolete, superseded, manually remediated, or intentionally not safe to replay. Never acknowledge an erasure message (see [Erasure messages](#erasure-messages)).
 - Do not repeatedly retry unchanged poison records. If the same row dead-letters again after recovery, escalate to a code/config fix.
 - Never edit event payloads in place. Preserve the original event contract and event id.
 - Consumers are idempotent by `eventId`; redrive may duplicate delivery, but handlers must tolerate it.
@@ -82,6 +82,86 @@ PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh acknowledge \
 ```
 
 Acknowledged rows remain `dead_lettered = true`, but `acknowledged_deadletter = true` excludes them from open dead-letter gauges and alerts.
+
+## Erasure messages
+
+Account erasure (PRIV-001, U05) uses the same outbox and DLT machinery as other events. These
+messages need a redrive. They are never suppressed.
+
+| Where | What | Event type |
+|---|---|---|
+| auth-service outbox | the erasure command to every participant | `UserErasureRequested`, `UserErasureRestoreReplayRequested` |
+| participant outboxes (user, parking, media, moderation, gamification, notification, analytics, ai-validation) | the participant's ACK to auth | `UserErasureAcknowledged`, `UserErasureRestoreAcknowledged` |
+| `parkio.dlt.user`, `parkio.dlt.parking`, `parkio.dlt.media`, `parkio.dlt.moderation`, `parkio.dlt.gamification`, `parkio.dlt.notification`, `parkio.dlt.analytics`, `parkio.dlt.aivalidation` | a participant's consumer failed on an erasure command from `parkio.privacy.erasure` | the original Kafka record |
+| `parkio.dlt.auth` | auth-service's consumer failed on a participant's ACK from `parkio.privacy.erasure` | the original Kafka record |
+
+**Why they matter.**
+- A command that is never delivered leaves the participant's data in place.
+- An ACK that is never delivered keeps the request `IN_PROGRESS`.
+
+Either way, `AccountErasureStuck` fires once a request has been past its 1-hour SLA for
+15 minutes. A dead-lettered outbox row also fires `OutboxDeadlettered`.
+
+**Transient errors count.** Owner decision B11 keeps this counting:
+- During a broker outage, every relay poll that cannot send counts one attempt toward
+  `parkio.kafka.relay.max-attempts`.
+- After a long outage, erasure rows can be dead-lettered although nothing is wrong with them.
+
+**Nothing removes them on its own.**
+- The outbox retention job deletes only published rows. A dead-lettered row stays until an
+  operator acts.
+- DLT records are kept for the topic retention: 14 days (`docs/architecture/kafka-transport.md`,
+  DLT retention). Redrive them before then. This includes `parkio.dlt.media`, which
+  media-service provisions with the same 14 days since #199.
+
+Steps:
+
+1. Make sure the cause is gone: `KafkaBrokerUnavailable` has cleared, or the code or
+   configuration fix is deployed.
+2. List the erasure rows of each affected service:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh list \
+     --service notification --event-type UserErasureAcknowledged
+   PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh list \
+     --service auth --event-type UserErasureRequested
+   ```
+
+3. Retry them. Bulk retry is capped at 100:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh retry-bulk \
+     --service notification --event-type UserErasureAcknowledged --limit 25 \
+     --reason "broker outage over" --yes
+   ```
+
+4. For a DLT record, run the redrive back to `parkio.privacy.erasure` as a dry run first,
+   here from notification's DLT:
+
+   ```bash
+   scripts/kafka-dlt-redrive.sh --bootstrap-servers localhost:29092 \
+     --source-topic parkio.dlt.notification --target-topic parkio.privacy.erasure \
+     --event-id <eventId>
+   ```
+
+   Then run the same selection with `--execute`, which also needs the operator and a reason:
+
+   ```bash
+   PARKIO_OPERATOR=<name> scripts/kafka-dlt-redrive.sh --execute \
+     --bootstrap-servers localhost:29092 \
+     --source-topic parkio.dlt.notification --target-topic parkio.privacy.erasure \
+     --event-id <eventId> --reason "erasure command redrive after consumer fix"
+   ```
+
+5. Check that `parkio_erasure_stuck` returns to 0 and the request reaches `COMPLETE`.
+   Participants and auth deduplicate by event id, so a second delivery is harmless.
+6. If the same row dead-letters again, stop retrying and escalate for a code or configuration
+   fix.
+
+**Never acknowledge an erasure row.** Acknowledging hides the dead-letter from the alerts, but
+the erasure stays incomplete: either the participant keeps the data, or auth never records its
+ACK. The only exception is a row for a request that auth-service already shows as `COMPLETE`,
+such as a duplicate ACK. Confirm that first, and state it in `--reason`.
 
 ## Kafka DLT Dry-Run
 

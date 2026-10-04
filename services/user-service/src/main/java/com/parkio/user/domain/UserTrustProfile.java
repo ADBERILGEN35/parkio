@@ -7,9 +7,10 @@ import java.util.UUID;
  * Trust + gamification PROJECTION for a user (1:1 with a {@link UserProfile}).
  * These are read copies maintained from gamification events ({@code PointsEarned},
  * {@code PointsDeducted}, {@code UserLevelChanged}, {@code TrustScoreUpdated});
- * user-service never computes them (ai-context/02, 03) — the apply methods below
- * only project absolute values carried by the events. New profiles start at trust
- * score 100 ({@link TrustBand#HIGH_TRUST}), 0 points, level 1.
+ * user-service never computes them (ai-context/02, 03). Events change them only through
+ * {@code UserTrustProfileRepository}'s version-guarded updates, so an older snapshot never
+ * overwrites a newer one (U12). New profiles start at trust score 100
+ * ({@link TrustBand#HIGH_TRUST}), 0 points, level 1.
  */
 public final class UserTrustProfile {
 
@@ -19,10 +20,10 @@ public final class UserTrustProfile {
 
     private final UUID id;
     private final UUID userProfileId;
-    private int trustScore;
-    private TrustBand trustBand;
-    private long totalPoints;
-    private int currentLevel;
+    private final int trustScore;
+    private final TrustBand trustBand;
+    private final long totalPoints;
+    private final int currentLevel;
     private final Long version;
 
     public UserTrustProfile(UUID id,
@@ -51,23 +52,6 @@ public final class UserTrustProfile {
                 INITIAL_TOTAL_POINTS,
                 INITIAL_LEVEL,
                 null);
-    }
-
-    /** Projects the absolute lifetime points snapshot carried by a gamification event. */
-    public void projectTotalPoints(long totalPoints) {
-        this.totalPoints = totalPoints;
-    }
-
-    /** Projects the level (and its points snapshot) carried by {@code UserLevelChanged}. */
-    public void projectLevel(int currentLevel, long totalPoints) {
-        this.currentLevel = currentLevel;
-        this.totalPoints = totalPoints;
-    }
-
-    /** Projects the absolute trust score carried by {@code TrustScoreUpdated}; the band is derived. */
-    public void projectTrustScore(int trustScore) {
-        this.trustScore = trustScore;
-        this.trustBand = TrustBand.forScore(trustScore);
     }
 
     public UUID id() {

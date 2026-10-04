@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useAppRuntime } from '@/app/AppRuntimeContext';
+import { useLinkLocale } from '@/i18n/useLinkLocale';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import {
   createResetPasswordSchema,
@@ -22,6 +23,8 @@ export function ResetPasswordPage() {
   const { t } = useTranslation(['auth', 'common', 'validation', 'errors']);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  // Reset e-mails carry &lang=; the link's language wins over a stored preference (CL-F21).
+  useLinkLocale();
   const token = searchParams.get('token') ?? '';
   const [apiError, setApiError] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | undefined>();

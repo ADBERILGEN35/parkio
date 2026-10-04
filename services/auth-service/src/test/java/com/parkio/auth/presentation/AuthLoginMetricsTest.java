@@ -39,7 +39,7 @@ class AuthLoginMetricsTest {
     private final AuthApplicationService authService = mock(AuthApplicationService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final AuthController controller = new AuthController(
-            authService, new AuthMetrics(registry), refreshCookieProperties());
+            authService, new AuthMetrics(registry), refreshCookieProperties(), Runnable::run);
 
     @Test
     void successfulLoginIncrementsSuccessCounter() {
