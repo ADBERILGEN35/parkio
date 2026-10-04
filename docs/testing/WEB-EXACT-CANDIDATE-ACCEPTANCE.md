@@ -42,7 +42,7 @@ For comparison, the same specs ran on the default Vite dev server (`playwright.c
 - 360 px (`galaxy-360`) for the specs the default config runs at that width;
 - `wp03-routing` and `pending-profile-ownership` run on desktop only in the default config.
 
-Frontend CI runs only `wp03-routing` and `pending-profile-ownership`; no workflow runs the other specs.
+Frontend CI runs these browser specs: `wp03-routing`, `pending-profile-ownership`, `auth-link-locale`, the service-worker upgrade spec, the accessibility measurement, and the CX-F11 acceptance scenarios (`e2e:cxf11`, project `cxf11-acceptance`, on the dev server with the bake flags). The existing specs above, which ran against the candidate image (`cxf11-existing-*`), were run locally only.
 
 | Spec | Dev server | Candidate | Why |
 |---|---|---|---|

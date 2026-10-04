@@ -8,12 +8,22 @@ import { installMockApi, member, snap, spaGoto, t, waitForApp } from './support'
  */
 
 /**
- * Admin-only API paths, as the api-client calls them: any `admin` path segment (`/admin/...`,
- * `/waitlist/admin`, `/waitlist/admin/summary`) and the analytics dashboards under `/analytics/`.
+ * Admin-only API paths, as the api-client calls them and the gateway's ADMIN_ONLY rules list them:
+ * - any `admin` path segment (`/admin/...`, `/waitlist/admin`, `/waitlist/admin/summary`);
+ * - the confirmed-waitlist export `/waitlist/export`;
+ * - the analytics dashboards under `/analytics/`.
+ *
+ * Moderation and AI-validation routes are privileged (moderator or admin), not admin-only, and no
+ * admin page calls them.
  */
 function isAdminScoped(call: string): boolean {
   const path = call.slice(call.indexOf(' ') + 1);
-  return path.split('/').includes('admin') || path.startsWith('/analytics/');
+  return (
+    path.split('/').includes('admin') ||
+    path === '/waitlist/export' ||
+    path.startsWith('/waitlist/export/') ||
+    path.startsWith('/analytics/')
+  );
 }
 for (const locale of ['tr', 'en'] as const) {
   test(`a user without the admin role does not reach the admin area (${locale})`, async ({ page }, testInfo) => {
