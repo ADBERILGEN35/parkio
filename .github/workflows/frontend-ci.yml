@@ -139,6 +139,12 @@ jobs:
           pnpm guardrails:wp07
           pnpm --filter @parkio/mobile-v2 test:wp07
 
+      # CL-F30: axe-core WCAG 2.x A/AA measurement, a keyboard walk, page language and footer checks
+      # for the web app and the marketing site in Turkish and English. Every network call is mocked;
+      # the report guards reject skipped or zero-test runs.
+      - name: Accessibility browser measurement
+        run: pnpm --filter @parkio/web e2e:a11y
+
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0
 
@@ -149,6 +155,13 @@ jobs:
         run: |
           node --test apps/web/scripts/assert-playwright-report.test.mjs
           pnpm --filter @parkio/web e2e:ownership
+
+      # CX-F11: TR/EN auth flow, retry after a dropped connection, duplicate submit, offline, admin
+      # RBAC and Explore, on a Vite dev server with the release bake's feature flags and app
+      # environment. The CL-F20 Explore failure scenarios are declared known defects; the guard
+      # fails if that count changes.
+      - name: Web candidate acceptance scenarios
+        run: pnpm --filter @parkio/web e2e:cxf11
 
       # CL-F39.3: the real service worker across two releases in Chromium (local server,
       # synthetic releases); the report guard rejects skipped or zero-test runs.
@@ -182,3 +195,68 @@ jobs:
 
       - name: Production build
         run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' build
+
+  # The mocked e2e specs that the job above does not run, each on the server it needs, so a spec
+  # cannot go stale unnoticed. The report guard fails on skipped, flaky or missing tests. Each suite
+  # runs even when an earlier one failed; the job then fails, and its traces are uploaded.
+  e2e-regression:
+    name: Browser regression (e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installs the pnpm version pinned in frontend/package.json ("packageManager").
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install focused browser
+        id: browser
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      # Default dev server (municipal discovery off): home, locale, mobile layout, smoke, unsaved
+      # changes, WEB-MUNI-01 to -08, the WEB-MUNI-09 flag-off check, WP-SPA-08.
+      - name: Default-server specs, desktop
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:regression:desktop
+
+      - name: Default-server specs, 360 px
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:regression:360
+
+      # WEB-MUNI-09 on its own dev server with municipal discovery on.
+      - name: Municipal discovery accessibility specs, desktop
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:muni09:desktop
+
+      - name: Municipal discovery accessibility specs, 360 px
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:muni09:360
+
+      # Y04A on its own dev server: municipal discovery on and a test-only analytics sink.
+      - name: Product analytics specs
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:y04a
+
+      # Traces, screenshots, error contexts and JSON reports of every suite (mocked data only).
+      - name: Upload Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-regression-results-attempt-${{ github.run_attempt }}
+          path: frontend/apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

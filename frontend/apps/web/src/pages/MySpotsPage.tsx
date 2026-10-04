@@ -51,5 +51,10 @@ export function MySpotsPage() {
 }
 
 function MySpotItem({ spot }: { spot: Spot }) {
-  return <SpotResultCard spot={spot} compact showOwnerMetrics />;
+  // A list item, so the surrounding <ul> keeps its list semantics (WCAG 1.3.1, CL-F30).
+  return (
+    <li>
+      <SpotResultCard spot={spot} compact showOwnerMetrics />
+    </li>
+  );
 }

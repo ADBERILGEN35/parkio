@@ -162,7 +162,17 @@ async function assertNoDocumentOverflow(page: Page) {
 async function assertNoIconTokenLeak(page: Page) {
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(/(?:\+)?__[A-Z0-9]+(?:__[A-Z0-9]+)*__/);
-  expect(text).not.toMatch(/\bADD_LOCATION_ALT\b|\bPERSON_PIN_CIRCLE\b|\bSETTINGS\b(?!\s*&)/);
+  expect(text).not.toMatch(/\bADD_LOCATION_ALT\b|\bPERSON_PIN_CIRCLE\b/);
+  // An icon's ligature name shows as upper-case text when a label's text-transform reaches it.
+  // Check the icons themselves: the copy may be upper-case by design (the "Settings" eyebrow).
+  const transformedIcons = await page
+    .locator('.material-symbols-outlined')
+    .evaluateAll((icons) =>
+      icons
+        .filter((icon) => getComputedStyle(icon).textTransform !== 'none')
+        .map((icon) => icon.textContent),
+    );
+  expect(transformedIcons).toEqual([]);
 }
 
 async function assertCompactTopOffset(page: Page) {
@@ -306,7 +316,8 @@ test.describe('Mobile layout integrity', () => {
     await page.goto('/profile');
     await page.evaluate(() => localStorage.setItem('parkio.locale', 'en'));
     await page.reload();
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    // The profile itself, not its loading placeholder ("…").
+    await expect(page.getByRole('heading', { level: 1, name: 'Account & preferences' })).toBeVisible();
     await assertCompactTopOffset(page);
     await assertNoDocumentOverflow(page);
     await assertNoIconTokenLeak(page);
