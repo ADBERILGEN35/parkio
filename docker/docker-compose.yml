@@ -369,10 +369,10 @@ services:
     container_name: parkio-clamav
     restart: unless-stopped
     logging: *default-logging
-    # clamd listens on 3310; exposed on the host for local dev only (the
+    # clamd listens on 3310; exposed on the host's loopback for local dev only (the
     # hosted-beta overlay removes this mapping — clamd stays on the private net).
     ports:
-      - "${CLAMAV_PORT:-3310}:3310"
+      - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
     volumes: ["clamav-data:/var/lib/clamav"]
     networks: [parkio-backend]
     healthcheck:

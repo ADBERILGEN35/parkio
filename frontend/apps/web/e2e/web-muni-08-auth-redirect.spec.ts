@@ -25,6 +25,7 @@ async function installMocks(page: Page) {
   let loginRequests = 0;
   let smartReturnRequests = 0;
   let spotsNearbyRequests = 0;
+  let lastSpotsNearbyQuery = '';
   let facilitiesNearbyRequests = 0;
 
   await page.addInitScript(() => {
@@ -80,6 +81,7 @@ async function installMocks(page: Page) {
     }
     if (method === 'GET' && path === '/parking/spots/nearby') {
       spotsNearbyRequests += 1;
+      lastSpotsNearbyQuery = url.search;
       return json([]);
     }
     if (method === 'GET' && path === '/parking/facilities/nearby') {
@@ -119,6 +121,7 @@ async function installMocks(page: Page) {
       spotsNearbyRequests,
       facilitiesNearbyRequests,
     }),
+    getLastSpotsNearbyQuery: () => lastSpotsNearbyQuery,
   };
 }
 
@@ -150,12 +153,21 @@ test.describe('WEB-MUNI-08 auth redirect query preservation', () => {
     await expect(page).not.toHaveURL(/municipalAvailability=available/);
     expect(new URL(page.url()).hash).toBe('');
 
+    // With a saved home, Smart Return searches once near it as soon as /map has the settings
+    // (MapPage, since Smart Return in June). That search starts within moments of the URL
+    // canonicalisation checked above, so the counts are read after it, not raced against it: one
+    // login, one Smart Return read, one nearby search at the saved home, no municipal search (the
+    // flag is off here), and no repeat while the page settles. The settle is 2 s so that a slow
+    // loop, a second search a second or two later, is caught too (#231 review N1).
+    await expect.poll(() => api.getCounts().spotsNearbyRequests).toBe(1);
+    await page.waitForTimeout(2000);
     expect(api.getCounts()).toEqual({
       loginRequests: 1,
       smartReturnRequests: 1,
-      spotsNearbyRequests: 0,
+      spotsNearbyRequests: 1,
       facilitiesNearbyRequests: 0,
     });
+    expect(api.getLastSpotsNearbyQuery()).toBe('?lat=38.4237&lng=27.1428&radius=1000');
   });
 
   test('unsafe login return targets still fall back to the canonical safe route', async ({
