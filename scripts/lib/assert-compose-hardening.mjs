@@ -74,6 +74,15 @@ function tmpfsFailures(name, service) {
   const failures = [];
   const raw = service.tmpfs ?? [];
   const entries = (Array.isArray(raw) ? raw : [raw]).map(String);
+  // A long-form `type: tmpfs` volume mounts a tmpfs too. It cannot state noexec, so it is refused
+  // and must be written with the short tmpfs key; it also counts against the recorded set.
+  for (const volume of service.volumes ?? []) {
+    if (typeof volume === 'object' && volume?.type === 'tmpfs') {
+      const size = volume.tmpfs?.size;
+      entries.push(size === undefined ? String(volume.target) : `${volume.target}:size=${size}`);
+      failures.push(`${name}: tmpfs ${volume.target} is a long-form volume; declare it under tmpfs`);
+    }
+  }
   for (const entry of entries) {
     const separator = entry.indexOf(':');
     const target = separator < 0 ? entry : entry.slice(0, separator);
