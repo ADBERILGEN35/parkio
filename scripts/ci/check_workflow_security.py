@@ -6,12 +6,16 @@
    calls a reusable workflow from another repository. GitHub-owned actions (`actions/*`,
    `github/*`) and local ones (`./...`) are exempt; whether to pin those too is a separate policy
    choice (U08, CL-F07R).
-2. No `run:` script and no step `shell:` substitutes a dispatch or workflow_call input, any field
-   of the triggering event, or the head branch name through an expression (`inputs.*`,
-   `github.event.*`, `github.head_ref`). Such values reach the script through `env:`, where the
-   shell treats them as data.
+2. No script substitutes a dispatch or workflow_call input, the triggering event or any of its
+   fields, or the head branch name through an expression (`inputs`, `github.event`,
+   `github.head_ref`). Scripts are a step's `run:` and `shell:`, `defaults.run.shell` of the
+   workflow and of each job, and the `script` input of actions/github-script. Such values reach
+   the script through `env:`, where the shell treats them as data. Context names match without
+   regard to case, as GitHub's expressions do, and in dot or index syntax (`inputs['x']`,
+   `github['head_ref']`, `toJSON(github.event)`). Values laundered through `env.*`,
+   `steps.*.outputs` or `needs.*.outputs` are not traced.
 
-Usage: check_workflow_security.py [workflow.yml ...]   (default: every .github/workflows/*.yml)
+Usage: check_workflow_security.py [workflow ...]   (default: .github/workflows/*.yml and *.yaml)
 Exit 1 lists every problem as file: job: step: reason.
 """
 from __future__ import annotations
@@ -27,7 +31,7 @@ FIRST_PARTY = ("actions/", "github/")
 COMMIT_PIN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
 DIGEST_PIN = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
-UNTRUSTED = re.compile(r"\binputs\.|\bgithub\.event\.|\bgithub\.head_ref\b")
+UNTRUSTED = re.compile(r"\binputs\b|\bgithub\s*(?:\.|\[)\s*['\"]?\s*(?:event|head_ref)\b", re.I)
 
 
 def action_problem(uses: str) -> str | None:
@@ -48,11 +52,22 @@ def script_problems(text: str) -> list[str]:
     return found
 
 
+def default_shell(holder: dict) -> object:
+    defaults = holder.get("defaults")
+    run = defaults.get("run") if isinstance(defaults, dict) else None
+    return run.get("shell") if isinstance(run, dict) else None
+
+
 def check_workflow(name: str, workflow: dict) -> list[str]:
     problems = []
+    if isinstance(default_shell(workflow), str):
+        problems.extend(f"{name}: defaults.run.shell: {problem}" for problem in script_problems(default_shell(workflow)))
     for job_id, job in (workflow.get("jobs") or {}).items():
         if not isinstance(job, dict):
             continue
+        if isinstance(default_shell(job), str):
+            problems.extend(f"{name}: {job_id}: defaults.run.shell: {problem}"
+                            for problem in script_problems(default_shell(job)))
         if isinstance(job.get("uses"), str):
             problem = action_problem(job["uses"])
             if problem:
@@ -66,11 +81,17 @@ def check_workflow(name: str, workflow: dict) -> list[str]:
             for key in ("run", "shell"):
                 if isinstance(step.get(key), str):
                     problems.extend(f"{label}: {key}: {problem}" for problem in script_problems(step[key]))
+            uses = step.get("uses")
+            script = (step.get("with") or {}).get("script") if isinstance(step.get("with"), dict) else None
+            if isinstance(uses, str) and uses.split("@")[0].strip().lower() == "actions/github-script" \
+                    and isinstance(script, str):
+                problems.extend(f"{label}: with.script: {problem}" for problem in script_problems(script))
     return problems
 
 
 def main(argv: list[str]) -> int:
-    paths = [Path(arg) for arg in argv] or sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    workflows = ROOT / ".github" / "workflows"
+    paths = [Path(arg) for arg in argv] or sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")])
     problems = []
     for path in paths:
         problems.extend(check_workflow(path.name, yaml.safe_load(path.read_text(encoding="utf-8")) or {}))

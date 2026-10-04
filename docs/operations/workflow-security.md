@@ -12,23 +12,36 @@
 - GitHub-owned actions (`actions/*`, `github/*`) and local actions stay on tags. Pinning those too
   is a separate policy choice (U08).
 
-To add or update one, resolve the tag to its commit and write that SHA:
+To add or update one, resolve the release tag all the way to its commit and write that SHA, with
+the exact release as the comment:
 
 ```bash
-gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object'
-gh api repos/<owner>/<repo>/git/tags/<sha> --jq '.object.sha'   # an annotated tag points to a tag object first
+gh api repos/<owner>/<repo>/commits/<tag> --jq .sha                  # peels every tag level
+git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>^{}'  # the same, without the API
+gh api repos/<owner>/<repo>/commits/<sha> --jq .sha                  # must print <sha> back
 ```
 
+Do not stop at `git/ref/tags/<tag>` or one `git/tags/<sha>` lookup. An annotated tag points to a tag
+object, and a major tag can point to another tag: `gradle/actions` `v4` → tag object → tag object
+`v4.4.3` → commit. A tag object's SHA is not a commit SHA. The checker cannot tell the two apart
+offline, so the last command above is the check.
+
 For a docker image, use `docker buildx imagetools inspect <image>:<tag>` and take the digest.
-Dependabot's `github-actions` updates keep SHA pins and their comments current, once it is
-enabled for this ecosystem (U08).
+Dependabot's `github-actions` ecosystem is enabled (`.github/dependabot.yml`). It updates SHA pins
+together with their version comments, and it will also propose new major versions.
 
 ## Inputs never go straight into a script
 
-A `run:` script or a step `shell:` must not contain an expression that reads any of:
-- a dispatch or `workflow_call` input (`inputs.*`, `github.event.inputs.*`);
-- any field of the triggering event (`github.event.*`);
+A script must not contain an expression that reads any of:
+- a dispatch or `workflow_call` input (`inputs`);
+- the triggering event or any of its fields (`github.event`);
 - the head branch name (`github.head_ref`).
+
+The scripts are a step's `run:` and `shell:`, `defaults.run.shell` of the workflow and of each
+job, and the `script` input of `actions/github-script`. Context names match in any case and in
+dot or index syntax, as GitHub evaluates them: `Inputs.x`, `inputs['x']`, `github['head_ref']`
+and `toJSON(github.event)` are all refused. Values passed on through `env.*`, `steps.*.outputs`
+or `needs.*.outputs` are not traced; review those by hand.
 
 Such an expression is pasted into the script before the shell parses it, so a crafted value
 becomes code. Pass the value through `env:` instead and use it quoted:

@@ -42,7 +42,7 @@ jobs:
       # Supply-chain: fail the build if the committed Gradle wrapper jar is not an
       # unmodified official Gradle distribution (cheap, runs on every PR).
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew

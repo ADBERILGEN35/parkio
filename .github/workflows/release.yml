@@ -160,7 +160,7 @@ jobs:
 
       # Supply-chain: verify the wrapper jar is an unmodified official Gradle distribution.
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Build + unit tests
         run: ./gradlew --no-daemon build -PparkioVersion=${{ needs.version.outputs.version }}
