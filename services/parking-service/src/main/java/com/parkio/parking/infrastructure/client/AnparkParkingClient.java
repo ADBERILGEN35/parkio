@@ -28,6 +28,8 @@ public class AnparkParkingClient {
         factory.setReadTimeout(config.getReadTimeout());
         this.client = builder.baseUrl(config.getBaseUrl())
                 .requestFactory(factory)
+                .requestInterceptor(BoundedFeedResponses.interceptor(
+                        config.getMaxResponseSize(), config.getMaxResponseTime()))
                 .defaultHeader(HttpHeaders.USER_AGENT, config.getUserAgent())
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build();
@@ -55,6 +57,9 @@ public class AnparkParkingClient {
     }
 
     private static boolean transientFailure(RestClientException ex) {
+        if (BoundedFeedResponses.exceededLimit(ex)) {
+            return false; // CL-F23: a bound violation would only repeat
+        }
         if (ex instanceof RestClientResponseException response) {
             return response.getStatusCode().is5xxServerError();
         }

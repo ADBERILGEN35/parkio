@@ -318,16 +318,21 @@ class AuthApplicationServiceTest {
     }
 
     @Test
-    void verifyEmailActivatesAccountAndIsIdempotentForActiveAccount() {
+    void verifyEmailActivatesAccountAndSpendsTheToken() {
         service.register(new RegisterCommand("verify@example.com", VALID_PASSWORD));
         String token = emailVerificationSender.tokenFor("verify@example.com");
 
         AuthUser verified = service.verifyEmail(new VerifyEmailCommand(token));
-        AuthUser second = service.verifyEmail(new VerifyEmailCommand(token));
 
         assertThat(verified.status()).isEqualTo(AuthUserStatus.ACTIVE);
         assertThat(verified.emailVerified()).isTrue();
-        assertThat(second.status()).isEqualTo(AuthUserStatus.ACTIVE);
+        assertThat(verified.emailVerificationTokenHash()).isNull();
+        assertThat(verified.emailVerificationExpiresAt()).isNull();
+        // CL-F35: a used link must not keep returning the account.
+        assertThatThrownBy(() -> service.verifyEmail(new VerifyEmailCommand(token)))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
         assertThat(service.login(new LoginCommand("verify@example.com", VALID_PASSWORD)).accessToken()).isNotBlank();
     }
 
@@ -1167,6 +1172,10 @@ class AuthApplicationServiceTest {
 
         @Override
         public void append(com.parkio.auth.domain.event.UserErasureRequestedEvent event) {
+        }
+
+        @Override
+        public void append(com.parkio.auth.domain.event.UserErasureRestoreReplayRequestedEvent event) {
         }
     }
 
