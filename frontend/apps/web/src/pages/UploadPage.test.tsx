@@ -82,7 +82,7 @@ const createdSpot: Spot = {
   updatedAt: '2026-06-11T09:00:00Z',
 };
 
-function renderUpload() {
+function renderUpload({ strict = false }: { strict?: boolean } = {}) {
   return renderWithProviders(
     <Routes>
       <Route path="/upload" element={<UploadPage />} />
@@ -90,7 +90,7 @@ function renderUpload() {
       <Route path="/map" element={<div>Map stub</div>} />
       <Route path="/my-spots" element={<div>My spots stub</div>} />
     </Routes>,
-    { initialEntries: ['/upload'], runtime },
+    { initialEntries: ['/upload'], runtime, strict },
   );
 }
 
@@ -386,6 +386,14 @@ describe('UploadPage', () => {
 
   it('does not warn when navigating away from a clean wizard', async () => {
     const { router } = renderUpload();
+    await router.navigate('/map');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/map');
+  });
+
+  it('does not warn when leaving a clean wizard rendered in StrictMode, as the dev app is', async () => {
+    const { router } = renderUpload({ strict: true });
+    await screen.findByRole('heading', { level: 1, name: 'Photo' });
     await router.navigate('/map');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/map');
