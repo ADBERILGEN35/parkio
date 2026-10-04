@@ -30,7 +30,7 @@ class OutboxEventAppenderAdapterTest {
         UUID eventId = UUID.randomUUID();
         PointsEarnedEvent event = new PointsEarnedEvent(
                 eventId, UUID.randomUUID(), 25L, PointSourceType.PARKING_VERIFIED, 25L,
-                UUID.randomUUID(), Instant.parse("2026-06-08T12:00:00Z"));
+                UUID.randomUUID(), Instant.parse("2026-06-08T12:00:00Z"), 0L);
 
         adapter.append(event);
 
@@ -46,7 +46,7 @@ class OutboxEventAppenderAdapterTest {
 
         adapter.append(new PointsEarnedEvent(
                 eventId, UUID.randomUUID(), 25L, PointSourceType.PARKING_VERIFIED, 25L,
-                UUID.randomUUID(), Instant.parse("2026-06-08T12:00:00Z")));
+                UUID.randomUUID(), Instant.parse("2026-06-08T12:00:00Z"), 0L));
 
         verify(jpa, never()).save(any());
     }

@@ -664,6 +664,9 @@ The trade-offs:
 - **Tuning.** A larger budget or a shorter cooldown recovers sooner from a rotation that skipped
   step 2, but lets unknown kids drive more fetches to auth-service. That load is what the bounds
   exist to stop: before them, 100 forged kids cost 101 fetches.
+  Compose passes only `PARKIO_AUTH_JWKS_URI` to the gateway: the other `PARKIO_AUTH_JWKS_*`
+  values in `.env` change nothing until they are added to the gateway's `environment` in
+  `docker-compose.apps.yml`.
 
 **Gateway internal secret (`X-Gateway-Auth`).** The gateway sends one secret; downstream
 accepts a set (current + previous) during the window.

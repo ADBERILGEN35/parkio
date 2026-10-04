@@ -22,7 +22,9 @@ public class UserLevelProgressRepositoryAdapter implements UserLevelProgressRepo
 
     @Override
     public UserLevelProgress save(UserLevelProgress progress) {
-        return GamificationPersistenceMapper.toDomain(jpa.save(GamificationPersistenceMapper.toEntity(progress)));
+        // Flushed so the returned version is the one this change produced; events carry it (U12).
+        return GamificationPersistenceMapper.toDomain(
+                jpa.saveAndFlush(GamificationPersistenceMapper.toEntity(progress)));
     }
 
     @Override
