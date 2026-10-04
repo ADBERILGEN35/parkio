@@ -100,7 +100,14 @@ LABEL org.opencontainers.image.title="parkio-web" \
 # same nginx 1.30.5 / Alpine 3.24 line. Not a framework or base-image bump.
 RUN apk add --no-cache --upgrade 'libexpat>=2.8.5-r0'
 
-COPY frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# The CSP connect-src is rendered at container start from the deployment's origins (B9):
+# the entrypoint sources 15-parkio-web-csp.envsh, then renders only PARKIO_WEB_CSP_* into the
+# template. The stock default.conf is removed, so a failed render leaves no server, not a looser one.
+ENV NGINX_ENVSUBST_FILTER=^PARKIO_WEB_CSP_
+COPY frontend/apps/web/nginx.conf /etc/nginx/templates/default.conf.template
+COPY frontend/apps/web/docker/15-parkio-web-csp.envsh /docker-entrypoint.d/15-parkio-web-csp.envsh
+RUN chmod 0755 /docker-entrypoint.d/15-parkio-web-csp.envsh \
+ && rm -f /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
 RUN find /usr/share/nginx/html -type d -exec chmod 0755 {} \; \
  && find /usr/share/nginx/html -type f -exec chmod 0644 {} \;

@@ -64,6 +64,8 @@ acks upsert by `(erasure_request_id, service_name)`.
 | Gateway waitlist | Email-only, not `authUserId` — out of this workflow |
 | SPA telemetry | Designed without user id / coords / facility ids |
 | Backups | Not mutated. 14-day retention. Ledger `erasure-tombstones.json` in stamp |
+| Erasure transport copies (published outbox rows, erasure command and ACK records, dead-lettered records) | Not erased; bounded by transport retention (see "Transport copies" below) |
+| Earlier events on the domain topics (for example `parkio.parking.spot`) | Not erased; topic retention 7 or 30 days in source; not covered by B6 (see "Transport copies" below) |
 
 ## Per-service handlers
 
@@ -117,6 +119,44 @@ them.
 | ai-validation | `parkio.ai-validation.erasure` | `requested_by_user_id` → sentinel |
 
 Left unchanged (no account user id): ranking evaluation tables, municipal operator VARCHAR, analytics daily/parking snapshots, AI findings without requester id.
+
+## Transport copies
+
+Owner decision B6 (2026-10-03) accepts the source-policy bounds below for the erasure transport
+copies that remain after `SUCCESS`:
+- the published outbox rows, which include the ACK row and earlier event rows;
+- the erasure command and ACK records on `parkio.privacy.erasure`;
+- dead-lettered records.
+
+This is a privacy-owner decision about the documented source configuration. It is not a legal
+approval, and it does not state that the live broker was checked.
+
+| Copy | Where | Bound set in source |
+|------|-------|---------------------|
+| Published outbox rows (the ACK row, earlier event copies) | `outbox_events` in all nine services | `RetentionCleanupJob` deletes published rows after `PARKIO_OUTBOX_RETENTION`, default `P7D`. The job is on by default (`PARKIO_OUTBOX_RETENTION_ENABLED`). |
+| Erasure requests and ACKs | Kafka topic `parkio.privacy.erasure` | `retention.ms` 14 days, set when auth-service creates the topic |
+| Dead-lettered records | Kafka DLT topics `parkio.dlt.<service>` (auth, user, parking, gamification, moderation, notification, analytics, aivalidation) | `retention.ms` 14 days, set when each service creates its DLT |
+| Dead-lettered media records | `parkio.dlt.media` | `retention.ms` 14 days, set when media-service creates its DLT (3 partitions), since #199. Before #199 no service provisioned this topic, so source set no bound, and with broker auto-creation off (`docker/docker-compose.yml`) dead-lettering for media could fail. B6 named the eight DLTs above; this topic now has the same source bound. |
+
+Not covered by B6: the domain topics also carry copies of earlier events about the user (for
+example a spot or session event with the user id). Their retention in source is:
+- 7 days: `parkio.auth.user`, `parkio.user.profile`, `parkio.media.media`,
+  `parkio.notification.notification`, `parkio.aivalidation.result`;
+- 30 days: `parkio.parking.spot`, `parkio.parking.session`, `parkio.gamification.score`,
+  `parkio.moderation.case`, `parkio.moderation.action`.
+
+Accepting or shortening those bounds needs a separate owner decision.
+
+Limits of these bounds:
+
+- Kafka deletes whole log segments. A record stays until every record in its segment is older
+  than the retention, so it can outlive 14 days by up to the segment roll interval. That is
+  `segment.ms`, broker default 7 days; no Parkio topic sets it.
+- The provisioning code sets `retention.ms` only when it creates a topic. A topic that already
+  existed, or that a broker auto-created, keeps its own configuration. Nobody has checked the
+  live broker's topic configuration for this decision.
+- A shorter bound needs a separate decision and a tested configuration change, for example a
+  smaller `segment.ms` and `retention.ms` on these topics.
 
 ## Resurrection prevention
 

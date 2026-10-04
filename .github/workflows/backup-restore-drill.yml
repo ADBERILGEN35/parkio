@@ -36,6 +36,8 @@ on:
       - "scripts/restore-drill-failure-modes.sh"
       - "scripts/restore-drill-offsite.sh"
       - "scripts/backup-offsite-pull.sh"
+      - "scripts/backup-dated-acceptance.sh"
+      - "scripts/test-backup-dated-acceptance.sh"
       - "scripts/test-backup-azure-sas-minio-encryption.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
@@ -67,6 +69,8 @@ on:
       - "scripts/restore-drill-failure-modes.sh"
       - "scripts/restore-drill-offsite.sh"
       - "scripts/backup-offsite-pull.sh"
+      - "scripts/backup-dated-acceptance.sh"
+      - "scripts/test-backup-dated-acceptance.sh"
       - "scripts/test-backup-azure-sas-minio-encryption.sh"
       - "scripts/staging/**"
       - "docker/docker-compose.staging-verification.yml"
@@ -154,6 +158,11 @@ jobs:
 
       - name: Backup COMPLETE gate (MinIO / prune / isolated entrypoints)
         run: ./scripts/test-backup-complete-gate.sh
+
+      # U14: the five dated-acceptance outcomes stay independent (synthetic stamp, fake offsite,
+      # stubbed restore drill; nothing real is read, pulled, decrypted or restored).
+      - name: Dated backup acceptance (five outcomes, fake offsite)
+        run: ./scripts/test-backup-dated-acceptance.sh
 
       # Authoritative 10-DB set from scripts/lib/restore-drill-services.sh plus MinIO.
       - name: Start database + MinIO stack

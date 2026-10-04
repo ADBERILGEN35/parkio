@@ -478,6 +478,31 @@ class MediaApplicationServiceTest {
     }
 
     @Test
+    void anotherOwnersIdenticalFileDoesNotBlockAnUpload() {
+        byte[] content = {9, 8, 7, 6, 5};
+        service.upload(jpeg(UUID.randomUUID(), content));
+
+        MediaUploadResult second = service.upload(jpeg(UUID.randomUUID(), content));
+
+        assertThat(second.status()).isEqualTo(MediaStatus.READY);
+        assertThat(mediaFiles.byId).hasSize(2);
+        assertThat(storage.objects).hasSize(2);
+    }
+
+    @Test
+    void anOwnerMayUploadAFileAgainAfterDeletingIt() {
+        UUID owner = UUID.randomUUID();
+        byte[] content = {9, 8, 7, 6, 5};
+        MediaUploadResult first = service.upload(jpeg(owner, content));
+        service.delete(first.mediaId(), owner);
+
+        MediaUploadResult again = service.upload(jpeg(owner, content));
+
+        assertThat(again.status()).isEqualTo(MediaStatus.READY);
+        assertThat(again.mediaId()).isNotEqualTo(first.mediaId());
+    }
+
+    @Test
     void uploadStripsJpegExifGpsMetadataAndStoresNormalizedBytesOnly() {
         UUID owner = UUID.randomUUID();
         byte[] original = jpegWithExifGpsMetadata();
@@ -911,8 +936,9 @@ class MediaApplicationServiceTest {
         }
 
         @Override
-        public boolean existsByChecksum(String checksum) {
-            return byId.values().stream().anyMatch(m -> m.checksum().equals(checksum));
+        public boolean existsLiveDuplicate(UUID ownerUserId, String checksum) {
+            return byId.values().stream().anyMatch(m -> m.isOwnedBy(ownerUserId)
+                    && m.checksum().equals(checksum) && !m.isDeleted());
         }
     }
 

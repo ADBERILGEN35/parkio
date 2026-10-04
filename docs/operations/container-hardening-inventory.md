@@ -1,7 +1,9 @@
 # Container hardening inventory (CL-F29.3)
 
 Every service of the production Compose models runs with `security_opt: no-new-privileges:true`
-and `cap_drop: [ALL]`; a service adds back only the capabilities listed below.
+and `cap_drop: [ALL]`; a service adds back only the capabilities listed below. Since B8 every
+service except web (until B8b) also runs with a read-only root filesystem (`read_only: true`). It
+writes only to its volumes and to the mounts listed under "Read-only root filesystem".
 `scripts/assert-compose-hardening.sh` renders the models and fails on any other state
 (`scripts/lib/assert-compose-hardening.mjs`, run by the invite-production PR job).
 
@@ -58,8 +60,84 @@ root and needs them to prepare a data directory or switch to its service user.
    blackbox-exporter, promtail). Switching them to a non-root user changes the owner their
    existing data volumes need, which is a host-side migration outside this change; with
    `cap_drop: [ALL]` root keeps only the capabilities listed above.
-4. **No read-only root filesystem yet.** Each service needs its writable paths mapped to
-   volumes or tmpfs and a runtime validation; tracked as a follow-up.
+4. **web keeps a writable root until B8b.** Its read-only root needs a tmpfs over
+   `/etc/nginx/conf.d`. Only the image from B9 (#198) renders that directory at start; the
+   current image ships its server config there, and a tmpfs would hide it. B8b removes this
+   exception once #198 is on `api`, with `/etc/nginx/conf.d`, `/var/cache/nginx`, `/var/run` and
+   `/tmp` as tmpfs.
+
+## Read-only root filesystem (B8)
+
+Every tmpfs has a size, because its pages count against the container's memory limit. The sizes
+are caps, not reservations. "Used" is what the local probes measured after real work and a
+restart (`du` inside the container).
+
+| Service | Mounts besides volumes (size) | Used | Why |
+|---|---|---|---|
+| Parkio JVM services except media (9) | tmpfs `/tmp` (128 MB) | not probed locally | JVM perf data, Tomcat and Netty work files: kilobytes. The cap leaves room for library temp files under a 512–768 MB limit. |
+| media-service | anonymous volume `/tmp` (disk) | — | Tomcat writes each multipart upload (up to 15 MB per request) to `/tmp` before the service reads it. As tmpfs, concurrent uploads would count against the 768 MB limit next to a 65% heap. |
+| postgres-* (10) | `/var/run/postgresql` (1 MB), `/tmp` (16 MB) | 4 KB, 0 | socket, lock and pid files; `PGDATA` is the volume |
+| redis | `/tmp` (8 MB) | 0 | data in `/data` |
+| kafka | `/tmp` (16 MB), `/etc/kafka` (8 MB, 1777), `/var/log/kafka` (32 MB, 1777) | 32 KB, 16 KB, 28 KB | The entrypoint renders `/etc/kafka` from its templates. `KAFKA_GC_LOG_OPTS` keeps at most three 8 MB GC logs; the image default is ten of 100 MB. |
+| minio, minio-setup | `/tmp` (16 MB, 8 MB) | — | data in `/data`; mc keeps its config in `/tmp/.mc` |
+| alertmanager | `/tmp` (8 MB) | 4 KB | `render-config.sh` writes the runtime config there |
+| loki, tempo | `/tmp` (16 MB) | 0 | data in their volumes |
+| grafana | `/tmp` (32 MB) | 0 | data in its volume; headroom for plugin and export temp files |
+| caddy | `/tmp` (8 MB) | 0 | certificates and config in the `caddy-data`/`caddy-config` volumes |
+| clamav | `/tmp` (128 MB), `/run/clamav` (1 MB), `/run/lock` (1 MB), `/var/log/clamav` (16 MB) | 0, 0, 0, 8 KB | clamd's socket and the stream of each scan go to `/tmp`; media caps an upload at 12 MB, so ten concurrent scans fit, and a full tmpfs fails the scan, which media treats as unavailable (fail closed). `/var/lock` links to `/run/lock`, where the init script creates its lock link. clamd and freshclam cap each log at 1 MB by default. |
+| prometheus, kafka-exporter, blackbox-exporter, node-exporter, promtail | none | — | write only to their volumes, or nothing |
+
+**The guard records these mounts.** `scripts/lib/assert-compose-hardening.mjs` fails when:
+- a tmpfs has no size;
+- a tmpfs allows exec;
+- a service's tmpfs list differs from the recorded one (size and options included);
+- a service mounts an anonymous volume other than the recorded scratch volumes (media's `/tmp`).
+
+A change to any of these is therefore a reviewed change to the guard. The Civo drift check leaves
+them to the guard.
+
+**media's scratch volume.**
+- Lifecycle: Compose keeps an anonymous volume when it recreates the container, so `/tmp` survives
+  deploys.
+- What it holds: Tomcat deletes each upload's temp file when the request ends, so the volume holds
+  only Tomcat's work directories and files from requests that a crash interrupted.
+- To start it empty, recreate the service with `docker compose up -d --renew-anon-volumes
+  media-service`. `docker compose down` leaves the old volume dangling; `down -v` removes it.
+
+**Local probes.** Each image was started locally the way the production model starts it:
+`cap_drop ALL`, `no-new-privileges`, the same `cap_add`, `--read-only`, and these mounts with their
+sizes. Each was checked for readiness and one real operation, restarted once (which empties the
+tmpfs), and checked again:
+- PostgreSQL and PostGIS: a table write survives the restart.
+- Redis: SET plus an AOF rewrite, and the key survives.
+- Kafka: a topic survives the restart, and the running JVM uses the capped GC options.
+- MinIO with mc: bucket and object.
+- ClamAV: ready in 8 s, EICAR detected before and after the restart.
+- HTTP readiness of Prometheus, Alertmanager, Loki, Tempo, Grafana, Caddy, the exporters and
+  node-exporter.
+
+None of them logged a read-only or permission error. The evidence is in
+`agent-tools/parkio-u18-readonly-rootfs/` (not committed).
+
+**CI coverage.**
+- The CI runtime, chaos and performance workflows start the full stack, so they cover the JVM
+  services.
+- The real-stack E2E in local mode (`frontend-real-e2e.yml`) covers the media upload path. It ran
+  an upload to `READY` on this configuration, with `/tmp` on the scratch volume.
+- Runtime validation streams its captures out of the containers instead of copying them, because
+  `docker compose cp` cannot read a tmpfs. `capture_status` reads its file with `exec … cat`; the
+  readiness and JWKS captures take curl's standard output.
+
+The tmpfs mounts keep Docker's default `noexec`, so nothing can load native code from `/tmp`.
+That includes the libraries that extract themselves there:
+- Netty's epoll transport does not load. Netty and Reactor Netty then use the NIO transport
+  (probe with the gateway's Netty jars on `eclipse-temurin:21-jre`: `noexec` → "failed to map
+  segment from shared object", epoll unavailable; `exec` tmpfs or a volume → available).
+- The snappy and zstd Kafka codecs would fail the same way. Parkio's producers set no
+  compression, so they are not loaded.
+
+If NIO ever shows a cost, the fix is to ship the native library in the image (Netty loads it
+from `java.library.path` first), not to make `/tmp` executable.
 
 ## Verification
 
@@ -69,3 +147,22 @@ root and needs them to prepare a data directory or switch to its service user.
   (`agent-tools/parkio-u18-container-hardening/`) started the infrastructure services from
   volumes created without hardening and from fresh volumes, and ran write, topic, scan and
   readiness probes in each.
+
+## Follow-ups prepared under B8 (not applied)
+
+- Non-root images for the root-start services (exception 3): volume ownership tooling and targets
+  in `nonroot-volume-migration.md`.
+- promtail's Docker socket (exception 1): an allowlisting proxy, measured and prototyped, in
+  `../architecture/docker-socket-proxy-design.md`.
+
+## Tmpfs declarations
+
+Every tmpfs is declared under the service's `tmpfs:` key, as `target:size=…[,mode=…]`. A long-form
+`type: tmpfs` entry under `volumes:` cannot state `noexec`. The guard therefore refuses it and
+counts it against the recorded set (B8b).
+
+## Host ports
+
+In `docker-compose.yml` (local development), the exporters, Alertmanager, Loki, Promtail and
+ClamAV publish their ports on `127.0.0.1` only (ClamAV since B8b). The production overlays remove
+ClamAV's mapping altogether.

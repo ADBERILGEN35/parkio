@@ -44,6 +44,12 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
+  # Alertmanager's own metrics: notifications sent and failed per integration
+  # (AlertmanagerNotificationsFailing in alerts.yml).
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
   - job_name: parkio-services
     metrics_path: /actuator/prometheus
     static_configs:
