@@ -42,7 +42,7 @@ For comparison, the same specs ran on the default Vite dev server (`playwright.c
 - 360 px (`galaxy-360`) for the specs the default config runs at that width;
 - `wp03-routing` and `pending-profile-ownership` run on desktop only in the default config.
 
-Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all on Vite dev servers with a mocked API:
+Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all on local servers (Vite dev servers, the static marketing server, or the spec's own server), with mocked or synthetic data:
 - job `frontend-build`:
   - the marketing site's static and responsive validation (`test:marketing`);
   - the accessibility measurement (`e2e:a11y`);
@@ -56,7 +56,12 @@ Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all
   - the municipal discovery specs on desktop and at 360 px (`e2e:muni09:*`);
   - the product analytics specs (`e2e:y04a`).
 
-No workflow runs a spec against a built web image: the candidate-image projects above (`cxf11-existing-*`) were run locally only.
+No automatic workflow runs these mocked specs against a built web image; the candidate-image projects above (`cxf11-existing-*`) were run locally only. These workflows run a browser against a built or deployed frontend, with different checks:
+- `release.yml` (on `v*` tags) builds the web image and runs the image smoke `scripts/smoke-image.mjs` against it: the SPA mounts, and the served bundle carries the expected public build values;
+- the manual *Frontend Real Stack E2E* (`frontend-real-e2e.yml`), in hosted mode, runs the separate real-stack suite against a deployed frontend;
+- `web-build-image-acceptance.yml` builds the web image and runs the same image smoke (through `ci-accept-image.sh`) for PRs #87 and #91 only; it is historical.
+
+The two auth CSRF browser workflows also drive Chromium, but against synthetic pages and the gateway and auth services, not the web app.
 
 | Spec | Dev server | Candidate | Why |
 |---|---|---|---|

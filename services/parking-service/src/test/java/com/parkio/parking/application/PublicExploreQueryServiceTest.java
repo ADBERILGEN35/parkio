@@ -240,6 +240,38 @@ class PublicExploreQueryServiceTest {
     }
 
     @Test
+    void izumReadingsStoredUnavailableOrWithoutAFreeCountAreNotLive() {
+        // CL-F22 (d): a closed İZUM car park (stored UNAVAILABLE) and one without a free count.
+        UUID id = UUID.randomUUID();
+        var facilities = mock(MunicipalFacilityRepository.class);
+        var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        when(facilities.countPublicExploreNearby(38.4237, 27.1428, 5_000, IZUM_KEYS)).thenReturn(1L);
+        when(facilities.publicExploreNearby(38.4237, 27.1428, 5_000, 6, IZUM_KEYS))
+                .thenReturn(List.of(facility(id, 38.4237, 27.1428, MunicipalSourceIdentity.IZUM)));
+
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
+                        120, 30, 90, NOW.minusSeconds(10), 10L, true, false)));
+        var closed = service(facilities, snapshots, enabledFamilies("izum"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
+                .facilities()
+                .getFirst();
+        assertThat(closed.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(closed.availableSpaces()).isNull();
+        assertThat(closed.capacityTotal()).isEqualTo(120);
+
+        when(snapshots.latestForFacilityAndSourceKey(id, MunicipalSourceIdentity.IZUM))
+                .thenReturn(Optional.of(new MunicipalOccupancySnapshotRepository.Snapshot(
+                        null, 30, null, NOW.minusSeconds(10), 10L, true)));
+        var noFreeCount = service(facilities, snapshots, enabledFamilies("izum"))
+                .discover(new PublicExploreQueryService.DiscoveryQuery(null, null, null, null))
+                .facilities()
+                .getFirst();
+        assertThat(noFreeCount.availabilityFreshness()).isEqualTo(MunicipalOccupancyFreshness.UNAVAILABLE);
+        assertThat(noFreeCount.availableSpaces()).isNull();
+    }
+
+    @Test
     void closedIsparkWithPositiveEmptyCapacityPublishesUnavailableAndOmitsSpaces() {
         UUID id = UUID.fromString("81279bd3-5c60-42a1-81bc-8255e22a1a48");
         var view = discoverIspark(

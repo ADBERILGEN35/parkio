@@ -5,6 +5,7 @@
   "password": {
     "required": "Password is required",
     "minLength": "Password must be at least 12 characters",
+    "maxBytes": "Password must be at most 72 bytes; letters such as ş or ğ count as two",
     "strong": "Password must be at least 12 characters and include lowercase, uppercase, and a number",
     "confirm": "Confirm your password",
     "mismatch": "Passwords do not match",
