@@ -17,6 +17,8 @@ public interface UserTrustProfileJpaRepository extends JpaRepository<UserTrustPr
     // Version-guarded gamification snapshots (U12). Each statement is one row-locking UPDATE,
     // so PostgreSQL re-checks the guard against the latest committed row and concurrent
     // deliveries keep the highest version. The JPA version is bumped like any other write.
+    // Points and level come from one aggregate (user_level_progress) and share its version
+    // sequence, so a version-less level is older than any versioned points snapshot too.
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
@@ -53,7 +55,7 @@ public interface UserTrustProfileJpaRepository extends JpaRepository<UserTrustPr
     @Query(value = """
             UPDATE user_trust_profiles
                SET current_level = :currentLevel, version = version + 1
-             WHERE user_profile_id = :userProfileId AND level_version IS NULL
+             WHERE user_profile_id = :userProfileId AND level_version IS NULL AND points_version IS NULL
             """, nativeQuery = true)
     int projectUnversionedLevel(@Param("userProfileId") UUID userProfileId,
                                 @Param("currentLevel") int currentLevel);

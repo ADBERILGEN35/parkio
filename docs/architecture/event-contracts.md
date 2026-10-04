@@ -479,7 +479,10 @@ row version the same way. Snapshots can arrive out of order (redelivery, DLT red
 concurrency), so a projection keeps, for each value, the snapshot with the highest version it has
 seen; `user-service` does this per value (points, level, trust score). Events published before
 U12 have no `aggregateVersion`; `user-service` applies such an event only while it has not
-applied a versioned value.
+applied a versioned value. Points and level share one version sequence, so a version-less level
+also stops applying once a versioned points snapshot is in. The trust score has no second
+signal: a version-less `TrustScoreUpdated` redriven before a user's first versioned trust event
+still applies, so inspect or drain the user-service gamification DLT before deploying U12.
 
 ## PointsEarnedEvent
 

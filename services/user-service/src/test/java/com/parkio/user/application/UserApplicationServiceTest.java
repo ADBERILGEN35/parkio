@@ -750,6 +750,23 @@ class UserApplicationServiceTest {
         assertThat(service.getMyStats(versioned).totalPoints()).isEqualTo(30);
     }
 
+    @Test
+    void aVersionlessLevelChangeDoesNotUndoAVersionedPointsSnapshot() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 2, 3, 300, NOW, null));
+
+        service.handlePointsEarned(points(authUserId, 310, 9L));
+        // A pre-U12 level change redriven from the DLT after the versioned points snapshot.
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 1, 2, 110, NOW, null));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.currentLevel()).isEqualTo(3);
+        assertThat(stats.totalPoints()).isEqualTo(310);
+    }
+
     private static com.parkio.user.application.event.PointsEarnedEvent points(UUID authUserId, long total,
                                                                              Long version) {
         return new com.parkio.user.application.event.PointsEarnedEvent(
@@ -897,7 +914,11 @@ class UserApplicationServiceTest {
                               java.util.function.UnaryOperator<UserTrustProfile> change) {
             UserTrustProfile current = byProfile.get(userProfileId);
             Long projected = versions.get(userProfileId + ":" + value);
-            boolean newer = version == null ? projected == null : projected == null || projected < version;
+            // Level shares the points aggregate's version: a version-less level is older than any
+            // versioned points snapshot.
+            boolean legacyAllowed = projected == null
+                    && !("level".equals(value) && versions.containsKey(userProfileId + ":points"));
+            boolean newer = version == null ? legacyAllowed : projected == null || projected < version;
             if (current == null || !newer) {
                 return false;
             }

@@ -160,6 +160,17 @@ class GamificationProjectionOrderingPostgresIT {
     }
 
     @Test
+    void aRedrivenLegacyLevelChangeDoesNotUndoAVersionedPointsSnapshot() throws Exception {
+        UUID user = provisionedUser();
+        // Pre-U12 history reached level 3; then a versioned points event without a level change;
+        // then an older pre-U12 level change is redriven from the DLT (#217 review B1).
+        consume(level(user, 2, 3, 300, null), points(user, "PointsEarned", 310, 9L), level(user, 1, 2, 110, null));
+        Map<String, Object> row = projection(user);
+        assertThat(row.get("current_level")).isEqualTo(3);
+        assertThat(row.get("total_points")).isEqualTo(310L);
+    }
+
+    @Test
     void aRedrivenOldEventDoesNotRegressTheProjection() throws Exception {
         UUID user = provisionedUser();
         Event first = points(user, "PointsEarned", 40, 1L);
