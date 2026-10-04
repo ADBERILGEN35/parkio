@@ -147,6 +147,7 @@ class PasswordByteLengthHttpTest {
         assertThat(post("/api/v1/auth/forgot-password", null, Map.of("email", email)).getStatus()).isEqualTo(200);
         // The reset link is sent after the response, so the token exists only once the dispatch ran.
         String token = awaitSent(resetToken);
+        awaitRecoveryDispatch();
         assertThat(token).isNotBlank();
 
         MockHttpServletResponse tooLong = post("/api/v1/auth/reset-password", null,
