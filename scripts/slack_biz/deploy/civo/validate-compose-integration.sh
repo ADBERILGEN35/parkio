@@ -121,6 +121,11 @@ WEB_ALLOWED = {"PARKIO_WEB_CSP_CONNECT_SRC"}
 
 # Authorized GHCR linux/amd64 MinIO pin retarget (see docs/operations/minio-ghcr-amd64.md).
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
+# Postgres health over TCP (#243, #239 review N2): the image's socket-only init server must not
+# count as healthy. Only this exact command on a postgres-* service is accepted as the base's socket
+# check; any other healthcheck change still fails.
+POSTGRES_SOCKET_HEALTHCHECK = ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+POSTGRES_TCP_HEALTHCHECK = ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 
 
 def strip_allowlisted_env(model):
@@ -143,6 +148,11 @@ def strip_allowlisted_env(model):
     for svc in m.get("services", {}).values():
         for key in HARDENING_KEYS:
             svc.pop(key, None)
+    for name, svc in m.get("services", {}).items():
+        health = svc.get("healthcheck")
+        if name.startswith("postgres-") and isinstance(health, dict) \
+                and health.get("test") == POSTGRES_TCP_HEALTHCHECK:
+            health["test"] = POSTGRES_SOCKET_HEALTHCHECK
     if "kafka" in m.get("services", {}):
         kenv = m["services"]["kafka"].get("environment", {})
         for k in KAFKA_ALLOWED:
