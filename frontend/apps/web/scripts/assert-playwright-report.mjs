@@ -6,13 +6,15 @@
  * (e.g. "No tests found"). A green exit from `playwright test` alone accepts
  * skipped-only runs; this guard does not.
  *
- * A known defect is a test.fail() test that failed as expected and carries a reason (a `fail`
- * annotation with a description). It is not a pass. `--known-defects <n>` (default 0) says how many
+ * A known defect is a test.fail() test that failed as expected and whose reason (the `fail`
+ * annotation's description) names its task as `Asana <task id>`. It is not a pass. `--known-defects <n>` (default 0) says how many
  * the run must have, exactly: a fix that makes one pass, or a new one, both fail the guard.
  *
  * Usage: node scripts/assert-playwright-report.mjs <report.json> --project <name> --min <n> [--known-defects <n>]
  */
 import { readFileSync } from 'node:fs';
+
+const TASK_REFERENCE = /\bAsana \d{16}\b/;
 
 function isKnownDefect(t) {
   const result = t.results?.at(-1);
@@ -21,7 +23,7 @@ function isKnownDefect(t) {
     t.status === 'expected' &&
     t.expectedStatus === 'failed' &&
     result?.status === 'failed' &&
-    annotations.some((a) => a.type === 'fail' && (a.description ?? '').trim() !== '')
+    annotations.some((a) => a.type === 'fail' && TASK_REFERENCE.test(a.description ?? ''))
   );
 }
 

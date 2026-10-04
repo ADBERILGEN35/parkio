@@ -58,7 +58,7 @@ test('CLI exits non-zero for a skipped-only report and zero for a proven one', (
   assert.equal(run(join(dir, 'missing.json')).status, 1);
 });
 
-function knownDefect(title, description = 'Known defect X (task 1)') {
+function knownDefect(title, description = 'Known defect X (Asana 1000000000000001): reason') {
   const annotations = description === null ? [] : [{ type: 'fail', description }];
   return {
     title,
@@ -73,7 +73,9 @@ test('accepts exactly the declared number of known defects, and none by default'
   assert.ok(evaluateReport(r, { ...opts, knownDefects: 2 }).failures.some((f) => f.includes('declares exactly 2')));
 });
 
-test('a test.fail() without a reason is not a known defect', () => {
-  const r = report([spec('a'), spec('b'), knownDefect('c', null)]);
-  assert.ok(evaluateReport(r, { ...opts, knownDefects: 1 }).failures.some((f) => f.includes('"c" status=expected final=failed')));
+test('a test.fail() without a reason, or whose reason names no task, is not a known defect', () => {
+  for (const reason of [null, 'Known defect X: no task named']) {
+    const r = report([spec('a'), spec('b'), knownDefect('c', reason)]);
+    assert.ok(evaluateReport(r, { ...opts, knownDefects: 1 }).failures.some((f) => f.includes('"c" status=expected final=failed')));
+  }
 });

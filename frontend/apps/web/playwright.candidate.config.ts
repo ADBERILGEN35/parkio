@@ -4,8 +4,9 @@ import { defineConfig, devices } from '@playwright/test';
  * CX-F11 exact-candidate web acceptance (U16).
  *
  * - `cxf11-acceptance` runs the scenarios in `acceptance/`. With no CXF11_WEB_URL it uses a Vite dev
- *   server built with the release bake flags (docker/web-hosted-beta.release-bake.env: public
- *   Explore and municipal discovery on), so it behaves like the candidate.
+ *   server with the feature flags and app environment of docker/web-hosted-beta.release-bake.env
+ *   (hosted-beta, public Explore and municipal discovery on), a same-origin mocked API and a
+ *   synthetic map key, so the app behaves like the candidate.
  * - With CXF11_WEB_URL set to a running web image, the existing e2e specs run against it too
  *   (`cxf11-existing-desktop`, `cxf11-existing-360`). The marketing and service-worker specs are
  *   excluded because they need their own servers.

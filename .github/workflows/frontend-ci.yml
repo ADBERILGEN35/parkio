@@ -135,14 +135,15 @@ jobs:
           node --test apps/web/scripts/assert-playwright-report.test.mjs
           pnpm --filter @parkio/web e2e:ownership
 
-      # CL-F39.3: the real service worker across two releases in Chromium (local server,
-      # synthetic releases); the report guard rejects skipped or zero-test runs.
       # CX-F11: TR/EN auth flow, retry after a dropped connection, duplicate submit, offline, admin
-      # RBAC and Explore, on a dev server built with the release bake flags. The CL-F20 Explore
-      # failure scenarios are declared known defects; the guard fails if that count changes.
+      # RBAC and Explore, on a Vite dev server with the release bake's feature flags and app
+      # environment. The CL-F20 Explore failure scenarios are declared known defects; the guard
+      # fails if that count changes.
       - name: Web candidate acceptance scenarios
         run: pnpm --filter @parkio/web e2e:cxf11
 
+      # CL-F39.3: the real service worker across two releases in Chromium (local server,
+      # synthetic releases); the report guard rejects skipped or zero-test runs.
       - name: Service-worker upgrade browser acceptance
         run: pnpm --filter @parkio/web e2e:sw-upgrade
 
