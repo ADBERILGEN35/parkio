@@ -90,3 +90,12 @@ dependencies {
     testRuntimeOnly(libs.h2)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+
+// Print a failed integration test's assertion message in the build log. Gradle's default SHORT
+// format shows only the exception class and line, which hid the measured medians of
+// AccountExistenceTimingPostgresIT when it failed in CI (CL-F14.2).
+tasks.named<Test>("integrationTest") {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
