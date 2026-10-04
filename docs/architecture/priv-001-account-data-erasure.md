@@ -136,7 +136,7 @@ approval, and it does not state that the live broker was checked.
 | Published outbox rows (the ACK row, earlier event copies) | `outbox_events` in all nine services | `RetentionCleanupJob` deletes published rows after `PARKIO_OUTBOX_RETENTION`, default `P7D`. The job is on by default (`PARKIO_OUTBOX_RETENTION_ENABLED`). |
 | Erasure requests and ACKs | Kafka topic `parkio.privacy.erasure` | `retention.ms` 14 days, set when auth-service creates the topic |
 | Dead-lettered records | Kafka DLT topics `parkio.dlt.<service>` (auth, user, parking, gamification, moderation, notification, analytics, aivalidation) | `retention.ms` 14 days, set when each service creates its DLT |
-| Dead-lettered media records | `parkio.dlt.media` | **No bound in source.** media-service publishes to this DLT, but no service provisions it, so no retention is set. With broker auto-creation off (`docker/docker-compose.yml`), dead-lettering for media may fail. Fixing the provisioning is a separate code change. |
+| Dead-lettered media records | `parkio.dlt.media` | `retention.ms` 14 days, set when media-service creates its DLT (3 partitions), since #199. Before #199 no service provisioned this topic, so source set no bound, and with broker auto-creation off (`docker/docker-compose.yml`) dead-lettering for media could fail. B6 named the eight DLTs above; this topic now has the same source bound. |
 
 Not covered by B6: the domain topics also carry copies of earlier events about the user (for
 example a spot or session event with the user id). Their retention in source is:
