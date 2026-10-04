@@ -1,5 +1,14 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { keyboardWalk, measurePage, measureToastPalette, type Locale } from './helpers';
+import {
+  keyboardWalk,
+  matchesKnownIssue,
+  measurePage,
+  measureToastPalette,
+  reportKnownIssueSightings,
+  type AxeNode,
+  type Locale,
+} from './helpers';
+import { KNOWN_ISSUES } from './known-issues';
 
 /**
  * CL-F30: the web app's public pages and its signed-in pages, measured in Turkish and English.
@@ -96,10 +105,12 @@ const populated: Record<string, unknown> = {
     { id: '0b8f6c3a-0000-0000-0000-00000000c112', reporterUserId: USER_ID, targetType: 'PARKING_SPOT', targetId: spot(2, 'ACTIVE').id,
       reason: 'DUPLICATE_PHOTO', description: null, caseId: '0b8f6c3a-0000-0000-0000-00000000d111', createdAt: NOW },
   ],
+  // About 1.4 km apart: once the explore map has framed them they no longer overlap. Before the
+  // framing they can, which is a known issue (#242 review N4).
   'GET /public/explore/facilities': {
     facilities: [1, 2].map((n) => ({
       id: `a11y-facility-${n}`, displayName: `Synthetic Car Park ${n}`, operatorName: 'Synthetic Operator', facilityType: 'OFF_STREET',
-      addressText: `${n} Synthetic Square, Istanbul`, latitude: 41.01 + n / 1000, longitude: 28.97 + n / 1000, capacityTotal: 120,
+      addressText: `${n} Synthetic Square, Istanbul`, latitude: 41.01 + n / 100, longitude: 28.97 + n / 100, capacityTotal: 120,
       availableSpaces: 30 * n, availabilityFreshness: 'LIVE', dataUpdatedAt: NOW, sourceLabel: 'Synthetic source',
       attribution: 'Synthetic data for accessibility tests', accessClassification: 'PUBLIC',
     })),
@@ -118,6 +129,8 @@ interface WebPage {
    * to the marketing site (measured by a11y-marketing); the app's own legal pages open from its links.
    */
   inApp?: boolean;
+  /** Synthetic text from the populated mocks that the page must show, so its filled state is measured. */
+  shows?: string;
 }
 
 const PAGES: WebPage[] = [
@@ -129,15 +142,17 @@ const PAGES: WebPage[] = [
   { name: 'verify-email', path: '/verify-email?token=a11y-verify-token', signedIn: false },
   { name: 'terms', path: '/terms', signedIn: false, inApp: true },
   { name: 'privacy', path: '/privacy', signedIn: false, inApp: true },
-  { name: 'explore', path: '/explore', signedIn: false },
+  { name: 'explore', path: '/explore', signedIn: false, shows: 'Synthetic Car Park 1' },
+  // /map lists spots only after a location search, which this run does not make; /upload has no list.
   { name: 'map', path: '/map', signedIn: true },
   { name: 'upload', path: '/upload', signedIn: true },
-  { name: 'profile', path: '/profile', signedIn: true },
-  { name: 'my-spots', path: '/my-spots', signedIn: true },
-  { name: 'notifications', path: '/notifications', signedIn: true },
-  { name: 'gamification', path: '/gamification', signedIn: true },
-  { name: 'leaderboard', path: '/leaderboard', signedIn: true },
-  { name: 'reports', path: '/reports', signedIn: true },
+  { name: 'profile', path: '/profile', signedIn: true, shows: 'Ayşe Yılmaz' },
+  { name: 'my-spots', path: '/my-spots', signedIn: true, shows: '1 Synthetic Street, Istanbul' },
+  { name: 'notifications', path: '/notifications', signedIn: true, shows: 'Synthetic notification 1' },
+  // The access policy's search radius: only that call returns 1500, unlike the 340 points two calls share.
+  { name: 'gamification', path: '/gamification', signedIn: true, shows: '1500 m' },
+  { name: 'leaderboard', path: '/leaderboard', signedIn: true, shows: '790' },
+  { name: 'reports', path: '/reports', signedIn: true, shows: 'The photo shows a different street.' },
 ];
 
 async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmocked: string[]) {
@@ -204,6 +219,11 @@ for (const locale of ['tr', 'en'] as const) {
         await page.waitForLoadState('networkidle');
         // Pages have an h1 (some only for screen readers) or a main landmark; not always both.
         await expect(page.locator('h1, main, [role="main"]').first()).toBeAttached();
+        if (target.shows) {
+          // Visible text, or an accessible name such as a map marker's label.
+          const populatedContent = page.getByText(target.shows).or(page.getByLabel(target.shows));
+          await expect(populatedContent.first(), `${target.name} (${locale}): populated content`).toBeVisible();
+        }
         const landedOn = new URL(page.url()).pathname;
         testInfo.annotations.push({ type: 'landed', description: landedOn });
         if (unmocked.length) testInfo.annotations.push({ type: 'unmocked', description: unmocked.join(', ') });
@@ -218,3 +238,112 @@ for (const locale of ['tr', 'en'] as const) {
     }
   });
 }
+
+/**
+ * The focus-indicator rule itself (#229 review N1), on synthetic pages with no app code. A transparent
+ * outline, as Tailwind's `focus:outline-none` leaves, is not an indicator. A ring that fades in is one,
+ * once its transition has finished (the delay keeps it unchanged right after Tab), and so is a solid outline.
+ */
+test.describe('focus indicator rule', () => {
+  const html = (body: string) => `<!doctype html><html lang="en"><head><style>
+    button { all: unset; display: inline-block; padding: 8px; }
+    .transparent:focus { outline: 2px solid transparent; outline-offset: 2px; }
+    .ring { transition: box-shadow 150ms 300ms; }
+    .ring:focus { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px rgb(0, 80, 203); }
+    .solid:focus { outline: 2px solid rgb(0, 80, 203); }
+    .oklch-outline:focus { outline: 2px solid oklch(0.6 0.15 250 / 0); }
+    .oklch-ring:focus { outline: 2px solid transparent; box-shadow: 0 0 0 2px oklch(0.6 0.15 250 / 0); }
+  </style></head><body><main><h1>Focus</h1>${body}</main></body></html>`;
+
+  test('a transparent outline alone is not a focus indicator', async ({ page }, testInfo) => {
+    await page.setContent(html('<button class="transparent">Transparent</button>'));
+    await expect(keyboardWalk(page, testInfo, 'focus-rule-transparent', 'en')).rejects.toThrow(
+      /without a visible indicator/,
+    );
+  });
+
+  test('transparent oklch outlines and rings are not focus indicators either', async ({ page }, testInfo) => {
+    // Tailwind 4's palette is oklch: its transparent colours end in "/ 0" (#242 review N3).
+    for (const kind of ['oklch-outline', 'oklch-ring']) {
+      await page.setContent(html(`<button class="${kind}">${kind}</button>`));
+      await expect(keyboardWalk(page, testInfo, `focus-rule-${kind}`, 'en')).rejects.toThrow(
+        /without a visible indicator/,
+      );
+    }
+  });
+
+  test('a ring that fades in and a solid outline are focus indicators', async ({ page }, testInfo) => {
+    await page.setContent(html('<button class="ring">Ring</button><button class="solid">Solid</button>'));
+    const stops = await keyboardWalk(page, testInfo, 'focus-rule-visible', 'en');
+    expect(stops.map((stop) => [stop.name, stop.indicator])).toEqual([
+      ['Ring', true],
+      ['Solid', true],
+    ]);
+  });
+});
+
+/** Known-issue matching (#242 review N1): only the exact documented node and failure is known. */
+test.describe('known issue matching', () => {
+  const toggle = (overrides: Partial<{ width: number; height: number; messageKey: string; related: string }> = {}) =>
+    ({
+      target: ['summary'],
+      html: '<summary class="maplibregl-ctrl-attrib-button" title="Toggle attribution"></summary>',
+      any: [
+        {
+          id: 'target-size',
+          data: { messageKey: overrides.messageKey ?? 'partiallyObscured', width: overrides.width ?? 24, height: overrides.height ?? 6 },
+          relatedNodes: [{ target: ['button[aria-label="Zoom out"]'], html: overrides.related ?? '<button data-testid="map-floating-zoom-out">' }],
+        },
+      ],
+    }) as AxeNode;
+  const marker = (id: string, check: { messageKey?: string; related?: string }) =>
+    ({
+      target: [`button[data-facility-id="${id}"]`],
+      html: `<button data-testid="municipal-facility-marker" data-facility-id="${id}">`,
+      any: [
+        {
+          id: 'target-size',
+          data: { messageKey: check.messageKey, width: 40, height: 2 },
+          relatedNodes: check.related ? [{ target: ['x'], html: check.related }] : [],
+        },
+      ],
+    }) as AxeNode;
+  const known = (node: AxeNode) => KNOWN_ISSUES.some((issue) => matchesKnownIssue(issue, 'target-size', node));
+
+  test('the documented nodes are known', () => {
+    expect(known(toggle())).toBe(true);
+    expect(known(marker('a11y-facility-1', { messageKey: 'partiallyObscured', related: '<button data-testid="municipal-facility-marker">' }))).toBe(true);
+    expect(known({
+      target: ['a[href$="maplibre.org/"]'],
+      html: '<a href="https://maplibre.org/" target="_blank">MapLibre</a>',
+      any: [{ id: 'target-size', data: { width: 55, height: 14 } }],
+    } as AxeNode)).toBe(true);
+  });
+
+  test('other nodes and worse failures of the same nodes are not', () => {
+    // Another <summary> on /explore, and a selector that only contains "summary".
+    expect(known({ ...toggle(), target: ['summary:nth-child(2)'] })).toBe(false);
+    expect(known({ ...toggle(), target: ['.trip-summary button'] })).toBe(false);
+    expect(known({ ...toggle(), html: '<summary class="filters">Filters</summary>' })).toBe(false);
+    // The toggle more hidden, or covered by something else.
+    expect(known(toggle({ height: 0 }))).toBe(false);
+    expect(known(toggle({ related: '<div class="results-sheet">' }))).toBe(false);
+    // A marker that is too small on its own, or covered by the zoom rail, not by the other car park.
+    expect(known(marker('a11y-facility-1', {}))).toBe(false);
+    expect(known(marker('a11y-facility-1', { messageKey: 'partiallyObscured', related: '<button data-testid="map-floating-zoom-out">' }))).toBe(false);
+    // A marker the entry does not name, and the rule must match too.
+    expect(known(marker('real-facility-9', { messageKey: 'partiallyObscured', related: '<button data-testid="municipal-facility-marker">' }))).toBe(false);
+    expect(KNOWN_ISSUES.some((issue) => matchesKnownIssue(issue, 'color-contrast', toggle()))).toBe(false);
+  });
+});
+
+// Playwright passes fixtures first; this hook needs none.
+// eslint-disable-next-line no-empty-pattern
+test.afterAll(async ({}, testInfo) => {
+  // Entries that no page matched in this run (#242 review N1). The marker overlap depends on timing,
+  // so an unseen entry is reported here and in test-results/a11y, not failed.
+  const unseen = reportKnownIssueSightings(testInfo, testInfo.project.name);
+  if (unseen.length) {
+    console.log(`Known issues not seen in this run: ${unseen.map((issue) => `${issue.page} ${issue.rule} ${String(issue.target)}`).join('; ')}`);
+  }
+});

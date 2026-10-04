@@ -140,6 +140,8 @@ async function installMocks(page: Page) {
     if (method === 'GET' && path === '/parking/sessions/active') {
       return route.fulfill({ status: 204, body: '' });
     }
+    // Municipal discovery also loads the roadside inventory, a list; an object answer breaks the map.
+    if (method === 'GET' && path === '/parking/roadside/nearby') return json([]);
     if (method === 'GET' && path === '/parking/sessions/lifecycle-config') {
       return json({ sessionEnabled: true, allowManualStart: true });
     }

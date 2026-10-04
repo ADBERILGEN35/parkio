@@ -20,7 +20,12 @@ Later commits change only the measurement harness and this document, not the web
   - Best-practice rules are not part of the pass criterion. A missing `main` landmark is recorded but not failed.
 - **Per page and locale:**
   - `<html lang>` must match the language of the content: the selected locale on translated pages, and the page's own language on single-language pages.
-  - Keyboard walk with Tab: every stop needs a visible focus indicator. That is an outline, or a box-shadow, border, background or underline that differs from the element's unfocused style; a static decorative shadow does not count. Focus must leave the page or cycle back to the first stop; anything else is a trap.
+  - Keyboard walk with Tab: every stop needs a visible focus indicator. The focused element must look different from its unfocused self in a way a user can see. That means either:
+    - an outline that is visible (a style, a width and a colour that is not transparent) and differs from the unfocused outline; or
+    - a box-shadow, border, background or underline that differs.
+
+    Shadows are compared by their visible layers only. The style is read after the element's transitions finish (capped at 1 s). So a ring that fades in counts, while Tailwind's `focus:outline-none` (a 2px transparent outline) or a ring transition that has not started does not. A static decorative shadow does not count. Two synthetic-page tests pin the rule (#229 review N1). Transparency is read from both colour syntaxes, `rgba(…, 0)` and the slash form of newer functions such as `oklch(… / 0)` (#242 review N3).
+  - Focus must leave the page or cycle back to the first stop; anything else is a trap.
   - Marketing footer: the pages built with a site footer (`/`, `/privacy/`, `/terms/`) must expose it as a `contentinfo` landmark, and every footer link has a name.
 - **Network:** every API call is mocked. Requests to any other host are aborted, so nothing leaves the machine.
 - **Locale:** the first-visit locale is set through local storage (`parkio.locale`, `parkio.marketing.locale`).
@@ -37,7 +42,7 @@ Later commits change only the measurement harness and this document, not the web
 | `/verify-email?token=…` | no | pass | pass | The success toast is measured with all four toast palettes. Focus cycles while the toast is open (see Observations). |
 | `/terms` | no | pass | pass | Reached by in-app navigation. A direct request is redirected by nginx to the marketing site, measured below. |
 | `/privacy` | no | pass | pass | As `/terms`. |
-| `/explore` | no | pass | pass | No `main` landmark (best practice; see Observations). |
+| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. Known `target-size` issues: two on the dev server, three on the release image (see Known issues). No `main` landmark (best practice; see Observations). |
 | `/map` | yes | pass | pass | No `h1` (best practice). |
 | `/upload` | yes | pass | pass | |
 | `/profile` | yes | pass | pass | |
@@ -98,7 +103,7 @@ The undecided set is the same in Turkish and English. On the built web image the
 
 - No screen-reader session (NVDA, VoiceOver, TalkBack).
 - No zoom or reflow at 400 % (1.4.10), no text-spacing override (1.4.12), no mobile viewports.
-- **Signed-in pages are measured in a populated state**, since the follow-up to #227. Profile, stats, preferences, notifications, nearby spots, my spots, gamification (progress, points, level, access policy, levels, leaderboard), reports and Explore facilities all answer with synthetic data. A page that makes an API call without such a mock fails the suite, so an empty or error state can no longer pass as the measured page. The first #227 runs measured the empty or error states only.
+- **Signed-in pages are measured in a populated state**, since the follow-up to #227. Since the #229 follow-up, each populated page must also show one synthetic value from its mocks (for example the profile's display name, the first notification's title, a leaderboard score). `/explore` was measured in its flag-off "unavailable" state until then; the dev server now turns the flag on. Profile, stats, preferences, notifications, nearby spots, my spots, gamification (progress, points, level, access policy, levels, leaderboard), reports and Explore facilities all answer with synthetic data. A page that makes an API call without such a mock fails the suite, so an empty or error state can no longer pass as the measured page. The first #227 runs measured the empty or error states only. Not every page has such a value: `/upload` has no list, and `/map` lists spots only after a location search, which the run does not make, so `/map` is measured in its state before a search. Gamification is checked on the access policy's search radius, a value only that call returns (#242 review N2).
 - Interaction states are covered only partly: one toast state, the map without tiles and without an active parking session. Dialogs, the error states of each form and map interactions were not walked.
 - Dark theme: the web app has none yet. If one is added, the toast override must become theme-aware: the app's light-theme text colours on sonner's dark backgrounds are only about 2.4–2.9:1.
 - The mobile apps.
@@ -114,4 +119,14 @@ pnpm --filter @parkio/web e2e:a11y                           # Vite dev server +
 A11Y_WEB_URL=http://localhost:18080 pnpm --filter @parkio/web exec playwright test -c playwright.a11y.config.ts --project a11y-web
 ```
 
-Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason; that list is empty after this change.
+Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason. An entry matches only the exact node it documents: the whole axe selector, a piece of its HTML and, where given, the failing check's message key, size and related node. Another node, or a worse failure of the same node, still fails the run. After each run, `test-results/a11y/a11y-web-known-issues.json` lists how often each entry was seen, and the run log names the entries no page matched (#242 review N1).
+
+## Known issues (documented, not fixed)
+
+All three were found once `/explore` was measured with the public-explore flag on. All are WCAG 2.5.8 Target Size (Minimum, AA). The toggle and the markers need a map layout change, tracked in Asana 1219147334320125.
+
+| Page | Rule | Where | What |
+|---|---|---|---|
+| `/explore` | `target-size` | `summary.maplibregl-ctrl-attrib-button` | At desktop width, MapLibre's attribution toggle (bottom-right) sits under the floating zoom rail, so only 24x6 px of it can be clicked. The rail moves left only when a results sidebar is open, which `/explore` does not have. |
+| `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line shows a 55x14 px "MapLibre" text link. WCAG 2.5.8 exempts such inline links, but axe measures them. The dev server, which has no MapTiler key, does not show it. |
+| `/explore` | `target-size` | `button[data-facility-id=…]` | Until the map has framed the results, two car parks about 1.4 km apart cover each other at the starting zoom (40x2 px left). It is reported only when axe runs before the framing, which is a matter of timing. |

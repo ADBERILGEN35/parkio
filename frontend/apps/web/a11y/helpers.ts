@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { expect, type Page, type TestInfo } from '@playwright/test';
-import { KNOWN_ISSUES } from './known-issues';
+import { KNOWN_ISSUES, type KnownIssue } from './known-issues';
 
 /**
  * Browser-measured accessibility checks (CL-F30): axe-core in real Chromium plus a keyboard walk.
@@ -22,10 +22,17 @@ export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'
 
 export type Locale = 'tr' | 'en';
 
+export interface AxeCheck {
+  id: string;
+  data?: { messageKey?: string; width?: number; height?: number } | null;
+  relatedNodes?: { target: string[]; html: string }[];
+}
+
 export interface AxeNode {
   target: string[];
   html: string;
   failureSummary?: string;
+  any?: AxeCheck[];
 }
 
 export interface AxeRuleResult {
@@ -59,6 +66,48 @@ export interface PageMeasurement {
   passedRules: number;
 }
 
+/**
+ * Whether an axe node is exactly a documented known issue: the same rule, the whole selector, the
+ * node's HTML and, where the entry gives them, the failing check's message key, size and related
+ * node. A new or worse violation of the same rule on the same page stays a failure.
+ */
+export function matchesKnownIssue(issue: KnownIssue, ruleId: string, node: AxeNode): boolean {
+  if (issue.rule !== ruleId) return false;
+  const selector = node.target.join(' ');
+  if (typeof issue.target === 'string' ? selector !== issue.target : !issue.target.test(selector)) return false;
+  if (issue.html !== undefined && !node.html.includes(issue.html)) return false;
+  const expected = issue.check;
+  if (!expected) return true;
+  return (node.any ?? []).some((check) => {
+    const data = check.data ?? {};
+    return (
+      check.id === ruleId &&
+      data.messageKey === expected.messageKey &&
+      (expected.width === undefined || data.width === expected.width) &&
+      (expected.height === undefined || data.height === expected.height) &&
+      (expected.relatedHtml === undefined ||
+        (check.relatedNodes ?? []).some((related) => related.html.includes(expected.relatedHtml as string)))
+    );
+  });
+}
+
+/** How often each known issue matched a node in this run; entries never seen are reported. */
+export const knownIssueSightings = new Map<KnownIssue, number>();
+
+/** Writes which known issues were seen in this worker's run, and returns the ones never seen. */
+export function reportKnownIssueSightings(testInfo: TestInfo, project: string): KnownIssue[] {
+  const entries = KNOWN_ISSUES.map((issue) => ({
+    page: issue.page,
+    rule: issue.rule,
+    target: String(issue.target),
+    seen: knownIssueSightings.get(issue) ?? 0,
+  }));
+  const dir = path.join(testInfo.config.rootDir, '..', 'test-results', 'a11y');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, `${project}-known-issues.json`), `${JSON.stringify(entries, null, 2)}\n`);
+  return KNOWN_ISSUES.filter((issue) => !knownIssueSightings.get(issue));
+}
+
 async function injectAxe(page: Page) {
   await page.route(`**${AXE_PATH}`, (route) => route.fulfill({ path: AXE_SOURCE, contentType: 'text/javascript' }));
   await page.addScriptTag({ url: AXE_PATH });
@@ -77,14 +126,23 @@ export async function measurePage(page: Page, testInfo: TestInfo, name: string, 
   }, WCAG_TAGS)) as AxeRun;
 
   const known = KNOWN_ISSUES.filter((issue) => issue.page === name || issue.page === '*');
-  const isKnown = (rule: AxeRuleResult, node: AxeNode) =>
-    known.some((issue) => issue.rule === rule.id && node.target.join(' ').includes(issue.target));
-  const split = (rule: AxeRuleResult, keep: (node: AxeNode) => boolean) => ({
-    ...rule,
-    nodes: rule.nodes.filter(keep),
-  });
-  const violations = run.violations.map((rule) => split(rule, (node) => !isKnown(rule, node))).filter((r) => r.nodes.length);
-  const knownViolations = run.violations.map((rule) => split(rule, (node) => isKnown(rule, node))).filter((r) => r.nodes.length);
+  const violations: AxeRuleResult[] = [];
+  const knownViolations: AxeRuleResult[] = [];
+  for (const rule of run.violations) {
+    const unknownNodes: AxeNode[] = [];
+    const knownNodes: AxeNode[] = [];
+    for (const node of rule.nodes) {
+      const issue = known.find((candidate) => matchesKnownIssue(candidate, rule.id, node));
+      if (issue) {
+        knownIssueSightings.set(issue, (knownIssueSightings.get(issue) ?? 0) + 1);
+        knownNodes.push(node);
+      } else {
+        unknownNodes.push(node);
+      }
+    }
+    if (unknownNodes.length) violations.push({ ...rule, nodes: unknownNodes });
+    if (knownNodes.length) knownViolations.push({ ...rule, nodes: knownNodes });
+  }
 
   const measurement: PageMeasurement = {
     page: name,
@@ -123,8 +181,12 @@ export interface FocusStop {
   element: string;
   name: string;
   /**
-   * A visible outline while focused, or a box-shadow, border, background or underline that differs
-   * from the element's unfocused style (a static decorative shadow does not count).
+   * The focused element looks different from its unfocused self in a way a user can see: an outline
+   * that is visible (a style, a width and a colour that is not transparent) and differs from the
+   * unfocused outline, or a box-shadow, border, background or underline that differs. Shadows are
+   * compared by their visible layers only, and measured after the element's transitions finish: a
+   * focus ring that fades in counts, while a transparent outline (Tailwind's `focus:outline-none`) or a
+   * ring transition that has not started yet does not.
    */
   indicator: boolean;
 }
@@ -139,30 +201,78 @@ export async function keyboardWalk(page: Page, testInfo: TestInfo, name: string,
   await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
+    // The alpha of a computed colour, in the legacy comma form (rgba(0, 0, 0, 0)) or the slash form
+    // of newer colour functions (oklch(… / 0), color(srgb … / 0%), rgb(… / 0.5)) (#242 review N3).
+    const alphaOf = (colour: string) => {
+      const value = colour.trim();
+      if (value === 'transparent') return 0;
+      const slash = value.match(/\/\s*(-?[\d.]+)(%?)\s*\)$/);
+      if (slash) return slash[2] ? parseFloat(slash[1]) / 100 : parseFloat(slash[1]);
+      const comma = value.match(/^(?:rgba|hsla)\(([^)]*)\)$/);
+      const parts = comma ? comma[1].split(',') : [];
+      return parts.length === 4 ? parseFloat(parts[3]) : 1;
+    };
+    // The visible layers of a computed box-shadow: a layer with a transparent colour, or with no
+    // offset, blur or spread, draws nothing ("none" and "rgba(0, 0, 0, 0) 0px 0px 0px 0px" look alike).
+    const visibleShadow = (value: string) => {
+      if (value === 'none') return 'none';
+      const layers = value.split(/,(?![^(]*\))/).map((layer) => layer.trim());
+      const visible = layers.filter((layer) => {
+        const colour = layer.match(/(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)|transparent/)?.[0] ?? '';
+        const lengths = (layer.replace(colour, '').match(/-?[\d.]+px/g) ?? []).map((px) => parseFloat(px));
+        return alphaOf(colour || 'black') > 0 && lengths.some((length) => length !== 0);
+      });
+      return visible.length ? visible.join(', ') : 'none';
+    };
+    const helpers = window as unknown as {
+      __a11yVisibleShadow: (value: string) => string;
+      __a11yAlphaOf: (colour: string) => number;
+    };
+    helpers.__a11yVisibleShadow = visibleShadow;
+    helpers.__a11yAlphaOf = alphaOf;
     // Unfocused styles of every element that can take focus, to compare with its focused style.
     const look = (el: Element) => {
       const s = getComputedStyle(el);
-      return [s.boxShadow, s.borderTopColor, s.borderBottomColor, s.backgroundColor, s.textDecorationLine].join('|');
+      return {
+        outline: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.outlineOffset].join('|'),
+        rest: [visibleShadow(s.boxShadow), s.borderTopColor, s.borderBottomColor, s.backgroundColor, s.textDecorationLine].join('|'),
+      };
     };
-    const store = new WeakMap<Element, string>();
+    const store = new WeakMap<Element, { outline: string; rest: string }>();
     document.querySelectorAll('*').forEach((el) => store.set(el, look(el)));
-    (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused = store;
+    (window as unknown as { __a11yUnfocused: WeakMap<Element, { outline: string; rest: string }> }).__a11yUnfocused =
+      store;
   });
   const stops: FocusStop[] = [];
   let leftPage = false;
   let cycled = false;
   for (let index = 0; index < limit; index++) {
     await page.keyboard.press('Tab');
-    const stop = await page.evaluate((i) => {
+    const stop = await page.evaluate(async (i) => {
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body || el === document.documentElement) return null;
       if (el.dataset.a11yFirstStop === 'true') return 'first';
       if (i === 0) el.dataset.a11yFirstStop = 'true';
+      // Let focus transitions (a ring that fades in) finish; an endless animation is cut off at 1 s.
+      await Promise.race([
+        Promise.all(el.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
       const style = getComputedStyle(el);
-      const outline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
-      const focusedLook = [style.boxShadow, style.borderTopColor, style.borderBottomColor, style.backgroundColor, style.textDecorationLine].join('|');
-      const unfocused = (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused.get(el);
-      const shadow = unfocused !== undefined && focusedLook !== unfocused;
+      const alphaOf = (window as unknown as { __a11yAlphaOf: (colour: string) => number }).__a11yAlphaOf;
+      const transparent = (colour: string) => alphaOf(colour) === 0;
+      const outlineLook = [style.outlineStyle, style.outlineWidth, style.outlineColor, style.outlineOffset].join('|');
+      const visibleShadow = (window as unknown as { __a11yVisibleShadow: (value: string) => string }).__a11yVisibleShadow;
+      const focusedLook = [visibleShadow(style.boxShadow), style.borderTopColor, style.borderBottomColor, style.backgroundColor, style.textDecorationLine].join('|');
+      const unfocused = (
+        window as unknown as { __a11yUnfocused: WeakMap<Element, { outline: string; rest: string }> }
+      ).__a11yUnfocused.get(el);
+      const outline =
+        style.outlineStyle !== 'none' &&
+        parseFloat(style.outlineWidth) > 0 &&
+        !transparent(style.outlineColor) &&
+        (unfocused === undefined || outlineLook !== unfocused.outline);
+      const shadow = unfocused !== undefined && focusedLook !== unfocused.rest;
       const label =
         el.getAttribute('aria-label') ?? el.getAttribute('title') ?? (el.textContent ?? '').trim().slice(0, 60);
       const id = el.id ? `#${el.id}` : '';

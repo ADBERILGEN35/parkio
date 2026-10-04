@@ -19,6 +19,10 @@ import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.RoleJpaRepository;
+import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -237,15 +241,42 @@ class AccountExistenceTimingPostgresIT {
             double existingMedian = medianMs(existing);
             double unknownMedian = medianMs(unknown);
             double difference = existingMedian - unknownMedian;
-            System.out.printf(Locale.ROOT,
+            // The whole measurement goes into the assertion message: CI logs show a failed test's
+            // message (FULL exception format for integrationTest), but not its standard output.
+            String measurement = String.format(Locale.ROOT,
                     "TIMING endpoint=%s pairs=%d existingMedianMs=%.3f unknownMedianMs=%.3f diffMs=%.3f "
-                            + "existingP90Ms=%.3f unknownP90Ms=%.3f%n",
+                            + "thresholdMs=%.1f existingP90Ms=%.3f unknownP90Ms=%.3f %s",
                     endpoint, existing.size(), existingMedian, unknownMedian, difference,
-                    percentileMs(existing, 0.9), percentileMs(unknown, 0.9));
-            assertThat(existing).hasSize(SAMPLES);
-            assertThat(Math.abs(difference))
-                    .as("%s median difference (existing %.3f ms, unknown %.3f ms)", endpoint, existingMedian, unknownMedian)
-                    .isLessThan(MAX_MEDIAN_DIFFERENCE_MS);
+                    MAX_MEDIAN_DIFFERENCE_MS, percentileMs(existing, 0.9), percentileMs(unknown, 0.9),
+                    runnerConditions());
+            System.out.println(measurement);
+            assertThat(existing).as("%s", measurement).hasSize(SAMPLES);
+            assertThat(Math.abs(difference)).as("%s", measurement).isLessThan(MAX_MEDIAN_DIFFERENCE_MS);
+        }
+
+        /**
+         * Load and CI identity when the measurement ends, so a failure in CI can be told apart from
+         * a busy runner: Gradle runs the modules' integration tests in parallel. No secrets: only
+         * the CPU count, /proc/loadavg and GitHub's run, job and runner names.
+         */
+        private static String runnerConditions() {
+            String load;
+            try {
+                String[] fields = Files.readString(Path.of("/proc/loadavg")).trim().split("\\s+");
+                load = "load1/5/15=" + fields[0] + "/" + fields[1] + "/" + fields[2] + " runnable=" + fields[3];
+            } catch (IOException | RuntimeException unavailable) {
+                load = String.format(Locale.ROOT, "load1=%.2f",
+                        ManagementFactory.getOperatingSystemMXBean().getSystemLoadAverage());
+            }
+            return "cpus=" + Runtime.getRuntime().availableProcessors() + " " + load
+                    + " ci=" + env("GITHUB_WORKFLOW") + "/" + env("GITHUB_JOB")
+                    + " run=" + env("GITHUB_RUN_ID") + "/" + env("GITHUB_RUN_ATTEMPT")
+                    + " runner=" + env("RUNNER_NAME") + " image=" + env("ImageOS") + "/" + env("ImageVersion");
+        }
+
+        private static String env(String name) {
+            String value = System.getenv(name);
+            return value == null || value.isBlank() ? "-" : value.trim().replaceAll("\\s+", "_");
         }
 
         private static double medianMs(List<Long> nanos) {
