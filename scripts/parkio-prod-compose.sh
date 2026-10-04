@@ -49,8 +49,13 @@ cd "$ROOT"
 # any overlay, or a model edit after verification cannot substitute another web
 # image. Invocations that cannot touch web (e.g. `up -d --no-deps
 # gateway-service`, logs, ps) run unchanged.
+# The same rendered model then goes to the conf.d check (B8b): a tmpfs at /etc/nginx/conf.d needs a
+# web image that renders it at start (#198 or later), so an older bound image is refused before
+# anything starts. The break-glass PARKIO_SKIP_WEB_MAP_GUARD skips both checks.
 # shellcheck source=lib/web-map-guard.sh
 source "$ROOT/scripts/lib/web-map-guard.sh"
+# shellcheck source=lib/web-conf-d-guard.sh
+source "$ROOT/scripts/lib/web-conf-d-guard.sh"
 parkio_web_guard_split_args "$@"
 parkio_web_guard_decide
 if [ "$PWG_DECISION" = "refuse" ]; then
@@ -71,6 +76,10 @@ if [ "$PWG_DECISION" = "run" ]; then
       || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
     parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
       || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
+    if [ -f "$guard_dir/web-binding.yml" ]; then
+      parkio_web_conf_d_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
+        || { echo "ERROR: web conf.d check failed; nothing was started" >&2; exit 1; }
+    fi
     rm -f "$guard_dir/model.json"
     if [ -f "$guard_dir/web-binding.yml" ]; then
       rc=0
