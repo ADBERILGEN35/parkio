@@ -8,8 +8,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "parkio.municipal")
 public class MunicipalSourceProperties {
     /**
-     * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative or empty value fails
-     * the binding, so the service refuses to start, and the error names the full property.
+     * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative value fails the binding,
+     * so the service refuses to start, and the error names the full property. An empty value keeps the
+     * 4h default: Spring binds it as null and does not call the setter.
      */
     static Duration requireUnchangedFeedAlertAfter(String property, Duration value) {
         if (value == null || value.isNegative()) {
