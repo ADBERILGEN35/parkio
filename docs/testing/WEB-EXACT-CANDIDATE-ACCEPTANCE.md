@@ -56,9 +56,12 @@ Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all
   - the municipal discovery specs on desktop and at 360 px (`e2e:muni09:*`);
   - the product analytics specs (`e2e:y04a`).
 
-No automatic workflow runs these mocked specs against a built web image; the candidate-image projects above (`cxf11-existing-*`) were run locally only. Two other workflows involve a built or deployed frontend, but neither runs these specs:
+No automatic workflow runs these mocked specs against a built web image; the candidate-image projects above (`cxf11-existing-*`) were run locally only. These workflows run a browser against a built or deployed frontend, with different checks:
+- `release.yml` (on `v*` tags) builds the web image and runs the image smoke `scripts/smoke-image.mjs` against it: the SPA mounts, and the served bundle carries the expected public build values;
 - the manual *Frontend Real Stack E2E* (`frontend-real-e2e.yml`), in hosted mode, runs the separate real-stack suite against a deployed frontend;
-- `web-build-image-acceptance.yml` builds the web image and runs its own journeys for PRs #87 and #91 only; it is historical.
+- `web-build-image-acceptance.yml` builds the web image and runs the same image smoke (through `ci-accept-image.sh`) for PRs #87 and #91 only; it is historical.
+
+The two auth CSRF browser workflows also drive Chromium, but against synthetic pages and the gateway and auth services, not the web app.
 
 | Spec | Dev server | Candidate | Why |
 |---|---|---|---|
