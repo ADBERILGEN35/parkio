@@ -28,6 +28,7 @@ import com.parkio.auth.domain.Role;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.infrastructure.lifecycle.ErasureDurableRecordingWorker;
+import com.parkio.auth.infrastructure.persistence.ErasureDurableWorkerRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureRequestJpaRepository;
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureServiceAckJpaRepository;
@@ -63,6 +64,7 @@ import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -147,9 +149,10 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.durable-recording-enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.participants", () -> "user");
-        // The worker runs only when a test calls tick(); the scheduled run waits an hour.
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-enabled", () -> "true");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-fixed-delay-ms", () -> "3600000");
+        // The scheduled worker bean stays disabled. A fixed-delay @Scheduled method also runs once right
+        // after the context starts, whatever the delay, and that run could claim a request between this
+        // class's assertions (it did in CI). The worker test runs the real worker on its own thread.
+        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-enabled", () -> "false");
         try {
             ObjectLockTestBuckets.createLockedBucket(minioClient(), BUCKET);
         } catch (Exception ex) {
@@ -191,7 +194,10 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
     @MockBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService service;
-    @Autowired private ErasureDurableRecordingWorker worker;
+    /** The scheduled Spring bean: disabled in this context, so its ticks change nothing. */
+    @Autowired private ErasureDurableRecordingWorker scheduledWorker;
+    @Autowired private ErasureDurableWorkerRepository workerRepository;
+    @Autowired private ObjectProvider<DurableErasureRecordStore> stores;
     @Autowired private DurableErasureRecordStore store;
     @Autowired private FrontierFailingMinioClient failingClient;
     @Autowired private ErasureRequestJpaRepository requests;
@@ -220,8 +226,40 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
         assertRetryAfterPartialPublication(requestId -> {
             // Past the retry backoff; whole hours keep the clock's sub-microsecond digits.
             CLOCK.advance(Duration.ofHours(1));
-            worker.tick();
+            retryWorker().tick();
         });
+    }
+
+    @Test
+    void theScheduledWorkerBeanChangesNothingInThisContext() throws Exception {
+        AuthUser user = newUser();
+        failingClient.failTheFrontierWriteAfterTheNextRecord();
+        UUID requestId = service.requestDeletion(user.id(), PASSWORD).erasureRequestId();
+        // Reading the counter resets it, as the other tests expect.
+        assertThat(failingClient.injectedFailures()).isEqualTo(1);
+        CLOCK.advance(Duration.ofHours(1));
+
+        // A tick of the Spring bean from another thread, as the scheduler would run it.
+        Thread scheduler = new Thread(scheduledWorker::tick, "scheduling-guard");
+        scheduler.start();
+        scheduler.join(Duration.ofSeconds(30).toMillis());
+
+        assertThat(scheduler.isAlive()).isFalse();
+        assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
+        assertThat(store.findByRequestId(requestId)).as("still not covered by a frontier").isEmpty();
+        retryWorker().tick();
+        assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
+        assertThat(store.findByRequestId(requestId)).isPresent();
+    }
+
+    /**
+     * The real worker with the production defaults (application.yml), enabled, for this test thread
+     * only. Constructor order: service, repository, stores, clock, worker enabled, durable recording
+     * enabled, batch size, max attempts, base backoff ms, max backoff ms, lease ms.
+     */
+    private ErasureDurableRecordingWorker retryWorker() {
+        return new ErasureDurableRecordingWorker(
+                service, workerRepository, stores, CLOCK, true, true, 20, 10, 5_000, 900_000, 120_000);
     }
 
     private void assertRetryAfterPartialPublication(Retry retry) throws Exception {
