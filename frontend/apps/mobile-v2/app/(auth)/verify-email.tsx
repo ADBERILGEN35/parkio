@@ -100,7 +100,14 @@ export default function VerifyEmailScreen() {
             disabled={token.trim().length === 0}
           />
           {verifyMutation.isError && (
-            <Button label={t('auth.login.notVerifiedCta')} variant="ghost" onPress={() => void resend()} />
+            <>
+              <Button
+                label={t('onboarding.welcome.signIn')}
+                variant="ghost"
+                onPress={() => router.replace('/(auth)/login')}
+              />
+              <Button label={t('auth.login.notVerifiedCta')} variant="ghost" onPress={() => void resend()} />
+            </>
           )}
         </>
       )}

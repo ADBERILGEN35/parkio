@@ -4,6 +4,8 @@ import com.parkio.auth.application.durable.ErasureLedgerEntry;
 import com.parkio.auth.application.port.ErasureRestoreRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +14,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-/** JDBC access to the V26 restore replay tables (PostgreSQL). */
+/** JDBC access to the V26/V27 restore replay tables (PostgreSQL). */
 @Repository
 public class ErasureRestoreJdbcRepository implements ErasureRestoreRepository {
 
@@ -35,7 +37,8 @@ public class ErasureRestoreJdbcRepository implements ErasureRestoreRepository {
     }
 
     @Override
-    public void insertAttempt(RestoreAttempt attempt, List<ErasureLedgerEntry> users) {
+    public void insertAttempt(RestoreAttempt attempt, List<ErasureLedgerEntry> users,
+                              Collection<String> requiredParticipants) {
         jdbc.update("""
                         INSERT INTO erasure_restore_attempts
                             (recovery_attempt_id, restored_dataset_id, erasure_set_digest, user_count, started_at)
@@ -52,6 +55,23 @@ public class ErasureRestoreJdbcRepository implements ErasureRestoreRepository {
                     ps.setObject(2, user.authUserId());
                     ps.setTimestamp(3, Timestamp.from(user.erasedAt()));
                 });
+        jdbc.batchUpdate("""
+                        INSERT INTO erasure_restore_attempt_participants (recovery_attempt_id, service_name)
+                        VALUES (?, ?)
+                        """,
+                new ArrayList<>(requiredParticipants), 100, (ps, serviceName) -> {
+                    ps.setObject(1, attempt.recoveryAttemptId());
+                    ps.setString(2, serviceName);
+                });
+    }
+
+    @Override
+    public List<String> requiredParticipants(UUID recoveryAttemptId) {
+        return jdbc.queryForList("""
+                        SELECT service_name FROM erasure_restore_attempt_participants
+                        WHERE recovery_attempt_id = ? ORDER BY service_name
+                        """,
+                String.class, recoveryAttemptId);
     }
 
     @Override

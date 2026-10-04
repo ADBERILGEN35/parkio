@@ -75,6 +75,10 @@ jobs:
       - name: Install focused browser
         run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
 
+      # The waitlist client's node tests (adapter, error mapping, i18n feedback) under web/marketing.
+      - name: Marketing waitlist unit tests
+        run: node --test ../web/marketing/*.test.mjs
+
       - name: Marketing static and responsive validation
         run: pnpm --filter @parkio/web test:marketing
 
