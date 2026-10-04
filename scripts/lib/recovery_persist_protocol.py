@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from recovery_evidence_contract import (
@@ -27,6 +28,10 @@ from recovery_evidence_contract import (
     verify_hmac,
 )
 
+SCHEMA_VERSION = 2
+TRUST_FORMAT = "parkio-erasure-evidence-trust"
+TRUST_VERSION = 1
+MIN_KEY_BYTES = 32
 KIND_PENDING = "erasure-pending-record"
 KIND_CHECKPOINT = "erasure-checkpoint"
 KIND_FRONTIER = "erasure-expected-frontier"
@@ -37,16 +42,33 @@ INTERNAL_RECORDED = "DURABLY_RECORDED"
 FRONTIER_KEY = "frontier/expected-through.json"
 SIGNED_PENDING = (
     "schemaVersion", "kind", "erasureRecordId", "erasureRequestId",
-    "authUserId", "sequence", "databaseIdentity", "producerId", "bodyDigest",
+    "authUserId", "sequence", "databaseIdentity", "producerId", "keyId", "bodyDigest",
 )
 SIGNED_CHECKPOINT = (
-    "schemaVersion", "kind", "sequence", "databaseIdentity", "producerId",
+    "schemaVersion", "kind", "sequence", "databaseIdentity", "producerId", "keyId",
     "ledgerDigest", "captureProtocol",
 )
 SIGNED_FRONTIER = (
     "schemaVersion", "kind", "expectedThrough", "highestReserved",
-    "databaseIdentity", "producerId", "frontierDigest",
+    "databaseIdentity", "producerId", "keyId", "frontierDigest",
 )
+# Sequence markers that reserve a checkpoint's sequence carry this erasureRequestId (the format
+# has one marker shape; the nil UUID is never a request id). The auth-service producer fills a
+# checkpoint reservation left without its checkpoint with its next checkpoint.
+CHECKPOINT_RESERVATION_ID = "00000000-0000-0000-0000-000000000000"
+# The only auth-service main sources that may mention the checkpoint producer or publish a
+# checkpoint: the producer, its default-off wiring, the store port and the store adapter.
+CHECKPOINT_PRODUCER_SOURCES = {
+    "ErasureCheckpointProducer": (
+        "application/ErasureCheckpointProducer.java",
+        "infrastructure/durable/ErasureCheckpointConfig.java",
+    ),
+    "publishCheckpoint(": (
+        "application/ErasureCheckpointProducer.java",
+        "application/port/DurableErasureCheckpointStore.java",
+        "infrastructure/durable/ObjectLockDurableErasureRecordStore.java",
+    ),
+}
 
 
 def erasure_record_id(erasure_request_id):
@@ -64,6 +86,128 @@ def checkpoint_key(sequence):
 
 def signed_subset(body, fields):
     return {key: body[key] for key in fields}
+
+
+def parse_instant(value, label):
+    """ISO-8601 UTC instant ('Z' suffix, optional fraction) as an aware datetime."""
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise ContractError(f"{label} must be an ISO-8601 UTC instant")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ContractError(f"{label} must be an ISO-8601 UTC instant") from exc
+    return parsed
+
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+class TrustedKey:
+    """One producer key: HMAC secret plus its id, owner, signing window and retirement."""
+
+    def __init__(self, key_id, producer_id, key, not_before, not_after=None, retired=False):
+        self.key_id = key_id
+        self.producer_id = producer_id
+        self.key = bytes(key)
+        self.not_before = not_before
+        self.not_after = not_after
+        self.retired = bool(retired)
+        parse_instant(not_before, f"key {key_id} notBefore")
+        if not_after is not None and parse_instant(not_after, f"key {key_id} notAfter") <= parse_instant(
+                not_before, f"key {key_id} notBefore"):
+            raise ContractError(f"key {key_id} notAfter must be after notBefore")
+
+    def signs_at(self, at):
+        """Producer rule: sign only with a key that is not retired and inside [notBefore, notAfter)."""
+        moment = parse_instant(at, "signing instant")
+        if self.retired or moment < parse_instant(self.not_before, "notBefore"):
+            return False
+        return self.not_after is None or moment < parse_instant(self.not_after, "notAfter")
+
+    def __repr__(self):
+        return f"TrustedKey(key_id={self.key_id!r}, producer_id={self.producer_id!r}, key=<redacted>)"
+
+
+class EvidenceTrust:
+    """Pre-distributed consumer trust: the pinned database identity and the producer keys.
+
+    Never read from the evidence itself. Holds HMAC secrets, so a trust document is secret material.
+    """
+
+    def __init__(self, database_identity, keys):
+        if not isinstance(database_identity, str) or not database_identity.strip():
+            raise ContractError("trust databaseIdentity must not be blank")
+        self.database_identity = database_identity
+        self.keys = {}
+        for key in keys:
+            if key.key_id in self.keys:
+                raise ContractError(f"duplicate keyId {key.key_id} in trust")
+            self.keys[key.key_id] = key
+
+    @classmethod
+    def from_document(cls, document):
+        """Parses a trust document; errors name fields and key ids, never key values."""
+        if not isinstance(document, dict) or document.get("format") != TRUST_FORMAT:
+            raise ContractError(f"trust document format must be {TRUST_FORMAT}")
+        if document.get("version") != TRUST_VERSION:
+            raise ContractError(f"trust document version must be {TRUST_VERSION}")
+        entries = document.get("keys")
+        if not isinstance(entries, list) or not entries:
+            raise ContractError("trust document needs at least one key")
+        keys = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise ContractError(f"trust key #{index} must be an object")
+            key_id = entry.get("keyId")
+            if not isinstance(key_id, str) or not key_id.strip():
+                raise ContractError(f"trust key #{index} needs a keyId")
+            producer_id = entry.get("producerId")
+            if not isinstance(producer_id, str) or not producer_id.strip():
+                raise ContractError(f"trust key {key_id} needs a producerId")
+            try:
+                secret = bytes.fromhex(entry.get("keyHex") or "")
+            except (TypeError, ValueError) as exc:
+                raise ContractError(f"trust key {key_id} keyHex must be hex") from exc
+            if len(secret) < MIN_KEY_BYTES:
+                raise ContractError(f"trust key {key_id} must be at least {MIN_KEY_BYTES} bytes")
+            retired = entry.get("retired", False)
+            if not isinstance(retired, bool):
+                raise ContractError(f"trust key {key_id} retired must be true or false")
+            keys.append(TrustedKey(key_id, producer_id, secret, entry.get("notBefore"),
+                                   entry.get("notAfter"), retired))
+        return cls(document.get("databaseIdentity"), keys)
+
+    def key(self, key_id):
+        return self.keys.get(key_id)
+
+    def verifying_key(self, body, at):
+        """The trusted key for a signed object, or ContractError (unknown, foreign, retired, early)."""
+        key = self.keys.get(body.get("keyId"))
+        if key is None:
+            raise ContractError("unknown producer key")
+        if key.producer_id != body.get("producerId"):
+            raise ContractError("producer key belongs to another producer")
+        if key.retired:
+            raise ContractError("retired producer key")
+        if parse_instant(at, "verification instant") < parse_instant(key.not_before, "notBefore"):
+            raise ContractError("producer key not yet valid")
+        return key
+
+
+def verify_signed_object(body, kind, kind_error, fields, trust, at, signature_error):
+    """Checks shared by every signed kind, in the order both verifiers use."""
+    if body.get("kind") != kind:
+        raise ContractError(kind_error)
+    version = body.get("schemaVersion")
+    if type(version) is not int or version != SCHEMA_VERSION:
+        raise ContractError("unsupported schema version")
+    if body.get("databaseIdentity") != trust.database_identity:
+        raise ContractError("database identity mismatch")
+    key = trust.verifying_key(body, at or utc_now())
+    if not verify_hmac(signed_subset(body, fields), key.key, body.get("signature")):
+        raise ContractError(signature_error)
+    return key
 
 
 class IsolatedVersionedStore:
@@ -212,38 +356,24 @@ def frontier_digest(expected_through, highest_reserved):
     }))
 
 
-def verify_frontier(store, expected_db, trusted_keys):
+def verify_frontier(store, trust, at=None):
     raw = store.get_optional(FRONTIER_KEY)
     if raw is None:
         return None
     body = json.loads(raw.decode("utf-8"))
-    if body.get("kind") != KIND_FRONTIER:
-        raise ContractError("not an expected-boundary frontier")
-    if body.get("databaseIdentity") != expected_db:
-        raise ContractError("database identity mismatch")
-    key_bytes = trusted_keys.get(body.get("producerId"))
-    if not key_bytes:
-        raise ContractError("unknown producer")
-    if not verify_hmac(signed_subset(body, SIGNED_FRONTIER), key_bytes, body.get("signature")):
-        raise ContractError("frontier signature mismatch")
+    verify_signed_object(body, KIND_FRONTIER, "not an expected-boundary frontier", SIGNED_FRONTIER,
+                         trust, at, "frontier signature mismatch")
     expected = frontier_digest(body["expectedThrough"], body["highestReserved"])
     if expected != body["frontierDigest"]:
         raise ContractError("frontier digest mismatch")
     return body
 
 
-def verify_pending(store, key, expected_db, trusted_keys):
+def verify_pending(store, key, trust, at=None):
     raw = store.get(key)
     body = json.loads(raw.decode("utf-8"))
-    if body.get("kind") != KIND_PENDING:
-        raise ContractError("not a pending record")
-    if body.get("databaseIdentity") != expected_db:
-        raise ContractError("database identity mismatch")
-    key_bytes = trusted_keys.get(body.get("producerId"))
-    if not key_bytes:
-        raise ContractError("unknown producer")
-    if not verify_hmac(signed_subset(body, SIGNED_PENDING), key_bytes, body.get("signature")):
-        raise ContractError("producer signature mismatch")
+    verify_signed_object(body, KIND_PENDING, "not a pending record", SIGNED_PENDING,
+                         trust, at, "producer signature mismatch")
     expected = sha256_hex(canonical_bytes({
         "authUserId": body["authUserId"],
         "erasureRequestId": body["erasureRequestId"],
@@ -254,18 +384,11 @@ def verify_pending(store, key, expected_db, trusted_keys):
     return body
 
 
-def verify_checkpoint(store, key, expected_db, trusted_keys):
+def verify_checkpoint(store, key, trust, at=None):
     raw = store.get(key)
     body = json.loads(raw.decode("utf-8"))
-    if body.get("kind") != KIND_CHECKPOINT:
-        raise ContractError("not a checkpoint")
-    if body.get("databaseIdentity") != expected_db:
-        raise ContractError("database identity mismatch")
-    key_bytes = trusted_keys.get(body.get("producerId"))
-    if not key_bytes:
-        raise ContractError("unknown producer")
-    if not verify_hmac(signed_subset(body, SIGNED_CHECKPOINT), key_bytes, body.get("signature")):
-        raise ContractError("producer signature mismatch")
+    verify_signed_object(body, KIND_CHECKPOINT, "not a checkpoint", SIGNED_CHECKPOINT,
+                         trust, at, "producer signature mismatch")
     ledger = canonical_bytes({"kind": "erasure-ledger", "entries": body["entries"]})
     if sha256_hex(ledger) != body["ledgerDigest"]:
         raise ContractError("checkpoint ledger digest mismatch")
@@ -273,14 +396,23 @@ def verify_checkpoint(store, key, expected_db, trusted_keys):
 
 
 class IsolatedErasureCoordinator:
-    """Proposed enabled protocol. Public status stays IN_PROGRESS until COMPLETE."""
+    """Proposed enabled protocol. Public status stays IN_PROGRESS until COMPLETE.
 
-    def __init__(self, store, expected_db, producer_id, producer_key,
-                 enabled=True, required=REQUIRED_PARTICIPANTS):
+    Signs with ``signing_key_id`` from ``trust`` and verifies what it reads back with the whole
+    trust, so objects signed with an earlier key still verify after a rotation.
+    """
+
+    def __init__(self, store, trust, signing_key_id,
+                 enabled=True, required=REQUIRED_PARTICIPANTS, clock=utc_now):
+        signing_key = trust.key(signing_key_id)
+        if signing_key is None:
+            raise ContractError("signing key is not in the trust")
         self.store = store
-        self.expected_db = expected_db
-        self.producer_id = producer_id
-        self.producer_key = producer_key
+        self.trust = trust
+        self.signing_key = signing_key
+        self.expected_db = trust.database_identity
+        self.producer_id = signing_key.producer_id
+        self.clock = clock
         self.enabled = enabled
         self.required = required
         self.allocator = SequenceAllocator(store)
@@ -346,9 +478,9 @@ class IsolatedErasureCoordinator:
         """Simulate primary application/host memory loss. Store is untouched."""
         self._requests = {}
 
-    def recover_from_store(self, trusted_keys, required_through_sequence=None):
+    def recover_from_store(self, trust, required_through_sequence=None, at=None):
         recovered = recover_latest_trusted(
-            self.store, self.expected_db, trusted_keys,
+            self.store, trust, at=at,
             required_through_sequence=required_through_sequence,
         )
         if recovered["verdict"] != "ACCEPT_ISOLATED":
@@ -374,29 +506,37 @@ class IsolatedErasureCoordinator:
         with an older snapshot.
         """
         with self.store._io:
-            existing = verify_frontier(
-                self.store, self.expected_db, {self.producer_id: self.producer_key},
-            )
+            existing = verify_frontier(self.store, self.trust, at=self.clock())
             old_expected = 0 if existing is None else int(existing["expectedThrough"])
             old_reserved = 0 if existing is None else int(existing["highestReserved"])
             new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
             new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
             new_reserved = max(new_reserved, new_expected)
             body = {
-                "schemaVersion": 1,
+                "schemaVersion": SCHEMA_VERSION,
                 "kind": KIND_FRONTIER,
                 "expectedThrough": new_expected,
                 "highestReserved": new_reserved,
                 "databaseIdentity": self.expected_db,
                 "producerId": self.producer_id,
+                "keyId": self.signing_key.key_id,
                 "frontierDigest": frontier_digest(new_expected, new_reserved),
             }
-            body["signature"] = sign(signed_subset(body, SIGNED_FRONTIER), self.producer_key)
+            self._sign(body, SIGNED_FRONTIER)
             self.store.put(FRONTIER_KEY, canonical_bytes(body))
             return body
 
     def internal(self, erasure_request_id):
         return dict(self._require(erasure_request_id))
+
+    def _require_signing_key(self):
+        """Producer rule: only a key that is not retired and inside its signing window signs."""
+        if not self.signing_key.signs_at(self.clock()):
+            raise ContractError("signing key is retired or outside its signing window")
+
+    def _sign(self, body, fields):
+        self._require_signing_key()
+        body["signature"] = sign(signed_subset(body, fields), self.signing_key.key)
 
     def _require(self, erasure_request_id):
         row = self._requests.get(erasure_request_id.lower())
@@ -405,6 +545,8 @@ class IsolatedErasureCoordinator:
         return row
 
     def _persist_pending(self, row):
+        # Refuse before reserving anything, so an unusable key leaves no reservation behind.
+        self._require_signing_key()
         record_id = erasure_record_id(row["erasureRequestId"])
         payload = {
             "authUserId": row["authUserId"],
@@ -413,10 +555,7 @@ class IsolatedErasureCoordinator:
         }
         body_digest = sha256_hex(canonical_bytes(payload))
         if self.store.exists(record_id):
-            existing = verify_pending(
-                self.store, record_id, self.expected_db,
-                {self.producer_id: self.producer_key},
-            )
+            existing = verify_pending(self.store, record_id, self.trust, at=self.clock())
             if existing["bodyDigest"] != body_digest:
                 raise ContractError("ambiguous retry would create a conflicting record")
             self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
@@ -426,7 +565,7 @@ class IsolatedErasureCoordinator:
         sequence = self.allocator.allocate(row["erasureRequestId"])
         self.advance_frontier(highest_reserved=sequence)
         body = {
-            "schemaVersion": 1,
+            "schemaVersion": SCHEMA_VERSION,
             "kind": KIND_PENDING,
             "erasureRecordId": record_id,
             "erasureRequestId": row["erasureRequestId"],
@@ -435,9 +574,10 @@ class IsolatedErasureCoordinator:
             "sequence": sequence,
             "databaseIdentity": self.expected_db,
             "producerId": self.producer_id,
+            "keyId": self.signing_key.key_id,
             "bodyDigest": body_digest,
         }
-        body["signature"] = sign(signed_subset(body, SIGNED_PENDING), self.producer_key)
+        self._sign(body, SIGNED_PENDING)
         try:
             receipt = self.store.put_if_absent(record_id, canonical_bytes(body))
         except PersistFailed:
@@ -445,10 +585,7 @@ class IsolatedErasureCoordinator:
             row["sequence"] = sequence
             raise
         if not receipt["created"]:
-            existing = verify_pending(
-                self.store, record_id, self.expected_db,
-                {self.producer_id: self.producer_key},
-            )
+            existing = verify_pending(self.store, record_id, self.trust, at=self.clock())
             if existing["bodyDigest"] != body_digest:
                 raise ContractError("ambiguous retry would create a conflicting record")
             self.advance_frontier(expected_through=existing["sequence"], highest_reserved=existing["sequence"])
@@ -468,22 +605,20 @@ class IsolatedErasureCoordinator:
     def publish_checkpoint(self, sequence, entries, capture_protocol="table-share-lock"):
         ledger = canonical_bytes({"kind": "erasure-ledger", "entries": entries})
         body = {
-            "schemaVersion": 1,
+            "schemaVersion": SCHEMA_VERSION,
             "kind": KIND_CHECKPOINT,
             "sequence": sequence,
             "databaseIdentity": self.expected_db,
             "producerId": self.producer_id,
+            "keyId": self.signing_key.key_id,
             "ledgerDigest": sha256_hex(ledger),
             "captureProtocol": capture_protocol,
             "entries": entries,
         }
-        body["signature"] = sign(signed_subset(body, SIGNED_CHECKPOINT), self.producer_key)
+        self._sign(body, SIGNED_CHECKPOINT)
         receipt = self.store.put_if_absent(checkpoint_key(sequence), canonical_bytes(body))
         if not receipt["created"]:
-            verify_checkpoint(
-                self.store, checkpoint_key(sequence), self.expected_db,
-                {self.producer_id: self.producer_key},
-            )
+            verify_checkpoint(self.store, checkpoint_key(sequence), self.trust, at=self.clock())
         return body
 
     @staticmethod
@@ -507,7 +642,7 @@ def _abandoned_reservations(store, published):
     return sorted(abandoned)
 
 
-def recover_latest_trusted(store, expected_db, trusted_keys, required_through_sequence=None):
+def recover_latest_trusted(store, trust, required_through_sequence=None, at=None):
     """Completeness uses the signed store frontier, never listing max.
 
     A contiguous listed prefix is not evidence that the highest records exist.
@@ -516,13 +651,14 @@ def recover_latest_trusted(store, expected_db, trusted_keys, required_through_se
     missing, the verdict is BLOCKED. Local high-water marks are not consulted.
     """
     pending = []
+    at = at or utc_now()
     for key in store.list_prefix("records/"):
-        pending.append(verify_pending(store, key, expected_db, trusted_keys))
+        pending.append(verify_pending(store, key, trust, at=at))
     checkpoints = []
     for key in store.list_prefix("checkpoints/"):
-        checkpoints.append(verify_checkpoint(store, key, expected_db, trusted_keys))
+        checkpoints.append(verify_checkpoint(store, key, trust, at=at))
     published = {item["sequence"] for item in pending + checkpoints}
-    frontier = verify_frontier(store, expected_db, trusted_keys)
+    frontier = verify_frontier(store, trust, at=at)
     abandoned = _abandoned_reservations(store, published)
     listed_max = max(published) if published else None
 
@@ -612,4 +748,53 @@ def production_durable_recording_is_disabled(root=None):
         if "implements DurableErasureRecordStore" in text and (
                 "java.nio.file" in text or "java.io.File" in text or "Paths.get" in text):
             raise ContractError("local directory must not be a production durability provider")
+    return True
+
+
+def fixture_keys_stay_in_tests(root=None):
+    """Guard: the shared fixture keys appear only in tests, and the service has no default key.
+
+    Scans service main sources and resources, Compose files and workflows for every fixture
+    secret (as text and as hex); requires empty defaults for the trust file and signing key id.
+    """
+    root = Path(root or Path(__file__).resolve().parents[2])
+    producer = root / "services/auth-service/src/test/resources/durable-erasure-evidence/v2/producer.json"
+    needles = []
+    for key in json.loads(producer.read_text(encoding="utf-8"))["keys"]:
+        secret = bytes.fromhex(key["keyHex"])
+        needles += [key["keyHex"], secret.decode("utf-8", errors="ignore")]
+    places = [path for path in (root / "services").glob("*/src/main") if path.is_dir()]
+    places += [root / "docker", root / ".github"]
+    for place in places:
+        for path in sorted(place.rglob("*")):
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for needle in needles:
+                if needle and needle in text:
+                    raise ContractError(f"{path.relative_to(root).as_posix()} contains a fixture key")
+    yml = (root / "services/auth-service/src/main/resources/application.yml").read_text(encoding="utf-8")
+    for setting in ("trust-file: ${PARKIO_ERASURE_STORE_TRUST_FILE:}",
+                    "producer-key-id: ${PARKIO_ERASURE_STORE_PRODUCER_KEY_ID:}"):
+        if setting not in yml:
+            raise ContractError("the object-lock store must have no default trust file or signing key")
+    return True
+
+
+def checkpoint_producer_is_disabled(root=None):
+    """Guard: checkpoints stay off by default and no service code calls the producer.
+
+    The cadence is an operator decision, so the producer has no schedule and no caller.
+    """
+    root = Path(root or Path(__file__).resolve().parents[2])
+    yml = (root / "services/auth-service/src/main/resources/application.yml").read_text(encoding="utf-8")
+    if "enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}" not in yml:
+        raise ContractError("erasure checkpoints must stay disabled by default")
+    main_java = root / "services/auth-service/src/main/java/com/parkio/auth"
+    for path in sorted(main_java.rglob("*.java")):
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(main_java).as_posix()
+        for needle, allowed in CHECKPOINT_PRODUCER_SOURCES.items():
+            if needle in text and relative not in allowed:
+                raise ContractError(f"{relative} must not call the checkpoint producer ({needle})")
     return True

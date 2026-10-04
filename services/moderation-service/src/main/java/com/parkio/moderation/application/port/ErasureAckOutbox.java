@@ -1,6 +1,7 @@
 package com.parkio.moderation.application.port;
 
 import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.moderation.domain.event.UserErasureRestoreAcknowledgedEvent;
 
 /**
  * Port for queuing an erasure ACK in the transactional outbox. The implementation must enlist
@@ -10,4 +11,7 @@ import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
 public interface ErasureAckOutbox {
 
     void append(UserErasureAcknowledgedEvent event);
+
+    /** Queues a restore-replay ACK under the same rules; the row is keyed by {@code authUserId}. */
+    void appendRestoreAck(UserErasureRestoreAcknowledgedEvent event);
 }

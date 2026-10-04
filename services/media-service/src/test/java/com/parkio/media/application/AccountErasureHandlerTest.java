@@ -13,8 +13,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.media.application.event.UserErasureRequestedEvent;
+import com.parkio.media.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
 import com.parkio.media.infrastructure.persistence.entity.MediaFileEntity;
 import com.parkio.media.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
@@ -119,5 +121,46 @@ class AccountErasureHandlerTest {
         assertThat(first).isNotEqualTo(second);
         verify(jobs, times(2)).open(eq(first), eq(requestId), eq(owner), any(), any());
         verify(jobs).open(eq(second), eq(requestId), eq(owner), any(), any());
+    }
+
+    @Test
+    void restoreReplayOpensARestoreJobAfterTheMetadataEraseAndThenRunsTheObjectPhase() {
+        UUID owner = UUID.randomUUID();
+        when(mediaFiles.findByOwnerUserId(owner)).thenReturn(List.of());
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(owner);
+
+        handler.replayForRestore(replay);
+
+        UUID jobId = AccountErasureHandler.restoreAckEventId(replay);
+        InOrder order = inOrder(tombstones, jobs, transactions, objectEraser);
+        order.verify(jobs).holdOwner(owner);
+        order.verify(tombstones).save(any());
+        order.verify(jobs).deleteIdempotencyRecords(owner);
+        order.verify(jobs).openRestore(jobId, new RestoreBinding(replay.recoveryAttemptId(),
+                replay.restoredDatasetId(), replay.erasureSetDigest()), owner, NOW, LEASE_END);
+        order.verify(transactions).commit(any());
+        order.verify(objectEraser).process(jobId);
+        verify(jobs, never()).open(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aRestoreRedeliveryReDerivesTheJobIdAndAnotherAttemptGetsANewOne() {
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay(UUID.randomUUID());
+        UserErasureRestoreReplayRequestedEvent redelivered = new UserErasureRestoreReplayRequestedEvent(
+                replay.eventId(), replay.recoveryAttemptId(), replay.restoredDatasetId(), replay.erasureSetDigest(),
+                replay.authUserId(), replay.erasedAt(), replay.occurredAt());
+        UserErasureRestoreReplayRequestedEvent anotherAttempt = new UserErasureRestoreReplayRequestedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), replay.restoredDatasetId(), replay.erasureSetDigest(),
+                replay.authUserId(), replay.erasedAt(), replay.occurredAt());
+
+        assertThat(AccountErasureHandler.restoreAckEventId(redelivered))
+                .isEqualTo(AccountErasureHandler.restoreAckEventId(replay));
+        assertThat(AccountErasureHandler.restoreAckEventId(anotherAttempt))
+                .isNotEqualTo(AccountErasureHandler.restoreAckEventId(replay));
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay(UUID owner) {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), UUID.randomUUID(),
+                "backup-stamp-2026-10-03", "d".repeat(64), owner, Instant.parse("2026-09-29T08:16:00Z"), NOW);
     }
 }

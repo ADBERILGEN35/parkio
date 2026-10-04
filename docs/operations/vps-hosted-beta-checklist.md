@@ -79,7 +79,7 @@ Caddy auto-ACME when DNS and ports 80/443 work. Persist `caddy-data` volume. HST
 
 ## 8. Backups
 
-Nightly cron on `scripts/backup-hosted-beta.sh`. Set `BACKUP_DIR`, optional `BACKUP_ENCRYPT_PASSPHRASE` and `BACKUP_MC_DEST`. RPO ~24h, no PITR.
+Nightly cron on `scripts/backup-hosted-beta.sh`. Set `BACKUP_DIR`, optional `BACKUP_ENCRYPT_PASSPHRASE` and `BACKUP_MC_DEST`. Backups run about every 24 h with no PITR; that is a backup cadence, not a recovery-point commitment, because production restore is BLOCKED (see `disaster-recovery-runbook.md`).
 
 ## 9. Monitoring
 

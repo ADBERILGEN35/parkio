@@ -37,6 +37,28 @@ public class JwtProperties {
 
     private Duration jwksCacheTtl = Duration.ofMinutes(15);
 
+    /*
+     * Bounds for refreshes forced by an unknown kid (U10). The values are policy choices:
+     * at most one forced refresh per cooldown and at most `budget` per window, unknown
+     * kids remembered for the negative-cache TTL in a cache of bounded size, and every
+     * JWKS fetch bounded by the fetch timeout. A new legitimate key is accepted at the
+     * first request after the cooldown while the budget lasts, and in any case at the
+     * next regular refresh (jwks-cache-ttl).
+     */
+    private Duration jwksRefreshCooldown = Duration.ofSeconds(30);
+
+    @Min(1)
+    private int jwksRefreshBudget = 20;
+
+    private Duration jwksRefreshBudgetWindow = Duration.ofHours(1);
+
+    @Min(1)
+    private int jwksNegativeCacheSize = 1000;
+
+    private Duration jwksNegativeCacheTtl = Duration.ofMinutes(5);
+
+    private Duration jwksFetchTimeout = Duration.ofSeconds(10);
+
     public String getIssuer() {
         return issuer;
     }
@@ -75,5 +97,53 @@ public class JwtProperties {
 
     public void setJwksCacheTtl(Duration jwksCacheTtl) {
         this.jwksCacheTtl = jwksCacheTtl;
+    }
+
+    public Duration getJwksRefreshCooldown() {
+        return jwksRefreshCooldown;
+    }
+
+    public void setJwksRefreshCooldown(Duration jwksRefreshCooldown) {
+        this.jwksRefreshCooldown = jwksRefreshCooldown;
+    }
+
+    public int getJwksRefreshBudget() {
+        return jwksRefreshBudget;
+    }
+
+    public void setJwksRefreshBudget(int jwksRefreshBudget) {
+        this.jwksRefreshBudget = jwksRefreshBudget;
+    }
+
+    public Duration getJwksRefreshBudgetWindow() {
+        return jwksRefreshBudgetWindow;
+    }
+
+    public void setJwksRefreshBudgetWindow(Duration jwksRefreshBudgetWindow) {
+        this.jwksRefreshBudgetWindow = jwksRefreshBudgetWindow;
+    }
+
+    public int getJwksNegativeCacheSize() {
+        return jwksNegativeCacheSize;
+    }
+
+    public void setJwksNegativeCacheSize(int jwksNegativeCacheSize) {
+        this.jwksNegativeCacheSize = jwksNegativeCacheSize;
+    }
+
+    public Duration getJwksNegativeCacheTtl() {
+        return jwksNegativeCacheTtl;
+    }
+
+    public void setJwksNegativeCacheTtl(Duration jwksNegativeCacheTtl) {
+        this.jwksNegativeCacheTtl = jwksNegativeCacheTtl;
+    }
+
+    public Duration getJwksFetchTimeout() {
+        return jwksFetchTimeout;
+    }
+
+    public void setJwksFetchTimeout(Duration jwksFetchTimeout) {
+        this.jwksFetchTimeout = jwksFetchTimeout;
     }
 }

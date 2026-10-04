@@ -143,6 +143,11 @@ parkio:
     leaderboard:
       default-limit: 20
       max-limit: 100
+  privacy:
+    # Restore replay during an isolated recovery (docs/architecture/erasure-restore-replay-contract.md).
+    # Off by default: replay commands are acknowledged on Kafka and skipped.
+    restore-replay:
+      enabled: ${PARKIO_RESTORE_REPLAY_ENABLED:false}
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

@@ -1,0 +1,22 @@
+{
+  "checks": [
+    {
+      "error": "frontier signature mismatch",
+      "requiredThrough": null
+    }
+  ],
+  "description": "The frontier's expectedThrough was lowered without re-signing.",
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}
