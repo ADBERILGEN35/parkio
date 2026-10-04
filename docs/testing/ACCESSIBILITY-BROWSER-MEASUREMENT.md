@@ -123,7 +123,7 @@ Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured
 
 ## Known issues (documented, not fixed)
 
-All three were found once `/explore` was measured with the public-explore flag on. All are WCAG 2.5.8 Target Size (Minimum, AA). The toggle and the markers need a map layout change that is outside this measurement change.
+All three were found once `/explore` was measured with the public-explore flag on. All are WCAG 2.5.8 Target Size (Minimum, AA). The toggle and the markers need a map layout change, tracked in Asana 1219147334320125.
 
 | Page | Rule | Where | What |
 |---|---|---|---|
