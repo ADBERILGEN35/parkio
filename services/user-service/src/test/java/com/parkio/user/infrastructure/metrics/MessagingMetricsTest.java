@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.parkio.user.infrastructure.persistence.jpa.InboxEventJpaRepository;
 import com.parkio.user.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.lang.ref.WeakReference;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -25,6 +26,11 @@ class MessagingMetricsTest {
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
+    // Micrometer gauges hold their state object weakly. The service's Spring context keeps the
+    // metrics bean alive; a test that discards the instance lets the collector take it before the
+    // gauges are read, and they then report NaN. Keep it here for the whole test.
+    private MessagingMetrics metrics;
+
     @Test
     void gaugesReflectRepositoryCounts() {
         when(outbox.countByPublishedFalseAndDeadLetteredFalse()).thenReturn(4L);
@@ -32,7 +38,8 @@ class MessagingMetricsTest {
         when(outbox.findOldestUnpublishedCreatedAt()).thenReturn(NOW.minusSeconds(90));
         when(inbox.count()).thenReturn(12L);
 
-        new MessagingMetrics(outbox, inbox, clock, registry);
+        metrics = new MessagingMetrics(outbox, inbox, clock, registry);
+        collectGarbage();
 
         assertThat(registry.get("parkio.outbox.unpublished.count").gauge().value()).isEqualTo(4.0);
         assertThat(registry.get("parkio.outbox.deadlettered.count").gauge().value()).isEqualTo(2.0);
@@ -46,10 +53,23 @@ class MessagingMetricsTest {
         when(outbox.countByDeadLetteredTrue()).thenReturn(0L);
         when(outbox.findOldestUnpublishedCreatedAt()).thenReturn(null);
 
-        new MessagingMetrics(outbox, inbox, clock, registry);
+        metrics = new MessagingMetrics(outbox, inbox, clock, registry);
+        collectGarbage();
 
         assertThat(registry.get("parkio.outbox.unpublished.count").gauge().value()).isZero();
         assertThat(registry.get("parkio.outbox.deadlettered.count").gauge().value()).isZero();
         assertThat(registry.get("parkio.outbox.oldest.unpublished.age.seconds").gauge().value()).isZero();
+    }
+
+    /**
+     * Runs the collector until a fresh, weakly reachable object is gone. A gauge whose state object
+     * were only weakly reachable would read NaN after this.
+     */
+    private static void collectGarbage() {
+        WeakReference<Object> canary = new WeakReference<>(new Object());
+        for (int attempt = 0; attempt < 50 && canary.get() != null; attempt++) {
+            System.gc();
+        }
+        assertThat(canary.get()).as("a garbage collection ran").isNull();
     }
 }

@@ -17,6 +17,15 @@ alerting:
         - targets: ["alerting-alertmanager:9093"]
 
 scrape_configs:
+  # The alert-delivery rules read Alertmanager's and Prometheus's own notification counters.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alerting-alertmanager:9093"]
+
   # Shared fixture exporter is reused by several jobs. Drop the synthetic
   # gauge everywhere except alerting-synthetic so one arm produces one alert
   # group (group_by includes service).

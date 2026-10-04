@@ -20,7 +20,9 @@ public class TrustScoreRepositoryAdapter implements TrustScoreRepository {
 
     @Override
     public TrustScore save(TrustScore trustScore) {
-        return GamificationPersistenceMapper.toDomain(jpa.save(GamificationPersistenceMapper.toEntity(trustScore)));
+        // Flushed so the returned version is the one this change produced; events carry it (U12).
+        return GamificationPersistenceMapper.toDomain(
+                jpa.saveAndFlush(GamificationPersistenceMapper.toEntity(trustScore)));
     }
 
     @Override

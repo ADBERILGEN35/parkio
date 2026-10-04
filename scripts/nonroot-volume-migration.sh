@@ -165,13 +165,16 @@ for row in "${selected[@]}"; do
   before="$evidence/$volume.before.manifest"
 
   if [ "$mode" = apply ]; then
-    manifest_of "$volume" > "$before" || helper_failed manifest "$volume"
+    # Until the .sha256 is written nothing has changed, but the incomplete manifest blocks a second
+    # apply into the same directory, so these failures point to a new one.
+    retry="nothing was changed; apply again with a new --evidence-dir"
+    manifest_of "$volume" > "$before" || helper_failed manifest "$volume" "$retry"
     # The manifest must list every path before anything changes (line counts are exact: paths
     # with a newline were refused in pass 1).
-    paths="$(path_count "$volume")" || helper_failed count "$volume"
+    paths="$(path_count "$volume")" || helper_failed count "$volume" "$retry"
     listed="$(grep -c . "$before" || true)"
     [ "$paths" = "$listed" ] && grep -q ' /v$' "$before" \
-      || helper_failed manifest "$volume" "it lists $listed of $paths paths; nothing was changed"
+      || helper_failed manifest "$volume" "it lists $listed of $paths paths; $retry"
     (cd "$evidence" && sha256sum "$(basename "$before")" > "$(basename "$before").sha256")
     # FOWNER: chown clears the set-id bits of an entry root does not own, which is a mode change.
     "${HELPER[@]}" --cap-add CHOWN --cap-add DAC_READ_SEARCH --cap-add FOWNER -v "$volume:/v" \
@@ -211,7 +214,11 @@ for row in "${selected[@]}"; do
         awk -v m="$m" "\$4 !~ /^l/ && \$3 == m" /tmp/keep | cut -d" " -f5- | tr "\n" "\0" | xargs -0 -r chmod "$m"
       done
       echo "missing=$(( $(wc -l < /tmp/m) - $(wc -l < /tmp/keep) )) new=$(wc -l < /tmp/new) new_owner=$root_owner"' < "$before")" \
-      || helper_failed restore "$volume" "run restore again; it reapplies the whole manifest"
+      || {
+        # Exit 4 is the helper's own manifest check, before any change: rerunning cannot help.
+        [ "$?" != 4 ] || helper_failed restore "$volume" "$before is not a usable manifest (it passed its .sha256, so both were changed after apply); nothing was changed and a rerun fails the same way. Restore needs the manifest apply wrote"
+        helper_failed restore "$volume" "run restore again; it reapplies the whole manifest"
+      }
     restored="$evidence/$volume.restored.manifest"
     manifest_of "$volume" > "$restored" || helper_failed manifest "$volume"
     check="$(verify_restore "$before" "$restored")"
