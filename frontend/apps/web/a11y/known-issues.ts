@@ -41,6 +41,6 @@ export const KNOWN_ISSUES: KnownIssue[] = [
       "The release image's map attribution line credits MapLibre with a 14 px high link, next to the map data " +
       "credits that MapTiler and OpenStreetMap require. WCAG 2.5.8 exempts it as an inline target constrained by " +
       'the line height of the surrounding text; axe cannot tell, so it is listed here (Asana 1219147334320125). ' +
-      'The dev server, without a MapTiler key, does not show it.',
+      'The dev server, without a MapTiler key, shows the link but axe does not report it there.',
   },
 ];
