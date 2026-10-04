@@ -94,7 +94,9 @@ async function login(page: Page) {
 
 async function gotoUpload(page: Page) {
   await page.goto('/upload');
-  await expect(page.locator('main h1')).toBeVisible();
+  // The wizard itself (its step progress), not the route's loading fallback, which also renders a
+  // main h1: a click during loading never meets the unsaved-changes guard.
+  await expect(page.getByRole('progressbar')).toBeVisible();
 }
 
 test.describe('Upload unsaved-changes guard', () => {
