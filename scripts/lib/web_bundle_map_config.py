@@ -40,8 +40,16 @@ KNOWN_PLACEHOLDER_VALUES = frozenset(
         "ci-public-map-key",
         "fixture-public-map-key",
         "fixture-public-map-key-never-use-in-production",
+        # Example env values (docker/.env.invite-production.example, docker/.env.hosted-beta.example,
+        # frontend/apps/web/.env.example): a build from an example env bakes them (U17 CL-F05R).
+        "REPLACE_ME_maptiler_public_key",
+        "your_maptiler_key",
     }
 )
+_PLACEHOLDERS_LOWER = frozenset(value.lower() for value in KNOWN_PLACEHOLDER_VALUES)
+# Any value with this prefix is an unfilled template placeholder, whatever its case and suffix.
+PLACEHOLDER_PREFIX = "REPLACE_ME_"
+QUOTED_PREFIXED = re.compile(r"""["']REPLACE_ME_[^"']*["']""", re.IGNORECASE)
 
 ENV_MEMBER = re.compile(r"""["']?\bVITE_APP_ENV["']?\s*:""")
 PAIR = re.compile(r"""["']?(VITE_[A-Z0-9_]+)["']?\s*:\s*"((?:[^"\\]|\\.)*)\"""")
@@ -50,7 +58,7 @@ MAX_JS_BYTES = 64 * 1024 * 1024
 
 def is_synthetic(value: str) -> bool:
     v = value.strip()
-    if v in KNOWN_PLACEHOLDER_VALUES:
+    if v.lower() in _PLACEHOLDERS_LOWER or v.upper().startswith(PLACEHOLDER_PREFIX):
         return True
     return v == SYNTHETIC_CLASS_PREFIX or v.startswith(SYNTHETIC_CLASS_PREFIX + "-") \
         or v.startswith(SYNTHETIC_CLASS_PREFIX + "_") or v.startswith(SYNTHETIC_CLASS_PREFIX + ".")
@@ -136,6 +144,8 @@ def classify(root: str) -> dict:
             # Quoted, so a placeholder that merely prefixes another token is not hit.
             if f'"{needle}"' in source or f"'{needle}'" in source:
                 verdict["knownPlaceholderInRawJs"] = True
+        if QUOTED_PREFIXED.search(source):
+            verdict["knownPlaceholderInRawJs"] = True
         for env in env_literals(source):
             verdict["envObjects"] += 1
             if "VITE_APP_ENV" in env:

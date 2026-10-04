@@ -155,6 +155,16 @@ run_backup() {
   "${ROOT}/scripts/backup-hosted-beta.sh" --operator restore-drill-01-ci | tee "${log}"
   dest="$(sed -n 's/^destination=//p' "${log}" | head -1)"
   [ -n "${dest}" ] && [ -f "${dest}/COMPLETE" ] || { echo "ERROR: no COMPLETE stamp from backup $1" >&2; exit 1; }
+  # U14: the upload is recorded beside the stamp and bound to its sealed SHA256SUMS.
+  python3 - "${dest}" >&2 <<'PY' || { echo "ERROR: wrong offsite receipt for backup $1" >&2; exit 1; }
+import hashlib, json, pathlib, sys
+stamp = pathlib.Path(sys.argv[1])
+receipt = json.loads(stamp.with_name(stamp.name + ".offsite-receipt.json").read_text())
+assert receipt["uploaded"] is True and receipt["stamp"] == stamp.name, receipt
+assert receipt["offsite"] == {"kind": "s3", "target": f"offsite/parkio-backups/{stamp.name}"}, receipt
+assert receipt["sealed"]["sha256sums"] == hashlib.sha256((stamp / "SHA256SUMS").read_bytes()).hexdigest()
+print(f"offsite receipt for {stamp.name}: {receipt['offsite']['target']}")
+PY
   DESTS+=("${dest}")
   basename "${dest}"
 }

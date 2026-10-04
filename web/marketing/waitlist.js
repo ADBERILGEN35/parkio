@@ -80,7 +80,12 @@
       if (body && body.code === 'WAITLIST_ADMISSIONS_DISABLED') {
         return { ok: false, code: 'ADMISSIONS_DISABLED' };
       }
-      return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
+      // Only this code means the signup was saved and just the e-mail failed. Any other 503,
+      // such as an outage in front of the API, saved nothing (CL-F19).
+      if (body && body.code === 'WAITLIST_EMAIL_DELIVERY_FAILED') {
+        return { ok: false, code: 'EMAIL_DELIVERY_FAILED' };
+      }
+      return { ok: false, code: 'SERVER_ERROR' };
     }
     if (response.status >= 400 && response.status < 500) {
       const body = await response.json().catch(() => ({}));
@@ -108,6 +113,16 @@
     return { ok: true, status: 'accepted', mock: true };
   }
 
+  /**
+   * Token pages: 400 means the link itself is invalid or expired (WAITLIST_TOKEN_INVALID, or a
+   * malformed token), so retrying cannot help. A rate limit and anything else are distinct.
+   */
+  function tokenFailure(response) {
+    if (response.status === 400) return { ok: false, code: 'WAITLIST_TOKEN_INVALID' };
+    if (response.status === 429) return { ok: false, code: 'RATE_LIMITED' };
+    return { ok: false, code: 'SERVER_ERROR' };
+  }
+
   async function confirmApi(token) {
     const response = await fetch(`${apiBase()}/waitlist/confirm`, {
       method: 'POST',
@@ -116,7 +131,7 @@
       body: JSON.stringify({ token }),
     });
     if (response.status === 202) return { ok: true, status: 'confirmed' };
-    return { ok: false, code: 'WAITLIST_TOKEN_INVALID' };
+    return tokenFailure(response);
   }
 
   async function withdrawApi(token) {
@@ -127,7 +142,7 @@
       body: JSON.stringify({ token }),
     });
     if (response.status === 202) return { ok: true, status: 'withdrawn' };
-    return { ok: false, code: 'WAITLIST_TOKEN_INVALID' };
+    return tokenFailure(response);
   }
 
   async function confirmMock(token) {
@@ -207,7 +222,17 @@
     if (result && result.ok) {
       return kind === 'confirm' ? 'waitlist.page.confirm.success' : 'waitlist.page.withdraw.success';
     }
-    return 'waitlist.error.generic';
+    switch (result && result.code) {
+      case 'WAITLIST_TOKEN_INVALID':
+        // No retry suggestion: the same link fails the same way every time.
+        return kind === 'confirm' ? 'waitlist.page.confirm.invalid' : 'waitlist.page.withdraw.invalid';
+      case 'RATE_LIMITED':
+        return 'waitlist.error.rate';
+      case 'SERVER_ERROR':
+        return 'waitlist.page.token.serverError';
+      default:
+        return 'waitlist.error.network';
+    }
   }
 
   function applyUnavailableUi(form) {
@@ -350,7 +375,7 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!token) {
-        setFeedbackKey(feedback, 'waitlist.error.generic', 'error');
+        setFeedbackKey(feedback, tokenFeedbackKey(kind, { ok: false, code: 'WAITLIST_TOKEN_INVALID' }), 'error');
         return;
       }
       button.disabled = true;
