@@ -140,6 +140,12 @@ jobs:
       - name: Service-worker upgrade browser acceptance
         run: pnpm --filter @parkio/web e2e:sw-upgrade
 
+      # CL-F21: an auth link's lang decides the page language over a stored preference
+      # (reset-password and login; register and verify as unchanged controls). Every
+      # network call is mocked; the report guard rejects skipped or zero-test runs.
+      - name: Auth link language browser acceptance
+        run: pnpm --filter @parkio/web e2e:link-locale
+
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
       #
