@@ -12,8 +12,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.event.UserErasureRequestedEvent;
+import com.parkio.parking.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.parking.application.port.ErasureAckOutbox;
 import com.parkio.parking.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.parking.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.parking.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -97,5 +99,48 @@ class AccountErasureHandlerTest {
 
     private static UserErasureRequestedEvent event() {
         return new UserErasureRequestedEvent(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), NOW);
+    }
+
+    @Test
+    void restoreReplayErasesThenQueuesTheAttemptBoundAck() {
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay();
+
+        handler.replayForRestore(replay);
+
+        InOrder order = inOrder(tombstones, ackOutbox);
+        order.verify(tombstones).save(any());
+        ArgumentCaptor<UserErasureRestoreAcknowledgedEvent> ack =
+                ArgumentCaptor.forClass(UserErasureRestoreAcknowledgedEvent.class);
+        order.verify(ackOutbox).appendRestoreAck(ack.capture());
+        assertThat(ack.getValue().eventId()).isEqualTo(AccountErasureHandler.restoreAckEventId(replay));
+        assertThat(ack.getValue().recoveryAttemptId()).isEqualTo(replay.recoveryAttemptId());
+        assertThat(ack.getValue().restoredDatasetId()).isEqualTo(replay.restoredDatasetId());
+        assertThat(ack.getValue().erasureSetDigest()).isEqualTo(replay.erasureSetDigest());
+        assertThat(ack.getValue().authUserId()).isEqualTo(replay.authUserId());
+        assertThat(ack.getValue().serviceName()).isEqualTo("parking");
+        assertThat(ack.getValue().status()).isEqualTo("SUCCESS");
+        assertThat(ack.getValue().occurredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void aRestoreRedeliveryReDerivesTheAckIdAndAnotherAttemptGetsANewOne() {
+        UserErasureRestoreReplayRequestedEvent replay = restoreReplay();
+        UserErasureRestoreReplayRequestedEvent redelivered = new UserErasureRestoreReplayRequestedEvent(
+                replay.eventId(), replay.recoveryAttemptId(), replay.restoredDatasetId(), replay.erasureSetDigest(),
+                replay.authUserId(), replay.erasedAt(), replay.occurredAt());
+        UserErasureRestoreReplayRequestedEvent anotherAttempt = new UserErasureRestoreReplayRequestedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), replay.restoredDatasetId(), replay.erasureSetDigest(),
+                replay.authUserId(), replay.erasedAt(), replay.occurredAt());
+
+        assertThat(AccountErasureHandler.restoreAckEventId(redelivered))
+                .isEqualTo(AccountErasureHandler.restoreAckEventId(replay));
+        assertThat(AccountErasureHandler.restoreAckEventId(anotherAttempt))
+                .isNotEqualTo(AccountErasureHandler.restoreAckEventId(replay));
+    }
+
+    private static UserErasureRestoreReplayRequestedEvent restoreReplay() {
+        return new UserErasureRestoreReplayRequestedEvent(UUID.randomUUID(), UUID.randomUUID(),
+                "backup-stamp-2026-10-03", "d".repeat(64), UUID.randomUUID(),
+                Instant.parse("2026-09-29T08:16:00Z"), NOW);
     }
 }

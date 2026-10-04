@@ -4,10 +4,12 @@ import com.parkio.media.application.port.ErasureAckOutbox;
 import com.parkio.media.application.port.MediaStoragePort;
 import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
+import com.parkio.media.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.StoredMedia;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -299,15 +301,15 @@ public class MediaObjectErasureWorker {
         if (failures > 0) {
             jobs.scheduleRetry(job.ackEventId(), token, failures + " object(s) not confirmed deleted; first "
                     + firstFailure, now.plus(backoff(job.attempts() + 1)), now);
-            log.warn("media erasure requestId={} objects not confirmed deleted failures={} status=RETRY_SCHEDULED",
-                    job.erasureRequestId(), failures);
+            log.warn("media erasure {} objects not confirmed deleted failures={} status=RETRY_SCHEDULED",
+                    job.subject(), failures);
             return Outcome.RETRY_SCHEDULED;
         }
         if (budgetSpent) {
             budgetStops.increment();
             jobs.release(job.ackEventId(), token, now, now);
-            log.info("media erasure requestId={} attempt budget spent; work continues status=RETRY_SCHEDULED",
-                    job.erasureRequestId());
+            log.info("media erasure {} attempt budget spent; work continues status=RETRY_SCHEDULED",
+                    job.subject());
             return Outcome.RETRY_SCHEDULED;
         }
         if (outcomeUnknown > 0) {
@@ -315,8 +317,8 @@ public class MediaObjectErasureWorker {
             // pending and keeps looking until each write's object is observed (and then removed).
             jobs.scheduleRetry(job.ackEventId(), token, outcomeUnknown + " object write(s) of unknown outcome;"
                     + " SUCCESS waits until each is observed", now.plus(backoff(job.attempts() + 1)), now);
-            log.warn("media erasure requestId={} waiting for object writes of unknown outcome count={} status=RETRY_SCHEDULED",
-                    job.erasureRequestId(), outcomeUnknown);
+            log.warn("media erasure {} waiting for object writes of unknown outcome count={} status=RETRY_SCHEDULED",
+                    job.subject(), outcomeUnknown);
             return Outcome.RETRY_SCHEDULED;
         }
         Boolean completed = tx.execute(status -> {
@@ -331,17 +333,32 @@ public class MediaObjectErasureWorker {
                 return Boolean.FALSE;
             }
             jobs.deleteIdempotencyRecords(job.authUserId());
-            ackOutbox.append(new UserErasureAcknowledgedEvent(
-                    job.ackEventId(), job.erasureRequestId(), job.authUserId(), AccountErasureHandler.SERVICE_NAME,
-                    "SUCCESS", clock.instant()));
+            queueSuccess(job);
             jobs.delete(job.ackEventId());
             return Boolean.TRUE;
         });
         if (Boolean.TRUE.equals(completed)) {
-            log.info("media erasure requestId={} objects confirmed status=SUCCESS_QUEUED", job.erasureRequestId());
+            log.info("media erasure {} objects confirmed status=SUCCESS_QUEUED", job.subject());
             return Outcome.ACK_QUEUED;
         }
         return jobs.find(job.ackEventId()).isPresent() ? Outcome.RETRY_SCHEDULED : Outcome.NOT_PENDING;
+    }
+
+    /**
+     * The live ACK of the erase request, or for a restore-replay job the attempt-bound restore ACK
+     * (docs/architecture/erasure-restore-replay-contract.md). The job's id is the ACK's event id.
+     */
+    private void queueSuccess(Job job) {
+        RestoreBinding restore = job.restore();
+        if (restore == null) {
+            ackOutbox.append(new UserErasureAcknowledgedEvent(
+                    job.ackEventId(), job.erasureRequestId(), job.authUserId(), AccountErasureHandler.SERVICE_NAME,
+                    "SUCCESS", clock.instant()));
+            return;
+        }
+        ackOutbox.appendRestoreAck(new UserErasureRestoreAcknowledgedEvent(
+                job.ackEventId(), restore.recoveryAttemptId(), restore.restoredDatasetId(), restore.erasureSetDigest(),
+                job.authUserId(), AccountErasureHandler.SERVICE_NAME, "SUCCESS", clock.instant()));
     }
 
     /**

@@ -54,9 +54,18 @@ public final class DurableErasureEvidenceVerifier {
     }
 
     /**
+     * The frontier read from all of its versions: the highest verified version (empty when the
+     * store holds no frontier) and the number of versions that failed verification and were
+     * ignored.
+     */
+    public record FrontierVersions(Optional<VerifiedFrontier> highest, int ignoredVersions) {
+    }
+
+    /**
      * Completeness uses the signed frontier, never the highest listed sequence: no frontier is
      * {@link Verdict#UNKNOWN}; a missing record in {@code 1..expectedThrough} is
-     * {@link Verdict#BLOCKED}.
+     * {@link Verdict#BLOCKED}. {@code ignoredFrontierVersions} counts frontier versions that failed
+     * verification: tamper evidence for the operator. They neither raise nor lower the boundary.
      */
     public record RecoveryVerdict(Verdict verdict,
                                   Long expectedThrough,
@@ -66,7 +75,8 @@ public final class DurableErasureEvidenceVerifier {
                                   List<Long> gaps,
                                   List<Long> abandonedReservations,
                                   List<VerifiedPending> pending,
-                                  String reason) {
+                                  String reason,
+                                  int ignoredFrontierVersions) {
 
         public boolean completenessEstablished() {
             return verdict == Verdict.ACCEPT_ISOLATED;
@@ -127,11 +137,13 @@ public final class DurableErasureEvidenceVerifier {
      * is rewritten, and a versioned store (object lock) keeps every version but may list them out
      * of write order (by modification time, after a backward clock step). Its contents only grow,
      * so the highest verified version is the current one. Versions that fail verification are
-     * ignored while another version verifies; if none does, the first failure is thrown.
+     * ignored while another version verifies, and counted; if none verifies, the first failure is
+     * thrown.
      */
-    public Optional<VerifiedFrontier> verifyFrontierVersions(List<byte[]> versions) {
+    public FrontierVersions verifyFrontierVersions(List<byte[]> versions) {
         VerifiedFrontier highest = null;
         DurableEvidenceException firstFailure = null;
+        int ignored = 0;
         for (byte[] version : versions) {
             try {
                 VerifiedFrontier frontier = verifyFrontier(Optional.of(version)).orElseThrow();
@@ -139,6 +151,7 @@ public final class DurableErasureEvidenceVerifier {
                     highest = frontier;
                 }
             } catch (DurableEvidenceException ex) {
+                ignored++;
                 if (firstFailure == null) {
                     firstFailure = ex;
                 }
@@ -147,7 +160,7 @@ public final class DurableErasureEvidenceVerifier {
         if (highest == null && firstFailure != null) {
             throw firstFailure;
         }
-        return Optional.ofNullable(highest);
+        return new FrontierVersions(Optional.ofNullable(highest), ignored);
     }
 
     public VerifiedCheckpoint verifyCheckpoint(byte[] raw) {
@@ -177,13 +190,16 @@ public final class DurableErasureEvidenceVerifier {
         Set<Long> published = new TreeSet<>();
         pending.forEach(item -> published.add(item.sequence()));
         checkpoints.forEach(item -> published.add(item.sequence()));
-        Optional<VerifiedFrontier> frontier = verifyFrontierVersions(store.findAll(FRONTIER_KEY));
+        FrontierVersions frontierVersions = verifyFrontierVersions(store.findAll(FRONTIER_KEY));
+        Optional<VerifiedFrontier> frontier = frontierVersions.highest();
+        int ignored = frontierVersions.ignoredVersions();
         List<Long> abandoned = abandonedReservations(store, published);
         Long listedMaximum = published.isEmpty() ? null : Collections.max(published);
 
         if (frontier.isEmpty()) {
             return result(Verdict.UNKNOWN, null, null, List.of(), checkpoints, listedMaximum, abandoned,
-                    List.of(), "independently durable expected boundary is missing", requiredThroughSequence);
+                    List.of(), "independently durable expected boundary is missing", requiredThroughSequence,
+                    ignored);
         }
         long expectedThrough = frontier.get().expectedThrough();
         List<Long> gaps = LongStream.rangeClosed(1, expectedThrough)
@@ -193,24 +209,24 @@ public final class DurableErasureEvidenceVerifier {
         if (!gaps.isEmpty() || (expectedThrough == 0 && !abandoned.isEmpty())) {
             return result(Verdict.BLOCKED, expectedThrough, null, gaps, checkpoints, listedMaximum, abandoned,
                     List.of(), "expected boundary is present but published records are incomplete",
-                    requiredThroughSequence);
+                    requiredThroughSequence, ignored);
         }
         if (expectedThrough == 0) {
             return result(Verdict.ACCEPT_ISOLATED, 0L, null, gaps, checkpoints, listedMaximum, abandoned,
                     List.of(), "expected boundary is zero and no abandoned reservation remains",
-                    requiredThroughSequence);
+                    requiredThroughSequence, ignored);
         }
         List<VerifiedPending> trusted = pending.stream()
                 .filter(item -> item.sequence() <= expectedThrough)
                 .toList();
         return result(Verdict.ACCEPT_ISOLATED, expectedThrough, expectedThrough, gaps, checkpoints, listedMaximum,
-                abandoned, trusted, null, requiredThroughSequence);
+                abandoned, trusted, null, requiredThroughSequence, ignored);
     }
 
     private static RecoveryVerdict result(Verdict verdict, Long expectedThrough, Long latest, List<Long> gaps,
                                           List<VerifiedCheckpoint> checkpoints, Long listedMaximum,
                                           List<Long> abandoned, List<VerifiedPending> trusted, String reason,
-                                          Long requiredThroughSequence) {
+                                          Long requiredThroughSequence, int ignoredFrontierVersions) {
         Long latestCheckpoint = latest == null ? null : checkpoints.stream()
                 .map(VerifiedCheckpoint::sequence)
                 .filter(sequence -> sequence <= latest)
@@ -226,7 +242,7 @@ public final class DurableErasureEvidenceVerifier {
             }
         }
         return new RecoveryVerdict(verdict, expectedThrough, latest, latestCheckpoint, listedMaximum,
-                List.copyOf(gaps), List.copyOf(abandoned), List.copyOf(trusted), reason);
+                List.copyOf(gaps), List.copyOf(abandoned), List.copyOf(trusted), reason, ignoredFrontierVersions);
     }
 
     /** Reserved sequences without a published record or checkpoint (markers are unsigned). */
