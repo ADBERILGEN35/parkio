@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
 import { FriendlyApiErrorMessage } from '@/components/FriendlyApiErrorMessage';
 import { adminKeys } from '@/data/keys';
+import { fromLocalDateTimeInput, toLocalDateTimeInput } from '@/lib/localDateTimeInput';
 
 const STATUSES: Array<WaitlistSubscriptionStatus | ''> = [
   '',
@@ -22,8 +23,13 @@ function formatInstant(value: string | null | undefined, fallback: string): stri
   return date.toLocaleString();
 }
 
+const UTF8_BOM = '\uFEFF';
+
 function downloadCsv(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  // The server starts the CSV with a UTF-8 BOM for spreadsheet clients, but decoding the
+  // response as text drops it. Put it back once, so the saved file starts with EF BB BF.
+  const content = csv.startsWith(UTF8_BOM) ? csv : UTF8_BOM + csv;
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -42,6 +48,9 @@ export function AdminWaitlistPage() {
   const [params, setParams] = useSearchParams();
   const [exportError, setExportError] = useState<unknown>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportTruncation, setExportTruncation] = useState<{ matching: number; limit: number } | null>(null);
+  const [confirmedFrom, setConfirmedFrom] = useState('');
+  const [confirmedTo, setConfirmedTo] = useState('');
 
   const status = (params.get('status') ?? '') as WaitlistSubscriptionStatus | '';
   const createdFrom = params.get('createdFrom') ?? '';
@@ -77,13 +86,17 @@ export function AdminWaitlistPage() {
 
   async function onExportConfirmed() {
     setExportError(null);
+    setExportTruncation(null);
     setExporting(true);
     try {
-      const csv = await waitlistApi.exportConfirmedCsv({
-        createdFrom: createdFrom || undefined,
-        createdTo: createdTo || undefined,
+      const result = await waitlistApi.exportConfirmedCsv({
+        confirmedFrom: confirmedFrom || undefined,
+        confirmedTo: confirmedTo || undefined,
       });
-      downloadCsv('parkio-waitlist-confirmed.csv', csv);
+      downloadCsv('parkio-waitlist-confirmed.csv', result.csv);
+      if (result.truncated) {
+        setExportTruncation({ matching: result.matchingRows ?? 0, limit: result.rowLimit ?? 0 });
+      }
     } catch (error) {
       setExportError(error);
     } finally {
@@ -132,10 +145,10 @@ export function AdminWaitlistPage() {
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.createdFrom')}</span>
             <Input
               type="datetime-local"
-              value={createdFrom ? createdFrom.slice(0, 16) : ''}
+              value={toLocalDateTimeInput(createdFrom)}
               onChange={(e) =>
                 update({
-                  createdFrom: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  createdFrom: fromLocalDateTimeInput(e.target.value),
                 })
               }
             />
@@ -144,10 +157,10 @@ export function AdminWaitlistPage() {
             <span className="mb-xs block text-label-md font-semibold">{t('waitlist.createdTo')}</span>
             <Input
               type="datetime-local"
-              value={createdTo ? createdTo.slice(0, 16) : ''}
+              value={toLocalDateTimeInput(createdTo)}
               onChange={(e) =>
                 update({
-                  createdTo: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  createdTo: fromLocalDateTimeInput(e.target.value),
                 })
               }
             />
@@ -155,6 +168,24 @@ export function AdminWaitlistPage() {
           <Button type="button" variant="ghost" onClick={() => setParams(new URLSearchParams())}>
             {t('common.reset')}
           </Button>
+        </div>
+        <div className="mt-md flex flex-col gap-sm md:flex-row md:items-end">
+          <label>
+            <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedFrom')}</span>
+            <Input
+              type="datetime-local"
+              value={toLocalDateTimeInput(confirmedFrom)}
+              onChange={(e) => setConfirmedFrom(fromLocalDateTimeInput(e.target.value))}
+            />
+          </label>
+          <label>
+            <span className="mb-xs block text-label-md font-semibold">{t('waitlist.confirmedTo')}</span>
+            <Input
+              type="datetime-local"
+              value={toLocalDateTimeInput(confirmedTo)}
+              onChange={(e) => setConfirmedTo(fromLocalDateTimeInput(e.target.value))}
+            />
+          </label>
           <Button type="button" onClick={() => void onExportConfirmed()} disabled={exporting}>
             {exporting ? t('waitlist.exporting') : t('waitlist.exportConfirmed')}
           </Button>
@@ -163,6 +194,11 @@ export function AdminWaitlistPage() {
           <div className="mt-sm">
             <FriendlyApiErrorMessage error={exportError} />
           </div>
+        ) : null}
+        {exportTruncation ? (
+          <p role="status" className="mb-0 mt-sm text-body-sm font-semibold text-on-surface">
+            {t('waitlist.exportTruncated', exportTruncation)}
+          </p>
         ) : null}
         <p className="mb-0 mt-sm text-body-sm text-on-surface-variant">{t('waitlist.exportNote')}</p>
       </Card>

@@ -64,8 +64,10 @@ PARKIO_ENV_FILE=docker/.env \
 
 `--manifest` must be the copy you reviewed (usually `backup-manifest.json` inside
 the stamp). The script refuses a stale `.destination` that points at a different
-directory. `offsite.uploaded=false` is a known sealed-stamp defect; it is not
+directory. A sealed stamp keeps its seal-time `offsite.uploaded=false`; it is not
 local integrity proof and not independent remote presence. Do not rewrite stamps.
+Newer stamps record the upload in `<stamp>.offsite-receipt.json` beside the stamp
+directory. That records the upload commands' success, not remote presence.
 
 Dry-run (supported: stamp preflight only, nothing is decrypted or applied):
 

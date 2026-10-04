@@ -11,7 +11,10 @@ import org.springframework.stereotype.Component;
 public class BCryptPasswordHasher implements PasswordHasher {
 
     private final PasswordEncoder encoder = new BCryptPasswordEncoder();
-    /** Same encoder and cost as stored hashes; random input, so no password matches it. */
+    /**
+     * Same encoder and cost as stored hashes; random input, so no password matches it. A future
+     * cost upgrade or rehash-on-login must build this hash with the encoder new passwords use.
+     */
     private final String unknownAccountHash = encoder.encode(UUID.randomUUID().toString());
 
     @Override

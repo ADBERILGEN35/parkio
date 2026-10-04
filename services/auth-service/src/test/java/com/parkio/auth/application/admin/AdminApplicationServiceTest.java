@@ -576,6 +576,10 @@ class AdminApplicationServiceTest {
         public boolean matches(String rawPassword, String hash) {
             return true;
         }
+
+        @Override
+        public void compareWithoutAccount(String rawPassword) {
+        }
     }
 
     private static final class FakeRefreshTokenHasher implements RefreshTokenHasher {
