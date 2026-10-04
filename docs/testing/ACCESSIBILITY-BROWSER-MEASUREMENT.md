@@ -42,7 +42,7 @@ Later commits change only the measurement harness and this document, not the web
 | `/verify-email?token=…` | no | pass | pass | The success toast is measured with all four toast palettes. Focus cycles while the toast is open (see Observations). |
 | `/terms` | no | pass | pass | Reached by in-app navigation. A direct request is redirected by nginx to the marketing site, measured below. |
 | `/privacy` | no | pass | pass | As `/terms`. |
-| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. Known `target-size` issues: two on the dev server, three on the release image (see Known issues). No `main` landmark (best practice; see Observations). |
+| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. The two synthetic car parks lie within the query's 5 km of the default origin, as the API returns them. One known `target-size` entry, the release image's attribution text link (see Known issues). No `main` landmark (best practice; see Observations). |
 | `/map` | yes | pass | pass | No `h1` (best practice). |
 | `/upload` | yes | pass | pass | |
 | `/profile` | yes | pass | pass | |
@@ -123,10 +123,15 @@ Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured
 
 ## Known issues (documented, not fixed)
 
-All three were found once `/explore` was measured with the public-explore flag on. All are WCAG 2.5.8 Target Size (Minimum, AA). The toggle and the markers need a map layout change, tracked in Asana 1219147334320125.
-
 | Page | Rule | Where | What |
 |---|---|---|---|
-| `/explore` | `target-size` | `summary.maplibregl-ctrl-attrib-button` | At desktop width, MapLibre's attribution toggle (bottom-right) sits under the floating zoom rail, so only 24x6 px of it can be clicked. The rail moves left only when a results sidebar is open, which `/explore` does not have. |
-| `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line shows a 55x14 px "MapLibre" text link. WCAG 2.5.8 exempts such inline links, but axe measures them. The dev server, which has no MapTiler key, does not show it. |
-| `/explore` | `target-size` | `button[data-facility-id=…]` | Until the map has framed the results, two car parks about 1.4 km apart cover each other at the starting zoom (40x2 px left). It is reported only when axe runs before the framing, which is a matter of timing. |
+| `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line can show a 14 px high "MapLibre" text link. WCAG 2.5.8 exempts targets inline in a line of text, and the line carries the map data credits MapTiler and OpenStreetMap require, but axe measures the link. The dev server, which has no MapTiler key, does not report it. |
+
+### Fixed (Asana 1219147334320125)
+
+Two further `target-size` issues on `/explore`, found once it was measured with the public-explore flag on, are fixed. Each fails again if its change is reverted.
+
+- **Attribution toggle under the zoom rail.** At desktop width, MapLibre's attribution toggle sat under the floating zoom rail's zoom-out button, so only 24x6 px of it could be clicked. When the rail is at the map's right edge on desktop, it now sits 3rem up (`md:bottom-12`): `/explore`, and `/map` with its results sidebar closed. With the sidebar open, and on phones, it has not moved.
+- **Overlapping markers.** This came from the measurement's mocks, not the product. The synthetic car parks were in Istanbul, 330 km from the explore query's İzmir origin, so the map framed both cities and the two markers covered each other. They are now within the query's 5 km, about 3 km apart.
+
+Real car parks that are only a few metres apart can still overlap at the frame's maximum zoom. Clustering them would be a product decision; it is not part of this fix.
