@@ -5,13 +5,18 @@ import com.parkio.gateway.application.waitlist.WaitlistAdminCounts;
 import com.parkio.gateway.application.waitlist.WaitlistAdminPage;
 import com.parkio.gateway.application.waitlist.WaitlistApplicationService;
 import com.parkio.gateway.application.waitlist.WaitlistCsv;
+import com.parkio.gateway.application.waitlist.WaitlistExport;
+import com.parkio.gateway.application.waitlist.WaitlistExportFilterException;
 import com.parkio.gateway.application.waitlist.WaitlistExportRow;
 import com.parkio.gateway.application.waitlist.WaitlistStatus;
 import com.parkio.gateway.infrastructure.config.ClientIpResolver;
+import com.parkio.gateway.shared.GatewayHeaders;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -25,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @RestController
@@ -34,6 +40,7 @@ public class WaitlistController {
     private static final WaitlistAcceptedResponse CONFIRMED = new WaitlistAcceptedResponse("confirmed");
     private static final WaitlistAcceptedResponse WITHDRAWN = new WaitlistAcceptedResponse("withdrawn");
     private static final String NO_STORE = "no-store";
+    private static final String CSV_HEADER = "email,fullName,city,role,source,createdAt,consentTimestamp\n";
 
     private final WaitlistApplicationService waitlistService;
     private final ClientIpResolver clientIpResolver;
@@ -109,12 +116,25 @@ public class WaitlistController {
                         .body(result));
     }
 
+    /**
+     * Confirmed subscriptions as CSV (UTF-8 with a BOM, for spreadsheet clients), filtered by
+     * confirmation time and streamed one bounded page at a time. At most
+     * {@code parkio.waitlist.export.max-rows} rows are returned; the response headers say how many
+     * rows matched and whether the export was truncated. {@code createdFrom}/{@code createdTo} are
+     * refused: the export filters by confirmation time, not registration time.
+     */
     @GetMapping(value = "/api/v1/waitlist/export", produces = "text/csv")
-    public Mono<ResponseEntity<byte[]>> export(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo) {
-        return waitlistService.export(createdFrom, createdTo)
-                .map(rows -> ResponseEntity.ok()
+    public Mono<ResponseEntity<Flux<DataBuffer>>> export(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant confirmedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant confirmedTo,
+            @RequestParam(required = false) String createdFrom,
+            @RequestParam(required = false) String createdTo) {
+        if (createdFrom != null || createdTo != null) {
+            return Mono.error(new WaitlistExportFilterException(
+                    "The confirmed export filters by confirmation time; use confirmedFrom and confirmedTo."));
+        }
+        return waitlistService.export(confirmedFrom, confirmedTo)
+                .map(export -> ResponseEntity.ok()
                         .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
                         .header(HttpHeaders.CACHE_CONTROL, NO_STORE)
                         .header(HttpHeaders.PRAGMA, "no-cache")
@@ -123,11 +143,26 @@ public class WaitlistController {
                                         .filename("parkio-waitlist-confirmed.csv")
                                         .build()
                                         .toString())
-                        .body(toCsv(rows).getBytes(StandardCharsets.UTF_8)));
+                        .header(GatewayHeaders.EXPORT_ROW_LIMIT, Integer.toString(export.rowLimit()))
+                        .header(GatewayHeaders.EXPORT_MATCHING_ROWS, Long.toString(export.matchingRows()))
+                        .header(GatewayHeaders.EXPORT_TRUNCATED, Boolean.toString(export.truncated()))
+                        .body(csvBody(export)));
     }
 
-    private static String toCsv(List<WaitlistExportRow> rows) {
-        StringBuilder csv = new StringBuilder("email,fullName,city,role,source,createdAt,consentTimestamp\n");
+    private static Flux<DataBuffer> csvBody(WaitlistExport export) {
+        DefaultDataBufferFactory buffers = DefaultDataBufferFactory.sharedInstance;
+        byte[] bom = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
+        byte[] header = CSV_HEADER.getBytes(StandardCharsets.UTF_8);
+        byte[] head = new byte[bom.length + header.length];
+        System.arraycopy(bom, 0, head, 0, bom.length);
+        System.arraycopy(header, 0, head, bom.length, header.length);
+        return Flux.concat(
+                Flux.just(buffers.wrap(head)),
+                export.pages().map(page -> buffers.wrap(toCsvRows(page).getBytes(StandardCharsets.UTF_8))));
+    }
+
+    private static String toCsvRows(List<WaitlistExportRow> rows) {
+        StringBuilder csv = new StringBuilder();
         for (WaitlistExportRow row : rows) {
             csv.append(WaitlistCsv.cell(row.email())).append(',')
                     .append(WaitlistCsv.cell(row.fullName())).append(',')

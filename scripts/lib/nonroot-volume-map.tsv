@@ -1,0 +1,21 @@
+# Non-root target owners for the volumes of the root-start services (CL-F29.3, owner decision B8).
+# Read by scripts/nonroot-volume-migration.sh; explained in docs/operations/nonroot-volume-migration.md.
+# Columns (tab separated): service, Compose volume key, target uid:gid, readiness, note.
+# readiness: ready = only ownership stands between the service and a fixed non-root user;
+#            blocked = the service cannot run non-root yet (apply refuses these rows).
+redis	redis-data	999:1000	ready	redis:7-alpine user redis
+minio	minio-data	10001:10001	ready	the image defines no user; Parkio's service uid
+caddy	caddy-data	10001:10001	ready	the image defines no user; keep cap_add NET_BIND_SERVICE: /usr/bin/caddy carries that file capability and exec fails without it
+caddy	caddy-config	10001:10001	ready	as caddy-data
+postgres-auth	postgres-auth-data	70:70	ready	postgres:16-alpine user postgres; the root-start entrypoint already chowns PGDATA
+postgres-gateway	postgres-gateway-data	70:70	ready	as postgres-auth
+postgres-user	postgres-user-data	70:70	ready	as postgres-auth
+postgres-parking	postgres-parking-data	999:999	ready	postgis/postgis:16-3.4 (Debian) user postgres
+postgres-media	postgres-media-data	70:70	ready	as postgres-auth
+postgres-gamification	postgres-gamification-data	70:70	ready	as postgres-auth
+postgres-notification	postgres-notification-data	70:70	ready	as postgres-auth
+postgres-moderation	postgres-moderation-data	70:70	ready	as postgres-auth
+postgres-analytics	postgres-analytics-data	70:70	ready	as postgres-auth
+postgres-ai-validation	postgres-ai-validation-data	70:70	ready	as postgres-auth
+clamav	clamav-data	100:101	blocked	the image init needs root and a writable root filesystem (B8 exception)
+promtail	promtail-positions	10001:10001	blocked	reads the Docker socket as root until the socket-proxy design lands

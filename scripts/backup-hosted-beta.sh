@@ -106,12 +106,15 @@ else
   DB_OK=0
 fi
 
+# The sealed copy records the state at seal time (not uploaded yet). After a confirmed
+# upload, the receipt beside the stamp records it; the stamp itself never changes.
 PARKIO_BACKUP_OFFSITE_UPLOADED=0
 parkio_backup_write_manifest "${MANIFEST_PATH}" "${STAMP}" "${GIT_SHA}" "${OPERATOR}" \
   "${ENV_FILE:-<env>}" "${DEST_DIR}" "${DB_OK}" "${DB_FAILED}" "${MINIO_OK}" "${MINIO_OBJECTS}"
 cp "${MANIFEST_PATH}" "${DEST_DIR}/backup-manifest.json"
 
 OFFSITE_OK=0
+rm -f "$(parkio_backup_offsite_receipt_path "${DEST_DIR}")"
 if parkio_backup_allow_complete "${DEST_DIR}" "${DB_FAILED}" "${MINIO_OK}"; then
   if parkio_backup_write_stamp_integrity "${DEST_DIR}" "${STAMP}"; then
     PARKIO_BACKUP_FINALIZED=1
@@ -128,7 +131,12 @@ else
   rm -f "${DEST_DIR}/COMPLETE"
 fi
 if [ "${OFFSITE_OK}" -eq 1 ] && [ "$(parkio_backup_offsite_kind)" != "none" ]; then
-  PARKIO_BACKUP_OFFSITE_UPLOADED=1
+  if parkio_backup_write_offsite_receipt "${DEST_DIR}" "${BACKUP_MC_DEST:-}" "$(basename "${DEST_DIR}")"; then
+    PARKIO_BACKUP_OFFSITE_UPLOADED=1
+  else
+    echo "ERROR: offsite upload finished but its receipt was not written; offsite counts as failed." >&2
+    OFFSITE_OK=0
+  fi
 fi
 
 SUCCESS=0

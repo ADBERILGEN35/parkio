@@ -84,7 +84,7 @@ test('submitApi maps known gateway outcomes without treating them as network fai
     [202, { status: 'accepted' }, { ok: true, status: 'accepted' }],
     [429, {}, { ok: false, code: 'RATE_LIMITED' }],
     [503, { code: 'WAITLIST_ADMISSIONS_DISABLED' }, { ok: false, code: 'ADMISSIONS_DISABLED' }],
-    [503, { code: 'EMAIL_DELIVERY_FAILED' }, { ok: false, code: 'EMAIL_DELIVERY_FAILED' }],
+    [503, { code: 'WAITLIST_EMAIL_DELIVERY_FAILED' }, { ok: false, code: 'EMAIL_DELIVERY_FAILED' }],
     [400, { code: 'VALIDATION_ERROR' }, { ok: false, code: 'VALIDATION_ERROR' }],
     [500, {}, { ok: false, code: 'SERVER_ERROR' }],
   ];
