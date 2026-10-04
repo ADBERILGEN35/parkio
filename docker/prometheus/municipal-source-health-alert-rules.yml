@@ -102,7 +102,8 @@ groups:
           runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
 
       # --- İZUM incomplete snapshots (CL-F22): the feed keeps returning fewer facilities than are
-      # active, so set reconciliation is skipped and missing car parks stay listed. Three runs in a row
+      # active and is not reconciled (the guard skips it, or invalid rows make it untrustworthy), so
+      # missing car parks stay listed. Three runs in a row
       # (about 6 minutes at the 2-minute schedule) is the audit's escalation point. The gauge is kept in
       # memory, so a parking-service restart starts the count again.
       - alert: MunicipalIzumIncompleteSnapshotsRepeated
@@ -118,7 +119,7 @@ groups:
           source_mode: SCHEDULED
         annotations:
           summary: İZUM art arda eksik tesis listesi döndürüyor
-          description: İZUM art arda {{ $value }} senkronda aktif tesis kümesinden küçük bir liste döndürdü. Mutabakat atlandı, listede olmayan tesisler aktif kaldı.
+          description: İZUM art arda {{ $value }} senkronda aktif tesis kümesinden küçük bir liste döndürdü ve mutabakat yapılmadı; listede olmayan tesisler aktif kaldı.
           operator_action: Runbook’u açın; senkron loglarında municipal_sync_skip_reconcile_incomplete_snapshot satırlarını ve aktif bağlantı sayısını kontrol edin.
           runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
 

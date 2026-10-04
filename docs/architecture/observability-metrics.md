@@ -102,8 +102,8 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.sync.occupancy` | counter | Occupancy snapshots inserted. |
 | `parkio.municipal.sync.schema_mismatch` | counter | Schema-contract failures (`schema_contract` or legacy `contract`). |
 | `parkio.municipal.sync.retries_exhausted` | counter | Final FAILED runs after client retries (bounded `error_category`). |
-| `parkio.municipal.sync.reconciliation_skipped` | counter | Runs whose feed was smaller than the active set, so set reconciliation was skipped (`reason=incomplete_snapshot`, İZUM; CL-F22). |
-| `parkio.municipal.sync.consecutive_incomplete_snapshots` | gauge | Such skips in a row, reset by a completed run without one; in memory, 0 after a restart. Alert `MunicipalIzumIncompleteSnapshotsRepeated` at 3. |
+| `parkio.municipal.sync.reconciliation_skipped` | counter | Runs whose feed was smaller than the active set and was not reconciled: the incomplete-snapshot guard skipped it, or invalid rows made it untrustworthy (`reason=incomplete_snapshot`, İZUM; CL-F22). |
+| `parkio.municipal.sync.consecutive_incomplete_snapshots` | gauge | Such runs in a row, reset by a completed run without one; in memory, 0 after a restart. Alert `MunicipalIzumIncompleteSnapshotsRepeated` at 3. |
 | `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak; labels `source_key`, `source_mode` (İZUM + OSM). |
 | `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never); observational for OPERATOR_IMPORTED when mode-aware SLA is on. |
 | `parkio.municipal.source.last_success_unixtime` | gauge | Last success unix epoch (`-1` if never). |

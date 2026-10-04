@@ -8,7 +8,8 @@ package com.parkio.parking.externalsource;
  * those counters pass zeros via the compatibility constructor.
  *
  * <p>{@code incompleteSnapshotSkipped} is true when an İZUM feed was smaller than the active set and
- * reconciliation was skipped, so no facility was deactivated (CL-F22).
+ * was not reconciled, so the missing facilities stayed active: the incomplete-snapshot guard skipped
+ * it, or invalid rows made it untrustworthy (CL-F22).
  */
 public record MunicipalSyncResult(
         MunicipalSyncRunStatus status,

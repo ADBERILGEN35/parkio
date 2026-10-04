@@ -79,17 +79,8 @@ public class MunicipalFacilitySyncService {
                     adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload);
             Instant fetchedAt = clock.instant();
             List<NormalizedMunicipalFacility> normalized = adapter.normalizeFacilities(payload, fetchedAt);
-            // A feed without source timestamps that repeats the previous run unchanged keeps the time
-            // its content was first seen, so a frozen upstream ages instead of staying LIVE (CL-F22).
-            var observations = UnchangedFeedObservations.apply(
-                    adapter.normalizeOccupancy(payload, fetchedAt).stream().collect(Collectors.toMap(
-                            NormalizedMunicipalOccupancy::externalId, Function.identity())),
-                    ingestWriter.latestRunObservations(source.id()));
-            Map<String, NormalizedMunicipalOccupancy> occupancy = observations.occupancy();
-            if (observations.unchanged()) {
-                log.warn("municipal_sync_feed_unchanged sourceKey={} records={} unchangedSince={}",
-                        sourceKey, occupancy.size(), observations.unchangedSince());
-            }
+            Map<String, NormalizedMunicipalOccupancy> occupancy = adapter.normalizeOccupancy(payload, fetchedAt)
+                    .stream().collect(Collectors.toMap(NormalizedMunicipalOccupancy::externalId, Function.identity()));
 
             Set<String> previouslyActive = Set.copyOf(setReconciliation.activeExternalIds(source.id()));
             int inserted = 0, updated = 0, unchanged = 0, occupancyInserted = 0, reactivated = 0;
@@ -122,6 +113,7 @@ public class MunicipalFacilitySyncService {
 
             int deactivated = 0;
             boolean incompleteSnapshotSkipped = false;
+            boolean reconciled = false;
             if (isAuthoritativeSet(
                     adapter,
                     status,
@@ -158,6 +150,7 @@ public class MunicipalFacilitySyncService {
                             received,
                             authoritativeValidUniqueExternalIds);
                 } else {
+                    reconciled = true;
                     deactivated = setReconciliation.deactivateMissing(
                             source.id(), seen, fetchedAt, true);
                     if (previouslyActive.size() > 0
@@ -168,6 +161,26 @@ public class MunicipalFacilitySyncService {
                                 sourceKey, previouslyActive.size(), deactivated, accepted);
                     }
                 }
+            }
+
+            // A smaller IZUM feed that could not reconcile at all (invalid rows make it untrustworthy)
+            // also leaves the missing facilities listed, so it counts as an incomplete snapshot too
+            // (#246 review N2); otherwise one bad row in every short feed would hide the streak.
+            if (!reconciled
+                    && IzumMunicipalParkingAdapter.SOURCE_KEY.equals(sourceKey)
+                    && accepted < previouslyActive.size()) {
+                if (!incompleteSnapshotSkipped) {
+                    log.warn(
+                            "municipal_sync_skip_reconcile_untrusted_snapshot sourceKey={} "
+                                    + "previouslyActive={} accepted={} received={} "
+                                    + "authoritativeValid={}",
+                            sourceKey,
+                            previouslyActive.size(),
+                            accepted,
+                            received,
+                            authoritativeValidUniqueExternalIds);
+                }
+                incompleteSnapshotSkipped = true;
             }
 
             int activeLinkCount = setReconciliation.activeExternalIds(source.id()).size();

@@ -117,7 +117,7 @@ tests:
               source_mode: SCHEDULED
             exp_annotations:
               summary: İZUM art arda eksik tesis listesi döndürüyor
-              description: İZUM art arda 3 senkronda aktif tesis kümesinden küçük bir liste döndürdü. Mutabakat atlandı, listede olmayan tesisler aktif kaldı.
+              description: İZUM art arda 3 senkronda aktif tesis kümesinden küçük bir liste döndürdü ve mutabakat yapılmadı; listede olmayan tesisler aktif kaldı.
               operator_action: Runbook’u açın; senkron loglarında municipal_sync_skip_reconcile_incomplete_snapshot satırlarını ve aktif bağlantı sayısını kontrol edin.
               runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
       - eval_time: 9m
