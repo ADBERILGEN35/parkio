@@ -38,7 +38,9 @@ export default defineConfig({
             url: WEB_URL,
             timeout: 120_000,
             reuseExistingServer: !process.env.CI,
-            env: { VITE_API_BASE_URL: `${WEB_URL}/api/v1` },
+            // Public explore on, as in the release images, so /explore is measured with its map and
+            // facilities instead of its flag-off "unavailable" card.
+            env: { VITE_API_BASE_URL: `${WEB_URL}/api/v1`, VITE_PUBLIC_EXPLORE_ENABLED: 'true' },
           },
         ]),
     ...(process.env.A11Y_MARKETING_URL
