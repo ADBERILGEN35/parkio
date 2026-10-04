@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -33,9 +34,16 @@ import org.springframework.transaction.annotation.Transactional;
  * participants' attempt-bound ACKs. Off by default
  * ({@code parkio.privacy.account-erasure.restore-replay.enabled}); nothing in the service starts a
  * replay. Live erasure ACKs are not consulted and are not affected.
+ *
+ * <p>An attempt requires auth plus every contract participant
+ * ({@link AccountErasureApplicationService#DEFAULT_PARTICIPANTS}); the set is fixed when the attempt
+ * starts. Auth's own share is replayed in the start transaction and acknowledged with it.
  */
 @Service
 public class ErasureRestoreReplayService {
+
+    /** Auth's own share of the replay; recorded locally, never accepted from Kafka. */
+    public static final String AUTH_PARTICIPANT = "auth";
 
     private static final Logger log = LoggerFactory.getLogger(ErasureRestoreReplayService.class);
     private static final Set<String> STATUSES = Set.of("SUCCESS", "FAILED");
@@ -43,14 +51,16 @@ public class ErasureRestoreReplayService {
     private final ErasureRestoreRepository restores;
     private final OutboxEventAppender outbox;
     private final InboxEventRepository inbox;
+    private final AccountErasureApplicationService accountErasure;
     private final Clock clock;
     private final boolean enabled;
-    private final Set<String> participants;
+    private final Set<String> requiredParticipants;
 
     public ErasureRestoreReplayService(
             ErasureRestoreRepository restores,
             OutboxEventAppender outbox,
             InboxEventRepository inbox,
+            AccountErasureApplicationService accountErasure,
             Clock clock,
             @Value("${parkio.privacy.account-erasure.restore-replay.enabled:false}") boolean enabled,
             @Value("${parkio.privacy.account-erasure.participants:user,parking,media,moderation,gamification,notification,analytics,ai-validation}")
@@ -58,18 +68,42 @@ public class ErasureRestoreReplayService {
         this.restores = restores;
         this.outbox = outbox;
         this.inbox = inbox;
+        this.accountErasure = accountErasure;
         this.clock = clock;
         this.enabled = enabled;
-        this.participants = Arrays.stream(participantsCsv.split(","))
+        Set<String> configured = Arrays.stream(participantsCsv.split(","))
                 .map(String::trim)
                 .filter(name -> !name.isEmpty())
                 .collect(Collectors.toCollection(TreeSet::new));
+        if (enabled) {
+            requireContractParticipants(configured);
+        }
+        Set<String> required = new TreeSet<>(configured);
+        required.add(AUTH_PARTICIPANT);
+        this.requiredParticipants = Collections.unmodifiableSet(required);
     }
 
     /**
-     * Records the attempt and queues one replay command per user, in one transaction. Starting the
-     * same attempt again with the same dataset and erasure set changes nothing; the same attempt
-     * id with another dataset or set is refused.
+     * The contract requires auth plus every participant that holds user data
+     * (docs/operations/recovery-evidence-contract.md §3). With one of them missing from the
+     * configured set, COMPLETE would ignore that service's restored data, and with an empty set it
+     * would be vacuous, so restore replay refuses to start.
+     */
+    static void requireContractParticipants(Set<String> configured) {
+        List<String> missing = AccountErasureApplicationService.DEFAULT_PARTICIPANTS.stream()
+                .filter(name -> !configured.contains(name))
+                .toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("restore replay requires auth plus every contract participant; "
+                    + "parkio.privacy.account-erasure.participants is missing " + missing);
+        }
+    }
+
+    /**
+     * Records the attempt with the participants it requires, replays auth's own erasure for each
+     * user and stores auth's ACK with it, and queues one replay command per user for the other
+     * participants, all in one transaction. Starting the same attempt again with the same dataset
+     * and erasure set changes nothing; the same attempt id with another dataset or set is refused.
      */
     @Transactional
     public RestoreAttempt startRestoreReplay(UUID recoveryAttemptId, String restoredDatasetId,
@@ -94,8 +128,11 @@ public class ErasureRestoreReplayService {
         // PostgreSQL keeps microseconds: the attempt read back on a restart must equal this one.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         RestoreAttempt attempt = new RestoreAttempt(recoveryAttemptId, restoredDatasetId, digest, entries.size(), now);
-        restores.insertAttempt(attempt, entries);
+        restores.insertAttempt(attempt, entries, requiredParticipants);
         for (ErasureLedgerEntry entry : entries) {
+            // Auth's share commits with its ACK: a SUCCESS for auth exists only if the erase did.
+            accountErasure.replayLocalErasureForRestore(entry.authUserId(), entry.erasedAt());
+            restores.upsertAck(recoveryAttemptId, entry.authUserId(), AUTH_PARTICIPANT, "SUCCESS", now);
             outbox.append(new UserErasureRestoreReplayRequestedEvent(
                     UserErasureRestoreReplayRequestedEvent.eventIdFor(recoveryAttemptId, entry.authUserId()),
                     recoveryAttemptId, restoredDatasetId, digest, entry.authUserId(), entry.erasedAt(), now));
@@ -105,9 +142,10 @@ public class ErasureRestoreReplayService {
     }
 
     /**
-     * Stores a participant's ACK if it belongs to a known attempt, a configured participant and a
-     * user of the attempt, and echoes the attempt's dataset and digest. Anything else is ignored:
-     * an ACK of a prior attempt, another dataset or another erasure set never counts.
+     * Stores a participant's ACK if it belongs to a known attempt, a participant the attempt
+     * requires and a user of the attempt, and echoes the attempt's dataset and digest. Anything else
+     * is ignored: an ACK of a prior attempt, another dataset or another erasure set never counts,
+     * and auth's own ACK is never taken from Kafka.
      */
     @Transactional
     public void handleAcknowledgement(UserErasureRestoreAcknowledgedEvent event) {
@@ -132,12 +170,20 @@ public class ErasureRestoreReplayService {
         restores.upsertAck(event.recoveryAttemptId(), event.authUserId(), service, event.status(), clock.instant());
     }
 
-    /** {@code COMPLETE} only when every configured participant acknowledged every user with SUCCESS. */
+    /**
+     * {@code COMPLETE} only when every participant the attempt required at its start, auth
+     * included, acknowledged every user with SUCCESS.
+     */
     @Transactional(readOnly = true)
     public RestoreReplayVerdict verdict(UUID recoveryAttemptId) {
         RestoreAttempt attempt = restores.findAttempt(recoveryAttemptId).orElse(null);
         if (attempt == null) {
             return RestoreReplayVerdict.blocked(recoveryAttemptId, 0, Map.of(), Map.of(), "unknown recovery attempt");
+        }
+        List<String> participants = restores.requiredParticipants(recoveryAttemptId);
+        if (participants.isEmpty()) {
+            return RestoreReplayVerdict.blocked(recoveryAttemptId, attempt.userCount(), Map.of(), Map.of(),
+                    "no required participants recorded for this attempt");
         }
         Map<String, Long> succeeded = restores.countAcksByService(recoveryAttemptId, "SUCCESS");
         Map<String, Long> failed = restores.countAcksByService(recoveryAttemptId, "FAILED");
@@ -160,12 +206,15 @@ public class ErasureRestoreReplayService {
     }
 
     private String ignoredBecause(UserErasureRestoreAcknowledgedEvent event, String service) {
-        if (!participants.contains(service)) {
-            return "unknown-participant";
+        if (AUTH_PARTICIPANT.equals(service)) {
+            return "auth-acknowledges-locally";
         }
         RestoreAttempt attempt = restores.findAttempt(event.recoveryAttemptId()).orElse(null);
         if (attempt == null) {
             return "unknown-attempt";
+        }
+        if (!restores.requiredParticipants(event.recoveryAttemptId()).contains(service)) {
+            return "unknown-participant";
         }
         if (!attempt.restoredDatasetId().equals(event.restoredDatasetId())) {
             return "other-dataset";
