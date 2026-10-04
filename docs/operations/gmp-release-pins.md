@@ -26,5 +26,6 @@ same pins overlay last so `parkio_compose` cannot silently drop digest pins when
 Stamp `backup-manifest.json` may retain `offsite.uploaded=false` after a successful
 Azure upload while `backup-artifacts/backup-current.json` reports `uploaded=true`.
 Do not manually edit stamp JSON. Prefer offsite object listing + COMPLETE/SHA256SUMS.
-Narrow source fix: re-copy stamp manifest after offsite upload (tracked as tooling
-follow-up; not closed by a single successful upload).
+Source fix (U14): the stamp is never re-copied after `COMPLETE`, because that would break
+`SHA256SUMS`. Instead, a receipt beside the stamp (`<stamp>.offsite-receipt.json`) records
+the upload. See [backup-offsite-uploaded-receipt-follow-up.md](backup-offsite-uploaded-receipt-follow-up.md).

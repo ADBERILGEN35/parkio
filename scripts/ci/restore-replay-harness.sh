@@ -50,8 +50,9 @@ declare -A FILTERS=(
   [analytics]="*AccountErasureAckOutboxPostgresIT"
   [ai-validation]="*AccountErasureAckOutboxPostgresIT"
 )
+# auth: ErasureRestoreReplayPostgresIT has eleven cases since #187 (U02 B13).
 declare -A MIN_CASES=(
-  [auth]=6 [user]=3 [parking]=3 [media]=3 [moderation]=3
+  [auth]=11 [user]=3 [parking]=3 [media]=3 [moderation]=3
   [gamification]=3 [notification]=3 [analytics]=3 [ai-validation]=3
 )
 

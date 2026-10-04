@@ -40,6 +40,12 @@ import org.springframework.test.web.servlet.ResultActions;
 /**
  * Public resend-verification / forgot-password must not reveal account existence
  * when the email provider fails. Register / admin paths may still surface 503.
+ *
+ * <p>Since CL-F14.2 the recovery e-mails are sent on the recovery executor after the response,
+ * so a provider failure can no longer change the status these tests assert. They pin the uniform
+ * public responses; the absorbing of a failed send is covered by
+ * {@code AuthRecoveryDispatchTest.aFailureInTheDispatchedWorkIsAbsorbed}, and the rollback
+ * guarantee by {@code EmailDeliveryTransactionalPostgresIT}.
  */
 @SpringBootTest
 @AutoConfigureMockMvc

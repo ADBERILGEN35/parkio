@@ -519,7 +519,8 @@ source-policy bounds for the erasure transport copies:
 - the eight provisioned DLT topics: 14 days.
 
 PRIV-001 ("Transport copies") lists them, and records three further points:
-- `parkio.dlt.media` is used but not provisioned, so source sets no bound for it.
+- B6 named the eight DLT topics provisioned when it was taken. Since #199,
+  media-service also provisions `parkio.dlt.media`, with the same 14 days.
 - The domain topics (7 or 30 days) also carry earlier event copies, and B6 does
   not cover them.
 - Kafka deletes by segment, and the live broker's topic configuration has not

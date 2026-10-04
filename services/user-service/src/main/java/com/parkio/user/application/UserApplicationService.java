@@ -28,6 +28,7 @@ import com.parkio.user.application.result.SmartReturnCheckCandidate;
 import com.parkio.user.application.result.SmartReturnPromptCandidate;
 import com.parkio.user.domain.PendingUserStatusEvent;
 import com.parkio.user.domain.SmartReturnTodayStatus;
+import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserStatus;
@@ -207,52 +208,62 @@ public class UserApplicationService {
      * Idempotent handler for gamification's {@code PointsEarned}: projects the
      * absolute {@code totalPoints} snapshot into the trust projection so
      * {@code /me/stats} and the public profile reflect real gamification state.
-     * Inbox-deduplicated; a missing profile (event raced ahead of provisioning) is
-     * logged and skipped — the snapshot on the next points event self-heals it.
+     * Inbox-deduplicated. The snapshot applies only if its {@code aggregateVersion} is newer
+     * than the projected one, so a late, reordered or redriven event never regresses it (U12).
+     * A missing profile (event raced ahead of provisioning) is logged and skipped; the next
+     * versioned snapshot after provisioning brings the projection up to date.
      */
     public void handlePointsEarned(PointsEarnedEvent event) {
         if (!claimEvent(event.eventId(), PointsEarnedEvent.TYPE)) {
             return;
         }
-        projectTotalPoints(event.userId(), event.totalPoints(), event.eventId());
+        profileIdFor(event.userId(), event.eventId()).ifPresent(profileId ->
+                trustProfiles.projectTotalPoints(profileId, event.totalPoints(), event.aggregateVersion()));
     }
 
-    /** Idempotent handler for gamification's {@code PointsDeducted}; see {@link #handlePointsEarned}. */
+    /**
+     * Idempotent handler for gamification's {@code PointsDeducted}; see {@link #handlePointsEarned}.
+     * A deduction is a newer snapshot like any other, so it lowers the projection.
+     */
     public void handlePointsDeducted(PointsDeductedEvent event) {
         if (!claimEvent(event.eventId(), PointsDeductedEvent.TYPE)) {
             return;
         }
-        projectTotalPoints(event.userId(), event.totalPoints(), event.eventId());
+        profileIdFor(event.userId(), event.eventId()).ifPresent(profileId ->
+                trustProfiles.projectTotalPoints(profileId, event.totalPoints(), event.aggregateVersion()));
     }
 
     /**
      * Idempotent handler for gamification's {@code UserLevelChanged}: projects the
-     * new level (and its points snapshot) into the trust projection.
+     * new level and its points snapshot. Level and points follow separate versions: an older
+     * level change that arrives after a newer points event still sets the level, but not the
+     * older total.
      */
     public void handleUserLevelChanged(UserLevelChangedEvent event) {
         if (!claimEvent(event.eventId(), UserLevelChangedEvent.TYPE)) {
             return;
         }
-        trustProfileFor(event.userId(), event.eventId()).ifPresent(trust -> {
-            trust.projectLevel(event.newLevel(), event.totalPoints());
-            trustProfiles.save(trust);
+        profileIdFor(event.userId(), event.eventId()).ifPresent(profileId -> {
+            trustProfiles.projectLevel(profileId, event.newLevel(), event.aggregateVersion());
+            trustProfiles.projectTotalPoints(profileId, event.totalPoints(), event.aggregateVersion());
         });
     }
 
     /**
      * Idempotent handler for gamification's {@code TrustScoreUpdated}: projects the
-     * absolute score (band derived from it) and appends an audit row to
-     * {@code user_trust_score_history} with the gamification rule key as reason.
+     * absolute score (band derived from it) when its version is newer than the projected one,
+     * and appends an audit row to {@code user_trust_score_history} with the gamification rule
+     * key as reason. The history records every event, including one that arrives late.
      */
     public void handleTrustScoreUpdated(TrustScoreUpdatedEvent event) {
         if (!claimEvent(event.eventId(), TrustScoreUpdatedEvent.TYPE)) {
             return;
         }
-        trustProfileFor(event.userId(), event.eventId()).ifPresent(trust -> {
-            trust.projectTrustScore(event.newScore());
-            trustProfiles.save(trust);
+        profileIdFor(event.userId(), event.eventId()).ifPresent(profileId -> {
+            trustProfiles.projectTrustScore(profileId, event.newScore(), TrustBand.forScore(event.newScore()),
+                    event.aggregateVersion());
             trustHistory.save(UserTrustScoreHistory.record(
-                    trust.userProfileId(), event.previousScore(), event.newScore(),
+                    profileId, event.previousScore(), event.newScore(),
                     event.reason(), event.occurredAt()));
         });
     }
@@ -261,25 +272,18 @@ public class UserApplicationService {
         return inbox.tryClaim(eventId, eventType, clock.instant());
     }
 
-    private void projectTotalPoints(UUID authUserId, long totalPoints, UUID eventId) {
-        trustProfileFor(authUserId, eventId).ifPresent(trust -> {
-            trust.projectTotalPoints(totalPoints);
-            trustProfiles.save(trust);
-        });
-    }
-
     /**
-     * Resolves the trust projection for a gamification event's {@code userId}
+     * Resolves the profile behind a gamification event's {@code userId}
      * (= platform-wide authUserId). Empty when the profile has not been provisioned
-     * yet; totals are absolute snapshots, so a later event self-heals the projection.
+     * yet; snapshots are absolute and versioned, so a later event brings the projection up to date.
      */
-    private Optional<UserTrustProfile> trustProfileFor(UUID authUserId, UUID eventId) {
+    private Optional<UUID> profileIdFor(UUID authUserId, UUID eventId) {
         Optional<UserProfile> profile = profiles.findByAuthUserId(authUserId);
         if (profile.isEmpty()) {
             log.warn("Skipping gamification event {} for not-yet-provisioned user {}", eventId, authUserId);
             return Optional.empty();
         }
-        return trustProfiles.findByUserProfileId(profile.get().id());
+        return Optional.of(profile.get().id());
     }
 
     /**

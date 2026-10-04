@@ -162,5 +162,40 @@ if prom_firing ParkioAlertingAcceptanceTest; then
   exit 1
 fi
 
+# Delivery failures (U06, CL-F04): the alerts about alert delivery itself.
+prom_firing_where() {
+  local name="$1"
+  local matcher="$2"
+  curl -fsS --max-time 10 "${PROM_URL}/api/v1/query" \
+    --data-urlencode "query=ALERTS{alertname=\"${name}\",alertstate=\"firing\",${matcher}}" \
+    | "${PYTHON}" -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("data",{}).get("result") else 1)'
+}
+webhook_rejected_any() {
+  curl -fsS --max-time 10 "${WEBHOOK_URL}/rejected" \
+    | "${PYTHON}" -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin).get("rejected", 0) > 0 else 1)'
+}
+
+for name in AlertmanagerNotificationsFailing PrometheusNotificationsFailing; do
+  if prom_firing "${name}"; then
+    log "FAIL ${name} firing while the receiver and Alertmanager are healthy"
+    exit 1
+  fi
+done
+log "healthy delivery: no delivery-failure alert firing"
+
+log "receiver failure: the operator webhook now answers 503"
+curl -fsS -X POST "${WEBHOOK_URL}/control/fail" >/dev/null
+curl -fsS -X POST "${METRICS_URL}/arm" >/dev/null
+wait_for "operator webhook rejected a delivery" 90 webhook_rejected_any
+wait_for "AlertmanagerNotificationsFailing firing for integration=webhook" 240 \
+  prom_firing_where AlertmanagerNotificationsFailing 'integration="webhook"'
+log "receiver failure alert firing (AlertmanagerNotificationsFailing, integration=webhook)"
+
+log "Alertmanager unreachable: stop it"
+"${COMPOSE[@]}" stop alerting-alertmanager
+# The rule holds for 5m, so this takes a little over five minutes.
+wait_for "PrometheusNotificationsFailing firing" 600 prom_firing PrometheusNotificationsFailing
+log "alertmanager unreachable alert firing (PrometheusNotificationsFailing)"
+
 log "evidence written (credentials not included): ${EVIDENCE}"
 echo "ALERTING_ACCEPTANCE_PASS"

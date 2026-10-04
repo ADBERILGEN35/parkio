@@ -17,6 +17,8 @@ const WP03_ACCEPTANCE = /wp03-routing\.spec\.ts/;
 // CX-F04 identity-handoff acceptance: viewport-independent, run once in its own
 // project so CI can target it without relying on project-name skips.
 const OWNERSHIP_ACCEPTANCE = /pending-profile-ownership\.spec\.ts/;
+// CL-F21 auth-link language acceptance: same arrangement, its own project for CI.
+const LINK_LOCALE_ACCEPTANCE = /auth-link-locale\.spec\.ts/;
 
 export default defineConfig({
   testDir: './e2e',
@@ -43,8 +45,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      name: 'link-locale-chromium',
+      testMatch: LINK_LOCALE_ACCEPTANCE,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'chromium',
-      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE, LINK_LOCALE_ACCEPTANCE],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -52,7 +59,7 @@ export default defineConfig({
       // phones). The tightest layout we support: validates no horizontal overflow,
       // no clipped CTAs, no chip wrapping, and that the preview clears the sheet.
       name: 'galaxy-360',
-      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE, LINK_LOCALE_ACCEPTANCE],
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 360, height: 800 },
@@ -63,7 +70,7 @@ export default defineConfig({
     },
     {
       name: 'iphone-14',
-      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE, LINK_LOCALE_ACCEPTANCE],
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 390, height: 844 },
@@ -74,7 +81,7 @@ export default defineConfig({
     },
     {
       name: 'pixel-8',
-      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE],
+      testIgnore: [WP03_ACCEPTANCE, OWNERSHIP_ACCEPTANCE, LINK_LOCALE_ACCEPTANCE],
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 412, height: 915 },

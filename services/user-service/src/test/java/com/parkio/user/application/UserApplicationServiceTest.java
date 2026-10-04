@@ -652,7 +652,7 @@ class UserApplicationServiceTest {
         UUID eventId = UUID.randomUUID();
 
         service.handlePointsEarned(new com.parkio.user.application.event.PointsEarnedEvent(
-                eventId, authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW));
+                eventId, authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW, 1L));
 
         UserTrustProfile stats = service.getMyStats(authUserId);
         assertThat(stats.totalPoints()).isEqualTo(125);
@@ -663,7 +663,7 @@ class UserApplicationServiceTest {
         UUID authUserId = UUID.randomUUID();
         service.createProfile(command(authUserId));
         var event = new com.parkio.user.application.event.PointsEarnedEvent(
-                UUID.randomUUID(), authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW);
+                UUID.randomUUID(), authUserId, 25, "PARKING_CREATED", 125, UUID.randomUUID(), NOW, 1L);
 
         service.handlePointsEarned(event);
         service.handlePointsEarned(event);
@@ -677,11 +677,100 @@ class UserApplicationServiceTest {
         service.createProfile(command(authUserId));
 
         service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
-                UUID.randomUUID(), authUserId, 1, 3, 320, NOW));
+                UUID.randomUUID(), authUserId, 1, 3, 320, NOW, 1L));
 
         UserTrustProfile stats = service.getMyStats(authUserId);
         assertThat(stats.currentLevel()).isEqualTo(3);
         assertThat(stats.totalPoints()).isEqualTo(320);
+    }
+
+    @Test
+    void anOlderPointsSnapshotDoesNotOverwriteANewerOne() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handlePointsEarned(points(authUserId, 20, 2L));
+        service.handlePointsEarned(points(authUserId, 10, 1L));
+
+        assertThat(service.getMyStats(authUserId).totalPoints()).isEqualTo(20);
+    }
+
+    @Test
+    void aNewerDeductionLowersThePoints() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handlePointsEarned(points(authUserId, 20, 1L));
+        service.handlePointsDeducted(new com.parkio.user.application.event.PointsDeductedEvent(
+                UUID.randomUUID(), authUserId, 5, "FAKE_PHOTO", 15, UUID.randomUUID(), NOW, 2L));
+
+        assertThat(service.getMyStats(authUserId).totalPoints()).isEqualTo(15);
+    }
+
+    @Test
+    void anOlderLevelChangeSetsTheLevelButKeepsTheNewerTotal() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handlePointsEarned(points(authUserId, 120, 3L));
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 1, 2, 110, NOW, 2L));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.currentLevel()).isEqualTo(2);
+        assertThat(stats.totalPoints()).isEqualTo(120);
+    }
+
+    @Test
+    void anOlderTrustScoreIsRecordedInHistoryButNotProjected() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+
+        service.handleTrustScoreUpdated(new com.parkio.user.application.event.TrustScoreUpdatedEvent(
+                UUID.randomUUID(), authUserId, 90, 80, "SPOT_REJECTED_OWNER", UUID.randomUUID(), NOW, 5L));
+        service.handleTrustScoreUpdated(new com.parkio.user.application.event.TrustScoreUpdatedEvent(
+                UUID.randomUUID(), authUserId, 100, 90, "SPOT_REJECTED_OWNER", UUID.randomUUID(), NOW, 4L));
+
+        assertThat(service.getMyStats(authUserId).trustScore()).isEqualTo(80);
+        // Both events are in the history, after the row written when the profile was created.
+        assertThat(trustHistory.entries()).extracting(UserTrustScoreHistory::newScore).contains(80, 90);
+    }
+
+    @Test
+    void aVersionlessEventAppliesOnlyBeforeAnyVersionedSnapshot() {
+        UUID legacyOnly = UUID.randomUUID();
+        service.createProfile(command(legacyOnly));
+        service.handlePointsEarned(points(legacyOnly, 7, null));
+        assertThat(service.getMyStats(legacyOnly).totalPoints()).isEqualTo(7);
+
+        UUID versioned = UUID.randomUUID();
+        service.createProfile(command(versioned));
+        service.handlePointsEarned(points(versioned, 30, 1L));
+        service.handlePointsEarned(points(versioned, 5, null));
+        assertThat(service.getMyStats(versioned).totalPoints()).isEqualTo(30);
+    }
+
+    @Test
+    void aVersionlessLevelChangeDoesNotUndoAVersionedPointsSnapshot() {
+        UUID authUserId = UUID.randomUUID();
+        service.createProfile(command(authUserId));
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 2, 3, 300, NOW, null));
+
+        service.handlePointsEarned(points(authUserId, 310, 9L));
+        // A pre-U12 level change redriven from the DLT after the versioned points snapshot.
+        service.handleUserLevelChanged(new com.parkio.user.application.event.UserLevelChangedEvent(
+                UUID.randomUUID(), authUserId, 1, 2, 110, NOW, null));
+
+        UserTrustProfile stats = service.getMyStats(authUserId);
+        assertThat(stats.currentLevel()).isEqualTo(3);
+        assertThat(stats.totalPoints()).isEqualTo(310);
+    }
+
+    private static com.parkio.user.application.event.PointsEarnedEvent points(UUID authUserId, long total,
+                                                                             Long version) {
+        return new com.parkio.user.application.event.PointsEarnedEvent(
+                UUID.randomUUID(), authUserId, 5, "PARKING_CREATED", total, UUID.randomUUID(), NOW, version);
     }
 
     @Test
@@ -690,7 +779,7 @@ class UserApplicationServiceTest {
         service.createProfile(command(authUserId));
 
         service.handleTrustScoreUpdated(new com.parkio.user.application.event.TrustScoreUpdatedEvent(
-                UUID.randomUUID(), authUserId, 100, 60, "MODERATION_PENALTY", UUID.randomUUID(), NOW));
+                UUID.randomUUID(), authUserId, 100, 60, "MODERATION_PENALTY", UUID.randomUUID(), NOW, 1L));
 
         UserTrustProfile stats = service.getMyStats(authUserId);
         assertThat(stats.trustScore()).isEqualTo(60);
@@ -788,6 +877,7 @@ class UserApplicationServiceTest {
 
     private static final class FakeUserTrustProfileRepository implements UserTrustProfileRepository {
         private final Map<UUID, UserTrustProfile> byProfile = new HashMap<>();
+        private final Map<String, Long> versions = new HashMap<>();
 
         @Override
         public UserTrustProfile save(UserTrustProfile trustProfile) {
@@ -798,6 +888,45 @@ class UserApplicationServiceTest {
         @Override
         public Optional<UserTrustProfile> findByUserProfileId(UUID userProfileId) {
             return Optional.ofNullable(byProfile.get(userProfileId));
+        }
+
+        @Override
+        public boolean projectTotalPoints(UUID userProfileId, long totalPoints, Long aggregateVersion) {
+            return apply(userProfileId, "points", aggregateVersion, t -> new UserTrustProfile(t.id(), t.userProfileId(),
+                    t.trustScore(), t.trustBand(), totalPoints, t.currentLevel(), t.version()));
+        }
+
+        @Override
+        public boolean projectLevel(UUID userProfileId, int currentLevel, Long aggregateVersion) {
+            return apply(userProfileId, "level", aggregateVersion, t -> new UserTrustProfile(t.id(), t.userProfileId(),
+                    t.trustScore(), t.trustBand(), t.totalPoints(), currentLevel, t.version()));
+        }
+
+        @Override
+        public boolean projectTrustScore(UUID userProfileId, int trustScore, TrustBand trustBand,
+                                         Long aggregateVersion) {
+            return apply(userProfileId, "trust", aggregateVersion, t -> new UserTrustProfile(t.id(), t.userProfileId(),
+                    trustScore, trustBand, t.totalPoints(), t.currentLevel(), t.version()));
+        }
+
+        /** The guarded UPDATEs: a newer version applies; a version-less value only before any versioned one. */
+        private boolean apply(UUID userProfileId, String value, Long version,
+                              java.util.function.UnaryOperator<UserTrustProfile> change) {
+            UserTrustProfile current = byProfile.get(userProfileId);
+            Long projected = versions.get(userProfileId + ":" + value);
+            // Level shares the points aggregate's version: a version-less level is older than any
+            // versioned points snapshot.
+            boolean legacyAllowed = projected == null
+                    && !("level".equals(value) && versions.containsKey(userProfileId + ":points"));
+            boolean newer = version == null ? legacyAllowed : projected == null || projected < version;
+            if (current == null || !newer) {
+                return false;
+            }
+            byProfile.put(userProfileId, change.apply(current));
+            if (version != null) {
+                versions.put(userProfileId + ":" + value, version);
+            }
+            return true;
         }
     }
 

@@ -22,7 +22,9 @@
  *
  * Usage:
  *   node scripts/smoke-image.mjs --image <ref> [--app-env hosted-beta] [--port 18080]
- *                               [--docker docker]
+ *                               [--docker docker] [--csp-api-domain api.parkio.dev]
+ *                               [--csp-media-domain media.parkio.dev]
+ *                               [--csp-map-connect-src https://api.maptiler.com]
  *
  * Exit code 0 = smoke passed.
  */
@@ -33,19 +35,34 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 function parseArgs(argv) {
-  const out = { image: undefined, appEnv: 'hosted-beta', port: '18080', docker: 'docker' };
+  const out = {
+    image: undefined,
+    appEnv: 'hosted-beta',
+    port: '18080',
+    docker: 'docker',
+    // The image renders its CSP connect-src from these at start (B9) and refuses to start without
+    // them. Defaults are the production origins the bundle and the mocks below use.
+    cspApiDomain: 'api.parkio.dev',
+    cspMediaDomain: 'media.parkio.dev',
+    cspMapConnectSrc: 'https://api.maptiler.com',
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--image') out.image = argv[++i];
     else if (argv[i] === '--app-env') out.appEnv = argv[++i];
     else if (argv[i] === '--port') out.port = argv[++i];
     else if (argv[i] === '--docker') out.docker = argv[++i];
+    else if (argv[i] === '--csp-api-domain') out.cspApiDomain = argv[++i];
+    else if (argv[i] === '--csp-media-domain') out.cspMediaDomain = argv[++i];
+    else if (argv[i] === '--csp-map-connect-src') out.cspMapConnectSrc = argv[++i];
     else throw new Error(`unknown argument: ${argv[i]}`);
   }
   if (!out.image) throw new Error('--image is required');
   return out;
 }
 
-const { image, appEnv, port, docker } = parseArgs(process.argv.slice(2));
+const { image, appEnv, port, docker, cspApiDomain, cspMediaDomain, cspMapConnectSrc } = parseArgs(
+  process.argv.slice(2),
+);
 const containerName = `parkio-web-smoke-${process.pid}`;
 const baseUrl = `http://127.0.0.1:${port}`;
 const failures = [];
@@ -245,7 +262,13 @@ async function checkMount() {
 async function main() {
   console.log(`smoke-image: image=${image} app_env=${appEnv} port=${port}`);
   stopContainer();
-  sh(docker, ['run', '-d', '--name', containerName, '-p', `127.0.0.1:${port}:80`, image]);
+  sh(docker, [
+    'run', '-d', '--name', containerName, '-p', `127.0.0.1:${port}:80`,
+    '-e', `PARKIO_DOMAIN=${cspApiDomain}`,
+    '-e', `PARKIO_MEDIA_DOMAIN=${cspMediaDomain}`,
+    '-e', `PARKIO_MAP_CONNECT_SRC=${cspMapConnectSrc}`,
+    image,
+  ]);
 
   try {
     // ---- 1-3: served bundle configuration ----

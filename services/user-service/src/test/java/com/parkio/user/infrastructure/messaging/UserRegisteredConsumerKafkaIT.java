@@ -21,6 +21,7 @@ import com.parkio.user.application.port.UserTrustProfileRepository;
 import com.parkio.user.application.port.UserTrustScoreHistoryRepository;
 import com.parkio.user.application.port.UserVehicleProfileRepository;
 import com.parkio.user.domain.PendingUserStatusEvent;
+import com.parkio.user.domain.TrustBand;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserTrustProfile;
@@ -224,6 +225,22 @@ class UserRegisteredConsumerKafkaIT {
         @Override
         public Optional<UserTrustProfile> findByUserProfileId(UUID userProfileId) {
             return Optional.empty();
+        }
+
+        @Override
+        public boolean projectTotalPoints(UUID userProfileId, long totalPoints, Long aggregateVersion) {
+            return false;
+        }
+
+        @Override
+        public boolean projectLevel(UUID userProfileId, int currentLevel, Long aggregateVersion) {
+            return false;
+        }
+
+        @Override
+        public boolean projectTrustScore(UUID userProfileId, int trustScore, TrustBand trustBand,
+                                         Long aggregateVersion) {
+            return false;
         }
     }
 
