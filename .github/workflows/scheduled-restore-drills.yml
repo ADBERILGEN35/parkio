@@ -6,6 +6,10 @@
 #
 # Adding `push.branches: [api]` on those workflows does not fix schedules.
 # Do not change the default branch. Do not merge api into master.
+#
+# A green dispatch only means the runs were started. The watch job waits for
+# every dispatched run and fails this workflow when one of them does not end in
+# success, so a failed api run is visible here (U08, CX-F08).
 name: Scheduled restore drills
 
 on:
@@ -39,8 +43,11 @@ jobs:
     name: Dispatch api scheduled workflows
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      children: ${{ steps.start.outputs.children }}
     steps:
       - name: Start api workflows
+        id: start
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -51,6 +58,35 @@ jobs:
         run: |
           set -euo pipefail
           allowed='backup-restore-drill.yml restore-drill-01-procedure.yml backend-integration.yml security-ci.yml supply-chain.yml runtime-validation.yml staging-verification.yml runtime-baseline.yml chaos-validation.yml performance-smoke.yml'
+          children="${RUNNER_TEMP:-/tmp}/dispatched-runs.tsv"
+          : > "$children"
+          # The run a dispatch created: gh prints its URL. Without one, take the oldest
+          # workflow_dispatch run of that file on api created since the dispatch by this
+          # workflow's token (github-actions[bot]), so a person's dispatch is never taken.
+          record_child() {
+            local wf="$1" out="$2" since="$3" id="" url
+            url="$(printf '%s\n' "$out" | grep -Eo "https://github\.com/${GH_REPO}/actions/runs/[0-9]+" | head -1 || true)"
+            if [ -n "$url" ]; then
+              id="${url##*/}"
+            else
+              for _ in 1 2 3 4 5 6; do
+                id="$(gh run list --workflow "$wf" --branch api --event workflow_dispatch \
+                  --user 'github-actions[bot]' --limit 20 --json databaseId,createdAt \
+                  --jq "[.[] | select(.createdAt >= \"$since\")] | sort_by(.createdAt) | .[0].databaseId // empty" || true)"
+                [ -n "$id" ] && break
+                sleep 5
+              done
+              if [ -n "$id" ]; then url="https://github.com/${GH_REPO}/actions/runs/$id"; fi
+            fi
+            printf '%s\t%s\t%s\n' "$wf" "${id:-unidentified}" "$url" >> "$children"
+          }
+          publish_children() {
+            {
+              echo "children<<DISPATCHED_RUNS_EOF"
+              cat "$children"
+              echo "DISPATCHED_RUNS_EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
           dispatch_one() {
             local wf="$1"
             case " $allowed " in
@@ -61,6 +97,8 @@ jobs:
                 ;;
             esac
             echo "Dispatching $wf --ref api"
+            local since out
+            since="$(date -u -d '-10 seconds' +%Y-%m-%dT%H:%M:%SZ)"
             if [ "$wf" = staging-verification.yml ]; then
               local restore="${2:-${RUN_RESTORE:-false}}"
               case "$restore" in
@@ -68,13 +106,17 @@ jobs:
                 *) echo "Invalid run_restore value: $restore" >&2; exit 2 ;;
               esac
               # gh 2.92.0 unmarshals --json values as strings and rejects a JSON boolean.
-              printf '{"run_restore":"%s"}\n' "$restore" | gh workflow run "$wf" --ref api --json
+              out="$(printf '{"run_restore":"%s"}\n' "$restore" | gh workflow run "$wf" --ref api --json 2>&1)" \
+                || { printf '%s\n' "$out" >&2; exit 1; }
             else
-              gh workflow run "$wf" --ref api
+              out="$(gh workflow run "$wf" --ref api 2>&1)" || { printf '%s\n' "$out" >&2; exit 1; }
             fi
+            printf '%s\n' "$out"
+            record_child "$wf" "$out" "$since"
           }
           if [ -n "${ONLY:-}" ]; then
             dispatch_one "$ONLY"
+            publish_children
             exit 0
           fi
           # Monday 04:23 restore pair (existing).
@@ -112,4 +154,73 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 6 * * 2" ]; then
             dispatch_one performance-smoke.yml
           fi
+          publish_children
           echo "Dispatch complete"
+
+  watch:
+    name: Wait for the dispatched api runs
+    needs: dispatch
+    runs-on: ubuntu-latest
+    # Longer than WAIT_SECONDS, so the step reports the runs still open instead of
+    # being cancelled. Recent dispatched runs took at most about 90 minutes.
+    timeout-minutes: 320
+    permissions:
+      actions: read
+    steps:
+      - name: Report each dispatched run's conclusion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CHILDREN: ${{ needs.dispatch.outputs.children }}
+          WAIT_SECONDS: "18000"
+          POLL_SECONDS: "60"
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + WAIT_SECONDS ))
+          mapfile -t rows < <(printf '%s\n' "${CHILDREN:-}" | grep -v '^[[:space:]]*$' || true)
+          if [ "${#rows[@]}" -eq 0 ]; then
+            echo "::error title=No dispatched runs::The dispatch job recorded no runs to watch."
+            exit 1
+          fi
+          status=()
+          conclusion=()
+          while :; do
+            open=0
+            for i in "${!rows[@]}"; do
+              IFS=$'\t' read -r wf id url <<< "${rows[i]}"
+              [ "${status[i]:-}" = completed ] && continue
+              case "$id" in
+                ''|*[!0-9]*) status[i]=completed; conclusion[i]=unidentified; continue ;;
+              esac
+              # A failed lookup is retried at the next poll.
+              if line="$(gh run view "$id" --json status,conclusion --jq '"\(.status) \(.conclusion)"')"; then
+                status[i]="${line%% *}"
+                conclusion[i]="${line#* }"
+              fi
+              [ "${status[i]:-}" = completed ] || open=$((open + 1))
+            done
+            if [ "$open" -eq 0 ] || [ "$(date +%s)" -ge "$deadline" ]; then
+              break
+            fi
+            sleep "$POLL_SECONDS"
+          done
+          {
+            echo "### Dispatched api runs"
+            echo
+            echo "| workflow | run | status | conclusion |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          for i in "${!rows[@]}"; do
+            IFS=$'\t' read -r wf id url <<< "${rows[i]}"
+            st="${status[i]:-unknown}"
+            co="${conclusion[i]:-}"
+            if [ "$st" != completed ]; then co="still ${st} after ${WAIT_SECONDS}s"; fi
+            echo "| ${wf} | ${url:-$id} | ${st} | ${co} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "${wf}: ${co} ${url:-$id}"
+            if [ "$co" != success ]; then
+              failed=$((failed + 1))
+              echo "::error title=Dispatched run did not succeed::${wf}: ${co} ${url:-$id}"
+            fi
+          done
+          [ "$failed" -eq 0 ]
