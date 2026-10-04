@@ -203,10 +203,13 @@ export async function keyboardWalk(page: Page, testInfo: TestInfo, name: string,
     (document.activeElement as HTMLElement | null)?.blur();
     // The alpha of a computed colour, in the legacy comma form (rgba(0, 0, 0, 0)) or the slash form
     // of newer colour functions (oklch(… / 0), color(srgb … / 0%), rgb(… / 0.5)) (#242 review N3).
+    // A "none" alpha renders as 0 (CSS Color 4), and an alpha may be written with an exponent (1e-7)
+    // (#247 review N2).
     const alphaOf = (colour: string) => {
       const value = colour.trim();
       if (value === 'transparent') return 0;
-      const slash = value.match(/\/\s*(-?[\d.]+)(%?)\s*\)$/);
+      const slash = value.match(/\/\s*(none|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%?)\s*\)$/i);
+      if (slash && slash[1].toLowerCase() === 'none') return 0;
       if (slash) return slash[2] ? parseFloat(slash[1]) / 100 : parseFloat(slash[1]);
       const comma = value.match(/^(?:rgba|hsla)\(([^)]*)\)$/);
       const parts = comma ? comma[1].split(',') : [];
