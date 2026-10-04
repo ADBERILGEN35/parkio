@@ -20,6 +20,11 @@ interface WebPage {
   name: string;
   path: string;
   signedIn: boolean;
+  /**
+   * Reached by in-app navigation. The web image's nginx redirects a direct /privacy or /terms request
+   * to the marketing site (measured by a11y-marketing); the app's own legal pages open from its links.
+   */
+  inApp?: boolean;
 }
 
 const PAGES: WebPage[] = [
@@ -29,8 +34,8 @@ const PAGES: WebPage[] = [
   { name: 'reset-password', path: '/reset-password?token=a11y-reset-token', signedIn: false },
   { name: 'check-email', path: '/check-email', signedIn: false },
   { name: 'verify-email', path: '/verify-email?token=a11y-verify-token', signedIn: false },
-  { name: 'terms', path: '/terms', signedIn: false },
-  { name: 'privacy', path: '/privacy', signedIn: false },
+  { name: 'terms', path: '/terms', signedIn: false, inApp: true },
+  { name: 'privacy', path: '/privacy', signedIn: false, inApp: true },
   { name: 'explore', path: '/explore', signedIn: false },
   { name: 'map', path: '/map', signedIn: true },
   { name: 'upload', path: '/upload', signedIn: true },
@@ -79,7 +84,17 @@ for (const locale of ['tr', 'en'] as const) {
       test(`${target.name} (${locale})`, async ({ page }, testInfo) => {
         const unmocked: string[] = [];
         await installMocks(page, locale, target.signedIn, unmocked);
-        await page.goto(target.path);
+        if (target.inApp) {
+          await page.goto('/login');
+          await page.waitForLoadState('networkidle');
+          await page.evaluate((path) => {
+            window.history.pushState({}, '', path);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }, target.path);
+          await expect(page).toHaveURL(new RegExp(`${target.path}$`));
+        } else {
+          await page.goto(target.path);
+        }
         await page.waitForLoadState('networkidle');
         // Pages have an h1 (some only for screen readers) or a main landmark; not always both.
         await expect(page.locator('h1, main, [role="main"]').first()).toBeAttached();
