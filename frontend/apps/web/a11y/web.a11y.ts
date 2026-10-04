@@ -8,7 +8,7 @@ import {
   type AxeNode,
   type Locale,
 } from './helpers';
-import { KNOWN_ISSUES } from './known-issues';
+import { KNOWN_ISSUES, type KnownIssue } from './known-issues';
 
 /**
  * CL-F30: the web app's public pages and its signed-in pages, measured in Turkish and English.
@@ -105,12 +105,14 @@ const populated: Record<string, unknown> = {
     { id: '0b8f6c3a-0000-0000-0000-00000000c112', reporterUserId: USER_ID, targetType: 'PARKING_SPOT', targetId: spot(2, 'ACTIVE').id,
       reason: 'DUPLICATE_PHOTO', description: null, caseId: '0b8f6c3a-0000-0000-0000-00000000d111', createdAt: NOW },
   ],
-  // About 1.4 km apart: once the explore map has framed them they no longer overlap. Before the
-  // framing they can, which is a known issue (#242 review N4).
+  // Within the explore query's 5 km of its default origin (İzmir centre, 38.4237, 27.1428), as the API
+  // returns them, and about 3 km apart. They used to sit in Istanbul, 330 km away, so the map framed
+  // both cities and the two markers covered each other (WCAG 2.5.8, Asana 1219147334320125).
   'GET /public/explore/facilities': {
     facilities: [1, 2].map((n) => ({
       id: `a11y-facility-${n}`, displayName: `Synthetic Car Park ${n}`, operatorName: 'Synthetic Operator', facilityType: 'OFF_STREET',
-      addressText: `${n} Synthetic Square, Istanbul`, latitude: 41.01 + n / 100, longitude: 28.97 + n / 100, capacityTotal: 120,
+      addressText: `${n} Synthetic Square, Izmir`, latitude: 38.4237 + (n === 1 ? 0.012 : -0.012),
+      longitude: 27.1428 + (n === 1 ? 0.01 : -0.01), capacityTotal: 120,
       availableSpaces: 30 * n, availabilityFreshness: 'LIVE', dataUpdatedAt: NOW, sourceLabel: 'Synthetic source',
       attribution: 'Synthetic data for accessibility tests', accessClassification: 'PUBLIC',
     })),
@@ -282,8 +284,23 @@ test.describe('focus indicator rule', () => {
   });
 });
 
-/** Known-issue matching (#242 review N1): only the exact documented node and failure is known. */
+/**
+ * Known-issue matching (#242 review N1): only the exact documented node and failure is known. The
+ * entries here are shaped like real ones but local to the test, so the real list can change.
+ */
 test.describe('known issue matching', () => {
+  const toggleIssue: KnownIssue = {
+    page: 'explore', rule: 'target-size', target: 'summary', html: 'maplibregl-ctrl-attrib-button',
+    check: { messageKey: 'partiallyObscured', width: 24, height: 6, relatedHtml: 'data-testid="map-floating-zoom-out"' },
+    reason: 'test',
+  };
+  const markerIssue: KnownIssue = {
+    page: 'explore', rule: 'target-size', target: /^button\[data-facility-id="a11y-facility-[12]"\]$/,
+    html: 'data-testid="municipal-facility-marker"',
+    check: { messageKey: 'partiallyObscured', relatedHtml: 'data-testid="municipal-facility-marker"' },
+    reason: 'test',
+  };
+  const issues = [toggleIssue, markerIssue, ...KNOWN_ISSUES];
   const toggle = (overrides: Partial<{ width: number; height: number; messageKey: string; related: string }> = {}) =>
     ({
       target: ['summary'],
@@ -308,7 +325,7 @@ test.describe('known issue matching', () => {
         },
       ],
     }) as AxeNode;
-  const known = (node: AxeNode) => KNOWN_ISSUES.some((issue) => matchesKnownIssue(issue, 'target-size', node));
+  const known = (node: AxeNode) => issues.some((issue) => matchesKnownIssue(issue, 'target-size', node));
 
   test('the documented nodes are known', () => {
     expect(known(toggle())).toBe(true);
@@ -333,7 +350,7 @@ test.describe('known issue matching', () => {
     expect(known(marker('a11y-facility-1', { messageKey: 'partiallyObscured', related: '<button data-testid="map-floating-zoom-out">' }))).toBe(false);
     // A marker the entry does not name, and the rule must match too.
     expect(known(marker('real-facility-9', { messageKey: 'partiallyObscured', related: '<button data-testid="municipal-facility-marker">' }))).toBe(false);
-    expect(KNOWN_ISSUES.some((issue) => matchesKnownIssue(issue, 'color-contrast', toggle()))).toBe(false);
+    expect(issues.some((issue) => matchesKnownIssue(issue, 'color-contrast', toggle()))).toBe(false);
   });
 });
 
