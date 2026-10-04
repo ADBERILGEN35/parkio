@@ -62,7 +62,10 @@ Acceptance layers stay separate:
    clock. Standalone `restore-database.sh` and `--only minio` are refused.
    Env flags alone do not bypass. Never lower the cutoff.
 4. `offsite.uploaded` on a sealed stamp is not local integrity and not
-   independent remote presence. Do not rewrite stamps to flip it.
+   independent remote presence. Do not rewrite stamps to flip it. Newer stamps
+   have `<stamp>.offsite-receipt.json` beside them, written after a successful
+   upload. It is not remote proof either
+   ([backup-offsite-uploaded-receipt-follow-up.md](backup-offsite-uploaded-receipt-follow-up.md)).
 5. Dump-client, restore-client, target-server and PostGIS are checked
    separately. CI `psql 16.10` is not assumed sufficient for a 16.15 dump.
 6. Source/CI acceptance is not a real restore.

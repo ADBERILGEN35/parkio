@@ -14,8 +14,8 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -a "$SRC/." "$STAGE/"
 
-# Never ship adapter unit tests or local-only notes as required runtime.
-rm -f "$STAGE/waitlist.adapter.test.mjs"
+# Never ship unit tests or local-only notes as required runtime.
+find "$STAGE" -maxdepth 1 -type f -name '*.test.mjs' -delete
 
 case "$MODE" in
   staged)

@@ -477,6 +477,12 @@ parkio_backup_prune_expired_stamps() {
     return 0
   fi
   find "${backup_dir}" -mindepth 1 -maxdepth 1 -type d -mtime "+${retention}" -exec rm -rf {} + 2>/dev/null || true
+  # An offsite receipt (or a receipt write that never finished) goes with its stamp.
+  local receipt
+  for receipt in "${backup_dir%/}"/*"${PARKIO_OFFSITE_RECEIPT_SUFFIX}"*; do
+    [ -f "${receipt}" ] || continue
+    [ -d "${receipt%"${PARKIO_OFFSITE_RECEIPT_SUFFIX}"*}" ] || rm -f "${receipt}"
+  done
 }
 
 parkio_backup_write_stamp_integrity() {
@@ -744,6 +750,66 @@ parkio_backup_offsite_upload() {
       return 1
       ;;
   esac
+}
+
+# Post-upload offsite receipt (U14). A stamp cannot record its own upload: SHA256SUMS
+# and COMPLETE are written before the upload, and COMPLETE never changes after
+# finalize. So the receipt sits BESIDE the stamp directory, never inside it (restore
+# preflight refuses files that SHA256SUMS does not list). It is written only after
+# parkio_backup_offsite_upload returned 0, names the remote location the upload used
+# (no credentials, no storage account), and binds the stamp through the SHA256SUMS
+# digest that COMPLETE records. It records that the upload commands succeeded; it is
+# not an independent check of remote presence.
+PARKIO_OFFSITE_RECEIPT_SUFFIX=".offsite-receipt.json"
+
+parkio_backup_offsite_receipt_path() {
+  printf '%s%s\n' "${1%/}" "${PARKIO_OFFSITE_RECEIPT_SUFFIX}"
+}
+
+# Usage: parkio_backup_write_offsite_receipt <dest_dir> [mc_dest] [stamp]
+parkio_backup_write_offsite_receipt() {
+  local dest_dir="${1%/}"
+  local mc_dest="${2:-${BACKUP_MC_DEST:-}}"
+  local stamp="${3:-$(basename "${dest_dir}")}"
+  local kind target sealed receipt tmp
+  kind="$(parkio_backup_offsite_kind)"
+  case "${kind}" in
+    s3) target="${mc_dest%/}/${stamp}" ;;
+    azure) target="azure://${BACKUP_AZURE_CONTAINER:-}/${stamp}" ;;
+    *)
+      echo "ERROR: no offsite receipt for offsite kind '${kind}'." >&2
+      return 1
+      ;;
+  esac
+  sealed="$(sed -n 's/^sha256sums=//p' "${dest_dir}/COMPLETE" 2>/dev/null | head -1 || true)"
+  if ! printf '%s' "${sealed}" | grep -Eq '^[0-9a-f]{64}$'; then
+    echo "ERROR: no sealed COMPLETE in ${dest_dir}; offsite receipt not written." >&2
+    return 1
+  fi
+  receipt="$(parkio_backup_offsite_receipt_path "${dest_dir}")"
+  if ! tmp="$(mktemp "${receipt}.XXXXXX")"; then
+    echo "ERROR: cannot create the offsite receipt beside ${dest_dir}." >&2
+    return 1
+  fi
+  if jq -n \
+      --arg stamp "${stamp}" \
+      --arg uploadedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg kind "${kind}" \
+      --arg target "${target}" \
+      --arg sealed "${sealed}" \
+      '{
+        schemaVersion: 1,
+        stamp: $stamp,
+        uploaded: true,
+        uploadedAt: $uploadedAt,
+        offsite: { kind: $kind, target: $target },
+        sealed: { complete: "COMPLETE", sha256sums: $sealed }
+      }' > "${tmp}" && mv "${tmp}" "${receipt}"; then
+    return 0
+  fi
+  rm -f "${tmp}"
+  echo "ERROR: failed to write the offsite receipt beside ${dest_dir}." >&2
+  return 1
 }
 
 parkio_backup_offsite_upload_s3() {

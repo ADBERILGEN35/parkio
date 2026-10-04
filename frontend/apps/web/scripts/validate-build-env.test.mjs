@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+import { exampleMapKeys } from './example-env-map-keys.mjs';
+
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'validate-build-env.mjs');
 const FIXTURE_KEY = 'fixture-public-map-key-never-use-in-production';
 
@@ -88,4 +90,40 @@ test('PROD-MUNI-01 allows production bake with municipal discovery false', () =>
     VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED: 'false',
   });
   assert.equal(result.status, 0, result.output);
+});
+
+test('rejects every example-env map key for a production-like build without printing it (U17 CL-F05R)', () => {
+  const examples = exampleMapKeys();
+  assert.ok(examples.length >= 3, `expected the example-env map keys, found ${examples.length}`);
+  for (const { file, value } of examples) {
+    for (const appEnv of ['hosted-beta', 'invite-production', 'production']) {
+      const result = run({ VITE_APP_ENV: appEnv, VITE_MAPTILER_KEY: value });
+      assert.notEqual(result.status, 0, `${file} (${appEnv}): ${result.output}`);
+      assert.match(result.output, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+      assert.match(result.output, /VITE_MAPTILER_KEY holds an example-env placeholder/);
+      assert.equal(result.output.includes(value), false, `${file}: the value was printed`);
+    }
+  }
+});
+
+test('rejects any REPLACE_ME_ map key, whatever its case and suffix', () => {
+  for (const value of ['REPLACE_ME_maptiler_key_v2', 'replace_me_x', '  REPLACE_ME_  ']) {
+    const result = run({ VITE_APP_ENV: 'invite-production', VITE_MAPTILER_KEY: value });
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+  }
+});
+
+test('accepts a realistic map key and does not print it', () => {
+  const realistic = 'Zq3x7Vb2Nw8Kp4Rt6Ym1';
+  const result = run({ VITE_APP_ENV: 'invite-production', VITE_MAPTILER_KEY: realistic });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /VITE_MAPTILER_KEY = PRESENT/);
+  assert.equal(result.output.includes(realistic), false);
+});
+
+test('does not check example-env map keys in a non-production build', () => {
+  const result = run({ VITE_APP_ENV: 'development', VITE_MAPTILER_KEY: 'your_maptiler_key' });
+  assert.equal(result.status, 0, result.output);
+  assert.doesNotMatch(result.output, /VITE_MAPTILER_KEY/);
 });
