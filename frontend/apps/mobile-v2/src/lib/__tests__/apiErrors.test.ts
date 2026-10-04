@@ -30,6 +30,15 @@ describe('describeApiError', () => {
     );
   });
 
+  it('describes a spent or expired verification link without the backend text', () => {
+    const described = describeApiError(
+      apiError(400, 'INVALID_VERIFICATION_TOKEN', 'Email verification token is invalid or expired.'),
+      t,
+    );
+    expect(described.message).toBe(tr['auth.verify.linkInvalid']);
+    expect(described.traceId).toBe('trc_123');
+  });
+
   it('keeps the trace id for support', () => {
     const described = describeApiError(apiError(500, 'SOMETHING_ELSE'), t);
     expect(described.traceId).toBe('trc_123');
