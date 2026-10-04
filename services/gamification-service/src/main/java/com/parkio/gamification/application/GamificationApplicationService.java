@@ -272,17 +272,18 @@ public class GamificationApplicationService {
         pointTransactions.save(PointTransaction.record(userId, idempotencyKey, sourceType, direction,
                 magnitude, relatedEventId, relatedSpotId, now));
 
+        long version = savedVersion(saved.version());
         if (direction == PointDirection.EARNED) {
             outbox.append(PointsEarnedEvent.of(userId, magnitude, sourceType, saved.totalPoints(),
-                    relatedEventId, now));
+                    relatedEventId, now, version));
         } else {
             outbox.append(PointsDeductedEvent.of(userId, magnitude, sourceType, saved.totalPoints(),
-                    relatedEventId, now));
+                    relatedEventId, now, version));
         }
 
         if (saved.currentLevel() != previousLevel) {
             outbox.append(UserLevelChangedEvent.of(userId, previousLevel, saved.currentLevel(),
-                    saved.totalPoints(), now));
+                    saved.totalPoints(), now, version));
         }
 
         // Simplified contribution score (lifetime points) until a decay job lands.
@@ -310,8 +311,16 @@ public class GamificationApplicationService {
         if (trust.apply(rule.delta(), now)) {
             TrustScore saved = trustScores.save(trust);
             outbox.append(TrustScoreUpdatedEvent.of(userId, previousScore, saved.score(),
-                    ruleKey, relatedEventId, now));
+                    ruleKey, relatedEventId, now, savedVersion(saved.version())));
         }
+    }
+
+    /** The row version a save produced; projections order snapshots by it (U12). */
+    private static long savedVersion(Long version) {
+        if (version == null) {
+            throw new IllegalStateException("A saved gamification aggregate has no version");
+        }
+        return version;
     }
 
     /** Maps a moderation case reason to the seeded DEDUCT_POINTS penalty rule. */

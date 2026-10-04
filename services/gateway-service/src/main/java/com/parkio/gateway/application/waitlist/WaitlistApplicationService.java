@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -20,6 +21,8 @@ public class WaitlistApplicationService {
 
     private static final Logger log = LoggerFactory.getLogger(WaitlistApplicationService.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    /** Rows per export query; with the keyset this bounds what one export holds in memory. */
+    static final int EXPORT_PAGE_SIZE = 1_000;
 
     private final WaitlistInterestRepository repository;
     private final WaitlistHasher hasher;
@@ -222,9 +225,48 @@ public class WaitlistApplicationService {
         }
     }
 
-    public Mono<List<WaitlistExportRow>> export(Instant createdFrom, Instant createdTo) {
-        return Mono.fromCallable(() -> repository.exportConfirmed(createdFrom, createdTo))
+    /**
+     * Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)},
+     * at most {@code parkio.waitlist.export.max-rows} of them. The match is counted first, so the
+     * caller can report truncation before streaming; the count and the pages are separate reads,
+     * so a row confirmed while the export runs can be streamed although it was not counted, and a
+     * row withdrawn meanwhile can be counted but not streamed. The
+     * rows come one keyset page at a time without a database cursor. Memory does not grow with
+     * the matching volume, but it is not one page either: the HTTP layer prefetches a bounded
+     * number of buffers (Reactor Netty asks for up to 128 pages), and at the default cap of 50,000
+     * rows the whole export is 50 pages.
+     */
+    public Mono<WaitlistExport> export(Instant confirmedFrom, Instant confirmedTo) {
+        int limit = properties.getExport().getMaxRows();
+        return Mono.fromCallable(() -> repository.countConfirmedForExport(confirmedFrom, confirmedTo))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(matching -> new WaitlistExport(matching, limit, exportPages(confirmedFrom, confirmedTo, limit)));
+    }
+
+    private Flux<List<WaitlistExportRow>> exportPages(Instant confirmedFrom, Instant confirmedTo, int limit) {
+        return Flux.<List<WaitlistExportRow>, ExportProgress>generate(
+                        () -> new ExportProgress(null, 0),
+                        (progress, sink) -> {
+                            int wanted = Math.min(EXPORT_PAGE_SIZE, limit - progress.emitted());
+                            if (wanted <= 0) {
+                                sink.complete();
+                                return progress;
+                            }
+                            List<WaitlistExportRow> page =
+                                    repository.exportConfirmedPage(confirmedFrom, confirmedTo, progress.after(), wanted);
+                            if (page.isEmpty()) {
+                                sink.complete();
+                                return progress;
+                            }
+                            sink.next(page);
+                            WaitlistExportRow last = page.get(page.size() - 1);
+                            return new ExportProgress(new WaitlistExportCursor(last.confirmedAt(), last.id()),
+                                    progress.emitted() + page.size());
+                        })
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private record ExportProgress(WaitlistExportCursor after, int emitted) {
     }
 
     public Mono<WaitlistAdminCounts> adminCounts() {

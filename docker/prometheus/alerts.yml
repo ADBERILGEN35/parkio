@@ -53,7 +53,7 @@ groups:
           severity: critical
         annotations:
           summary: "Dead-lettered outbox rows in {{ $labels.service }}"
-          description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive)."
+          description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive). Rows with event type UserErasure* hold up an account erasure: retry them, never acknowledge them."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
 
       - alert: OutboxOldestUnpublishedTooOld
@@ -734,5 +734,5 @@ groups:
           severity: warning
         annotations:
           summary: "Account erasure incomplete beyond operational SLA"
-          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
-          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/priv-001-account-data-erasure.md"
+          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant ACKs, then look for dead-lettered erasure messages (OutboxDeadlettered rows with event type UserErasure*, DLT records from parkio.privacy.erasure): retry them once the cause is fixed and never acknowledge them. Do not reverse completed deletions."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md#erasure-messages"

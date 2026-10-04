@@ -468,9 +468,15 @@ class WaitlistControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectHeader().valueEquals("X-Parkio-Export-Row-Limit", "50000")
+                .expectHeader().valueEquals("X-Parkio-Export-Matching-Rows", "1")
+                .expectHeader().valueEquals("X-Parkio-Export-Truncated", "false")
                 .expectBody(String.class)
                 .returnResult()
                 .getResponseBody();
+        // UTF-8 BOM first, for spreadsheet clients, then the header row.
+        org.assertj.core.api.Assertions.assertThat(body)
+                .startsWith("\uFEFFemail,fullName,city,role,source,createdAt,consentTimestamp\n");
         org.assertj.core.api.Assertions.assertThat(body).contains("will-confirm@parkio.dev");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("only-pending@parkio.dev");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("verification_token");
@@ -513,6 +519,50 @@ class WaitlistControllerTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer super-token")
                 .exchange()
                 .expectStatus().isOk();
+    }
+
+    @Test
+    void exportFiltersByConfirmationTimeAndRefusesRegistrationTimeFilters() {
+        postAccepted("confirm-window@parkio.dev");
+        webTestClient.post()
+                .uri("/api/v1/waitlist/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"token\":\"" + lastVerificationToken.get() + "\"}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        String future = webTestClient.get()
+                .uri(uri -> uri.path("/api/v1/waitlist/export")
+                        .queryParam("confirmedFrom", "2999-01-01T00:00:00Z").build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("X-Parkio-Export-Truncated", "false")
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        org.assertj.core.api.Assertions.assertThat(future).doesNotContain("confirm-window@parkio.dev");
+
+        String window = webTestClient.get()
+                .uri(uri -> uri.path("/api/v1/waitlist/export")
+                        .queryParam("confirmedFrom", "2000-01-01T00:00:00Z")
+                        .queryParam("confirmedTo", "2999-01-01T00:00:00Z").build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        org.assertj.core.api.Assertions.assertThat(window).contains("confirm-window@parkio.dev");
+
+        webTestClient.get()
+                .uri(uri -> uri.path("/api/v1/waitlist/export")
+                        .queryParam("createdFrom", "2000-01-01T00:00:00Z").build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer admin-token")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_EXPORT_FILTER_INVALID");
     }
 
     @Test
