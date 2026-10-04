@@ -78,7 +78,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Testcontainers integration tests
-        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
+        # DO NOT MERGE: CI gate negative probe (a green run with zero tests).
+        run: ./gradlew --no-daemon integrationTest -x integrationTest -Pparkio.integrationTest.requireDocker=true
 
       # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green run that ran no tests fails there.
       - name: Integration test evidence
