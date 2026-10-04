@@ -80,6 +80,10 @@ jobs:
       - name: Run Testcontainers integration tests
         run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
 
+      # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green run that ran no tests fails there.
+      - name: Integration test evidence
+        run: python3 scripts/ci/junit_summary.py --label "Integration test" --task integrationTest
+
       # A cached or up-to-date result must not stand in for a run (#205 review B1). One module of
       # each integrationTest definition (the buildSrc convention, the platform's own and the
       # dlt-redrive tool's own) is run again with a docker stub that always fails; the task must
