@@ -26,8 +26,6 @@ concurrency:
 jobs:
   backend-build:
     name: Build & unit tests
-    # DO NOT MERGE: CI gate negative probe (an unexpected skip).
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -50,7 +48,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build and run unit tests
-        run: ./gradlew --no-daemon build
+        # DO NOT MERGE: CI gate negative probe (a green build with zero tests).
+        run: ./gradlew --no-daemon build -x test
 
       # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green build that ran no tests fails there.
       - name: Unit test evidence
