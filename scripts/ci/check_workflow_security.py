@@ -32,10 +32,12 @@ COMMIT_PIN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
 DIGEST_PIN = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 # `inputs` or `github` as a context, not as a property name (steps.inputs.outputs): the whole
-# object (toJSON(inputs), toJSON(github)), or github.event / github.head_ref in dot or index syntax.
+# object (toJSON(inputs), toJSON(github)), every property of github through an object filter
+# (github.*), or github.event / github.head_ref in dot or index syntax.
 UNTRUSTED = re.compile(
     r"(?<![.\w])inputs\b"
     r"|(?<![.\w])github\b(?!\s*(?:\.|\[))"
+    r"|(?<![.\w])github\s*\.\s*\*"
     r"|(?<![.\w])github\s*(?:\.|\[)\s*['\"]?\s*(?:event|head_ref)\b",
     re.I)
 
