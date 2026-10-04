@@ -91,32 +91,37 @@ must keep age-based SLA.
 
 Public STALE masking remains authoritative for availability. Do **not** raise aging/stale thresholds to hide upstream outages.
 
-### Unchanged feeds without source timestamps (CL-F22)
+### Unchanged feeds without source timestamps (CL-F22, operator only)
 
 İZUM and İSPARK readings carry only the fetch time (`timestamp_provenance = FETCH`), so a frozen
-upstream cache would look LIVE on every fetch.
+upstream cache would look LIVE on every fetch. Owner decision (2026-10-05, option C): public
+freshness and counts do not change; operators get a metric and an alert instead.
 
-- **Rule.** A run that returns exactly the previous run's records, with the same external ids and the
-  same raw record hashes, observed nothing new. Each reading keeps the previous run's observation
-  time in `source_observed_at`, which is the fetch time of the last run in which the feed changed.
-  - The source's own aging/stale thresholds then apply to that time through `source_age_seconds`,
-    so a frozen upstream cache goes AGING, then STALE. The operator quality report ages İZUM
-    readings from the same time.
-  - Any changed, added or missing record means the feed is moving, and readings use the fetch time
-    again.
-  - The rule is all-or-nothing: an upstream in which only some car parks are stuck is not detected.
-- **Logs.** The first unchanged run of a streak logs
-  `municipal_sync_feed_unchanged sourceKey=… records=… unchangedSince=…` at WARN. Every later run of
-  the same streak logs `municipal_sync_feed_still_unchanged` at INFO; for İZUM that is every 2 minutes
-  at the default `parkio.municipal.izum.fixed-delay-ms`.
-- **Signal.** A source-level `occupancy_freshness` gauge in AGING/STALE while the source is HEALTHY
-  is the sign of a frozen upstream.
-- **Side effects.**
-  - If every car park of a source keeps exactly the same counts for longer than the stale threshold
-    (for example overnight), the whole source reads STALE and publishes no space counts until a count
-    changes.
-  - After a sync outage longer than the stale threshold, a first successful run that returns the
-    content of the last run before the outage is STALE at once.
+- **Detection.** A run that returns exactly the previous run's records, with the same external ids and
+  the same raw record hashes, is unchanged. Any changed, added or missing record means the feed moved.
+  The rule is all-or-nothing: an upstream in which only some car parks are stuck is not detected.
+- **Readings.** Every reading keeps its fetch time, as before. Freshness (LIVE/AGING/STALE), published
+  counts and the quality report are the same as without detection.
+- **Metric.** `parkio_municipal_sync_unchanged_feed_seconds{source_key}`: how long the feed has
+  repeated itself, as of the last completed run. It counts from the fetch time of the run the streak
+  repeats, and a changed feed resets it to 0.
+  - A failed run, or a run without a comparison (no readings, or readings with source timestamps),
+    leaves it unchanged.
+  - It is kept in memory: after a parking-service restart it counts from the previous run again, so it
+    can be lower than the real age.
+- **Threshold.** `parkio.municipal.izum.unchanged-feed-alert-after` and
+  `parkio.municipal.ispark.unchanged-feed-alert-after`. The environment variables are
+  `PARKIO_MUNICIPAL_IZUM_UNCHANGED_FEED_ALERT_AFTER` and `PARKIO_MUNICIPAL_ISPARK_UNCHANGED_FEED_ALERT_AFTER`.
+  - The default is `4h`. `0` disables the alert. The configured value is exported as
+    `parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key}`.
+  - The default is deliberately conservative, because a legitimately static feed (for example at night)
+    also repeats itself. Use the metric's history to tune it per source.
+  - The invite-production compose files do not pass these variables through, like the other İZUM and
+    İSPARK tuning settings, so the default applies there.
+- **Alert.** `MunicipalFeedUnchangedTooLong` (warning). See the alert list below.
+- **Log.** When the age first reaches the threshold in a streak, the sync logs
+  `municipal_sync_feed_unchanged_threshold sourceKey=… unchangedSince=… unchangedSeconds=… thresholdSeconds=…`
+  once at WARN.
 
 ### İZUM readings with nothing to publish (CL-F22)
 
@@ -144,6 +149,8 @@ quality report counts such readings as not exposed, like the public queries.
 | `parkio.municipal.ops.source-mode-sla-enabled` | false |
 | `parkio.municipal.izum.operating-mode` | SCHEDULED |
 | `parkio.municipal.osm.operating-mode` | OPERATOR_IMPORTED |
+| `parkio.municipal.izum.unchanged-feed-alert-after` | 4h (0 disables the alert) |
+| `parkio.municipal.ispark.unchanged-feed-alert-after` | 4h (0 disables the alert) |
 
 ### Alert meanings
 
@@ -164,6 +171,17 @@ quality report counts such readings as not exposed, like the public queries.
     previouslyActive, accepted, received and authoritativeValid. Then decide whether the feed is
     truncated, which needs no action, or the facilities really closed, which needs a manual
     deactivation.
+- **MunicipalFeedUnchangedTooLong** (CL-F22, owner option C) — warning, operator only.
+  - **Trigger:** an İZUM or İSPARK feed has returned exactly its previous run's records for at least
+    the source's `unchanged-feed-alert-after` (default 4h), for 1 minute. A threshold of 0 or a
+    DISABLED source does not fire.
+  - **Source:** `parkio_municipal_sync_unchanged_feed_seconds` against
+    `parkio_municipal_sync_unchanged_feed_threshold_seconds`. A changed feed resets the age; a failed
+    run leaves it unchanged.
+  - **Restart:** the age lives in memory; after a restart it counts from the previous run again.
+  - **Check:** the `municipal_sync_feed_unchanged_threshold` log line, then the source's own API
+    response. Public freshness and counts are not affected, so a legitimately static feed (for example
+    overnight) needs no action; a frozen upstream cache is for the source owner.
 
 Disabled sources must not page. Scheduler kill switch remains `izum.scheduler-enabled=false` (and/or `izum.enabled=false`).
 

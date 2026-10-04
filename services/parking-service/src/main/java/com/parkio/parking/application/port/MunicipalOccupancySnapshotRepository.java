@@ -24,11 +24,8 @@ public interface MunicipalOccupancySnapshotRepository {
         }
     }
 
-    /**
-     * A record of the source's latest run: its raw hash, its observation time ({@code
-     * source_observed_at}, or the fetch time when there is none) and the run's fetch time.
-     */
-    record PreviousObservation(String rawRecordHash, Instant observedAt, Instant fetchedAt) {}
+    /** A record of the source's latest run: its raw hash and the run's fetch time. */
+    record PreviousObservation(String rawRecordHash, Instant fetchedAt) {}
 
     boolean insertIfAbsent(UUID facilityId, UUID sourceId, UUID sourceLinkId,
                            UUID syncRunId, NormalizedMunicipalOccupancy occupancy);

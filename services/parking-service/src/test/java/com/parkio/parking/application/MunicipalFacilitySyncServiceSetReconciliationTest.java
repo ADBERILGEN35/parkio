@@ -21,6 +21,7 @@ import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
+import com.parkio.parking.externalsource.MunicipalFeedChange;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
@@ -167,10 +168,9 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
     }
 
     @Test
-    void anUnchangedFeedStoresTheTimeOfTheLastRunInWhichItChanged() {
-        // CL-F22 (c): the same records with the same raw hashes as the previous run, which was itself
-        // unchanged since the feed last changed ten minutes ago.
-        Instant changedAt = NOW.minusSeconds(600);
+    void anUnchangedFeedKeepsItsFetchTimeAndIsReportedToOperators() {
+        // CL-F22, owner option C: the same records with the same raw hashes as the previous run. Public
+        // freshness stays as before (fetch time only); the run reports the repeat for the operator metric.
         Instant previousRun = NOW.minusSeconds(120);
         ArrayNode payload = mapper.createArrayNode();
         payload.add(record("A"));
@@ -178,37 +178,40 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")),
                 List.of(fetchedReading("A"), fetchedReading("B")), Set.of("A", "B"));
         when(ingestWriter.latestRunObservations(SOURCE_ID)).thenReturn(Map.of(
-                "A", new PreviousObservation("occupancy-hash-A", changedAt, previousRun),
-                "B", new PreviousObservation("occupancy-hash-B", changedAt, previousRun)));
+                "A", new PreviousObservation("occupancy-hash-A", previousRun),
+                "B", new PreviousObservation("occupancy-hash-B", previousRun)));
 
-        service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
 
         ArgumentCaptor<NormalizedMunicipalOccupancy> stored = ArgumentCaptor.forClass(NormalizedMunicipalOccupancy.class);
         verify(ingestWriter, times(2)).persistLiveAdapterFacility(
                 eq(SOURCE_ID), eq(RUN_ID), any(), any(), stored.capture(), eq(NOW));
         assertThat(stored.getAllValues()).allSatisfy(reading -> {
-            assertThat(reading.sourceObservedAt()).isEqualTo(changedAt);
+            assertThat(reading.sourceObservedAt()).isNull();
             assertThat(reading.fetchedAt()).isEqualTo(NOW);
         });
+        assertThat(result.feedChange()).isEqualTo(new MunicipalFeedChange(true, previousRun, NOW));
     }
 
     @Test
-    void aMovingFeedKeepsTheFetchTime() {
+    void aMovingFeedIsReportedAsChanged() {
+        Instant previousRun = NOW.minusSeconds(120);
         ArrayNode payload = mapper.createArrayNode();
         payload.add(record("A"));
         payload.add(record("B"));
         stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")),
                 List.of(fetchedReading("A"), fetchedReading("B")), Set.of("A", "B"));
         when(ingestWriter.latestRunObservations(SOURCE_ID)).thenReturn(Map.of(
-                "A", new PreviousObservation("occupancy-hash-A", NOW.minusSeconds(600), NOW.minusSeconds(120)),
-                "B", new PreviousObservation("an-older-hash", NOW.minusSeconds(600), NOW.minusSeconds(120))));
+                "A", new PreviousObservation("occupancy-hash-A", previousRun),
+                "B", new PreviousObservation("an-older-hash", previousRun)));
 
-        service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
 
         ArgumentCaptor<NormalizedMunicipalOccupancy> stored = ArgumentCaptor.forClass(NormalizedMunicipalOccupancy.class);
         verify(ingestWriter, times(2)).persistLiveAdapterFacility(
                 eq(SOURCE_ID), eq(RUN_ID), any(), any(), stored.capture(), eq(NOW));
         assertThat(stored.getAllValues()).allSatisfy(reading -> assertThat(reading.sourceObservedAt()).isNull());
+        assertThat(result.feedChange()).isEqualTo(new MunicipalFeedChange(false, previousRun, NOW));
     }
 
     @Test

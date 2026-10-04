@@ -175,6 +175,9 @@ parkio:
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
+      # CL-F22 (owner option C): operator alert when the feed repeats its previous run unchanged for
+      # this long. 0 disables the alert; public freshness and counts never depend on it.
+      unchanged-feed-alert-after: ${PARKIO_MUNICIPAL_IZUM_UNCHANGED_FEED_ALERT_AFTER:4h}
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     ispark:
       # PROVIDER-ISTANBUL-01: İstanbul / İSPARK. Default dark; enable independently of İZUM.
@@ -190,6 +193,9 @@ parkio:
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:false}
       fixed-delay-ms: 120000
+      # CL-F22 (owner option C): operator alert when the feed repeats its previous run unchanged for
+      # this long. 0 disables the alert; public freshness and counts never depend on it.
+      unchanged-feed-alert-after: ${PARKIO_MUNICIPAL_ISPARK_UNCHANGED_FEED_ALERT_AFTER:4h}
       user-agent: ParkioParkingService/1.0 (+https://parkio.dev)
     anpark:
       # PROVIDER-ANKARA-01: Ankara / ANPARK inventory only. Default dark.

@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.izum;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -16,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
@@ -32,11 +34,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * CL-F22 on PostGIS, through the real İZUM sync: (c) an unchanged feed keeps the time of the last run
- * in which it changed, and the quality report ages it from that time; (d) a car park reported closed or
- * without a free count is stored UNAVAILABLE, published without spaces, and not counted as exposed in
- * the quality report. The İZUM endpoint is a local stub serving the repository's synthetic fixture;
- * nothing leaves the machine.
+ * CL-F22 on PostGIS, through the real İZUM sync:
+ * <ul>
+ *   <li>(c), owner option C: a feed that repeats its previous run is reported to operators, while its
+ *       readings keep their fetch time, so public freshness and the quality report are as before;</li>
+ *   <li>(d): a car park reported closed or without a free count is stored UNAVAILABLE, published without
+ *       spaces, and not counted as exposed in the quality report.</li>
+ * </ul>
+ * The İZUM endpoint is a local stub serving the repository's synthetic fixture; nothing leaves the
+ * machine.
  */
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
@@ -93,7 +99,7 @@ class IzumOccupancySemanticsPostgresIT {
     }
 
     @Test
-    void unchangedFeedsAgeFromTheirLastChangeAndClosedOrCountLessCarParksAreUnavailable() throws Exception {
+    void unchangedFeedsAreReportedWithoutAgingAndClosedOrCountLessCarParksAreUnavailable() throws Exception {
         byte[] sample = fixture("/fixtures/municipal/izum/otoparklar-sample.json");
         RESPONSE_BODY.set(sample);
 
@@ -104,22 +110,24 @@ class IzumOccupancySemanticsPostgresIT {
         assertThat(count("SELECT count(*) " + LATEST_RUN + " AND occupancy_status = 'LIVE'")).isEqualTo(readings);
         assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at IS NULL")).isEqualTo(readings);
 
-        // Same records, same raw hashes: every reading keeps the first run's fetch time.
-        sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        // Same records, same raw hashes: the run reports the repeat for the operator metric, and every
+        // reading still carries only its own fetch time (owner option C: no static-equals-stale).
+        var repeated = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
         Instant secondRun = latestFetchedAt();
         assertThat(secondRun).isAfter(firstRun);
-        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at = ?", Timestamp.from(firstRun)))
-                .isEqualTo(readings);
-        // The query layer adds that age to the transport age: the readings are as old as the first run.
-        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND fetched_at > source_observed_at")).isEqualTo(readings);
-        // The quality report ages them from the first run too (#246 review N1): with the aging threshold
-        // exactly at the second run's fetch, they are AGING, not LIVE.
-        var frozen = qualityReport.countIzumFreshnessBuckets(10, 900, secondRun.plusSeconds(10));
-        assertThat(frozen.live()).isZero();
-        assertThat(frozen.aging()).isEqualTo(readings);
+        assertThat(repeated.feedChange().unchanged()).isTrue();
+        assertThat(repeated.feedChange().previousRunFetchedAt()).isEqualTo(firstRun);
+        // The run's own fetch time is the in-memory clock value; the stored one is rounded to microseconds.
+        assertThat(repeated.feedChange().fetchedAt()).isCloseTo(secondRun, within(1, ChronoUnit.MILLIS));
+        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at IS NULL")).isEqualTo(readings);
+        // Public freshness and the quality report are as on api: with the aging threshold exactly at the
+        // second run's fetch, the readings are LIVE.
+        var unchanged = qualityReport.countIzumFreshnessBuckets(10, 900, secondRun.plusSeconds(10));
+        assertThat(unchanged.live()).isEqualTo(readings);
+        assertThat(unchanged.aging()).isZero();
 
-        // One record closes, another loses its free count: the feed moved, so every reading goes back
-        // to the fetch time, and those two are stored UNAVAILABLE.
+        // One record closes, another loses its free count: the feed moved, and those two are stored
+        // UNAVAILABLE.
         ArrayNode changed = (ArrayNode) mapper.readTree(sample);
         ObjectNode closedRecord = (ObjectNode) changed.get(0);
         ObjectNode countLessRecord = (ObjectNode) changed.get(1);

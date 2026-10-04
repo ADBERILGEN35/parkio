@@ -100,8 +100,7 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
     public Map<String, PreviousObservation> latestRunObservations(UUID sourceId) {
         // All snapshots of one run share its fetched_at, so the latest fetched_at is the latest run.
         return jdbc.sql("""
-                SELECT l.external_id, o.raw_record_hash, o.fetched_at,
-                       COALESCE(o.source_observed_at, o.fetched_at) AS observed_at
+                SELECT l.external_id, o.raw_record_hash, o.fetched_at
                 FROM municipal_occupancy_snapshots o
                 JOIN municipal_facility_source_links l ON l.id = o.source_link_id
                 WHERE o.source_id = :sourceId
@@ -109,8 +108,7 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                                       WHERE source_id = :sourceId)
                 """).param("sourceId", sourceId)
                 .query((rs, row) -> Map.entry(rs.getString("external_id"), new PreviousObservation(
-                        rs.getString("raw_record_hash"), rs.getTimestamp("observed_at").toInstant(),
-                        rs.getTimestamp("fetched_at").toInstant())))
+                        rs.getString("raw_record_hash"), rs.getTimestamp("fetched_at").toInstant())))
                 .list().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (first, second) -> first));
     }

@@ -300,6 +300,11 @@ public class MunicipalSourceProperties {
         private long fixedDelayMs = 120000;
         private Long staleAfterSeconds;
         private Long agingAfterSeconds;
+        /**
+         * Operator alert threshold for a feed that repeats its previous run unchanged (CL-F22, owner
+         * option C). Zero disables the alert. It never changes public freshness or counts.
+         */
+        private Duration unchangedFeedAlertAfter = Duration.ofHours(4);
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         /** Explicit SLA mode; never inferred from schedulerEnabled alone. */
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
@@ -334,6 +339,11 @@ public class MunicipalSourceProperties {
         public void setStaleAfterSeconds(Long staleAfterSeconds) { this.staleAfterSeconds = staleAfterSeconds; }
         public Long getAgingAfterSeconds() { return agingAfterSeconds; }
         public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
+        public Duration getUnchangedFeedAlertAfter() { return unchangedFeedAlertAfter; }
+        public void setUnchangedFeedAlertAfter(Duration unchangedFeedAlertAfter) {
+            this.unchangedFeedAlertAfter = unchangedFeedAlertAfter == null || unchangedFeedAlertAfter.isNegative()
+                    ? Duration.ZERO : unchangedFeedAlertAfter;
+        }
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
     }
@@ -357,6 +367,11 @@ public class MunicipalSourceProperties {
         private long fixedDelayMs = 120000;
         private Long staleAfterSeconds;
         private Long agingAfterSeconds;
+        /**
+         * Operator alert threshold for a feed that repeats its previous run unchanged (CL-F22, owner
+         * option C). Zero disables the alert. It never changes public freshness or counts.
+         */
+        private Duration unchangedFeedAlertAfter = Duration.ofHours(4);
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
@@ -390,6 +405,11 @@ public class MunicipalSourceProperties {
         public void setStaleAfterSeconds(Long staleAfterSeconds) { this.staleAfterSeconds = staleAfterSeconds; }
         public Long getAgingAfterSeconds() { return agingAfterSeconds; }
         public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
+        public Duration getUnchangedFeedAlertAfter() { return unchangedFeedAlertAfter; }
+        public void setUnchangedFeedAlertAfter(Duration unchangedFeedAlertAfter) {
+            this.unchangedFeedAlertAfter = unchangedFeedAlertAfter == null || unchangedFeedAlertAfter.isNegative()
+                    ? Duration.ZERO : unchangedFeedAlertAfter;
+        }
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
     }
