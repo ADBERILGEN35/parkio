@@ -88,7 +88,7 @@ const populated: Record<string, unknown> = {
     userId: USER_ID, currentLevel: 3, totalPoints: 340, currentLevelMinPoints: 250, nextLevelMinPoints: 500, pointsToNextLevel: 160,
   },
   'GET /gamification/me/access-policy': {
-    userId: USER_ID, currentLevel: 3, searchRadiusMeters: 1500, resultLimit: 30, dailyViewLimit: 60,
+    userId: USER_ID, currentLevel: 3, searchRadiusMeters: 1600, resultLimit: 30, dailyViewLimit: 60,
     verifiedSpotPriority: true, notificationPriority: false,
   },
   'GET /gamification/levels': [1, 2, 3, 4].map((level) => ({
@@ -151,8 +151,9 @@ const PAGES: WebPage[] = [
   { name: 'profile', path: '/profile', signedIn: true, shows: 'Ayşe Yılmaz' },
   { name: 'my-spots', path: '/my-spots', signedIn: true, shows: '1 Synthetic Street, Istanbul' },
   { name: 'notifications', path: '/notifications', signedIn: true, shows: 'Synthetic notification 1' },
-  // The access policy's search radius: only that call returns 1500, unlike the 340 points two calls share.
-  { name: 'gamification', path: '/gamification', signedIn: true, shows: '1500 m' },
+  // The access policy's search radius. No level has 1600 (they are 500 × level, shown as "1500 m radius" in the
+  // levels roadmap), so only that call can show it (#247 review N3).
+  { name: 'gamification', path: '/gamification', signedIn: true, shows: '1600 m' },
   { name: 'leaderboard', path: '/leaderboard', signedIn: true, shows: '790' },
   { name: 'reports', path: '/reports', signedIn: true, shows: 'The photo shows a different street.' },
 ];
@@ -255,6 +256,7 @@ test.describe('focus indicator rule', () => {
     .solid:focus { outline: 2px solid rgb(0, 80, 203); }
     .oklch-outline:focus { outline: 2px solid oklch(0.6 0.15 250 / 0); }
     .oklch-ring:focus { outline: 2px solid transparent; box-shadow: 0 0 0 2px oklch(0.6 0.15 250 / 0); }
+    .oklch-none:focus { outline: 2px solid oklch(0.6 0.15 250 / none); }
   </style></head><body><main><h1>Focus</h1>${body}</main></body></html>`;
 
   test('a transparent outline alone is not a focus indicator', async ({ page }, testInfo) => {
@@ -266,12 +268,26 @@ test.describe('focus indicator rule', () => {
 
   test('transparent oklch outlines and rings are not focus indicators either', async ({ page }, testInfo) => {
     // Tailwind 4's palette is oklch: its transparent colours end in "/ 0" (#242 review N3).
-    for (const kind of ['oklch-outline', 'oklch-ring']) {
+    // A "none" alpha renders as 0 too (#247 review N2).
+    for (const kind of ['oklch-outline', 'oklch-ring', 'oklch-none']) {
       await page.setContent(html(`<button class="${kind}">${kind}</button>`));
       await expect(keyboardWalk(page, testInfo, `focus-rule-${kind}`, 'en')).rejects.toThrow(
         /without a visible indicator/,
       );
     }
+  });
+
+  test('the alpha parser reads every computed colour form', async ({ page }, testInfo) => {
+    await page.setContent(html('<button class="solid">Solid</button>'));
+    await keyboardWalk(page, testInfo, 'focus-rule-alpha', 'en');
+    const alphas = await page.evaluate(() => {
+      const alphaOf = (window as unknown as { __a11yAlphaOf: (colour: string) => number }).__a11yAlphaOf;
+      return [
+        'transparent', 'rgba(0, 0, 0, 0)', 'rgb(0, 80, 203)', 'rgb(0 80 203 / 50%)', 'oklch(0.6 0.15 250 / 0)',
+        'oklch(0.6 0.15 250 / none)', 'oklch(0.6 0.15 250 / 1e-7)', 'color(srgb 0 0 0 / 0%)', 'oklch(0.6 0.15 250)',
+      ].map((colour) => alphaOf(colour));
+    });
+    expect(alphas).toEqual([0, 0, 1, 0.5, 0, 0, 1e-7, 0, 1]);
   });
 
   test('a ring that fades in and a solid outline are focus indicators', async ({ page }, testInfo) => {

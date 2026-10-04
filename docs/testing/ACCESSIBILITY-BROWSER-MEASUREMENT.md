@@ -119,7 +119,7 @@ pnpm --filter @parkio/web e2e:a11y                           # Vite dev server +
 A11Y_WEB_URL=http://localhost:18080 pnpm --filter @parkio/web exec playwright test -c playwright.a11y.config.ts --project a11y-web
 ```
 
-Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason. An entry matches only the exact node it documents: the whole axe selector, a piece of its HTML and, where given, the failing check's message key, size and related node. Another node, or a worse failure of the same node, still fails the run. After each run, `test-results/a11y/a11y-web-known-issues.json` lists how often each entry was seen, and the run log names the entries no page matched (#242 review N1).
+Per-page JSON results land in `frontend/apps/web/test-results/a11y/`. A measured violation that is documented rather than fixed goes into `frontend/apps/web/a11y/known-issues.ts` with its reason. An entry matches only the exact node it documents: the whole axe selector, a piece of its HTML and, where given, the failing check's message key, size and related node. Another node still fails the run. A worse failure of the same node fails it only where the entry pins that size: the MapLibre attribution link entry pins its height (14 px) but not its width, which follows the font (#247 review N1). After each run, `test-results/a11y/a11y-web-known-issues.json` lists how often each entry was seen, and the run log names the entries no page matched (#242 review N1).
 
 ## Known issues (documented, not fixed)
 
