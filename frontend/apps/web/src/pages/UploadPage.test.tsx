@@ -217,6 +217,40 @@ describe('UploadPage', () => {
     expect(screen.getByRole('heading', { name: '3. Details' })).toBeInTheDocument();
   });
 
+  // CodeQL #5/#6 (js/xss-through-dom, the two preview <img> elements): the only thing that
+  // reaches `src` is the browser-made object URL, never text from the file, and the file name
+  // renders as text. See docs/security/CODEQL-ALERTS-1-5-6-DISPOSITION.md.
+  it('builds both photo previews from an object URL and renders a hostile file name as text', async () => {
+    const hostileName = '"><img src=x onerror="window.__parkioXssProbe=1">.jpg';
+    const objectUrl = 'blob:http://localhost/3f1c2b7e-0000-4000-8000-codeql56';
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    const createObjectURL = vi.fn(() => objectUrl);
+    URL.createObjectURL = createObjectURL as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn();
+    try {
+      renderUpload();
+      const user = userEvent.setup();
+      const file = imageFile(hostileName);
+
+      await user.upload(screen.getByLabelText('Spot photo'), file);
+      expect(createObjectURL).toHaveBeenCalledWith(file);
+      expect(screen.getByAltText('Selected spot preview').getAttribute('src')).toBe(objectUrl);
+
+      await clickNext(user);
+      await completeLocationStep(user);
+      await completeDetailsStep(user);
+      expect(screen.getByAltText('Spot preview').getAttribute('src')).toBe(objectUrl);
+
+      expect(screen.getByText(hostileName)).toBeInTheDocument();
+      expect(document.querySelector('img[src="x"]')).toBeNull();
+      expect((window as { __parkioXssProbe?: number }).__parkioXssProbe).toBeUndefined();
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
   it('shows a read-only summary on the Review step', async () => {
     renderUpload();
     const user = userEvent.setup();
