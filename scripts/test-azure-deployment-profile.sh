@@ -124,4 +124,16 @@ if PARKIO_DEPLOYMENT_PROFILE=unknown parkio_configure_deployment_profile docker/
 fi
 pass "unknown deployment profile fails closed"
 
+# B7: the Azure path is deprecated as a production path; it warns and keeps running.
+warning="$(PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta parkio_warn_deprecated_production_path 2>&1 >/dev/null)" \
+  || fail "deprecation warning must not fail the run"
+[[ "$warning" == *"deprecated as a production path"* && "$warning" == *"scripts/parkio-prod-compose.sh"* ]] \
+  || fail "Azure path must print the deprecation warning on stderr"
+[ -z "$(PARKIO_DEPLOYMENT_PROFILE=hosted-beta parkio_warn_deprecated_production_path 2>&1)" ] \
+  || fail "other profiles must not print the Azure deprecation warning"
+for script in deploy-hosted-beta.sh rollback-hosted-beta.sh; do
+  grep -q 'parkio_warn_deprecated_production_path' "scripts/$script" || fail "$script does not warn on the Azure path"
+done
+pass "Azure deploy/rollback warn that the path is deprecated (B7) and continue"
+
 echo "=== Azure deployment profile static checks: PASS ==="

@@ -180,6 +180,22 @@ parkio_configure_deployment_profile() {
   export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
 }
 
+# Owner decision B7 (2026-10-03): the canonical wrapper, scripts/parkio-prod-compose.sh with
+# docker/compose.production.files, is the supported production path. The azure-hosted-beta
+# deploy/rollback path keeps working for existing environments but is deprecated; this only
+# warns, so nothing that runs today changes behaviour.
+parkio_warn_deprecated_production_path() {
+  if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "azure-hosted-beta" ]; then
+    cat >&2 <<'WARN'
+WARNING: the azure-hosted-beta deploy/rollback path is deprecated as a production path (B7).
+  Supported: scripts/parkio-prod-compose.sh with docker/compose.production.files.
+  This run continues unchanged. Known gaps of this path: it cannot build digest-pinned
+  services, it adds docker-compose.images.yml, and it has no Civo Alertmanager overlay.
+  See docs/azure/AZURE-DEPLOYMENT-PROFILE.md.
+WARN
+  fi
+}
+
 # Prints the canonical production compose files (docker/compose.production.files, or
 # PARKIO_COMPOSE_FILES_LIST like scripts/parkio-prod-compose.sh), one path per line.
 parkio_production_compose_files() {

@@ -1,5 +1,17 @@
 # Azure Hosted-Beta Deployment Profile
 
+> **Deprecated as a production path (owner decision B7, 2026-10-03).** The supported
+> production path is the canonical wrapper, `scripts/parkio-prod-compose.sh` with
+> `docker/compose.production.files`. This profile keeps working for environments that use it
+> today, and nothing live changes. `deploy-hosted-beta.sh` and `rollback-hosted-beta.sh` print
+> a warning when they run it. Known gaps compared with the wrapper:
+> - it cannot build digest-pinned services ("build tag cannot contain a digest");
+> - it adds `docker/docker-compose.images.yml` (build arguments and `parkio/<service>:sha-…`
+>   names for the unpinned services);
+> - it has no Civo Alertmanager overlay.
+>
+> New production environments use the wrapper.
+
 ## Contract
 
 | Setting | Value |
