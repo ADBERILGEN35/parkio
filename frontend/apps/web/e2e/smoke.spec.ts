@@ -72,8 +72,24 @@ const openCase = {
 
 const PHOTO_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 
+// A claim atomically starts a COMMUNITY parking session; the app then reads it back from
+// GET /parking/sessions/active before it confirms the claim.
+const claimedSession = {
+  id: '33333333-3333-4333-8333-333333333333',
+  status: 'ACTIVE',
+  parkingSource: 'COMMUNITY',
+  startedAt: '2026-07-24T11:00:00.000Z',
+  endedAt: null,
+  latitude: 41.01,
+  longitude: 28.97,
+  estimatedFee: null,
+  lastConfirmedAt: '2026-07-24T11:00:00.000Z',
+  completionType: null,
+};
+
 async function installMockApi(page: Page) {
   let currentUser: typeof user | typeof moderator | null = null;
+  let claimed = false;
 
   await page.addInitScript(() => {
     localStorage.setItem('parkio.locale', 'en');
@@ -93,6 +109,7 @@ async function installMockApi(page: Page) {
       if (currentUser) return json(authResponse(currentUser));
       return json({ code: 'INVALID_TOKEN', message: 'No session', traceId: 'e2e-refresh' }, 401);
     }
+    if (method === 'GET' && path === '/auth/registration-mode') return json({ mode: 'OPEN' });
     if (method === 'POST' && path === '/auth/register') return json(registeredResponse, 201);
     if (method === 'POST' && path === '/auth/verify-email') return json(user);
     if (method === 'POST' && path === '/auth/resend-verification') return json(null);
@@ -125,7 +142,11 @@ async function installMockApi(page: Page) {
     }
     if (method === 'POST' && path === '/parking/spots') return json(createdSpot, 201);
     if (method === 'GET' && path === `/parking/spots/${SPOT_ID}`) return json(publicSpot);
+    if (method === 'GET' && path === '/parking/sessions/active') {
+      return claimed ? json(claimedSession) : route.fulfill({ status: 204 });
+    }
     if (method === 'POST' && path === `/parking/spots/${SPOT_ID}/claim`) {
+      claimed = true;
       return json({ ...publicSpot, status: 'FILLED' });
     }
     if (method === 'POST' && path === `/parking/spots/${SPOT_ID}/verify`) return json(publicSpot);
@@ -310,7 +331,7 @@ test('map: search overlay and results sheet stay usable', async ({ page }) => {
     expect(layout?.handleBottom).toBeLessThanOrEqual((layout?.navTop ?? 0) + 1);
   }
 
-  await page.getByRole('button', { name: /Active parking spot near 12 Curb Lane/ }).click();
+  await page.getByRole('button', { name: 'Community parking spot near 12 Curb Lane, Active' }).click();
   await expect(page.getByTestId('selected-spot-preview')).toBeVisible();
   await expect(page.getByRole('link', { name: 'View spot details' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
@@ -343,10 +364,14 @@ test('parking: open spot details and claim spot', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '12 Curb Lane' })).toBeVisible();
   // Claiming is irreversible (marks the spot filled for everyone) so it requires
   // an explicit confirm before the request fires.
-  await page.getByRole('button', { name: 'Claim this spot' }).click();
-  await expect(page.getByText(/can't be undone/i)).toBeVisible();
-  await page.getByRole('button', { name: 'Yes, mark as filled' }).click();
-  await expect(page.getByRole('main').getByText(/Spot claimed/)).toBeVisible();
+  await page.getByRole('button', { name: 'I parked here', exact: true }).click();
+  await expect(
+    page.getByText('This saves your parked location and marks the spot filled for everyone. Continue?'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Yes, I parked here' }).click();
+  await expect(
+    page.getByRole('main').getByText('Parked — your session is active and the spot is marked filled.'),
+  ).toBeVisible();
 });
 
 test('parking: report and verify spot flows', async ({ page }) => {
