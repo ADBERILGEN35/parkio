@@ -214,10 +214,19 @@ real browser with deterministic network mocks:
   stay same-origin; map tiles and web fonts are aborted to keep the run offline
   and deterministic.
 - It runs against the Vite **dev server** (started automatically by Playwright's
-  `webServer`) across desktop Chromium, iPhone 14, and a Pixel 8-sized mobile
-  Chromium project.
-- It is **not** part of `pnpm test` (so unit/CI runs need no browser binaries).
-  Vitest is scoped to `src/**`, so it never picks up the `.spec.ts` in `e2e/`.
+  `webServer`) across desktop Chromium and three phone sizes (360 px, iPhone 14
+  and Pixel 8). Specs that need a server of their own (marketing site, service
+  worker upgrade, Y04A analytics, WEB-MUNI-09 with municipal discovery on) are
+  excluded there and run from their own configs.
+- It is **not** part of `pnpm test`. Vitest is scoped to `src/**`, so it never
+  picks up the `.spec.ts` in `e2e/`.
+- Frontend CI runs every mocked spec in `e2e/`. The *Browser regression (e2e)*
+  job runs each suite as its own step: `e2e:regression:desktop` and
+  `e2e:regression:360` (default dev server), `e2e:muni09:desktop`,
+  `e2e:muni09:360` and `e2e:y04a`. Each run goes through
+  `scripts/assert-playwright-report.mjs`, so skipped, flaky or missing tests
+  fail. A failing run keeps its trace, and the job uploads `test-results/`.
+  The other specs have their own steps in the main job.
 
 Run it explicitly (one-time browser install on a fresh machine):
 

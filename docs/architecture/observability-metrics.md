@@ -933,6 +933,31 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 3. Remount read-write only if the underlying error is understood (`mount -o remount,rw <mountpoint>`);
    otherwise snapshot/restore on healthy storage. Restore from backups if data is corrupt.
 
+### Runbook — `AlertmanagerNotificationsFailing`
+
+1. Assume that other alerts did not reach the operator channel while this fires. Review the active
+   alerts in Prometheus and Alertmanager directly.
+2. Read the notify error for the `integration` label in the Alertmanager logs: an HTTP status from
+   the receiver, a DNS or TLS error, or a timeout.
+3. Slack: check that the incoming webhook still exists and its app is still installed (a revoked
+   webhook answers 404 or `no_service`). Generic webhook: check the URL and, if one is used, the
+   bearer secret.
+4. Restart Alertmanager only if its environment changed: `render-config.sh` reads it at start. The
+   alert resolves 15m after the last failure.
+5. See [alerting.md](../operations/alerting.md#delivery-failures) for why this alert can share the
+   failing path.
+
+### Runbook — `PrometheusNotificationsFailing`
+
+1. While this is true, no alert reaches Alertmanager. It is visible in Prometheus only, so review
+   the active alerts there directly.
+2. Check that the Alertmanager container is running and healthy, and that Prometheus lists it under
+   `Status -> Runtime & Build Information` (Alertmanagers).
+3. Read the send error in the Prometheus logs (DNS, connection refused, HTTP status).
+4. Once Alertmanager accepts alerts again, Prometheus re-sends the active ones. This alert itself
+   may then arrive in the operator channel, describing an outage that has just ended. It resolves
+   about 2 minutes after sends succeed again.
+
 ## Adding a new metric
 
 - Keep metric components in `infrastructure/metrics` per service; never in `domain`.

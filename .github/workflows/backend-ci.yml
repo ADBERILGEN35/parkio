@@ -50,6 +50,10 @@ jobs:
       - name: Build and run unit tests
         run: ./gradlew --no-daemon build
 
+      # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green build that ran no tests fails there.
+      - name: Unit test evidence
+        run: python3 scripts/ci/junit_summary.py --label "Unit test" --task test
+
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

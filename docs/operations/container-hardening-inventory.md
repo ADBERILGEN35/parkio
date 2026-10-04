@@ -124,8 +124,9 @@ None of them logged a read-only or permission error. The evidence is in
   services.
 - The real-stack E2E in local mode (`frontend-real-e2e.yml`) covers the media upload path. It ran
   an upload to `READY` on this configuration, with `/tmp` on the scratch volume.
-- Runtime validation streams its readiness and response captures out of the containers
-  (`exec … cat`), because `docker compose cp` cannot read a tmpfs.
+- Runtime validation streams its captures out of the containers instead of copying them, because
+  `docker compose cp` cannot read a tmpfs. `capture_status` reads its file with `exec … cat`; the
+  readiness and JWKS captures take curl's standard output.
 
 The tmpfs mounts keep Docker's default `noexec`, so nothing can load native code from `/tmp`.
 That includes the libraries that extract themselves there:
@@ -153,3 +154,15 @@ from `java.library.path` first), not to make `/tmp` executable.
   in `nonroot-volume-migration.md`.
 - promtail's Docker socket (exception 1): an allowlisting proxy, measured and prototyped, in
   `../architecture/docker-socket-proxy-design.md`.
+
+## Tmpfs declarations
+
+Every tmpfs is declared under the service's `tmpfs:` key, as `target:size=…[,mode=…]`. A long-form
+`type: tmpfs` entry under `volumes:` cannot state `noexec`. The guard therefore refuses it and
+counts it against the recorded set (B8b).
+
+## Host ports
+
+In `docker-compose.yml` (local development), the exporters, Alertmanager, Loki, Promtail and
+ClamAV publish their ports on `127.0.0.1` only (ClamAV since B8b). The production overlays remove
+ClamAV's mapping altogether.

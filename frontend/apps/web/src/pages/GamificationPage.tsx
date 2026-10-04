@@ -230,7 +230,8 @@ function TransactionItem({ entry }: { entry: PointTransactionEntry }) {
             {entry.relatedSpotId ? (
               <>
                 {' · '}
-                <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary hover:underline">
+                {/* Underlined, not only coloured: it sits inside a line of text (WCAG 1.4.1, CL-F30). */}
+                <Link to={`/spots/${entry.relatedSpotId}`} className="text-primary underline underline-offset-2">
                   {t('gamification.viewSpot')}
                 </Link>
               </>

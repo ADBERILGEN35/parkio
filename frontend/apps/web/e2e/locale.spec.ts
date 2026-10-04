@@ -57,6 +57,7 @@ async function installLocaleMockApi(page: Page) {
       if (currentUser) return json(authResponse(currentUser));
       return json({ code: 'INVALID_TOKEN', message: 'No session', traceId: 'e2e-locale' }, 401);
     }
+    if (method === 'GET' && path === '/auth/registration-mode') return json({ mode: 'OPEN' });
     if (method === 'POST' && path === '/auth/register') return json(registeredResponse, 201);
     if (method === 'POST' && path === '/auth/verify-email') return json(user);
     if (method === 'POST' && path === '/auth/resend-verification') return json(null);
