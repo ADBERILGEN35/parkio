@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { describeAuthError } from '@/api/error-messages';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
+import { useLinkLocale } from '@/i18n/useLinkLocale';
 import { AuthSplitLayout } from '@/pages/auth/AuthSplitLayout';
 import { getPendingProfileFor } from '@/auth/pendingProfile';
 import {
@@ -38,6 +39,8 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // A login link with &lang= renders in that language, as register and verify links do (CL-F21).
+  useLinkLocale();
   const passwordResetSuccess = searchParams.get('passwordReset') === 'success';
   const setSession = useAuthStore((s) => s.setSession);
   const beginProvisioning = useAuthStore((s) => s.beginProvisioning);
