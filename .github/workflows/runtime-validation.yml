@@ -365,6 +365,29 @@ jobs:
             'http://localhost:8080/api/v1/auth/.well-known/jwks.json')"
           test "$status" = "200"
 
+      - name: Verify the SPA CSP through Caddy (web image and edge, B9)
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-validation-artifacts
+          headers=runtime-validation-artifacts/spa-login-headers.txt
+          # Caddy issues an internal certificate for *.localhost names.
+          curl -sS -k --resolve app.runtime-validation.localhost:443:127.0.0.1 \
+            -D "$headers" -o /dev/null https://app.runtime-validation.localhost/login
+          grep -i '^content-security-policy:' "$headers" | tee runtime-validation-artifacts/spa-csp.txt
+          # The image sends its own CSP upstream; it renders connect-src from the same PARKIO_*
+          # values as Caddy (frontend/apps/web/docker/15-parkio-web-csp.envsh).
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T caddy \
+            wget -S -q -O /dev/null http://web/login 2>&1 | grep -i 'content-security-policy' \
+            | tee runtime-validation-artifacts/spa-csp-upstream.txt
+          expected="connect-src 'self' https://api.runtime-validation.localhost https://media.runtime-validation.localhost https://api.maptiler.com"
+          test "$(grep -ci 'content-security-policy' runtime-validation-artifacts/spa-csp-upstream.txt)" -eq 1
+          grep -qF "$expected" runtime-validation-artifacts/spa-csp-upstream.txt
+          grep -qF "worker-src 'self';" runtime-validation-artifacts/spa-csp-upstream.txt
+          # Caddy's SPA header block deletes Server, which defers it to response time, so Caddy's
+          # CSP replaces the image's on the edge: exactly one header, with the same connect-src.
+          test "$(grep -ic '^content-security-policy:' "$headers")" -eq 1
+          grep -i '^content-security-policy:' "$headers" | grep -qF "$expected"
+
       - name: Validate runtime resource limits
         run: |
           set -euo pipefail
