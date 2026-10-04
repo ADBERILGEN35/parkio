@@ -123,12 +123,13 @@ WEB_ALLOWED = {"PARKIO_WEB_CSP_CONNECT_SRC"}
 MINIO_IMAGE_SERVICES = ("minio", "minio-setup")
 # Postgres health over TCP (#243, #239 review N2): the image's socket-only init server must not
 # count as healthy. Only this exact command on a postgres-* service is accepted as the base's socket
-# check; any other healthcheck change still fails.
+# check; any other healthcheck change still fails. The base's socket check is read as the TCP check,
+# never the other way round, so a head that goes back to the socket check fails (#243 review N3).
 POSTGRES_SOCKET_HEALTHCHECK = ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 POSTGRES_TCP_HEALTHCHECK = ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 
 
-def strip_allowlisted_env(model):
+def strip_allowlisted_env(model, from_base=False):
     m = json.loads(json.dumps(model))
     genv = m["services"]["gateway-service"].setdefault("environment", {})
     aenv = m["services"]["auth-service"].setdefault("environment", {})
@@ -150,9 +151,9 @@ def strip_allowlisted_env(model):
             svc.pop(key, None)
     for name, svc in m.get("services", {}).items():
         health = svc.get("healthcheck")
-        if name.startswith("postgres-") and isinstance(health, dict) \
-                and health.get("test") == POSTGRES_TCP_HEALTHCHECK:
-            health["test"] = POSTGRES_SOCKET_HEALTHCHECK
+        if from_base and name.startswith("postgres-") and isinstance(health, dict) \
+                and health.get("test") == POSTGRES_SOCKET_HEALTHCHECK:
+            health["test"] = POSTGRES_TCP_HEALTHCHECK
     if "kafka" in m.get("services", {}):
         kenv = m["services"]["kafka"].get("environment", {})
         for k in KAFKA_ALLOWED:
@@ -173,8 +174,8 @@ def strip_allowlisted_env(model):
 # 1. disabled default vs base
 check("same service set", set(base["services"]) == set(dis["services"]),
       f"{len(dis['services'])} services")
-diff_services = [s for s in base["services"]
-                 if strip_allowlisted_env(base)["services"][s] != strip_allowlisted_env(dis)["services"][s]]
+base_cmp, dis_cmp = strip_allowlisted_env(base, from_base=True), strip_allowlisted_env(dis)
+diff_services = [s for s in base["services"] if base_cmp["services"][s] != dis_cmp["services"][s]]
 check("only allowlisted env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
 for top in ("volumes", "networks", "secrets", "configs"):
     check(f"top-level {top} unchanged", base.get(top) == dis.get(top))
