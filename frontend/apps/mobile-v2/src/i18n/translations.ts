@@ -212,6 +212,8 @@ export const tr = {
   'auth.verify.successBody': 'Hesabın hazır. Şimdi giriş yapabilirsin.',
   'auth.verify.expiredTitle': 'Bağlantının süresi dolmuş',
   'auth.verify.expiredBody': 'Yeni bir doğrulama bağlantısı isteyebilirsin.',
+  'auth.verify.linkInvalid':
+    'Bu doğrulama bağlantısı geçersiz, süresi dolmuş ya da daha önce kullanılmış. E-postanı zaten doğruladıysan giriş yap; doğrulamadıysan yeni bir bağlantı iste.',
   'auth.verify.tokenLabel': 'Doğrulama kodu',
   'auth.verify.tokenPlaceholder': 'E-postadaki doğrulama kodunu yapıştır',
   'auth.verify.submit': 'Doğrula',
@@ -1161,6 +1163,8 @@ export const en: Record<TranslationKey, string> = {
   'auth.verify.successBody': 'Your account is ready. You can sign in now.',
   'auth.verify.expiredTitle': 'Link expired',
   'auth.verify.expiredBody': 'You can request a new verification link.',
+  'auth.verify.linkInvalid':
+    'This verification link is invalid, has expired or was already used. If you already verified your email, sign in. Otherwise, request a new link.',
   'auth.verify.tokenLabel': 'Verification code',
   'auth.verify.tokenPlaceholder': 'Paste the code from the email',
   'auth.verify.submit': 'Verify',
