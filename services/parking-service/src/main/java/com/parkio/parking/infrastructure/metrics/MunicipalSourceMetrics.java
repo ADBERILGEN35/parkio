@@ -88,6 +88,13 @@ public class MunicipalSourceMetrics {
                 .tag("source_key", sourceKey)
                 .tag("source_mode", mode)
                 .register(registry);
+        // CL-F22: consecutive runs whose feed was smaller than the active set, so reconciliation was
+        // skipped and missing facilities stayed active. Kept in memory: a restart starts again at 0.
+        Gauge.builder("parkio.municipal.sync.consecutive_incomplete_snapshots",
+                        state.consecutiveIncompleteSnapshots, AtomicInteger::get)
+                .tag("source_key", sourceKey)
+                .tag("source_mode", mode)
+                .register(registry);
         for (MunicipalSourceOperationalState operationalState : MunicipalSourceOperationalState.values()) {
             Gauge.builder("parkio.municipal.source.operational_state", state,
                             gauges -> gauges.operationalState.get() == operationalState ? 1.0 : 0.0)
@@ -158,6 +165,19 @@ public class MunicipalSourceMetrics {
         SourceGaugeState syncState = stateFor(sourceKey);
         if (syncState != null) {
             syncState.lastActiveLinkCount.set(result.activeLinkCount());
+        }
+        if (result.incompleteSnapshotSkipped()) {
+            registry.counter("parkio.municipal.sync.reconciliation_skipped",
+                            "source_key", sourceKey, "reason", "incomplete_snapshot")
+                    .increment();
+            if (syncState != null) {
+                syncState.consecutiveIncompleteSnapshots.incrementAndGet();
+            }
+        } else if (syncState != null
+                && (result.status() == MunicipalSyncRunStatus.SUCCESS
+                        || result.status() == MunicipalSyncRunStatus.PARTIAL_SUCCESS)) {
+            // A completed run that did not skip ends the streak; a failed or skipped run says nothing.
+            syncState.consecutiveIncompleteSnapshots.set(0);
         }
         if (result.status() == MunicipalSyncRunStatus.FAILED
                 && MunicipalSourceFailureCategory.isSchemaMismatchWire(error)) {
@@ -302,6 +322,7 @@ public class MunicipalSourceMetrics {
         private final AtomicInteger staleRunningOperations = new AtomicInteger();
         private final AtomicInteger failuresInWindow = new AtomicInteger();
         private final AtomicInteger lastActiveLinkCount = new AtomicInteger();
+        private final AtomicInteger consecutiveIncompleteSnapshots = new AtomicInteger();
         private final AtomicReference<MunicipalSourceOperationalState> operationalState =
                 new AtomicReference<>(MunicipalSourceOperationalState.UNKNOWN);
         private final AtomicReference<MunicipalOccupancyFreshness> occupancyFreshness =

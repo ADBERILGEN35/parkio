@@ -1,0 +1,208 @@
+# promtool unit tests for the alert-delivery rules in docker/prometheus/alerts.yml (U06, CL-F04).
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: healthy delivery stays silent
+    interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="serverError"}'
+        values: "0+0x30"
+      - series: 'alertmanager_notifications_failed_total{integration="webhook",reason="other"}'
+        values: "0+0x30"
+      - series: 'alertmanager_notifications_total{integration="slack"}'
+        values: "0+2x30"
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+0x30"
+      - series: 'prometheus_notifications_sent_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+3x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+
+  - name: one failed notification is retried at the next flush and does not fire
+    interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="serverError"}'
+        values: "0 0 1 1x27"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+
+  - name: an Alertmanager restart resets its counters without firing
+    interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="serverError"}'
+        values: "5 5 5 0 0 0 0 0 0 0"
+    alert_rule_test:
+      # 8m is inside the rule's 15m window, which still holds the reset at 3m.
+      - eval_time: 8m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+
+  - name: notifications cancelled by an Alertmanager shutdown are not receiver failures
+    interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="contextCanceled"}'
+        values: "0 0 3 3x10"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+
+  - name: a receiver that keeps failing fires, per integration, and resolves when it recovers
+    interval: 1m
+    input_series:
+      # One more given-up notification every 2m (reasons are summed), then the receiver recovers.
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="serverError"}'
+        values: "0 0 1 1 2 2 3 3 3x25"
+      - series: 'alertmanager_notifications_failed_total{integration="slack",reason="clientError"}'
+        values: "0+0x33"
+      - series: 'alertmanager_notifications_failed_total{integration="webhook",reason="serverError"}'
+        values: "0+0x33"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts:
+          - exp_labels:
+              alertname: AlertmanagerNotificationsFailing
+              integration: slack
+              severity: critical
+              service: alertmanager
+            exp_annotations:
+              summary: "Alertmanager cannot deliver notifications via slack"
+              description: "Alertmanager gave up on notifications via slack at least twice in 15m, after retrying. Alerts are not reaching the operator channel. Check the Alertmanager logs for the receiver error, then the receiver (webhook URL, Slack app, credentials)."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--alertmanagernotificationsfailing"
+      - eval_time: 30m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+
+  - name: a short Alertmanager outage does not fire, even with several rule groups
+    interval: 1m
+    input_series:
+      # About one failed batch per rule group with active alerts: four groups fail at once (0-1 min),
+      # then a three-minute outage fails four batches every minute.
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0 0 4 4x12"
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager-2:9093/api/v2/alerts"}'
+        values: "0 0 4 8 12 12x10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+
+  - name: a sustained Alertmanager outage fires after five minutes and resolves soon after recovery
+    interval: 1m
+    input_series:
+      # Four failed batches every minute for ten minutes, then sends succeed again.
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0 4 8 12 16 20 24 28 32 36 40 40x6"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts:
+          - exp_labels:
+              alertname: PrometheusNotificationsFailing
+              alertmanager: "http://alertmanager:9093/api/v2/alerts"
+              severity: critical
+              service: prometheus
+            exp_annotations:
+              summary: "Prometheus cannot send alerts to Alertmanager"
+              description: "Prometheus has been failing to send alerts to http://alertmanager:9093/api/v2/alerts for about five minutes. Alerts are not reaching Alertmanager or the operator channel. Check that Alertmanager is running and reachable from Prometheus."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--prometheusnotificationsfailing"
+      - eval_time: 14m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+
+  # The next three cases sample every 15s, like production, to pin the 5m hold (#232 review D2, D3).
+  # Failed sends keep arriving every 15s from 15s on; the 2m window then stays true until 2m after
+  # the last one. These boundaries assume Prometheus 2.x, whose ranges include both ends. Prometheus
+  # 3.x makes them left-open, which moves every boundary here by one sample: re-check on upgrade.
+  - name: failed sends for three minutes stay below the 5m hold
+    interval: 15s
+    input_series:
+      # 12 failed sends (15s to 180s): the condition holds from 15s to 285s, 4m30s in all.
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+1x12 12x30"
+    alert_rule_test:
+      # A 4m hold would fire from 4m15s to 4m45s.
+      - eval_time: 4m30s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 5m15s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+
+  - name: failed sends for three and a half minutes fire for exactly one evaluation
+    interval: 15s
+    input_series:
+      # 14 failed sends (15s to 210s): the condition holds from 15s to 315s, so the 5m hold is
+      # reached at 5m15s and the alert resolves at the next evaluation.
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+1x14 14x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 5m15s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts:
+          - exp_labels:
+              alertname: PrometheusNotificationsFailing
+              alertmanager: "http://alertmanager:9093/api/v2/alerts"
+              severity: critical
+              service: prometheus
+            exp_annotations:
+              summary: "Prometheus cannot send alerts to Alertmanager"
+              description: "Prometheus has been failing to send alerts to http://alertmanager:9093/api/v2/alerts for about five minutes. Alerts are not reaching Alertmanager or the operator channel. Check that Alertmanager is running and reachable from Prometheus."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--prometheusnotificationsfailing"
+      - eval_time: 5m30s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+
+  - name: a Prometheus restart right after a short outage is not a failed send
+    interval: 15s
+    input_series:
+      # 10 failed sends (15s to 150s) keep the condition until 255s. Prometheus restarts at 270s,
+      # inside the 2m window, and its counter starts again at 0. Counted as an increase, the reset
+      # would hold the condition until 375s and fire at 5m15s.
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+1x10 10x6 0x20"
+    alert_rule_test:
+      - eval_time: 4m30s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 5m15s
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts: []

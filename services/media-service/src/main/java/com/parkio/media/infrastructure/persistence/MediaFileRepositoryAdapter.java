@@ -2,6 +2,7 @@ package com.parkio.media.infrastructure.persistence;
 
 import com.parkio.media.application.port.MediaFileRepository;
 import com.parkio.media.domain.MediaFile;
+import com.parkio.media.domain.MediaStatus;
 import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
 import com.parkio.media.infrastructure.persistence.mapper.MediaPersistenceMapper;
 import java.util.Optional;
@@ -29,7 +30,7 @@ public class MediaFileRepositoryAdapter implements MediaFileRepository {
     }
 
     @Override
-    public boolean existsByChecksum(String checksum) {
-        return jpa.existsByChecksum(checksum);
+    public boolean existsLiveDuplicate(UUID ownerUserId, String checksum) {
+        return jpa.existsByOwnerUserIdAndChecksumAndStatusNot(ownerUserId, checksum, MediaStatus.DELETED);
     }
 }

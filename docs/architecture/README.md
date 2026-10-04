@@ -88,6 +88,11 @@ Security is layered:
 - Public waitlist metadata minimized through hashing and rate limits.
 - Supply-chain scanning and secret preflight checks.
 
+Internal calls and Kafka currently rely on one shared gateway secret and an
+unauthenticated broker; the approved replacement (per-service identity, endpoint
+scoping, Kafka SASL and ACLs) is in
+[Internal service identity design](internal-service-identity-design.md) (CL-F16, direction approved, not implemented).
+
 References:
 
 - [Security Guidelines](../ai-context/07-security-guidelines.md)

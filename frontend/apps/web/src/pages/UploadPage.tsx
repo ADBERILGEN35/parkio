@@ -34,7 +34,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from 'react';
-import { useForm, type UseFormRegisterReturn } from 'react-hook-form';
+import { useForm, type DefaultValues, type UseFormRegisterReturn } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
@@ -47,7 +47,7 @@ import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { enumLabel } from '@/lib/format';
 import { spotStatusLabel } from '@/lib/localized-status';
 import { type GeocodeResult } from '@/lib/geocoding';
-import { isUploadWizardDirty } from '@/lib/uploadDirty';
+import { hasFormChanges, isUploadWizardDirty } from '@/lib/uploadDirty';
 import { showError, showSuccess } from '@/lib/toast';
 import { useCreateSpotMutation } from '@/data/hooks/useParkingMutations';
 
@@ -61,6 +61,14 @@ const STEP_LOCATION = 1;
 const STEP_DETAILS = 2;
 const STEP_REVIEW = 3;
 const TOTAL_STEPS = 4;
+
+const FORM_DEFAULTS: DefaultValues<CreateSpotFormValues> = {
+  addressText: '',
+  description: '',
+  manualLocationEdited: false,
+  suitableVehicleTypes: [],
+  violationReasons: [],
+};
 
 const STEP_DESC_KEYS = [
   'upload.stepPhotoDesc',
@@ -158,19 +166,15 @@ export function UploadPage() {
     watch,
     trigger,
     setValue,
-    formState: { errors, isDirty: formIsDirty },
+    formState: { errors },
   } = useForm<CreateSpotFormValues>({
     resolver: zodResolver(createSpotFormSchema),
-    defaultValues: {
-      addressText: '',
-      description: '',
-      manualLocationEdited: false,
-      suitableVehicleTypes: [],
-      violationReasons: [],
-    },
+    defaultValues: FORM_DEFAULTS,
   });
 
   const values = watch();
+  // Not formState.isDirty: it turns true on an untouched wizard in StrictMode (see hasFormChanges).
+  const formIsDirty = hasFormChanges(values, FORM_DEFAULTS);
   const legalStatus = values.legalStatus;
 
   const wizardDirty = isUploadWizardDirty({

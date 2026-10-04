@@ -41,9 +41,9 @@ Prometheus rendering replaces dots with underscores and suffixes counters with
 
 | Metric | Type | Services | Meaning |
 |---|---|---|---|
-| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
+| `parkio.outbox.unpublished.count` | gauge | auth, user, parking, media, gamification, notification, moderation, ai-validation, analytics | Relayable outbox rows (`published = false AND dead_lettered = false`). Sustained growth ⇒ the outbox relay is not draining to Kafka. Dead-lettered rows are **excluded** so a poison row doesn't masquerade as backlog. |
 | `parkio.outbox.oldest.unpublished.age.seconds` | gauge | same | Age of the oldest relayable row (0 when empty). Alert when it exceeds a few relay intervals. |
-| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation | Open dead-lettered (poison) outbox rows retained in-table for inspection/redrive. Acknowledged/suppressed rows are excluded so alerts stop after deliberate operator action. |
+| `parkio.outbox.deadlettered.count` | gauge | auth, user, parking, media, gamification, moderation, ai-validation, notification, analytics | Open dead-lettered (poison) outbox rows retained in-table for inspection/redrive. Acknowledged/suppressed rows are excluded so alerts stop after deliberate operator action. |
 | `parkio.outbox.deadlettered.acknowledged.count` | gauge | same | Dead-lettered rows intentionally acknowledged/suppressed by an operator and retained for audit. |
 | `parkio.outbox.deadlettered.oldest.age.seconds` | gauge | same | Age of the oldest open dead-lettered row. A high value means recovery did not happen or did not work. |
 | `parkio.outbox.publish.failed` | counter | same as dead-lettered | Per-row publish attempts that failed (all causes: broker error, unreadable payload, no topic mapping). A rising rate signals broker/contract trouble before rows dead-letter. |
@@ -62,9 +62,10 @@ query). The `parkio.outbox.publish.success` / `parkio.outbox.publish.failed` /
 suffix rule above; `parkio.outbox.publish.duration` and `parkio.outbox.batch.size`
 are recorded once per published row / per poll in the relay (no extra query).
 
-> **notification-service** exports the outbox backlog gauges but has **no relay yet**,
-> so it does not emit the dead-letter gauge/counters. **analytics-service** has no
-> producer outbox, so it exports neither.
+> **notification-service** and **analytics-service** relay their U05 erasure ACKs (and, for
+> notification, its own events) through an outbox. Since B11 they export the same backlog and
+> dead-letter gauges as the other relay-owning services, and their relays emit the counters
+> above.
 
 ### Notification delivery (notification-service)
 
@@ -101,6 +102,8 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.sync.occupancy` | counter | Occupancy snapshots inserted. |
 | `parkio.municipal.sync.schema_mismatch` | counter | Schema-contract failures (`schema_contract` or legacy `contract`). |
 | `parkio.municipal.sync.retries_exhausted` | counter | Final FAILED runs after client retries (bounded `error_category`). |
+| `parkio.municipal.sync.reconciliation_skipped` | counter | Runs whose feed was smaller than the active set and was not reconciled: the incomplete-snapshot guard skipped it, or invalid rows made it untrustworthy (`reason=incomplete_snapshot`, İZUM; CL-F22). |
+| `parkio.municipal.sync.consecutive_incomplete_snapshots` | gauge | Such runs in a row, reset by a completed run without one; in memory, 0 after a restart. Alert `MunicipalIzumIncompleteSnapshotsRepeated` at 3. |
 | `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak; labels `source_key`, `source_mode` (İZUM + OSM). |
 | `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never); observational for OPERATOR_IMPORTED when mode-aware SLA is on. |
 | `parkio.municipal.source.last_success_unixtime` | gauge | Last success unix epoch (`-1` if never). |
@@ -778,8 +781,10 @@ you act.
    so a redrive that double-delivers is safe.
 
 4. **When NOT to redrive:** the event is obsolete/superseded, the payload is irreparably
-   malformed, or the downstream contract no longer accepts it. Acknowledge it so it remains
-   retained but stops paging:
+   malformed, or the downstream contract no longer accepts it. This never applies to erasure
+   messages (event types `UserErasure*`). They hold up an account erasure: retry them, and
+   follow [Erasure messages](../operations/dlq-redrive-runbook.md#erasure-messages).
+   Acknowledge other rows so they remain retained but stop paging:
 
    ```bash
    PARKIO_OPERATOR=<name> scripts/outbox-deadletter-recovery.sh acknowledge \
@@ -929,6 +934,31 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
 2. `dmesg | tail` for IO errors; check the VPS provider's disk health/console.
 3. Remount read-write only if the underlying error is understood (`mount -o remount,rw <mountpoint>`);
    otherwise snapshot/restore on healthy storage. Restore from backups if data is corrupt.
+
+### Runbook — `AlertmanagerNotificationsFailing`
+
+1. Assume that other alerts did not reach the operator channel while this fires. Review the active
+   alerts in Prometheus and Alertmanager directly.
+2. Read the notify error for the `integration` label in the Alertmanager logs: an HTTP status from
+   the receiver, a DNS or TLS error, or a timeout.
+3. Slack: check that the incoming webhook still exists and its app is still installed (a revoked
+   webhook answers 404 or `no_service`). Generic webhook: check the URL and, if one is used, the
+   bearer secret.
+4. Restart Alertmanager only if its environment changed: `render-config.sh` reads it at start. The
+   alert resolves 15m after the last failure.
+5. See [alerting.md](../operations/alerting.md#delivery-failures) for why this alert can share the
+   failing path.
+
+### Runbook — `PrometheusNotificationsFailing`
+
+1. While this is true, no alert reaches Alertmanager. It is visible in Prometheus only, so review
+   the active alerts there directly.
+2. Check that the Alertmanager container is running and healthy, and that Prometheus lists it under
+   `Status -> Runtime & Build Information` (Alertmanagers).
+3. Read the send error in the Prometheus logs (DNS, connection refused, HTTP status).
+4. Once Alertmanager accepts alerts again, Prometheus re-sends the active ones. This alert itself
+   may then arrive in the operator channel, describing an outage that has just ended. It resolves
+   about 2 minutes after sends succeed again.
 
 ## Adding a new metric
 

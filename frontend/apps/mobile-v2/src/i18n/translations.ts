@@ -201,6 +201,7 @@ export const tr = {
   'auth.passwordRule.lower': 'Bir küçük harf',
   'auth.passwordRule.digit': 'Bir rakam',
   'auth.passwordRule.common': 'Yaygın bir şifre değil',
+  'auth.passwordTooLong': 'Şifre en fazla 72 bayt olabilir; ş, ğ veya ü gibi harfler iki bayt sayılır.',
   'auth.checkEmail.title': 'E-postanı kontrol et',
   'auth.checkEmail.body': 'Doğrulama bağlantısını {email} adresine gönderdik.',
   'auth.checkEmail.resend': 'Tekrar gönder',
@@ -212,6 +213,8 @@ export const tr = {
   'auth.verify.successBody': 'Hesabın hazır. Şimdi giriş yapabilirsin.',
   'auth.verify.expiredTitle': 'Bağlantının süresi dolmuş',
   'auth.verify.expiredBody': 'Yeni bir doğrulama bağlantısı isteyebilirsin.',
+  'auth.verify.linkInvalid':
+    'Bu doğrulama bağlantısı geçersiz, süresi dolmuş ya da daha önce kullanılmış. E-postanı zaten doğruladıysan giriş yap; doğrulamadıysan yeni bir bağlantı iste.',
   'auth.verify.tokenLabel': 'Doğrulama kodu',
   'auth.verify.tokenPlaceholder': 'E-postadaki doğrulama kodunu yapıştır',
   'auth.verify.submit': 'Doğrula',
@@ -1150,6 +1153,7 @@ export const en: Record<TranslationKey, string> = {
   'auth.passwordRule.lower': 'One lowercase letter',
   'auth.passwordRule.digit': 'One digit',
   'auth.passwordRule.common': 'Not a common password',
+  'auth.passwordTooLong': 'Password must be at most 72 bytes; letters such as ş, ğ or ü count as two.',
   'auth.checkEmail.title': 'Check your email',
   'auth.checkEmail.body': 'We sent a verification link to {email}.',
   'auth.checkEmail.resend': 'Resend',
@@ -1161,6 +1165,8 @@ export const en: Record<TranslationKey, string> = {
   'auth.verify.successBody': 'Your account is ready. You can sign in now.',
   'auth.verify.expiredTitle': 'Link expired',
   'auth.verify.expiredBody': 'You can request a new verification link.',
+  'auth.verify.linkInvalid':
+    'This verification link is invalid, has expired or was already used. If you already verified your email, sign in. Otherwise, request a new link.',
   'auth.verify.tokenLabel': 'Verification code',
   'auth.verify.tokenPlaceholder': 'Paste the code from the email',
   'auth.verify.submit': 'Verify',

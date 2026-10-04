@@ -42,13 +42,17 @@ jobs:
       # Supply-chain: fail the build if the committed Gradle wrapper jar is not an
       # unmodified official Gradle distribution (cheap, runs on every PR).
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Build and run unit tests
         run: ./gradlew --no-daemon build
+
+      # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green build that ran no tests fails there.
+      - name: Unit test evidence
+        run: python3 scripts/ci/junit_summary.py --label "Unit test" --task test
 
       - name: Upload test reports on failure
         if: failure()

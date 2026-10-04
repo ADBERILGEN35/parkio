@@ -17,9 +17,13 @@ const CODE_TO_KEY: Record<string, TranslationKey> = {
   EMAIL_ALREADY_EXISTS: 'auth.register.emailTaken',
   EMAIL_ALREADY_REGISTERED: 'auth.register.emailTaken',
   INVALID_TOKEN: 'auth.reset.expired',
+  // Spent on first use (CL-F35): also a second click on a link that already verified the account.
+  INVALID_VERIFICATION_TOKEN: 'auth.verify.linkInvalid',
   TOKEN_EXPIRED: 'auth.reset.expired',
   INVALID_CURRENT_PASSWORD: 'profile.password.wrongCurrent',
   CURRENT_PASSWORD_MISMATCH: 'profile.password.wrongCurrent',
+  // The auth service's 72-byte bound (CL-F36); the screens also check it before submit.
+  PASSWORD_TOO_LONG: 'auth.passwordTooLong',
   ALREADY_VERIFIED: 'spot.verify.duplicate',
   OWNER_CANNOT_VERIFY: 'spot.verify.own',
   OWNER_CANNOT_CLAIM: 'spot.claim.own',

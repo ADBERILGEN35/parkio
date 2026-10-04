@@ -230,10 +230,13 @@ class GamificationKafkaIT {
     private static final class FakeProgressRepository implements UserLevelProgressRepository {
         private final Map<UUID, UserLevelProgress> byUser = new HashMap<>();
 
+        /** Like the JPA adapter: a new row gets version 0 and every later save the next one. */
         @Override
         public UserLevelProgress save(UserLevelProgress p) {
-            byUser.put(p.userId(), p);
-            return p;
+            UserLevelProgress saved = new UserLevelProgress(p.userId(), p.totalPoints(), p.currentLevel(),
+                    p.createdAt(), p.updatedAt(), p.version() == null ? 0L : p.version() + 1);
+            byUser.put(p.userId(), saved);
+            return saved;
         }
 
         @Override
@@ -304,10 +307,13 @@ class GamificationKafkaIT {
     private static final class FakeTrustScoreRepository implements TrustScoreRepository {
         private final Map<UUID, TrustScore> byUser = new HashMap<>();
 
+        /** Like the JPA adapter: a new row gets version 0 and every later save the next one. */
         @Override
         public TrustScore save(TrustScore trustScore) {
-            byUser.put(trustScore.userId(), trustScore);
-            return trustScore;
+            TrustScore saved = new TrustScore(trustScore.userId(), trustScore.score(), trustScore.createdAt(),
+                    trustScore.updatedAt(), trustScore.version() == null ? 0L : trustScore.version() + 1);
+            byUser.put(trustScore.userId(), saved);
+            return saved;
         }
 
         @Override

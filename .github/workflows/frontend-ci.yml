@@ -58,7 +58,7 @@ jobs:
 
       # Installs the pnpm version pinned in frontend/package.json ("packageManager").
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: frontend/package.json
 
@@ -74,6 +74,10 @@ jobs:
 
       - name: Install focused browser
         run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      # The waitlist client's node tests (adapter, error mapping, i18n feedback) under web/marketing.
+      - name: Marketing waitlist unit tests
+        run: node --test ../web/marketing/*.test.mjs
 
       - name: Marketing static and responsive validation
         run: pnpm --filter @parkio/web test:marketing
@@ -95,14 +99,25 @@ jobs:
 
       - name: Backend scope guard
         if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # Frontend-only sprint guard. Dual-domain PRs (services/ + frontend/) intentionally
           # change backend; skipping prevents false failures on api-branch provider work.
-          if git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" | grep -qE '^services/'; then
+          #
+          # Compare against the base this checkout actually contains. The event's
+          # pull_request.base.sha can be older than that: the base branch moves without updating it,
+          # and diffing from it would count other merged PRs' changes as this PR's. That either
+          # failed the guard on their files or skipped it on their services/ changes.
+          base="$(git merge-base HEAD "origin/${GITHUB_BASE_REF}")"
+          echo "Comparing ${base}...HEAD (event base.sha ${PR_BASE_SHA})."
+          # Captured first: with pipefail, grep -q closing the pipe early could fail the test.
+          changed="$(git diff --name-only "${base}...HEAD")"
+          if grep -qE '^services/' <<< "${changed}"; then
             echo "Backend service paths present in PR; skipping frontend-only backend-scope guard."
             exit 0
           fi
-          pnpm guardrails:backend -- --base ${{ github.event.pull_request.base.sha }}
+          pnpm guardrails:backend -- --base "${base}"
 
       - name: WP-04 frontend data architecture
         run: |
@@ -124,6 +139,23 @@ jobs:
           pnpm guardrails:wp07
           pnpm --filter @parkio/mobile-v2 test:wp07
 
+      # CL-F30: axe-core WCAG 2.x A/AA measurement, a keyboard walk, page language and footer checks
+      # for the web app and the marketing site in Turkish and English. Every network call is mocked;
+      # the report guards reject skipped or zero-test runs.
+      - name: Accessibility browser measurement
+        run: pnpm --filter @parkio/web e2e:a11y
+
+      # The per-page axe results and the known-issue sightings (mocked data only), kept for review
+      # also when the measurement passes (#247 review N4).
+      - name: Upload accessibility results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-results-attempt-${{ github.run_attempt }}
+          path: frontend/apps/web/test-results/a11y/
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0
 
@@ -135,10 +167,23 @@ jobs:
           node --test apps/web/scripts/assert-playwright-report.test.mjs
           pnpm --filter @parkio/web e2e:ownership
 
+      # CX-F11: TR/EN auth flow, retry after a dropped connection, duplicate submit, offline, admin
+      # RBAC and Explore, on a Vite dev server with the release bake's feature flags and app
+      # environment. The CL-F20 Explore failure scenarios are declared known defects; the guard
+      # fails if that count changes.
+      - name: Web candidate acceptance scenarios
+        run: pnpm --filter @parkio/web e2e:cxf11
+
       # CL-F39.3: the real service worker across two releases in Chromium (local server,
       # synthetic releases); the report guard rejects skipped or zero-test runs.
       - name: Service-worker upgrade browser acceptance
         run: pnpm --filter @parkio/web e2e:sw-upgrade
+
+      # CL-F21: an auth link's lang decides the page language over a stored preference
+      # (reset-password and login; register and verify as unchanged controls). Every
+      # network call is mocked; the report guard rejects skipped or zero-test runs.
+      - name: Auth link language browser acceptance
+        run: pnpm --filter @parkio/web e2e:link-locale
 
       # `pnpm -r` runs each script only in the workspace packages that define it,
       # so packages without a given script are skipped rather than failing.
@@ -161,3 +206,68 @@ jobs:
 
       - name: Production build
         run: pnpm -r --filter='!@parkio/mobile' --filter='!@parkio/mobile-v2' build
+
+  # The mocked e2e specs that the job above does not run, each on the server it needs, so a spec
+  # cannot go stale unnoticed. The report guard fails on skipped, flaky or missing tests. Each suite
+  # runs even when an earlier one failed; the job then fails, and its traces are uploaded.
+  e2e-regression:
+    name: Browser regression (e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installs the pnpm version pinned in frontend/package.json ("packageManager").
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install focused browser
+        id: browser
+        run: pnpm --filter @parkio/web exec playwright install --with-deps chromium
+
+      # Default dev server (municipal discovery off): home, locale, mobile layout, smoke, unsaved
+      # changes, WEB-MUNI-01 to -08, the WEB-MUNI-09 flag-off check, WP-SPA-08.
+      - name: Default-server specs, desktop
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:regression:desktop
+
+      - name: Default-server specs, 360 px
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:regression:360
+
+      # WEB-MUNI-09 on its own dev server with municipal discovery on.
+      - name: Municipal discovery accessibility specs, desktop
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:muni09:desktop
+
+      - name: Municipal discovery accessibility specs, 360 px
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:muni09:360
+
+      # Y04A on its own dev server: municipal discovery on and a test-only analytics sink.
+      - name: Product analytics specs
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:y04a
+
+      # Traces, screenshots, error contexts and JSON reports of every suite (mocked data only).
+      - name: Upload Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-regression-results-attempt-${{ github.run_attempt }}
+          path: frontend/apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

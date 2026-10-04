@@ -184,7 +184,7 @@
     "subtitle": "Who joined, confirmed, or left the registration notification list.",
     "distinction": "These are email notification subscriptions only — not Parkio application accounts. Confirmed waitlist status does not grant product login.",
     "countsTitle": "Counts (all subscriptions)",
-    "countsNote": "These totals include every notification-list subscription and ignore the filters below. Filters apply only to the table and confirmed CSV export date range.",
+    "countsNote": "These totals include every notification-list subscription and ignore the filters below. The registration-date filters apply to the table; the confirmed CSV export uses its own confirmation-date range.",
     "counts": {
       "pending": "Pending: {{count}}",
       "confirmed": "Confirmed: {{count}}",
@@ -195,6 +195,9 @@
     "statusLabel": "Status",
     "createdFrom": "Registered from",
     "createdTo": "Registered before",
+    "confirmedFrom": "Confirmed from",
+    "confirmedTo": "Confirmed before",
+    "exportTruncated": "Only the first {{limit}} of {{matching}} confirmed subscriptions were exported. Narrow the confirmed date range to export the rest.",
     "exportConfirmed": "Export confirmed CSV",
     "exporting": "Exporting…",
     "exportNote": "Export includes confirmed subscriptions only. Tokens and abuse hashes are never exported.",

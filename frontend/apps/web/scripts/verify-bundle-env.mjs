@@ -26,6 +26,8 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { isExampleEnvPlaceholder } from './map-key-placeholder.mjs';
+
 /** Mirrors `requireInProductionLike` in src/config/env.ts. */
 const PRODUCTION_LIKE = new Set(['hosted-beta', 'invite-production', 'production']);
 
@@ -188,16 +190,26 @@ function main() {
   const publicExploreEnabled = publicExploreRaw === 'true';
   const apiBase = (env.VITE_API_BASE_URL ?? '').trim();
 
+  // An example-env map key passes a non-empty check and fails at runtime (U17 CL-F05R).
+  const isPlaceholder = (key) =>
+    key === 'VITE_MAPTILER_KEY' && key in env && env[key].trim() !== '' && isExampleEnvPlaceholder(env[key]);
   for (const key of checked) {
     if (!(key in env)) failures.push(`${key} is MISSING from the bundle`);
     else if (env[key].trim() === '') failures.push(`${key} is EMPTY in the bundle`);
+    else if (isPlaceholder(key)) failures.push(`${key} holds an example-env placeholder in the bundle`);
   }
 
   // Report names and statuses only - never values.
   console.log(`verify-bundle-env: bundle=${sourceFile.slice(distDir.length + 1)}`);
   console.log(`verify-bundle-env: VITE_APP_ENV=${appEnv || '(unset)'} production_like=${productionLike}`);
   for (const key of checked) {
-    const status = !(key in env) ? 'MISSING' : env[key].trim() === '' ? 'EMPTY' : 'PRESENT';
+    const status = !(key in env)
+      ? 'MISSING'
+      : env[key].trim() === ''
+        ? 'EMPTY'
+        : isPlaceholder(key)
+          ? 'PLACEHOLDER'
+          : 'PRESENT';
     console.log(`verify-bundle-env:   ${key} = ${status}`);
   }
   const municipalStatus =
