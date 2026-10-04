@@ -7,6 +7,8 @@
  * which would disclose the value in CI logs. This validator prints names and status only.
  */
 
+import { isExampleEnvPlaceholder } from './map-key-placeholder.mjs';
+
 const PRODUCTION_LIKE = new Set(['hosted-beta', 'invite-production', 'production']);
 
 const appEnv = process.env.VITE_APP_ENV ?? '';
@@ -16,9 +18,14 @@ const required = ['VITE_API_BASE_URL'];
 if (PRODUCTION_LIKE.has(appEnv)) required.push('VITE_MAPTILER_KEY');
 
 const failures = [];
+const placeholders = new Set();
 for (const name of required) {
-  const status = (process.env[name] ?? '').trim() === '' ? 'EMPTY' : 'PRESENT';
+  const value = (process.env[name] ?? '').trim();
+  // An example-env map key passes a non-empty check and fails at runtime (U17 CL-F05R).
+  const placeholder = name === 'VITE_MAPTILER_KEY' && value !== '' && isExampleEnvPlaceholder(value);
+  const status = value === '' ? 'EMPTY' : placeholder ? 'PLACEHOLDER' : 'PRESENT';
   console.log(`validate-build-env: ${name} = ${status}`);
+  if (placeholder) placeholders.add(name);
   if (status !== 'PRESENT') failures.push(name);
 }
 
@@ -39,6 +46,8 @@ if (failures.length > 0) {
       console.error(
         'validate-build-env:   VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must not be true when VITE_APP_ENV=production',
       );
+    } else if (placeholders.has(name)) {
+      console.error(`validate-build-env:   ${name} holds an example-env placeholder; set the real key`);
     } else {
       console.error(`validate-build-env:   ${name} is required`);
     }

@@ -93,6 +93,15 @@ elif "action" in vals and "stamp" in vals:
         },
         "checksums": {"sha256sums": "SHA256SUMS"},
     }
+elif "sealed" in vals and "target" in vals:
+    out = {
+        "schemaVersion": 1,
+        "stamp": vals["stamp"],
+        "uploaded": True,
+        "uploadedAt": vals["uploadedAt"],
+        "offsite": {"kind": vals["kind"], "target": vals["target"]},
+        "sealed": {"complete": "COMPLETE", "sha256sums": vals["sealed"]},
+    }
 else:
     sys.stderr.write("jq shim: unrecognized argument set\n")
     sys.exit(2)
@@ -253,6 +262,17 @@ exec "${REAL_SHA256SUM}" "\$@"
 EOF
 chmod +x "${BIN}/sha256sum"
 
+REAL_MKTEMP="$(command -v mktemp)"
+cat > "${BIN}/mktemp" <<EOF
+#!/usr/bin/env bash
+if [[ "\${FAKE_RECEIPT_FAIL:-0}" == 1 && "\$*" == *.offsite-receipt.json.* ]]; then
+  echo "mktemp: simulated offsite receipt write failure" >&2
+  exit 1
+fi
+exec "${REAL_MKTEMP}" "\$@"
+EOF
+chmod +x "${BIN}/mktemp"
+
 export PATH="${BIN}:${PATH}"
 export PARKIO_DEPLOYMENT_PROFILE=hosted-beta
 export BACKUP_PRODUCTION_MODE=1
@@ -268,6 +288,7 @@ reset_fakes() {
   export FAKE_MC_FAIL=0
   export FAKE_OPENSSL_SEAL_FAIL=0
   export FAKE_INTEGRITY_SHA_FAIL=0
+  export FAKE_RECEIPT_FAIL=0
   unset FAKE_DUMP_FAIL FAKE_DUMP_SLEEP
 }
 
@@ -314,6 +335,64 @@ metric() {
   local file="$1"
   local name="$2"
   awk -v n="${name}" '$1 ~ n { print $2; exit }' "${file}"
+}
+
+# U14: the post-upload receipt lives beside the stamp directory, names where the stamp
+# was uploaded and binds the sealed digest. The stamp itself still matches SHA256SUMS
+# exactly (no extra file inside it), COMPLETE still binds SHA256SUMS, and the remote
+# COMPLETE is the local one. Prints the first problem and returns 1.
+check_receipt() {
+  python3 - "$1" "$2" <<'PY'
+import hashlib, json, pathlib, re, sys
+
+stamp, dest = pathlib.Path(sys.argv[1]), sys.argv[2]
+receipt = stamp.parent / (stamp.name + ".offsite-receipt.json")
+
+def fail(message):
+    print(message)
+    sys.exit(1)
+
+if not receipt.is_file():
+    fail(f"no receipt beside {stamp.name}")
+data = json.loads(receipt.read_text())
+digest = hashlib.sha256((stamp / "SHA256SUMS").read_bytes()).hexdigest()
+expected = {
+    "schemaVersion": 1,
+    "stamp": stamp.name,
+    "uploaded": True,
+    "offsite": {"kind": "s3", "target": f"{dest}/{stamp.name}"},
+    "sealed": {"complete": "COMPLETE", "sha256sums": digest},
+}
+for key, value in expected.items():
+    if data.get(key) != value:
+        fail(f"receipt {key}={data.get(key)!r}, expected {value!r}")
+if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", str(data.get("uploadedAt"))):
+    fail(f"receipt uploadedAt={data.get('uploadedAt')!r} is not a UTC timestamp")
+complete = dict(line.split("=", 1) for line in (stamp / "COMPLETE").read_text().splitlines() if "=" in line)
+if complete.get("sha256sums") != digest:
+    fail("COMPLETE no longer binds SHA256SUMS")
+listed = {}
+for line in (stamp / "SHA256SUMS").read_text().splitlines():
+    value, name = line.split(None, 1)
+    listed[name.lstrip("*").removeprefix("./")] = value
+present = {path.relative_to(stamp).as_posix() for path in stamp.rglob("*") if path.is_file()}
+present -= {"SHA256SUMS", "COMPLETE"}
+if present != set(listed):
+    fail(f"stamp files differ from SHA256SUMS: extra={sorted(present - set(listed))}")
+for name, value in listed.items():
+    if hashlib.sha256((stamp / name).read_bytes()).hexdigest() != value:
+        fail(f"{name} no longer matches SHA256SUMS")
+if (pathlib.Path(dest) / stamp.name / "COMPLETE").read_bytes() != (stamp / "COMPLETE").read_bytes():
+    fail("remote COMPLETE differs from the local COMPLETE")
+PY
+}
+
+no_receipt() {
+  ! find "$(dirname "$1")" -maxdepth 1 -name "$(basename "$1").offsite-receipt.json*" | grep -q .
+}
+
+manifest_uploaded() {
+  python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["offsite"]["uploaded"]).lower())' "$1"
 }
 
 run_hosted() {
@@ -368,10 +447,41 @@ fi
 unset DEST_DIR
 PARKIO_BACKUP_FINALIZED=0
 
+# --- receipt writer on its own (U14) ---
+unit="${WORK}/receipt-unit"
+mkdir -p "${unit}/2026-01-01T00-00-00Z" "${unit}/2026-01-02T00-00-00Z"
+printf 'payload\n' > "${unit}/2026-01-01T00-00-00Z/data.bin"
+parkio_backup_write_stamp_integrity "${unit}/2026-01-01T00-00-00Z" "2026-01-01T00-00-00Z"
+if (
+  export BACKUP_OFFSITE_KIND=azure BACKUP_AZURE_CONTAINER=parkio-backups BACKUP_AZURE_STORAGE_ACCOUNT=u14synthacct
+  parkio_backup_write_offsite_receipt "${unit}/2026-01-01T00-00-00Z"
+) && python3 - "${unit}/2026-01-01T00-00-00Z.offsite-receipt.json" <<'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+assert json.loads(text)["offsite"] == {"kind": "azure", "target": "azure://parkio-backups/2026-01-01T00-00-00Z"}
+assert "u14synthacct" not in text
+PY
+then
+  ok "azure receipt names azure://<container>/<stamp> and not the storage account"
+else
+  bad "azure receipt must name azure://<container>/<stamp> without the storage account"
+fi
+if ! (export BACKUP_MC_DEST=offsite/parkio-backups; parkio_backup_write_offsite_receipt "${unit}/2026-01-02T00-00-00Z") 2>/dev/null \
+  && ! (export BACKUP_OFFSITE_KIND=none; parkio_backup_write_offsite_receipt "${unit}/2026-01-02T00-00-00Z") 2>/dev/null \
+  && no_receipt "${unit}/2026-01-02T00-00-00Z"; then
+  ok "no receipt for a stamp without COMPLETE or for offsite kind none"
+else
+  bad "the receipt writer must refuse an unsealed stamp and offsite kind none"
+fi
+
 # --- full success ---
 reset_fakes
 case_ok="${WORK}/full-ok"
 old_ok="$(plant_old_good "${case_ok}/backups")"
+# Receipts whose stamp is gone (after prune) must go too; so must a leftover temp file.
+printf '{}\n' > "${old_ok}.offsite-receipt.json"
+printf 'partial\n' > "${old_ok}.offsite-receipt.json.AbC123"
+printf '{}\n' > "${case_ok}/backups/2019-12-31T00-00-00Z.offsite-receipt.json"
 if run_hosted "${case_ok}"; then
   ok "full production path exits 0"
 else
@@ -405,6 +515,24 @@ if [ "${ms}" = "1" ] && [ "${os}" = "1" ]; then
   ok "full success metrics report local and offsite success"
 else
   bad "full success metrics must be last_success=1 offsite=1 (got ${ms}/${os})"
+fi
+if why="$(check_receipt "${stamp_ok}" "${case_ok}/offsite/parkio-backups")"; then
+  ok "full success writes a receipt beside the stamp that binds the unchanged sealed stamp"
+else
+  bad "full success receipt: ${why}"
+fi
+sealed_flag="$(manifest_uploaded "${stamp_ok}/backup-manifest.json")"
+live_flag="$(manifest_uploaded "${case_ok}/artifacts/backup-current.json")"
+if [ "${sealed_flag}" = "false" ] && [ "${live_flag}" = "true" ]; then
+  ok "sealed manifest keeps its seal-time uploaded=false; live manifest and receipt say uploaded"
+else
+  bad "manifest offsite.uploaded must be sealed=false live=true (got ${sealed_flag}/${live_flag})"
+fi
+if [ ! -d "${old_ok}" ] && no_receipt "${old_ok}" \
+  && no_receipt "${case_ok}/backups/2019-12-31T00-00-00Z"; then
+  ok "prune removes receipts and receipt temp files whose stamp is gone"
+else
+  bad "prune must remove orphan receipts (old stamp present: $([ -d "${old_ok}" ] && echo yes || echo no))"
 fi
 if [ -f "${old_ok}/COMPLETE" ]; then
   ok "recent previous-good stamp is retained on success when not expired by clock"
@@ -615,6 +743,11 @@ if find "${case_dbok}/offsite" -name COMPLETE -type f | grep -q .; then
 else
   bad "DB-only success must upload when offsite is configured"
 fi
+if why="$(check_receipt "${stamp_dbok}" "${case_dbok}/offsite/parkio-backups")"; then
+  ok "DB-only success writes a receipt beside the stamp"
+else
+  bad "DB-only success receipt: ${why}"
+fi
 
 # --- standalone DB-only failure ---
 reset_fakes
@@ -695,6 +828,30 @@ if [ -f "${old_off}/COMPLETE" ]; then
   ok "previous good stamp survives offsite failure"
 else
   bad "offsite failure must not prune the last good stamp"
+fi
+if no_receipt "${stamp_off}"; then
+  ok "offsite failure writes no receipt"
+else
+  bad "a failed upload must not leave a receipt"
+fi
+
+# --- upload succeeds but its receipt cannot be written ---
+reset_fakes
+export FAKE_RECEIPT_FAIL=1
+case_rcpt="${WORK}/receipt-fail"
+old_rcpt="$(plant_old_good "${case_rcpt}/backups")"
+rc=0
+run_hosted "${case_rcpt}" > "${case_rcpt}.log" 2>&1 || rc=$?
+stamp_rcpt="$(latest_stamp_dir "${case_rcpt}/backups")"
+os="$(metric "${case_rcpt}/textfile/parkio_backup.prom" 'parkio_backup_offsite_last_success')"
+ms="$(metric "${case_rcpt}/textfile/parkio_backup.prom" 'parkio_backup_last_success')"
+live_rcpt="$(manifest_uploaded "${case_rcpt}/artifacts/backup-$(basename "${stamp_rcpt}").json")"
+if [ "${rc}" -ne 0 ] && [ -f "${case_rcpt}/offsite/parkio-backups/$(basename "${stamp_rcpt}")/COMPLETE" ] \
+  && no_receipt "${stamp_rcpt}" && [ "${os}" = "0" ] && [ "${ms}" = "0" ] && [ "${live_rcpt}" = "false" ] \
+  && [ ! -f "${case_rcpt}/artifacts/backup-current.json" ] && [ -f "${old_rcpt}/COMPLETE" ]; then
+  ok "an unwritten receipt fails the run: no uploaded claim, no current pointer, no prune"
+else
+  bad "unwritten receipt must fail closed (rc=${rc} metrics=${ms}/${os} live=${live_rcpt})"
 fi
 
 # CL-F29.2: the plaintext mirror belongs to the invoking user and is private (no a+rwX).
