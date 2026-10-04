@@ -122,7 +122,10 @@ export interface FocusStop {
   index: number;
   element: string;
   name: string;
-  /** Outline or box-shadow present while the element has keyboard focus. */
+  /**
+   * A visible outline while focused, or a box-shadow, border, background or underline that differs
+   * from the element's unfocused style (a static decorative shadow does not count).
+   */
   indicator: boolean;
 }
 
@@ -134,7 +137,17 @@ export interface FocusStop {
  */
 export async function keyboardWalk(page: Page, testInfo: TestInfo, name: string, locale: Locale, limit = 60) {
   await page.locator('body').click({ position: { x: 1, y: 1 } });
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    // Unfocused styles of every element that can take focus, to compare with its focused style.
+    const look = (el: Element) => {
+      const s = getComputedStyle(el);
+      return [s.boxShadow, s.borderTopColor, s.borderBottomColor, s.backgroundColor, s.textDecorationLine].join('|');
+    };
+    const store = new WeakMap<Element, string>();
+    document.querySelectorAll('*').forEach((el) => store.set(el, look(el)));
+    (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused = store;
+  });
   const stops: FocusStop[] = [];
   let leftPage = false;
   let cycled = false;
@@ -147,7 +160,9 @@ export async function keyboardWalk(page: Page, testInfo: TestInfo, name: string,
       if (i === 0) el.dataset.a11yFirstStop = 'true';
       const style = getComputedStyle(el);
       const outline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
-      const shadow = style.boxShadow !== 'none';
+      const focusedLook = [style.boxShadow, style.borderTopColor, style.borderBottomColor, style.backgroundColor, style.textDecorationLine].join('|');
+      const unfocused = (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused.get(el);
+      const shadow = unfocused !== undefined && focusedLook !== unfocused;
       const label =
         el.getAttribute('aria-label') ?? el.getAttribute('title') ?? (el.textContent ?? '').trim().slice(0, 60);
       const id = el.id ? `#${el.id}` : '';

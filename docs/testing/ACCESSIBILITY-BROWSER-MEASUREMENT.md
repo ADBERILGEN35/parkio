@@ -20,8 +20,8 @@ Later commits change only the measurement harness and this document, not the web
   - Best-practice rules are not part of the pass criterion. A missing `main` landmark is recorded but not failed.
 - **Per page and locale:**
   - `<html lang>` must match the language of the content: the selected locale on translated pages, and the page's own language on single-language pages.
-  - Keyboard walk with Tab: every stop needs a visible focus indicator (outline or box-shadow). Focus must leave the page or cycle back to the first stop; anything else is a trap.
-  - Marketing footer: a `contentinfo` landmark, and every footer link has a name.
+  - Keyboard walk with Tab: every stop needs a visible focus indicator. That is an outline, or a box-shadow, border, background or underline that differs from the element's unfocused style; a static decorative shadow does not count. Focus must leave the page or cycle back to the first stop; anything else is a trap.
+  - Marketing footer: the pages built with a site footer (`/`, `/privacy/`, `/terms/`) must expose it as a `contentinfo` landmark, and every footer link has a name.
 - **Network:** every API call is mocked. Requests to any other host are aborted, so nothing leaves the machine.
 - **Locale:** the first-visit locale is set through local storage (`parkio.locale`, `parkio.marketing.locale`).
 
@@ -65,11 +65,15 @@ Later commits change only the measurement harness and this document, not the web
 | 3 | 1.4.3 | Marketing roadmap stage badges (11 px bold) | #0769fd on #eaf2ff: 4.19 | `--primary-2` | 6.91 |
 | 4 | 1.4.3 | **Marketing footer** text (`.footer-bottom`, 12 px) | #8490a3 on #fff: 3.23 | `--muted` | 5.01 |
 | 5 | 3.1.1 Language of Page (A), 3.1.2 Language of Parts (AA) | Marketing `/privacy/` | `lang="tr"` on an English policy | `lang="en"`; the Turkish title, tagline, home link and waitlist paragraph carry `lang="tr"` | language matches the content |
+| 6 | 1.3.1 Info and Relationships (A) | Web `/my-spots` with spots (found once populated) | The `<ul>` held the spot cards directly, without `<li>` (axe `list`) | Each card is wrapped in `<li>`, as Explore's results already were | list semantics restored |
+| 7 | 1.4.1 Use of Color (A) | Web `/gamification` with point history (found once populated) | The *view spot* link inside a line of text was distinguished only by colour (axe `link-in-text-block`) | The link is always underlined | distinguishable without colour |
 
 Regression checks:
 - 1: a unit test on the Toaster's variables, which fails without the fix; the browser palette measurement of all four types; axe on the real success toast.
 - 2–4: axe colour-contrast on every marketing page.
 - 5: the `lang` check, plus an assertion on the Turkish paragraph.
+- 6: a unit test (each spot is a list item), which fails without the fix; axe on the populated page.
+- 7: axe on the populated page.
 
 ## Observations (not WCAG A/AA failures)
 
@@ -94,14 +98,11 @@ The undecided set is the same in Turkish and English. On the built web image the
 
 - No screen-reader session (NVDA, VoiceOver, TalkBack).
 - No zoom or reflow at 400 % (1.4.10), no text-spacing override (1.4.12), no mobile viewports.
-- **Signed-in pages were measured only in their empty or error states.** The session is mocked, but most data endpoints were not, so they answered 404:
-  - `/users/me`, `/users/me/stats`, `/users/me/preferences`;
-  - the gamification level, points and leaderboard endpoints;
-  - `/parking/my-spots`, `/parking/sessions/*`, `/moderation/reports/me`.
-  On the built image, Explore's `/public/explore/facilities` was unmocked too. Populated states were not measured. Each test records its unmocked calls as an annotation.
-- Interaction states are covered only partly: one toast state, and the map without tiles. Dialogs, the error states of each form and map interactions were not walked.
-- Dark theme: the web app has none yet. Its sonner dark palette passes on paper (9.35 to 12.29) but was not rendered.
+- **Signed-in pages are measured in a populated state**, since the follow-up to #227. Profile, stats, preferences, notifications, nearby spots, my spots, gamification (progress, points, level, access policy, levels, leaderboard), reports and Explore facilities all answer with synthetic data. A page that makes an API call without such a mock fails the suite, so an empty or error state can no longer pass as the measured page. The first #227 runs measured the empty or error states only.
+- Interaction states are covered only partly: one toast state, the map without tiles and without an active parking session. Dialogs, the error states of each form and map interactions were not walked.
+- Dark theme: the web app has none yet. If one is added, the toast override must become theme-aware: the app's light-theme text colours on sonner's dark backgrounds are only about 2.4–2.9:1.
 - The mobile apps.
+- Marketing pages in a staged configuration: only the launch configuration (waitlist mode `api`) was measured, not `mock` or `hidden`/`unavailable`.
 
 ## Running it
 

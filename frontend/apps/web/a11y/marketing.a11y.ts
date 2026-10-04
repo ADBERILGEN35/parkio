@@ -8,10 +8,11 @@ import { keyboardWalk, measurePage, type Locale } from './helpers';
  */
 // `lang`: single-language pages keep their own language whatever the visitor chose; the others follow
 // the selected locale.
-const PAGES: { name: string; path: string; lang?: string }[] = [
-  { name: 'home', path: '/' },
-  { name: 'privacy', path: '/privacy/', lang: 'en' },
-  { name: 'terms', path: '/terms/', lang: 'en' },
+// `footer`: the page is built with a site footer, which must be a contentinfo landmark.
+const PAGES: { name: string; path: string; lang?: string; footer?: boolean }[] = [
+  { name: 'home', path: '/', footer: true },
+  { name: 'privacy', path: '/privacy/', lang: 'en', footer: true },
+  { name: 'terms', path: '/terms/', lang: 'en', footer: true },
   { name: 'waitlist-confirm', path: '/waitlist/confirm/?token=a11y-confirm-token' },
   { name: 'waitlist-unsubscribe', path: '/waitlist/unsubscribe/?token=a11y-withdraw-token' },
   { name: 'not-found', path: '/404.html', lang: 'en' },
@@ -49,6 +50,7 @@ for (const locale of ['tr', 'en'] as const) {
 
         // The footer is a contentinfo landmark and each of its links has an accessible name.
         const footer = page.getByRole('contentinfo');
+        if (target.footer) await expect(footer, `${target.name} (${locale}): site footer`).toHaveCount(1);
         if (await footer.count()) {
           await expect(footer.first()).toBeVisible();
           const unnamed = await footer
