@@ -99,6 +99,11 @@ Two alerts watch the delivery path itself (U06, CL-F04):
 | `AlertmanagerNotificationsFailing` | `alertmanager_notifications_failed_total`, excluding `reason="contextCanceled"` (a shutdown with notifications in flight): at least two given-up notifications per `integration` in 15m | The receiver keeps failing (webhook down, Slack webhook revoked, bad credentials). A single failure is retried at the next group flush and does not fire. In production, where `group_interval` is 5m, the second failure and so the alert come about 6 to 11 minutes after the receiver breaks. |
 | `PrometheusNotificationsFailing` | `prometheus_notifications_errors_total`: a failed send in every 2m window, held for 5m | Alertmanager is down or rejecting alerts. The counter counts failed batches, about one per rule group with active alerts, so it measures duration, not count. An outage of up to about three minutes does not fire. It resolves about 2 minutes after sends succeed again. |
 
+**What the 5-minute hold misses.** The hold of `PrometheusNotificationsFailing` restarts whenever 2 minutes pass without a failed send.
+- Failures spaced more than about 2 minutes apart never fire. In the #232 review's run, an Alertmanager that was down 60 s out of every 120 s stayed pending for 10 minutes. Prometheus re-sends every active alert once Alertmanager is back, so those alerts are delayed, not lost.
+- A single 3-minute outage peaked at about 4m10s pending, about 50 s below the hold. Outages of about 3m15s to 4m fire briefly after Alertmanager is back (runbook step 4 in `docs/architecture/observability-metrics.md`).
+- These boundaries hold for Prometheus 2.x, whose range selectors include both ends. Prometheus 3.x makes them left-open, which moves each boundary by one sample: failures 120 s apart fire on 2.54 and may stop firing. After an upgrade, re-run `docker/prometheus/tests/alert-delivery.test.yml`, whose 15-second cases pin these boundaries, and repeat the calibration.
+
 `prometheus_notifications_dropped_total` is not alerted on. With one Alertmanager it grows together with the errors above, and at start-up Prometheus drops what fires before it has found Alertmanager.
 
 For the first alert, Prometheus scrapes Alertmanager's own metrics (job `alertmanager` in `docker/prometheus/prometheus.yml`).
