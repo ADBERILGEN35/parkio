@@ -94,7 +94,12 @@ The undecided set is the same in Turkish and English. On the built web image the
 
 - No screen-reader session (NVDA, VoiceOver, TalkBack).
 - No zoom or reflow at 400 % (1.4.10), no text-spacing override (1.4.12), no mobile viewports.
-- Interaction states are covered only partly: one toast state, signed-in pages with empty data, and the map without tiles. Dialogs, error states of each form and map interactions were not walked.
+- **Signed-in pages were measured only in their empty or error states.** The session is mocked, but most data endpoints were not, so they answered 404:
+  - `/users/me`, `/users/me/stats`, `/users/me/preferences`;
+  - the gamification level, points and leaderboard endpoints;
+  - `/parking/my-spots`, `/parking/sessions/*`, `/moderation/reports/me`.
+  On the built image, Explore's `/public/explore/facilities` was unmocked too. Populated states were not measured. Each test records its unmocked calls as an annotation.
+- Interaction states are covered only partly: one toast state, and the map without tiles. Dialogs, the error states of each form and map interactions were not walked.
 - Dark theme: the web app has none yet. Its sonner dark palette passes on paper (9.35 to 12.29) but was not rendered.
 - The mobile apps.
 
