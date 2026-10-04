@@ -7,6 +7,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "parkio.municipal")
 public class MunicipalSourceProperties {
+    /**
+     * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative or empty value fails
+     * the binding, so the service refuses to start, and the error names the full property.
+     */
+    static Duration requireUnchangedFeedAlertAfter(String property, Duration value) {
+        if (value == null || value.isNegative()) {
+            throw new IllegalArgumentException(
+                    property + " must be 0 (alert disabled) or a positive duration, was " + value);
+        }
+        return value;
+    }
+
     private boolean enabled;
     private boolean manualSyncEnabled;
     private Izum izum = new Izum();
@@ -302,7 +314,8 @@ public class MunicipalSourceProperties {
         private Long agingAfterSeconds;
         /**
          * Operator alert threshold for a feed that repeats its previous run unchanged (CL-F22, owner
-         * option C). Zero disables the alert. It never changes public freshness or counts.
+         * option C). Zero disables the alert; a negative value is refused at startup. It never changes
+         * public freshness or counts.
          */
         private Duration unchangedFeedAlertAfter = Duration.ofHours(4);
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
@@ -341,8 +354,8 @@ public class MunicipalSourceProperties {
         public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
         public Duration getUnchangedFeedAlertAfter() { return unchangedFeedAlertAfter; }
         public void setUnchangedFeedAlertAfter(Duration unchangedFeedAlertAfter) {
-            this.unchangedFeedAlertAfter = unchangedFeedAlertAfter == null || unchangedFeedAlertAfter.isNegative()
-                    ? Duration.ZERO : unchangedFeedAlertAfter;
+            this.unchangedFeedAlertAfter = requireUnchangedFeedAlertAfter(
+                    "parkio.municipal.izum.unchanged-feed-alert-after", unchangedFeedAlertAfter);
         }
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
@@ -369,7 +382,8 @@ public class MunicipalSourceProperties {
         private Long agingAfterSeconds;
         /**
          * Operator alert threshold for a feed that repeats its previous run unchanged (CL-F22, owner
-         * option C). Zero disables the alert. It never changes public freshness or counts.
+         * option C). Zero disables the alert; a negative value is refused at startup. It never changes
+         * public freshness or counts.
          */
         private Duration unchangedFeedAlertAfter = Duration.ofHours(4);
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
@@ -407,8 +421,8 @@ public class MunicipalSourceProperties {
         public void setAgingAfterSeconds(Long agingAfterSeconds) { this.agingAfterSeconds = agingAfterSeconds; }
         public Duration getUnchangedFeedAlertAfter() { return unchangedFeedAlertAfter; }
         public void setUnchangedFeedAlertAfter(Duration unchangedFeedAlertAfter) {
-            this.unchangedFeedAlertAfter = unchangedFeedAlertAfter == null || unchangedFeedAlertAfter.isNegative()
-                    ? Duration.ZERO : unchangedFeedAlertAfter;
+            this.unchangedFeedAlertAfter = requireUnchangedFeedAlertAfter(
+                    "parkio.municipal.ispark.unchanged-feed-alert-after", unchangedFeedAlertAfter);
         }
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String userAgent) { this.userAgent = userAgent; }

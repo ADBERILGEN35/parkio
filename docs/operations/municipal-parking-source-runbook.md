@@ -114,6 +114,8 @@ freshness and counts do not change; operators get a metric and an alert instead.
   `PARKIO_MUNICIPAL_IZUM_UNCHANGED_FEED_ALERT_AFTER` and `PARKIO_MUNICIPAL_ISPARK_UNCHANGED_FEED_ALERT_AFTER`.
   - The default is `4h`. `0` disables the alert. The configured value is exported as
     `parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key}`.
+  - A negative value stops parking-service at startup with a binding error that names the property,
+    so a typo cannot silently disable the alert; `0` is the only way to disable it.
   - The default is deliberately conservative, because a legitimately static feed (for example at night)
     also repeats itself. Use the metric's history to tune it per source.
   - The invite-production compose files do not pass these variables through, like the other İZUM and

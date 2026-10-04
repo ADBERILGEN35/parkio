@@ -195,18 +195,6 @@ class MunicipalSourceMetricsTest {
                 .isNull();
     }
 
-    @Test
-    void aZeroOrNegativeThresholdDisablesTheUnchangedFeedAlert() {
-        MunicipalSourceProperties properties = new MunicipalSourceProperties();
-        properties.getIzum().setUnchangedFeedAlertAfter(Duration.ofMinutes(-5));
-        properties.getIspark().setUnchangedFeedAlertAfter(null);
-
-        assertThat(properties.getIzum().getUnchangedFeedAlertAfter()).isZero();
-        assertThat(properties.getIspark().getUnchangedFeedAlertAfter()).isZero();
-        assertThat(new MunicipalSourceProperties().getIzum().getUnchangedFeedAlertAfter())
-                .isEqualTo(Duration.ofHours(4));
-    }
-
     private static MunicipalSyncResult withFeedChange(MunicipalFeedChange change) {
         return new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS, 2, 2, 0, 0, 0, 2, 2, 0, 0, 2,
                 null, null, false, change);
