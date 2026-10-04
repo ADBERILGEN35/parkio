@@ -54,9 +54,11 @@ x-postgres-common: &postgres-common
   restart: unless-stopped
   logging: *default-logging
   networks: [parkio-backend]
-  # POSTGRES_USER / POSTGRES_DB are resolved inside the container, hence $$.
+  # POSTGRES_USER / POSTGRES_DB are resolved inside the container, hence $$. Over TCP: the image's
+  # entrypoint first runs a socket-only init server and stops it before the real one starts, so a
+  # socket check could report healthy just before the database goes away for that restart.
   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+    test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
     interval: 10s
     timeout: 5s
     retries: 5
@@ -367,10 +369,10 @@ services:
     container_name: parkio-clamav
     restart: unless-stopped
     logging: *default-logging
-    # clamd listens on 3310; exposed on the host for local dev only (the
+    # clamd listens on 3310; exposed on the host's loopback for local dev only (the
     # hosted-beta overlay removes this mapping — clamd stays on the private net).
     ports:
-      - "${CLAMAV_PORT:-3310}:3310"
+      - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
     volumes: ["clamav-data:/var/lib/clamav"]
     networks: [parkio-backend]
     healthcheck:

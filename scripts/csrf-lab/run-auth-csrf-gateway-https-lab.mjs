@@ -79,9 +79,13 @@ function waitPgReady(containerId, timeoutMs = 120_000) {
   return new Promise((resolve, reject) => {
     const tryOnce = () => {
       try {
+        // Over TCP, not the unix socket: the image's entrypoint first runs a temporary,
+        // socket-only server that already has parkio_auth, then stops it before the real
+        // server starts. A socket check can pass on that temporary server and leave the
+        // next psql in the gap with no server ("No such file or directory").
         execFileSync(
           'docker',
-          ['exec', containerId, 'pg_isready', '-U', 'csrf', '-d', 'postgres'],
+          ['exec', containerId, 'pg_isready', '-h', '127.0.0.1', '-U', 'csrf', '-d', 'postgres'],
           { stdio: 'ignore' },
         );
         const exists = execFileSync(

@@ -346,6 +346,24 @@ describe('RegisterPage', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('newcomer@parkio.dev');
   });
 
+  it('blocks a password over 72 bytes before calling the API (CL-F36)', async () => {
+    let registerCalls = 0;
+    server.use(
+      http.post(`${API_BASE}/auth/register`, () => {
+        registerCalls += 1;
+        return HttpResponse.json(authResponse);
+      }),
+    );
+    const longTurkish = `Aa1${'ş'.repeat(35)}`;
+
+    await fillAndSubmit({ password: longTurkish, confirmPassword: longTurkish });
+
+    expect(
+      await screen.findByText('Password must be at most 72 bytes; letters such as ş or ğ count as two'),
+    ).toBeInTheDocument();
+    expect(registerCalls).toBe(0);
+  });
+
   it('resends verification from the check-email screen', async () => {
     let resendBody: Record<string, unknown> | null = null;
     server.use(

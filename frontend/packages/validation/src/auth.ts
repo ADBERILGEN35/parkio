@@ -42,6 +42,27 @@ export function passwordRequirementState(password: string) {
   };
 }
 
+/**
+ * BCrypt uses at most 72 bytes of a password and the auth service rejects longer ones with
+ * PASSWORD_TOO_LONG (CL-F36). Letters such as ş, ğ or ü take two bytes in UTF-8, so 100
+ * characters can be far more than 72 bytes.
+ */
+export const PASSWORD_MAX_BYTES = 72;
+
+/** UTF-8 length of a string, computed per code point (no TextEncoder dependency). */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+export function isWithinPasswordByteLimit(password: string) {
+  return utf8ByteLength(password) <= PASSWORD_MAX_BYTES;
+}
+
 export function isStrongPassword(password: string) {
   const state = passwordRequirementState(password);
   return Object.values(state).every(Boolean);
@@ -51,6 +72,9 @@ const passwordSchema = z
   .string()
   .min(12, 'Password must be at least 12 characters')
   .max(100)
+  .refine(isWithinPasswordByteLimit, {
+    message: 'Password must be at most 72 bytes; letters such as ş or ğ count as two',
+  })
   .refine(isStrongPassword, {
     message: 'Password must be at least 12 characters and include lowercase, uppercase, and a number',
   });

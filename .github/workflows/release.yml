@@ -142,7 +142,7 @@ jobs:
 
       - name: Log in to GHCR for private MinIO pulls
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -160,7 +160,7 @@ jobs:
 
       # Supply-chain: verify the wrapper jar is an unmodified official Gradle distribution.
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Build + unit tests
         run: ./gradlew --no-daemon build -PparkioVersion=${{ needs.version.outputs.version }}
@@ -198,7 +198,7 @@ jobs:
         run: ./gradlew --no-daemon --no-configuration-cache cyclonedxBom -PparkioVersion=${{ needs.version.outputs.version }}
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -309,10 +309,10 @@ jobs:
           echo "Building ${{ matrix.service }} from $head (${GITHUB_REF})."
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -413,7 +413,7 @@ jobs:
           echo "Loaded $BAKE for web build-args (MapTiler key still from WEB_MAPTILER_KEY secret)."
 
       - name: Build image (OCI-labelled)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         id: build
         with:
           context: .
@@ -574,7 +574,7 @@ jobs:
       # ---- Optional: keyless signing + provenance (only when publishing images) ----
       - name: Install cosign
         if: ${{ needs.version.outputs.publish == 'true' }}
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Sign image (keyless / OIDC)
         if: ${{ needs.version.outputs.publish == 'true' }}

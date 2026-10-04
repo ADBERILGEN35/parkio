@@ -81,3 +81,57 @@ tests:
               description: Saklama temizliği hata fırlattı. Ingestion ve Public Explore devam etmeli; parking-service günlüklerini inceleyin.
               operator_action: Runbook’u açın; actuator health ve kaynak SLA’sını doğrulayın.
               runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
+  # CL-F22: İZUM feeds smaller than the active set, reconciliation skipped.
+  - name: izum two incomplete snapshots in a row stay silent
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_consecutive_incomplete_snapshots{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "0 1 1 2 2 2 2 2"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: MunicipalIzumIncompleteSnapshotsRepeated
+        exp_alerts: []
+
+  - name: izum three incomplete snapshots in a row fire and a complete one resolves
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_consecutive_incomplete_snapshots{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "0 1 1 2 2 3 3 3 0 0 0"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0 0 0 0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MunicipalIzumIncompleteSnapshotsRepeated
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: MunicipalIzumIncompleteSnapshotsRepeated
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalIzumIncompleteSnapshotsRepeated
+              severity: warning
+              owner: parking
+              source_key: izmir-izum-otoparklar
+              source_mode: SCHEDULED
+            exp_annotations:
+              summary: İZUM art arda eksik tesis listesi döndürüyor
+              description: İZUM art arda 3 senkronda aktif tesis kümesinden küçük bir liste döndürdü ve mutabakat yapılmadı; listede olmayan tesisler aktif kaldı.
+              operator_action: Runbook’u açın; senkron loglarında municipal_sync_skip_reconcile_incomplete_snapshot satırlarını ve aktif bağlantı sayısını kontrol edin.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+      - eval_time: 9m
+        alertname: MunicipalIzumIncompleteSnapshotsRepeated
+        exp_alerts: []
+
+  - name: izum disabled suppresses the incomplete-snapshot alert
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_consecutive_incomplete_snapshots{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "5 5 5 5 5"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MunicipalIzumIncompleteSnapshotsRepeated
+        exp_alerts: []
