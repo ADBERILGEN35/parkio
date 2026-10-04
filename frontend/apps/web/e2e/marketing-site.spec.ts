@@ -215,6 +215,79 @@ test('waitlist query mock bypass cannot fake success when meta remains api', asy
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeHidden();
 });
 
+// CL-F39.5: the local server sends the .htaccess headers, so these run under the served CSP.
+const HTML_PAGES = ['/', '/privacy/', '/terms/', '/waitlist/confirm/', '/waitlist/unsubscribe/', '/404.html'] as const;
+
+/** Records securitypolicyviolation events of each document the page loads. */
+async function recordCspViolations(page: Page): Promise<() => Promise<string[]>> {
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Object.defineProperty(window, '__cspViolations', { value: violations });
+    document.addEventListener('securitypolicyviolation', (event) => {
+      violations.push(`${event.effectiveDirective} ${event.blockedURI || 'inline'}`);
+    });
+  });
+  return () => page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations);
+}
+
+test('serves every page with a script policy without unsafe-inline, HSTS and no CSP violations', async ({
+  page,
+  baseURL,
+}) => {
+  const violations = await recordCspViolations(page);
+
+  for (const path of HTML_PAGES) {
+    const response = await page.goto(`${baseURL}${path}`);
+    const headers = response?.headers() ?? {};
+    const scriptSrc = (headers['content-security-policy'] ?? '')
+      .split(';')
+      .map((directive) => directive.trim())
+      .find((directive) => directive.startsWith('script-src'));
+    expect(scriptSrc, path).toBe("script-src 'self'");
+    expect(headers['strict-transport-security'], path).toMatch(/^max-age=\d+/);
+    await page.waitForLoadState('networkidle');
+    expect(await violations(), path).toEqual([]);
+  }
+});
+
+test('keeps the JSON-LD data block, which the script policy does not apply to', async ({ page, baseURL }) => {
+  const violations = await recordCspViolations(page);
+  await page.goto(baseURL ?? '/');
+
+  const jsonLd = JSON.parse((await page.locator('script[type="application/ld+json"]').textContent()) ?? '');
+  expect(jsonLd['@graph'].length).toBeGreaterThan(0);
+  expect(await violations()).toEqual([]);
+});
+
+test('the served CSP blocks an injected inline script', async ({ page, baseURL }) => {
+  const violations = await recordCspViolations(page);
+  await page.route('**/privacy/', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      '</body>',
+      '<script>document.documentElement.dataset.inlineScript = "ran";</script></body>',
+    );
+    await route.fulfill({ response, body });
+  });
+
+  await page.goto(`${baseURL}/privacy/`);
+
+  await expect.poll(violations).toContainEqual(expect.stringMatching(/^script-src/));
+  await expect(page.locator('html')).not.toHaveAttribute('data-inline-script', 'ran');
+});
+
+test('waitlist pages localize their title without inline script', async ({ page, baseURL }) => {
+  await page.goto(`${baseURL}/waitlist/confirm/`);
+  await expect(page).toHaveTitle('Parkio | Bildirim listesi onayı');
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await expect(page).toHaveTitle('Parkio | Confirm notification list');
+
+  await page.goto(`${baseURL}/waitlist/unsubscribe/?lang=tr`);
+  await expect(page).toHaveTitle('Parkio | Bildirim listesinden çıkış');
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await expect(page).toHaveTitle('Parkio | Leave notification list');
+});
+
 for (const width of [360, 390, 768, 1440]) {
   test(`has no horizontal overflow or clipped primary CTA at ${width}px`, async ({ browser, baseURL }) => {
     await assertResponsiveLayout(browser, baseURL ?? '/', width);

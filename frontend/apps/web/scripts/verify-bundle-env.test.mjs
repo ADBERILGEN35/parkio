@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { exampleMapKeys } from './example-env-map-keys.mjs';
+
 const script = fileURLToPath(new URL('./verify-bundle-env.mjs', import.meta.url));
 const placeholder = 'fixture-map-key-not-a-real-provider-key';
 
@@ -227,4 +229,34 @@ test('require-public-explore false rejects Explore-on bundle', () => {
   );
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}${result.stderr}`, /must be false/);
+});
+
+test('refuses a production-like bundle that bakes an example-env map key (U17 CL-F05R)', () => {
+  const examples = exampleMapKeys();
+  assert.ok(examples.length >= 3, `expected the example-env map keys, found ${examples.length}`);
+  for (const { file, value } of examples) {
+    const result = runVerifier(
+      {
+        VITE_APP_ENV: 'invite-production',
+        VITE_API_BASE_URL: 'https://api.parkio.dev/api/v1',
+        VITE_MAPTILER_KEY: value,
+      },
+      'invite-production',
+    );
+    assert.notEqual(result.status, 0, `${file}: ${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+    assert.match(result.stderr, /VITE_MAPTILER_KEY holds an example-env placeholder in the bundle/);
+    assert.equal(`${result.stdout}${result.stderr}`.includes(value), false, `${file}: the value was printed`);
+  }
+});
+
+test('refuses a REPLACE_ME_ map key in a production-like bundle and accepts a realistic one', () => {
+  const base = { VITE_APP_ENV: 'hosted-beta', VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1' };
+  const refused = runVerifier({ ...base, VITE_MAPTILER_KEY: 'REPLACE_ME_other_key' });
+  assert.notEqual(refused.status, 0, refused.stderr);
+  assert.match(refused.stdout, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+  const accepted = runVerifier({ ...base, VITE_MAPTILER_KEY: 'Zq3x7Vb2Nw8Kp4Rt6Ym1' });
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.match(accepted.stdout, /VITE_MAPTILER_KEY = PRESENT/);
+  assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, /Zq3x7Vb2Nw8Kp4Rt6Ym1/);
 });
