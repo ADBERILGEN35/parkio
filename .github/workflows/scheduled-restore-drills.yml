@@ -61,7 +61,8 @@ jobs:
           children="${RUNNER_TEMP:-/tmp}/dispatched-runs.tsv"
           : > "$children"
           # The run a dispatch created: gh prints its URL. Without one, take the oldest
-          # workflow_dispatch run of that file on api created since the dispatch.
+          # workflow_dispatch run of that file on api created since the dispatch by this
+          # workflow's token (github-actions[bot]), so a person's dispatch is never taken.
           record_child() {
             local wf="$1" out="$2" since="$3" id="" url
             url="$(printf '%s\n' "$out" | grep -Eo "https://github\.com/${GH_REPO}/actions/runs/[0-9]+" | head -1 || true)"
@@ -69,8 +70,8 @@ jobs:
               id="${url##*/}"
             else
               for _ in 1 2 3 4 5 6; do
-                id="$(gh run list --workflow "$wf" --branch api --event workflow_dispatch --limit 20 \
-                  --json databaseId,createdAt \
+                id="$(gh run list --workflow "$wf" --branch api --event workflow_dispatch \
+                  --user 'github-actions[bot]' --limit 20 --json databaseId,createdAt \
                   --jq "[.[] | select(.createdAt >= \"$since\")] | sort_by(.createdAt) | .[0].databaseId // empty" || true)"
                 [ -n "$id" ] && break
                 sleep 5

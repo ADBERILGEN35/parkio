@@ -1,0 +1,35 @@
+# Offline contract tests for the scheduled dispatcher (scheduled-restore-drills.yml).
+#
+# The dispatcher only runs on schedule and workflow_dispatch, so its fake-gh tests need their
+# own pull-request check on master: dispatch inputs, child-run attribution (including the
+# bot-only fallback lookup) and the watch job's verdicts. No gh call reaches GitHub.
+name: Scheduled dispatcher contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/scheduled-restore-drills.yml"
+      - ".github/workflows/staging-verification.yml"
+      - ".github/workflows/scheduled-dispatcher-contract.yml"
+      - "scripts/test_scheduled_staging_dispatch.py"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Dispatcher contract tests (fake gh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
+
+      # jq ships with the runner image; the fallback lookup's --jq expression is evaluated by it.
+      - name: Run the contract tests
+        run: |
+          jq --version
+          python3 scripts/test_scheduled_staging_dispatch.py -v </dev/null
