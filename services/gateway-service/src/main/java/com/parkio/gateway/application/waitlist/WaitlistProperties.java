@@ -73,6 +73,10 @@ public class WaitlistProperties {
     @NotNull
     private Email email = new Email();
 
+    @Valid
+    @NotNull
+    private Export export = new Export();
+
     public boolean isAdmissionsEnabled() {
         return admissionsEnabled;
     }
@@ -175,6 +179,30 @@ public class WaitlistProperties {
 
     public void setEmail(Email email) {
         this.email = email;
+    }
+
+    public Export getExport() {
+        return export;
+    }
+
+    public void setExport(Export export) {
+        this.export = export;
+    }
+
+    /** The confirmed CSV export (CL-F34). */
+    public static class Export {
+
+        /** At most this many rows per export; a larger match is reported as truncated. */
+        @Min(1)
+        private int maxRows = 50_000;
+
+        public int getMaxRows() {
+            return maxRows;
+        }
+
+        public void setMaxRows(int maxRows) {
+            this.maxRows = maxRows;
+        }
     }
 
     public static class RateLimit {

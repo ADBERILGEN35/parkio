@@ -90,6 +90,27 @@ Alert: `ParkioAlertingAcceptanceTest`.
 
 This proves plumbing only. Infrastructure alert semantics are covered by `docker/prometheus/tests/alerts.test.yml`.
 
+## Delivery failures
+
+Two alerts watch the delivery path itself (U06, CL-F04):
+
+| Alert | Signal | Meaning |
+|-------|--------|---------|
+| `AlertmanagerNotificationsFailing` | `alertmanager_notifications_failed_total`, excluding `reason="contextCanceled"` (a shutdown with notifications in flight): at least two given-up notifications per `integration` in 15m | The receiver keeps failing (webhook down, Slack webhook revoked, bad credentials). A single failure is retried at the next group flush and does not fire. In production, where `group_interval` is 5m, the second failure and so the alert come about 6 to 11 minutes after the receiver breaks. |
+| `PrometheusNotificationsFailing` | `prometheus_notifications_errors_total`: a failed send in every 2m window, held for 5m | Alertmanager is down or rejecting alerts. The counter counts failed batches, about one per rule group with active alerts, so it measures duration, not count. An outage of up to about three minutes does not fire. It resolves about 2 minutes after sends succeed again. |
+
+`prometheus_notifications_dropped_total` is not alerted on. With one Alertmanager it grows together with the errors above, and at start-up Prometheus drops what fires before it has found Alertmanager.
+
+For the first alert, Prometheus scrapes Alertmanager's own metrics (job `alertmanager` in `docker/prometheus/prometheus.yml`).
+
+**They travel the path they watch.**
+- Production renders one integration, Slack or the generic webhook, never both.
+- When that integration fails, `AlertmanagerNotificationsFailing` is routed to the same failing receiver.
+- When Alertmanager is down, `PrometheusNotificationsFailing` cannot reach anyone.
+- Both still show in the Prometheus and Alertmanager UIs. Getting them to a person needs a second, independent path: a second receiver integration, or a watchdog outside the hosted-beta failure domain (the U06 dead-man's-switch task). Choosing that path is an owner decision; nothing here adds one.
+
+On Azure hosted-beta, Alertmanager is disabled. There, `PrometheusNotificationsFailing` fires five minutes after any alert becomes active, and then keeps itself active. That is accurate: alerts have nowhere to go on that path.
+
 ## Backup alerts
 
 Metrics come from `scripts/lib/backup-common.sh` → `docker/prometheus/textfile/parkio_backup.prom` (node-exporter textfile collector). Success is **not** inferred from directory existence.
@@ -110,6 +131,11 @@ Scopes: `hosted-beta` and `azure-hosted-beta`. Local/dev series do not page thes
 ./scripts/observability-validate.sh   # promtool check config/rules + unit tests + amtool
 ./scripts/alerting-acceptance.sh      # isolated E2E delivery (Docker)
 ```
+
+The isolated run also proves the delivery-failure alerts:
+- while delivery is healthy, neither fires;
+- with the catcher answering 503, `AlertmanagerNotificationsFailing{integration="webhook"}` fires;
+- with Alertmanager stopped, `PrometheusNotificationsFailing` fires after its 5-minute hold.
 
 CI: `.github/workflows/observability-validation.yml` (no `continue-on-error`).
 

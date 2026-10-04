@@ -111,8 +111,8 @@ Either way, `AccountErasureStuck` fires once a request has been past its 1-hour 
 - The outbox retention job deletes only published rows. A dead-lettered row stays until an
   operator acts.
 - DLT records are kept for the topic retention: 14 days (`docs/architecture/kafka-transport.md`,
-  DLT retention). Redrive them before then. On api, `parkio.dlt.media` is not provisioned yet,
-  so no retention is set for it.
+  DLT retention). Redrive them before then. This includes `parkio.dlt.media`, which
+  media-service provisions with the same 14 days since #199.
 
 Steps:
 
