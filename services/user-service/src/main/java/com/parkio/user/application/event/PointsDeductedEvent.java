@@ -7,6 +7,9 @@ import java.util.UUID;
  * Local copy of gamification-service's {@code PointsDeducted} payload
  * (event-contracts.md). {@code totalPoints} is the absolute lifetime snapshot
  * projected into {@code user_trust_profiles.total_points}.
+ * {@code aggregateVersion} is gamification's version of the aggregate behind the snapshot;
+ * the projection keeps the highest one it has seen. It is {@code null} on events published
+ * before U12.
  */
 public record PointsDeductedEvent(
         UUID eventId,
@@ -15,7 +18,8 @@ public record PointsDeductedEvent(
         String sourceType,
         long totalPoints,
         UUID relatedEventId,
-        Instant occurredAt) {
+        Instant occurredAt,
+        Long aggregateVersion) {
 
     public static final String TYPE = "PointsDeducted";
 }
