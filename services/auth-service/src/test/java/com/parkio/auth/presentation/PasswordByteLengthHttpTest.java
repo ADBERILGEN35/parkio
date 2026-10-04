@@ -15,6 +15,7 @@ import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.RoleName;
+import com.parkio.auth.infrastructure.config.AuthRecoveryDispatchConfig;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.RoleJpaRepository;
 import com.parkio.auth.infrastructure.security.JwtService;
@@ -22,13 +23,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -69,6 +73,11 @@ class PasswordByteLengthHttpTest {
     @Autowired
     private JwtService jwtService;
 
+    /** Forgot-password sends its e-mail here after the response (CL-F14.2, #197). */
+    @Autowired
+    @Qualifier(AuthRecoveryDispatchConfig.EXECUTOR)
+    private ThreadPoolTaskExecutor recoveryDispatch;
+
     @MockitoBean
     private EmailVerificationSender emailVerificationSender;
 
@@ -95,6 +104,12 @@ class PasswordByteLengthHttpTest {
             resetToken.set(invocation.getArgument(1));
             return null;
         }).when(passwordResetEmailSender).sendResetLink(anyString(), anyString(), any(EmailLocale.class));
+    }
+
+    /** No recovery work may still be running when the next test resets the shared mocks. */
+    @AfterEach
+    void drainRecoveryDispatch() throws InterruptedException {
+        awaitRecoveryDispatch();
     }
 
     @Test
@@ -130,7 +145,8 @@ class PasswordByteLengthHttpTest {
     void resetRejectsANewPasswordOverSeventyTwoBytesAndKeepsTheToken() throws Exception {
         String email = verifiedUser();
         assertThat(post("/api/v1/auth/forgot-password", null, Map.of("email", email)).getStatus()).isEqualTo(200);
-        String token = resetToken.get();
+        // The reset link is sent after the response, so the token exists only once the dispatch ran.
+        String token = awaitSent(resetToken);
         assertThat(token).isNotBlank();
 
         MockHttpServletResponse tooLong = post("/api/v1/auth/reset-password", null,
@@ -156,6 +172,28 @@ class PasswordByteLengthHttpTest {
         assertThat(code(response)).isEqualTo("PASSWORD_TOO_LONG");
     }
 
+    /**
+     * Waits for the mocked sender to capture a token. An executor that looks idle is not enough here:
+     * a task handed to a newly started worker is neither queued nor counted active until it runs.
+     */
+    private static String awaitSent(AtomicReference<String> token) throws InterruptedException {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while (token.get() == null && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        return token.get();
+    }
+
+    /** Waits until the recovery executor is idle, as PublicEmailDeliveryEnumerationHttpTest does. */
+    private void awaitRecoveryDispatch() throws InterruptedException {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while ((recoveryDispatch.getActiveCount() > 0 || recoveryDispatch.getQueueSize() > 0)
+                && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+    }
+
+    /** Registration sends the verification link in the request itself, so its token is set on return. */
     private String verifiedUser() throws Exception {
         String email = email();
         assertThat(post("/api/v1/auth/register", null,
