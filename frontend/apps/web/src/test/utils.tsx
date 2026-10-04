@@ -1,7 +1,7 @@
 import type { ParkioLocale, User } from '@parkio/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import { createElement, type ReactNode } from 'react';
+import { createElement, StrictMode, type ReactNode } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { AppRuntimeProvider } from '@/app/AppRuntimeProvider';
@@ -120,10 +120,13 @@ export function renderWithProviders(
     authRoles,
     initialEntries = ['/'],
     runtime: providedRuntime,
+    strict = false,
   }: {
     authRoles?: string[];
     initialEntries?: TestInitialEntries;
     runtime?: WebAppRuntime;
+    /** Render inside React StrictMode, as main.tsx does for the dev app (effects run twice). */
+    strict?: boolean;
   } = {},
 ) {
   const runtime =
@@ -134,7 +137,7 @@ export function renderWithProviders(
   }
   setRuntimeRoute(runtime, ui, initialEntries);
   const queryClient = runtime.queryClient;
-  const result = render(
+  const tree = (
     <I18nextProvider i18n={i18n}>
       <AppRuntimeProvider runtime={runtime}>
         <DisposeTestRuntime runtime={runtime} />
@@ -142,8 +145,9 @@ export function renderWithProviders(
           <RouterProvider router={runtime.router} />
         </QueryClientProvider>
       </AppRuntimeProvider>
-    </I18nextProvider>,
+    </I18nextProvider>
   );
+  const result = render(strict ? <StrictMode>{tree}</StrictMode> : tree);
   return { ...result, queryClient, router: runtime.router, runtime };
 }
 
