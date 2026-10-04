@@ -4,7 +4,8 @@
 Modes:
   metrics  — controllable Prometheus gauges on :8081
   probe    — always-up /metrics on :8082 (parking-service scrape target)
-  webhook  — Alertmanager webhook catcher on :8080
+  webhook  — Alertmanager webhook catcher on :8080. POST /control/fail makes it answer every
+             delivery with 503 (a failing receiver) until POST /control/heal; GET /rejected counts them.
 
 Never logs Authorization headers, webhook URLs, tokens, or passwords.
 """
@@ -37,6 +38,8 @@ STATE: dict[str, Any] = {
     "disk_size": 100_000_000_000,
 }
 RECEIPTS: list[dict[str, Any]] = []
+# Failing-receiver switch for the delivery-failure case (U06): deliveries get 503 and no receipt.
+WEBHOOK_CONTROL: dict[str, Any] = {"failing": False, "rejected": 0}
 RECEIPTS_DIR = Path(os.environ.get("PARKIO_ALERT_ACCEPT_RECEIPTS_DIR", "/receipts"))
 
 
@@ -192,6 +195,11 @@ class WebhookHandler(MetricsHandler):
         if path == "/health":
             self._send(200, b"ok\n", "text/plain")
             return
+        if path == "/rejected":
+            with STATE_LOCK:
+                snapshot = dict(WEBHOOK_CONTROL)
+            self._send(200, json.dumps(snapshot).encode("utf-8"), "application/json")
+            return
         if path == "/received":
             alertname = (query.get("alertname") or [None])[0]
             status = (query.get("status") or [None])[0]
@@ -206,6 +214,21 @@ class WebhookHandler(MetricsHandler):
         self._send(404, b"not found\n", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if path in ("/control/fail", "/control/heal"):
+            with STATE_LOCK:
+                WEBHOOK_CONTROL["failing"] = path == "/control/fail"
+                snapshot = dict(WEBHOOK_CONTROL)
+            self._send(200, json.dumps(snapshot).encode("utf-8"), "application/json")
+            return
+        with STATE_LOCK:
+            failing = WEBHOOK_CONTROL["failing"]
+            if failing:
+                WEBHOOK_CONTROL["rejected"] += 1
+        if failing:
+            sys.stderr.write("%s - webhook delivery rejected with 503 (failing receiver)\n" % _utcnow())
+            self._send(503, b'{"ok":false}\n', "application/json")
+            return
         if self.headers.get("Authorization"):
             sys.stderr.write("%s - webhook received (authorization present, not logged)\n" % _utcnow())
         length = int(self.headers.get("Content-Length", "0") or "0")

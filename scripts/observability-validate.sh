@@ -36,6 +36,7 @@ promtool test rules /etc/prometheus/tests/backup-missing-telemetry.test.yml
 promtool test rules /etc/prometheus/tests/municipal-source-health.test.yml
 promtool test rules /etc/prometheus/tests/operational-readiness-availability.test.yml
 promtool test rules /etc/prometheus/tests/blackbox-exporter.test.yml
+promtool test rules /etc/prometheus/tests/alert-delivery.test.yml
 
 echo "==> Alertmanager templates reject unsupported | default"
 if grep -E '\|[[:space:]]*default\b' "${ROOT}/docker/alertmanager/render-config.sh"; then
