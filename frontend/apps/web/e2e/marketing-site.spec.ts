@@ -1,4 +1,4 @@
-import { expect, request, test, type Browser } from '@playwright/test';
+import { expect, request, test, type Browser, type Page } from '@playwright/test';
 
 const REQUIRED_CRAWLER_COPY = [
   'Oğuzhan Taşyaran',
@@ -130,6 +130,77 @@ test('waitlist mock submit via explicit meta shows success without claiming live
   await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
   await expect(page.locator('[data-waitlist-feedback]')).toContainText(/Teşekkürler|Thanks/i);
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeVisible();
+});
+
+/** Answers the waitlist API (CORS preflight included) with one fixed response (CL-F19). */
+async function mockWaitlistApi(
+  page: Page,
+  status: number,
+  body: string,
+  contentType = 'application/json',
+) {
+  await page.route('https://api.parkio.dev/api/v1/waitlist**', async (route) => {
+    const cors = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type, accept',
+    };
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    await route.fulfill({ status, headers: { ...cors, 'content-type': contentType }, body });
+  });
+}
+
+async function submitWaitlist(page: Page, baseURL: string | undefined) {
+  await page.goto(`${baseURL ?? '/'}?lang=en#waitlist`);
+  await page.locator('#waitlist-full-name').fill('Ayse Yilmaz');
+  await page.locator('#waitlist-email').fill('synthetic-clf19@example.com');
+  await page.locator('#waitlist-consent').check();
+  await page.locator('#waitlist-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
+}
+
+test('a 503 without the delivery-failure code is not reported as a saved signup (CL-F19)', async ({
+  page,
+  baseURL,
+}) => {
+  await mockWaitlistApi(page, 503, '<html>Service Unavailable</html>', 'text/html');
+  await submitWaitlist(page, baseURL);
+  const feedback = page.locator('[data-waitlist-feedback]');
+  await expect(feedback).toHaveAttribute('data-feedback-key', 'waitlist.error.generic');
+  await expect(feedback).not.toContainText(/saved/i);
+});
+
+test('the explicit delivery-failure code is reported as a saved signup (CL-F19)', async ({ page, baseURL }) => {
+  await mockWaitlistApi(page, 503, JSON.stringify({ code: 'WAITLIST_EMAIL_DELIVERY_FAILED' }));
+  await submitWaitlist(page, baseURL);
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute(
+    'data-feedback-key',
+    'waitlist.error.delivery',
+  );
+});
+
+for (const lang of ['en', 'tr']) {
+  test(`an invalid confirmation link says so without suggesting a retry (${lang}, CL-F19)`, async ({ page }) => {
+    await mockWaitlistApi(page, 400, JSON.stringify({ code: 'WAITLIST_TOKEN_INVALID' }));
+    await page.goto(`/waitlist/confirm/?token=fixture-expired&lang=${lang}`);
+    await page.locator('#waitlist-confirm-form button[type="submit"]').click();
+    const feedback = page.locator('[data-waitlist-feedback]');
+    await expect(feedback).toHaveAttribute('data-feedback-key', 'waitlist.page.confirm.invalid');
+    await expect(feedback).not.toContainText(/try again|tekrar dene/i);
+  });
+}
+
+test('an unsubscribe server error is not shown as an invalid link (CL-F19)', async ({ page }) => {
+  await mockWaitlistApi(page, 503, '', 'text/plain');
+  await page.goto('/waitlist/unsubscribe/?token=fixture&lang=en');
+  await page.locator('#waitlist-withdraw-form button[type="submit"]').click();
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute(
+    'data-feedback-key',
+    'waitlist.page.token.serverError',
+  );
 });
 
 test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
