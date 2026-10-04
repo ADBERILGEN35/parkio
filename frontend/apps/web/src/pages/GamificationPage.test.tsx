@@ -125,6 +125,26 @@ describe('GamificationPage', () => {
     expect(await screen.findByText('No point activity yet')).toBeInTheDocument();
   });
 
+  it('underlines the in-text "view spot" link, not only on hover (WCAG 1.4.1, CL-F30)', async () => {
+    useGamificationHandlers();
+    server.use(
+      http.get(`${API_BASE}/gamification/me/points`, () =>
+        HttpResponse.json({
+          ...points,
+          recentTransactions: [
+            { ...points.recentTransactions[0], relatedSpotId: 'aaaaaaaa-0000-0000-0000-0000000000a1' },
+          ],
+        }),
+      ),
+    );
+    renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });
+
+    const link = await screen.findByRole('link', { name: 'View spot' });
+    expect(link).toHaveAttribute('href', '/spots/aaaaaaaa-0000-0000-0000-0000000000a1');
+    // A link set apart only by colour fails link-in-text-block; `hover:underline` alone was the defect.
+    expect(link.className.split(/\s+/)).toContain('underline');
+  });
+
   it('highlights the current level in the roadmap', async () => {
     useGamificationHandlers();
     renderWithProviders(<GamificationPage />, { initialEntries: ['/gamification'] });

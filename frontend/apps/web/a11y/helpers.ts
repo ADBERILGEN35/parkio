@@ -123,8 +123,12 @@ export interface FocusStop {
   element: string;
   name: string;
   /**
-   * A visible outline while focused, or a box-shadow, border, background or underline that differs
-   * from the element's unfocused style (a static decorative shadow does not count).
+   * The focused element looks different from its unfocused self in a way a user can see: an outline
+   * that is visible (a style, a width and a colour that is not transparent) and differs from the
+   * unfocused outline, or a box-shadow, border, background or underline that differs. Shadows are
+   * compared by their visible layers only, and measured after the element's transitions finish: a
+   * focus ring that fades in counts, while a transparent outline (Tailwind's `focus:outline-none`) or a
+   * ring transition that has not started yet does not.
    */
   indicator: boolean;
 }
@@ -139,30 +143,63 @@ export async function keyboardWalk(page: Page, testInfo: TestInfo, name: string,
   await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
+    // The visible layers of a computed box-shadow: a layer with a transparent colour, or with no
+    // offset, blur or spread, draws nothing ("none" and "rgba(0, 0, 0, 0) 0px 0px 0px 0px" look alike).
+    const visibleShadow = (value: string) => {
+      if (value === 'none') return 'none';
+      const layers = value.split(/,(?![^(]*\))/).map((layer) => layer.trim());
+      const visible = layers.filter((layer) => {
+        const colour = layer.match(/rgba?\([^)]*\)/)?.[0] ?? '';
+        const alpha = colour.startsWith('rgba') ? parseFloat(colour.split(',')[3] ?? '1') : 1;
+        const lengths = (layer.replace(colour, '').match(/-?[\d.]+px/g) ?? []).map((px) => parseFloat(px));
+        return alpha > 0 && lengths.some((length) => length !== 0);
+      });
+      return visible.length ? visible.join(', ') : 'none';
+    };
+    (window as unknown as { __a11yVisibleShadow: (value: string) => string }).__a11yVisibleShadow = visibleShadow;
     // Unfocused styles of every element that can take focus, to compare with its focused style.
     const look = (el: Element) => {
       const s = getComputedStyle(el);
-      return [s.boxShadow, s.borderTopColor, s.borderBottomColor, s.backgroundColor, s.textDecorationLine].join('|');
+      return {
+        outline: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.outlineOffset].join('|'),
+        rest: [visibleShadow(s.boxShadow), s.borderTopColor, s.borderBottomColor, s.backgroundColor, s.textDecorationLine].join('|'),
+      };
     };
-    const store = new WeakMap<Element, string>();
+    const store = new WeakMap<Element, { outline: string; rest: string }>();
     document.querySelectorAll('*').forEach((el) => store.set(el, look(el)));
-    (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused = store;
+    (window as unknown as { __a11yUnfocused: WeakMap<Element, { outline: string; rest: string }> }).__a11yUnfocused =
+      store;
   });
   const stops: FocusStop[] = [];
   let leftPage = false;
   let cycled = false;
   for (let index = 0; index < limit; index++) {
     await page.keyboard.press('Tab');
-    const stop = await page.evaluate((i) => {
+    const stop = await page.evaluate(async (i) => {
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body || el === document.documentElement) return null;
       if (el.dataset.a11yFirstStop === 'true') return 'first';
       if (i === 0) el.dataset.a11yFirstStop = 'true';
+      // Let focus transitions (a ring that fades in) finish; an endless animation is cut off at 1 s.
+      await Promise.race([
+        Promise.all(el.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
       const style = getComputedStyle(el);
-      const outline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
-      const focusedLook = [style.boxShadow, style.borderTopColor, style.borderBottomColor, style.backgroundColor, style.textDecorationLine].join('|');
-      const unfocused = (window as unknown as { __a11yUnfocused: WeakMap<Element, string> }).__a11yUnfocused.get(el);
-      const shadow = unfocused !== undefined && focusedLook !== unfocused;
+      const transparent = (colour: string) =>
+        colour === 'transparent' || /rgba\([^)]*,\s*0(\.0+)?\)$/.test(colour.replace(/\s+/g, ' ').trim());
+      const outlineLook = [style.outlineStyle, style.outlineWidth, style.outlineColor, style.outlineOffset].join('|');
+      const visibleShadow = (window as unknown as { __a11yVisibleShadow: (value: string) => string }).__a11yVisibleShadow;
+      const focusedLook = [visibleShadow(style.boxShadow), style.borderTopColor, style.borderBottomColor, style.backgroundColor, style.textDecorationLine].join('|');
+      const unfocused = (
+        window as unknown as { __a11yUnfocused: WeakMap<Element, { outline: string; rest: string }> }
+      ).__a11yUnfocused.get(el);
+      const outline =
+        style.outlineStyle !== 'none' &&
+        parseFloat(style.outlineWidth) > 0 &&
+        !transparent(style.outlineColor) &&
+        (unfocused === undefined || outlineLook !== unfocused.outline);
+      const shadow = unfocused !== undefined && focusedLook !== unfocused.rest;
       const label =
         el.getAttribute('aria-label') ?? el.getAttribute('title') ?? (el.textContent ?? '').trim().slice(0, 60);
       const id = el.id ? `#${el.id}` : '';
