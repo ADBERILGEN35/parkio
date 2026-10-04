@@ -110,6 +110,51 @@ class MunicipalSourceMetricsTest {
     }
 
     @Test
+    void countsConsecutiveIncompleteSnapshotsAndResetsOnACompleteRun() {
+        // CL-F22 (a): the gauge the MunicipalIzumIncompleteSnapshotsRepeated alert reads.
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        MunicipalSourceHealthService healthService = mock(MunicipalSourceHealthService.class);
+        MunicipalSourceSlaPolicy.Evaluation healthy = evaluation(0, true, MunicipalSourceOperationalState.HEALTHY);
+        when(healthService.izumSnapshot()).thenReturn(snapshot(IzumMunicipalParkingAdapter.SOURCE_KEY, healthy));
+        when(healthService.snapshot(anyString(), anyBoolean(), anyBoolean()))
+                .thenAnswer(inv -> snapshot(inv.getArgument(0), healthy));
+        MunicipalSourceMetrics metrics =
+                new MunicipalSourceMetrics(registry, healthService, new MunicipalSourceProperties());
+        metrics.registerGauges();
+        String izum = IzumMunicipalParkingAdapter.SOURCE_KEY;
+        var skipped = new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS, 2, 2, 0, 0, 0, 2, 2, 0, 0, 3,
+                null, null, true);
+        var failed = new MunicipalSyncResult(MunicipalSyncRunStatus.FAILED, 0, 0, 0, 0, 0, 0, 0, "upstream_5xx", null);
+        var complete = new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS, 3, 3, 0, 0, 0, 3, 3, 0, 0, 3,
+                null, null, false);
+
+        metrics.record(izum, skipped, Duration.ZERO);
+        metrics.record(izum, skipped, Duration.ZERO);
+        metrics.record(izum, failed, Duration.ZERO);
+        metrics.record(izum, skipped, Duration.ZERO);
+
+        // A failed run in between neither counts nor ends the streak.
+        assertThat(consecutiveIncompleteSnapshots(registry, izum)).isEqualTo(3.0);
+        assertThat(registry.find("parkio.municipal.sync.reconciliation_skipped")
+                        .tag("source_key", izum)
+                        .tag("reason", "incomplete_snapshot")
+                        .counter()
+                        .count())
+                .isEqualTo(3.0);
+
+        metrics.record(izum, complete, Duration.ZERO);
+        assertThat(consecutiveIncompleteSnapshots(registry, izum)).isZero();
+        assertThat(consecutiveIncompleteSnapshots(registry, "istanbul-ispark-parks")).isZero();
+    }
+
+    private static double consecutiveIncompleteSnapshots(SimpleMeterRegistry registry, String sourceKey) {
+        return registry.find("parkio.municipal.sync.consecutive_incomplete_snapshots")
+                .tag("source_key", sourceKey)
+                .gauge()
+                .value();
+    }
+
+    @Test
     void failedSyncDoesNotAdvanceIsparkLastSuccessGauge() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         MunicipalSourceHealthService healthService = mock(MunicipalSourceHealthService.class);

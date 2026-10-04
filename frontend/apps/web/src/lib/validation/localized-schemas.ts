@@ -1,5 +1,6 @@
 import {
   isStrongPassword,
+  isWithinPasswordByteLimit,
   passwordRequirementState,
   type ForgotPasswordFormValues,
   type LoginFormValues,
@@ -17,6 +18,9 @@ function createPasswordSchema(t: SchemaTranslate) {
     .string()
     .min(12, t('validation:password.minLength'))
     .max(100)
+    .refine(isWithinPasswordByteLimit, {
+      message: t('validation:password.maxBytes'),
+    })
     .refine(isStrongPassword, {
       message: t('validation:password.strong'),
     });
