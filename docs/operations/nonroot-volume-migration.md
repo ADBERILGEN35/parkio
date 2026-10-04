@@ -54,7 +54,14 @@ apply would otherwise record the migrated owners as the originals.
 
 Exit codes: 0 done, 1 verification failed, 2 usage, 3 refused, 4 a helper step failed.
 - The line for exit 4 names the step.
+- If apply fails before the manifest's `.sha256` is written (steps `manifest` and `count`), nothing
+  was changed, but the incomplete manifest stays. Apply again with a new `--evidence-dir`; the same
+  directory is refused.
 - After a failed `chown` the manifest is already written, so restore can roll back.
+- If restore fails at step `restore` after a transient error, run it again; it reapplies the whole
+  manifest. If the helper reports a malformed manifest or no line for `/v`, the manifest and its
+  `.sha256` were changed after apply. Nothing was changed, and a rerun fails the same way: restore
+  needs the manifest apply wrote.
 
 The manifests list every path in the volume, for example MinIO object keys, so store them as
 restricted evidence.
