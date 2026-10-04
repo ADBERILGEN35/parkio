@@ -87,9 +87,13 @@ on:
 permissions:
   contents: read
 
+# Dispatch runs (build, deploy, rollback, runner acceptance, migration) share one
+# group and are never cancelled, so the production runner stays serialized.
+# Pull request runs only execute the GitHub-hosted build/dry-run job; they get a
+# per-ref group so that pushes to other PRs cannot cancel their pending run.
 concurrency:
-  group: invite-production-runner
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('invite-production-pr-{0}', github.ref) || 'invite-production-runner' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-images:

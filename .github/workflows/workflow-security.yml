@@ -17,6 +17,12 @@ on:
       - "scripts/ci/test_check_workflow_security.py"
   workflow_dispatch:
 
+concurrency:
+  # Superseded pull request runs are cancelled; other events get a unique group,
+  # so push and dispatch runs are never cancelled or serialized by this.
+  group: workflow-security-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
