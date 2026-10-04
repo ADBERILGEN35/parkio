@@ -180,7 +180,9 @@ public class PublicExploreQueryService {
             freshness = new OccupancyFreshnessPolicy(
                     Duration.ofSeconds(facility.agingAfterSeconds()),
                     Duration.ofSeconds(facility.staleAfterSeconds()))
-                    .classify(value.sourceAgeSeconds(), value.fetchedAt(), clock.instant(), value.valid(), true);
+                    .classify(value.sourceAgeSeconds(), value.fetchedAt(), clock.instant(), value.valid(),
+                            // A reading stored as UNAVAILABLE, or without a free-space count, is not LIVE.
+                            value.publishable());
             if (freshness == MunicipalOccupancyFreshness.LIVE
                     || freshness == MunicipalOccupancyFreshness.AGING) {
                 availableSpaces = value.availableSpaces();

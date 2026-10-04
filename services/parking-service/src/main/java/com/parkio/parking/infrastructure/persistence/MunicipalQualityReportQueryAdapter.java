@@ -241,7 +241,7 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
         return jdbc.sql("""
                 WITH latest AS (
                     SELECT DISTINCT ON (o.facility_id)
-                           o.facility_id, o.fetched_at, o.available_spaces
+                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status
                     FROM municipal_occupancy_snapshots o
                     JOIN municipal_data_sources s ON s.id = o.source_id
                     JOIN municipal_parking_facilities f ON f.id = o.facility_id AND f.active = TRUE
@@ -254,7 +254,8 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                                        AND fetched_at >= :staleCutoff)::bigint AS aging,
                     count(*) FILTER (WHERE fetched_at < :staleCutoff)::bigint AS stale,
                     count(*) FILTER (WHERE fetched_at >= :staleCutoff
-                                       AND available_spaces IS NOT NULL)::bigint AS availability_exposed,
+                                       AND available_spaces IS NOT NULL
+                                       AND occupancy_status <> 'UNAVAILABLE')::bigint AS availability_exposed,
                     count(*)::bigint AS total
                 FROM latest
                 """)
@@ -301,7 +302,7 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                 ),
                 izum_latest AS (
                     SELECT DISTINCT ON (o.facility_id)
-                           o.facility_id, o.fetched_at, o.available_spaces
+                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status
                     FROM municipal_occupancy_snapshots o
                     JOIN municipal_data_sources d ON d.id = o.source_id
                     WHERE d.source_key = :izumKey
@@ -318,7 +319,8 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                        (osm.facility_id IS NOT NULL) AS osm_linked,
                        (izum.facility_id IS NOT NULL) AS izum_linked,
                        (izum_latest.fetched_at >= :staleCutoff
-                          AND izum_latest.available_spaces IS NOT NULL) AS izum_exposed,
+                          AND izum_latest.available_spaces IS NOT NULL
+                          AND izum_latest.occupancy_status <> 'UNAVAILABLE') AS izum_exposed,
                        (osm.label_outcome IN (:realName, :localized)) AS osm_real_name,
                        (osm.label_outcome = :neutral) AS osm_neutral,
                        (prov.facility_id IS NOT NULL) AS provenance_covered
