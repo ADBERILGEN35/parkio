@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from '@tanstack/react-query';
-import { isStrongPassword } from '@parkio/validation';
+import { isStrongPassword, isWithinPasswordByteLimit } from '@parkio/validation';
 import { Button } from '@/components/ui/Button';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { TextField } from '@/components/ui/TextField';
@@ -23,6 +23,8 @@ export default function ChangePasswordScreen() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState<{ message: string; traceId: string | null } | null>(null);
+  // The auth service rejects passwords over 72 UTF-8 bytes (CL-F36): say so while typing.
+  const newPasswordTooLong = !isWithinPasswordByteLimit(newPassword);
 
   const change = useMutation({
     mutationFn: () => authApi.changePassword({ currentPassword, newPassword }),
@@ -56,6 +58,7 @@ export default function ChangePasswordScreen() {
             autoComplete="new-password"
             value={newPassword}
             onChangeText={setNewPassword}
+            error={newPasswordTooLong ? t('auth.passwordTooLong') : null}
           />
           <PasswordChecklist password={newPassword} />
         </View>
@@ -66,7 +69,7 @@ export default function ChangePasswordScreen() {
             change.mutate();
           }}
           loading={change.isPending}
-          disabled={currentPassword.length === 0 || !isStrongPassword(newPassword)}
+          disabled={currentPassword.length === 0 || newPasswordTooLong || !isStrongPassword(newPassword)}
         />
       </ScrollView>
     </SafeAreaView>
