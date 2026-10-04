@@ -39,13 +39,26 @@ public class IzumNormalizer {
                 record.lat(), record.lng(), capacity, MunicipalAccessClassification.PUBLIC, metadata, hash(record));
     }
 
+    /**
+     * A car park reported closed, or one without a free-space count, has no occupancy to publish: the
+     * reading is stored as UNAVAILABLE (CL-F22), keeping its counts and capacity for the record.
+     * Only an explicit {@code Closed} status (any case) closes it. The repository's fixtures show only
+     * {@code Opened}; the full status domain is not documented, so any other value keeps today's
+     * behaviour.
+     */
     public NormalizedMunicipalOccupancy occupancy(IzumParkingRecordDto record, Instant fetchedAt) {
         IzumParkingRecordDto.Total total = record.occupancy().total();
         Integer capacity = total.free() != null && total.occupied() != null
                 ? total.free() + total.occupied() : null;
+        MunicipalOccupancyFreshness status = isClosed(record.status()) || total.free() == null
+                ? MunicipalOccupancyFreshness.UNAVAILABLE : MunicipalOccupancyFreshness.LIVE;
         return new NormalizedMunicipalOccupancy(
                 record.ufid(), null, fetchedAt, MunicipalTimestampProvenance.FETCH, capacity,
-                total.occupied(), total.free(), MunicipalOccupancyFreshness.LIVE, hash(record));
+                total.occupied(), total.free(), status, hash(record));
+    }
+
+    static boolean isClosed(String status) {
+        return status != null && "closed".equalsIgnoreCase(status.trim());
     }
 
     private static MunicipalFacilityType facilityType(String value) {

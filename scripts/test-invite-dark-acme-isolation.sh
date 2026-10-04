@@ -274,6 +274,48 @@ else
   ok "model check rejects a non-loopback publish in dark mode"
 fi
 
+# Web carries its CSP connect-src as one rendered source list (B9, #200). The rule refuses a
+# value that IS a production host, which is how an ACME edge learns its site addresses; a value
+# that names hosts as origins (this list, or the CORS origins of auth and gateway) is application
+# configuration. Both sides are pinned so that changing either is a deliberate decision.
+web_stub="$stub_dir/web.json"
+cat > "$web_stub" <<'JSON'
+{
+  "services": {
+    "web": {
+      "image": "parkio/web:test",
+      "environment": {"PARKIO_WEB_CSP_CONNECT_SRC": "'self' https://api.parkio.dev https://media.parkio.dev https://api.maptiler.com"}
+    }
+  }
+}
+JSON
+if PARKIO_START_SET="web" PARKIO_PUBLIC_HOSTS="api.parkio.dev app.parkio.dev media.parkio.dev" \
+   python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$web_stub" >/dev/null 2>&1; then
+  ok "model check accepts web's rendered CSP source list"
+else
+  bad "model check rejected web's rendered CSP source list"
+fi
+
+web_bare_stub="$stub_dir/web-bare.json"
+cat > "$web_bare_stub" <<'JSON'
+{
+  "services": {
+    "web": {
+      "image": "parkio/web:test",
+      "environment": {"PARKIO_DOMAIN": "api.parkio.dev"}
+    }
+  }
+}
+JSON
+if web_bare_out="$(PARKIO_START_SET="web" PARKIO_PUBLIC_HOSTS="api.parkio.dev app.parkio.dev media.parkio.dev" \
+   python3 "$ROOT/scripts/lib/check_dark_acme_model.py" "$web_bare_stub" 2>&1)"; then
+  bad "model check accepted a bare production host on web"
+elif grep -qF "web: environment PARKIO_DOMAIN is the production hostname api.parkio.dev" <<<"$web_bare_out"; then
+  ok "model check rejects a bare production host on web"
+else
+  bad "model check rejected web for another reason: $web_bare_out"
+fi
+
 # --------------------------------------------------------------------------- #
 # 5. Merged model: no ACME client, no new public port                          #
 # --------------------------------------------------------------------------- #

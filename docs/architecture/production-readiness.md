@@ -359,6 +359,28 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
   `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, and a
   conservative `Permissions-Policy`. Keep `connect-src` aligned with the API,
   media and geocoding origins configured for the environment.
+  The web image sends its own CSP as well. Caddy's SPA header block deletes `Server`, which
+  defers the whole block to response time. Caddy's CSP and its other security headers therefore
+  replace the image's on the edge, and the image's policy applies only where no edge replaces it.
+
+  Since B9 the image's `connect-src` is rendered at container start from the same inputs as
+  Caddy's: `PARKIO_DOMAIN`, `PARKIO_MEDIA_DOMAIN` and `PARKIO_MAP_CONNECT_SRC`. The production
+  Compose model passes the finished source list as one `PARKIO_WEB_CSP_CONNECT_SRC` (#200),
+  which keeps bare production host names out of web's environment for the dark ACME guard; a
+  plain `docker run` can pass the three inputs instead. Every other directive is equal to
+  Caddy's or stricter: `worker-src 'self'` without `blob:`. So the SPA reaches the same origins
+  whichever policy is enforced, alone or both together. The image refuses to start without its
+  origins, or with a value that is not one line of CSP sources.
+
+  Since CL-F39.2 the image's `img-src` no longer allows every `https:` host. It allows `'self'`,
+  `data:`, `blob:` and the `connect-src` origins: the API, presigned media URLs and the map. The
+  image derives it from its `connect-src` at start, so the Compose model passes nothing new, and
+  a `PARKIO_WEB_CSP_IMG_SRC` in the environment is replaced rather than used. Auth pages draw
+  their artwork inline since #203. Caddy's SPA policy is narrowed the same way in a separate
+  change, because `docker/` is outside frontend changes.
+
+  `src/cspEdgeCombination.test.ts` checks the policies, and Runtime validation checks the live
+  headers: the image's upstream, and Caddy's at the edge.
 
 ## Auth token storage
 

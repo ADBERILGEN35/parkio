@@ -35,12 +35,14 @@ val springCloudVersion: String = project.findProperty("springCloudVersion") as S
 val tomcatVersion: String = project.findProperty("tomcatVersion") as String
 val nettyVersion: String = project.findProperty("nettyVersion") as String
 val postgresqlVersion: String = project.findProperty("postgresqlVersion") as String
+val jacksonBomVersion: String = project.findProperty("jacksonBomVersion") as String
 
 // Override vulnerable Spring Boot BOM families centrally so every service image resolves
 // the same patched artifacts. These property names are the official Boot BOM override keys.
 extra["tomcat.version"] = tomcatVersion
 extra["netty.version"] = nettyVersion
 extra["postgresql.version"] = postgresqlVersion
+extra["jackson-bom.version"] = jacksonBomVersion
 
 dependencyManagement {
     imports {

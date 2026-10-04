@@ -51,7 +51,7 @@ jobs:
 
       - name: Log in to GHCR for private MinIO pulls
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -70,7 +70,7 @@ jobs:
           cache: gradle
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: frontend/package.json
 
@@ -84,12 +84,12 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Backend clean build
-        run: ./gradlew --no-daemon clean build
-
-      - name: Backend integration tests
-        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true
-
+      # Unit tests run in backend-ci.yml ("Build & unit tests") on every PR, and
+      # integration tests run in backend-integration.yml, whose path filter
+      # contains this workflow's product paths (docker/**, services/**). The CI
+      # gate takes test evidence from those jobs. Repeating both here added
+      # about 15.6 min (median, 22 runs) to the slowest PR check without new
+      # coverage. The images below build the jars from source inside Docker.
       - name: Frontend dependency install
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -316,28 +316,26 @@ jobs:
             [analytics-service]=8089
           )
 
+          # The services' /tmp is a tmpfs since B8, which `docker compose cp` cannot read, so the
+          # responses are streamed out of the container instead of copied.
           for svc in "${!ports[@]}"; do
             port="${ports[$svc]}"
-            container_artifact="/tmp/${svc}-readiness.json"
             docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$svc" \
-              curl -fsS -o "$container_artifact" "http://localhost:${port}/actuator/health/readiness"
-            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-              "${svc}:${container_artifact}" "runtime-validation-artifacts/${svc}-readiness.json"
+              curl -fsS "http://localhost:${port}/actuator/health/readiness" \
+              > "runtime-validation-artifacts/${svc}-readiness.json"
           done
 
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T gateway-service \
-            curl -fsS -o /tmp/gateway-jwks.json \
-            http://localhost:8080/api/v1/auth/.well-known/jwks.json
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-            gateway-service:/tmp/gateway-jwks.json runtime-validation-artifacts/gateway-jwks.json
+            curl -fsS http://localhost:8080/api/v1/auth/.well-known/jwks.json \
+            > runtime-validation-artifacts/gateway-jwks.json
 
           capture_status() {
             local service="$1" artifact="$2" url="$3" container_artifact status
             container_artifact="/tmp/${artifact}"
             status="$(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
               curl --path-as-is -sS -o "$container_artifact" -w '%{http_code}' "$url")"
-            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES cp \
-              "${service}:${container_artifact}" "runtime-validation-artifacts/${artifact}" >/dev/null
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T "$service" \
+              cat "$container_artifact" > "runtime-validation-artifacts/${artifact}"
             printf '%s' "$status"
           }
 
@@ -366,6 +364,32 @@ jobs:
           status="$(capture_status gateway-service gateway-valid-route.json \
             'http://localhost:8080/api/v1/auth/.well-known/jwks.json')"
           test "$status" = "200"
+
+      - name: Verify the SPA CSP through Caddy (web image and edge, B9)
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-validation-artifacts
+          headers=runtime-validation-artifacts/spa-login-headers.txt
+          # Caddy issues an internal certificate for *.localhost names.
+          curl -sS -k --resolve app.runtime-validation.localhost:443:127.0.0.1 \
+            -D "$headers" -o /dev/null https://app.runtime-validation.localhost/login
+          grep -i '^content-security-policy:' "$headers" | tee runtime-validation-artifacts/spa-csp.txt
+          # The image sends its own CSP upstream; it renders connect-src from the same PARKIO_*
+          # values as Caddy (frontend/apps/web/docker/15-parkio-web-csp.envsh).
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES exec -T caddy \
+            wget -S -q -O /dev/null http://web/login 2>&1 | grep -i 'content-security-policy' \
+            | tee runtime-validation-artifacts/spa-csp-upstream.txt
+          expected="connect-src 'self' https://api.runtime-validation.localhost https://media.runtime-validation.localhost https://api.maptiler.com"
+          # The image derives img-src from the same origins, with no https: wildcard (CL-F39.2).
+          expected_img="img-src 'self' data: blob: https://api.runtime-validation.localhost https://media.runtime-validation.localhost https://api.maptiler.com;"
+          test "$(grep -ci 'content-security-policy' runtime-validation-artifacts/spa-csp-upstream.txt)" -eq 1
+          grep -qF "$expected" runtime-validation-artifacts/spa-csp-upstream.txt
+          grep -qF "$expected_img" runtime-validation-artifacts/spa-csp-upstream.txt
+          grep -qF "worker-src 'self';" runtime-validation-artifacts/spa-csp-upstream.txt
+          # Caddy's SPA header block deletes Server, which defers it to response time, so Caddy's
+          # CSP replaces the image's on the edge: exactly one header, with the same connect-src.
+          test "$(grep -ic '^content-security-policy:' "$headers")" -eq 1
+          grep -i '^content-security-policy:' "$headers" | grep -qF "$expected"
 
       - name: Validate runtime resource limits
         run: |

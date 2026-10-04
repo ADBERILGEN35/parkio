@@ -13,8 +13,13 @@ describe('web production security headers', () => {
     expect(nginxConfig).toContain("default-src 'self'");
     expect(nginxConfig).toContain("frame-ancestors 'none'");
     expect(nginxConfig).toContain("object-src 'none'");
-    expect(nginxConfig).toContain("connect-src 'self' https:");
-    expect(nginxConfig).toContain("img-src 'self' data: blob: https:");
+    // Rendered at container start from the deployment's origins (B9); no static https: wildcard.
+    const csp = /add_header Content-Security-Policy "([^"]+)" always;/.exec(nginxConfig)?.[1] ?? '';
+    expect(csp).toContain('connect-src ${PARKIO_WEB_CSP_CONNECT_SRC};');
+    expect(csp).not.toMatch(/connect-src[^;]*https:(\s|;)/);
+    // img-src is derived from connect-src at start (CL-F39.2); no static https: wildcard either.
+    expect(csp).toContain('img-src ${PARKIO_WEB_CSP_IMG_SRC};');
+    expect(csp).not.toMatch(/img-src[^;]*https:(\s|;)/);
     expect(nginxConfig).toContain('add_header Referrer-Policy "strict-origin-when-cross-origin" always;');
     expect(nginxConfig).toContain('add_header X-Content-Type-Options "nosniff" always;');
     expect(nginxConfig).toContain('add_header X-Frame-Options "DENY" always;');

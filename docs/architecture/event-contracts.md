@@ -472,6 +472,18 @@ Operational producer rules: [`PARKING-SESSION-LIFECYCLE-EVENTS.md`](PARKING-SESS
 All gamification events share: `aggregateType=GamificationUser`,
 `aggregateId=userId`. Points are integers; `userId` is the authUserId.
 
+**Ordering (U12).** `PointsEarned`, `PointsDeducted` and `UserLevelChanged` carry
+`aggregateVersion`, the `user_level_progress` row version after the change. Events from one change
+share it, and every later change has a higher one. `TrustScoreUpdated` carries the `trust_scores`
+row version the same way. Snapshots can arrive out of order (redelivery, DLT redrive, consumer
+concurrency), so a projection keeps, for each value, the snapshot with the highest version it has
+seen; `user-service` does this per value (points, level, trust score). Events published before
+U12 have no `aggregateVersion`; `user-service` applies such an event only while it has not
+applied a versioned value. Points and level share one version sequence, so a version-less level
+also stops applying once a versioned points snapshot is in. The trust score has no second
+signal: a version-less `TrustScoreUpdated` redriven before a user's first versioned trust event
+still applies, so inspect or drain the user-service gamification DLT before deploying U12.
+
 ## PointsEarnedEvent
 
 - **Producer:** `gamification-service`
@@ -488,6 +500,7 @@ All gamification events share: `aggregateType=GamificationUser`,
 | `totalPoints` | integer | yes | The user's new lifetime total after this change. |
 | `relatedEventId` | UUID (string) | no | The upstream event (e.g. the parking event) that caused this award; may be `null`. |
 | `occurredAt` | timestamp (UTC) | yes | When the award was applied. |
+| `aggregateVersion` | integer | yes (since U12) | `user_level_progress` row version after this change; see Ordering. |
 
 - **Version:** 1. **Compatibility:** append-only; new `sourceType` values may appear.
 
@@ -507,6 +520,7 @@ All gamification events share: `aggregateType=GamificationUser`,
 | `totalPoints` | integer | yes | New lifetime total after deduction (never below 0). |
 | `relatedEventId` | UUID (string) | no | The upstream event that triggered the penalty; may be `null`. |
 | `occurredAt` | timestamp (UTC) | yes | When the deduction was applied. |
+| `aggregateVersion` | integer | yes (since U12) | `user_level_progress` row version after this change; see Ordering. |
 
 - **Version:** 1. **Compatibility:** append-only; new `sourceType` values may appear.
 
@@ -525,6 +539,7 @@ All gamification events share: `aggregateType=GamificationUser`,
 | `newLevel` | integer | yes | Level after the change (may be lower on penalty). |
 | `totalPoints` | integer | yes | Lifetime total at the time of the change. |
 | `occurredAt` | timestamp (UTC) | yes | When the level changed. |
+| `aggregateVersion` | integer | yes (since U12) | Same version as the points event of the same change; see Ordering. |
 
 - **Version:** 1. **Compatibility:** append-only.
 

@@ -1,0 +1,68 @@
+#!/bin/sh
+# Parkio web image: connect-src and img-src of the image Content-Security-Policy (CL-F39.4, owner
+# decision B9; CL-F39.2). The nginx entrypoint sources this file before it renders
+# /etc/nginx/templates/*.template, so the exported PARKIO_WEB_CSP_CONNECT_SRC and
+# PARKIO_WEB_CSP_IMG_SRC reach nginx.conf.
+#
+# - PARKIO_WEB_CSP_CONNECT_SRC set: used as given. The production Compose model renders it from the
+#   inputs of the Caddy SPA policy (docker/docker-compose.hosted-beta.yml); a local container can
+#   pass, for example, 'self' http://localhost:8080
+# - Otherwise it is built from the same inputs as the Caddy SPA policy (docker/caddy/Caddyfile):
+#   'self' https://$PARKIO_DOMAIN https://$PARKIO_MEDIA_DOMAIN $PARKIO_MAP_CONNECT_SRC
+#
+# A missing or malformed value stops the container. An image without its deployment's origins
+# would block API calls; it does not fall back to a looser policy. Every value must be one line:
+# the result is substituted into an nginx.conf header string.
+
+parkio_web_csp_fail() {
+  echo "parkio-web-csp: $*" >&2
+  exit 1
+}
+
+parkio_web_csp_newline='
+'
+
+# True when the whole value is one line that matches the extended regular expression. grep
+# matches line by line, so a value with a newline anywhere is refused before grep sees it.
+parkio_web_csp_matches() {
+  case "$1" in
+    *"$parkio_web_csp_newline"*) return 1 ;;
+  esac
+  printf '%s' "$1" | grep -Eq "$2"
+}
+
+parkio_web_csp_host() {
+  parkio_web_csp_matches "$1" '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+}
+
+parkio_web_csp_map_message="PARKIO_MAP_CONNECT_SRC entries must be https://host sources, separated by spaces on one line"
+
+if [ -n "${PARKIO_WEB_CSP_CONNECT_SRC:-}" ]; then
+  parkio_web_csp_matches "$PARKIO_WEB_CSP_CONNECT_SRC" "^[A-Za-z0-9 '*:/._-]+$" \
+    || parkio_web_csp_fail "PARKIO_WEB_CSP_CONNECT_SRC must be space-separated CSP sources on one line (letters, digits, ' * : / . _ -)"
+else
+  [ -n "${PARKIO_DOMAIN:-}" ] && [ -n "${PARKIO_MEDIA_DOMAIN:-}" ] \
+    || parkio_web_csp_fail "set PARKIO_DOMAIN and PARKIO_MEDIA_DOMAIN (the values Caddy uses), or PARKIO_WEB_CSP_CONNECT_SRC (the Compose model renders it from them)"
+  parkio_web_csp_host "$PARKIO_DOMAIN" || parkio_web_csp_fail "PARKIO_DOMAIN is not a host name"
+  parkio_web_csp_host "$PARKIO_MEDIA_DOMAIN" || parkio_web_csp_fail "PARKIO_MEDIA_DOMAIN is not a host name"
+  parkio_web_csp_map="${PARKIO_MAP_CONNECT_SRC:-https://api.maptiler.com}"
+  # Spaces are the only separator: the value is used as written below, not as the loop splits it.
+  parkio_web_csp_matches "$parkio_web_csp_map" '^[A-Za-z0-9 *:/._-]+$' || parkio_web_csp_fail "$parkio_web_csp_map_message"
+  for parkio_web_csp_source in $parkio_web_csp_map; do
+    parkio_web_csp_matches "$parkio_web_csp_source" '^https://(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$' \
+      || parkio_web_csp_fail "$parkio_web_csp_map_message"
+  done
+  PARKIO_WEB_CSP_CONNECT_SRC="'self' https://$PARKIO_DOMAIN https://$PARKIO_MEDIA_DOMAIN $parkio_web_csp_map"
+fi
+export PARKIO_WEB_CSP_CONNECT_SRC
+
+# img-src (CL-F39.2) is always derived from connect-src, like the Caddy SPA policy: the app's own
+# images, data: and blob: URLs (inline SVG, upload previews, map images the browser decodes) and the
+# connect-src origins (API, presigned media, map). There is no https: wildcard, so no third-party
+# image host, and a PARKIO_WEB_CSP_IMG_SRC passed in is replaced, so it cannot widen the policy.
+parkio_web_csp_img="'self' data: blob:"
+for parkio_web_csp_source in $PARKIO_WEB_CSP_CONNECT_SRC; do
+  [ "$parkio_web_csp_source" = "'self'" ] || parkio_web_csp_img="$parkio_web_csp_img $parkio_web_csp_source"
+done
+PARKIO_WEB_CSP_IMG_SRC=$parkio_web_csp_img
+export PARKIO_WEB_CSP_IMG_SRC

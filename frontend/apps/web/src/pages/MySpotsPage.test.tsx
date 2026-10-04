@@ -61,4 +61,17 @@ describe('MySpotsPage', () => {
     expect(screen.getByText(/2 verifications/)).toBeInTheDocument();
     expect(screen.getByText(/Confidence 80/)).toBeInTheDocument();
   });
+
+  it('lists each shared spot as a list item', async () => {
+    useMySpotsHandlers([spot, { ...spot, id: `${spot.id.slice(0, -1)}9`, addressText: '9 Pier Road' }]);
+    renderWithProviders(<MySpotsPage />, {
+      authRoles: ['USER'],
+      initialEntries: ['/my-spots'],
+    });
+
+    await screen.findByRole('link', { name: '9 Pier Road' });
+    const list = screen.getByRole('list');
+    expect(list.children).toHaveLength(2);
+    expect([...list.children].every((child) => child.tagName === 'LI')).toBe(true);
+  });
 });

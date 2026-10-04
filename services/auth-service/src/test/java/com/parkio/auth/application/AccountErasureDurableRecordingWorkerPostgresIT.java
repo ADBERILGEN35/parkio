@@ -13,6 +13,7 @@ import com.parkio.auth.application.port.OutboxEventAppender;
 import com.parkio.auth.application.port.PasswordHasher;
 import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenRepository;
+import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.support.InMemoryDurableErasureRecordStore;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.AuthUserStatus;
@@ -40,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -87,11 +89,10 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         registry.add("management.tracing.enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.durable-recording-enabled", () -> "true");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-enabled", () -> "true");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-batch-size", () -> "5");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-max-attempts", () -> "5");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-base-backoff-ms", () -> "1000");
-        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-lease-ms", () -> "60000");
+        // The scheduled worker bean stays disabled: a fixed-delay @Scheduled method runs right after the
+        // context starts and then every 30 s, and with the fixed clock a fresh request is claimable at
+        // once. The tests run the real worker on their own thread (retryWorker()).
+        registry.add("parkio.privacy.account-erasure.durable-recording-retry-worker-enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.participants", () -> "user");
     }
 
@@ -119,7 +120,8 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
     @MockBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService erasure;
-    @Autowired private ErasureDurableRecordingWorker worker;
+    @Autowired private ObjectProvider<DurableErasureRecordStore> stores;
+    @Autowired private Clock clock;
     @Autowired private ErasureDurableWorkerRepository workerRepository;
     @Autowired private InMemoryDurableErasureRecordStore store;
     @Autowired private ErasureRequestJpaRepository requests;
@@ -150,7 +152,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         assertThat(retryNextAt(requestId)).isNotNull();
         assertThat(store.size()).isZero();
 
-        worker.tick();
+        retryWorker().tick();
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
         assertThat(store.size()).isEqualTo(1);
         assertThat(store.lastPutSawActiveTransaction()).isFalse();
@@ -164,7 +166,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         erasure.handleAcknowledgement(ack(requestId, user.id()));
         assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
 
-        worker.tick();
+        retryWorker().tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
         assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
     }
@@ -195,7 +197,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
         assertThat(status(requestId)).isEqualTo("IN_PROGRESS");
 
-        worker.tick();
+        retryWorker().tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
         assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
         assertThat(store.lastFindSawActiveTransaction()).isFalse();
@@ -248,6 +250,15 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         assertThat(user.status()).isEqualTo(AuthUserStatus.ERASED);
     }
 
+    /**
+     * The real worker, enabled, for the test thread only: batch 5, max attempts 5, base backoff 1 s,
+     * max backoff 15 min, lease 60 s.
+     */
+    private ErasureDurableRecordingWorker retryWorker() {
+        return new ErasureDurableRecordingWorker(
+                erasure, workerRepository, stores, clock, true, true, 5, 5, 1_000, 900_000, 60_000);
+    }
+
     private ErasureDurableWorkerClaim claimedDurablyRecorded(AuthUser user) {
         store.failNextPuts(1);
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
@@ -284,7 +295,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         assertThat(recordingStatus(requestId)).isEqualTo("PENDING_DURABLE");
         assertThat(store.size()).isEqualTo(1);
 
-        worker.tick();
+        retryWorker().tick();
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
     }
 
@@ -370,7 +381,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
         erasure.handleAcknowledgement(ack(requestId, user.id()));
         assertThat(status(requestId)).isEqualTo("COMPLETE");
-        worker.tick();
+        retryWorker().tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
     }
 
@@ -386,7 +397,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         Runnable run = () -> {
             try {
                 start.await();
-                worker.tick();
+                retryWorker().tick();
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
@@ -421,7 +432,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
                 requestId);
         entityManager.clear();
         store.clearFinds();
-        worker.tick();
+        retryWorker().tick();
         assertThat(status(requestId)).isEqualTo("COMPLETE");
         assertThat(store.lastFindSawActiveTransaction()).isFalse();
     }
@@ -439,7 +450,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
                 workerRepository.claimBatch(NOW, 1, NOW.plusSeconds(60), probe);
         assertThat(claims).extracting(ErasureDurableWorkerClaim::requestId).contains(requestId);
         workerRepository.releaseClaim(requestId, probe, NOW);
-        worker.tick();
+        retryWorker().tick();
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
         assertThat(status(requestId)).isEqualTo("FAILED_RETRYING");
     }
@@ -451,7 +462,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         UUID requestId = erasure.requestDeletion(user.id(), PASSWORD).erasureRequestId();
         erasure.handleAcknowledgement(failedAck(requestId, user.id()));
         assertThat(status(requestId)).isEqualTo("FAILED_RETRYING");
-        worker.tick();
+        retryWorker().tick();
         assertThat(recordingStatus(requestId)).isEqualTo("DURABLY_RECORDED");
         when(inbox.tryClaim(any(), any(), any())).thenReturn(true);
         erasure.handleAcknowledgement(ack(requestId, user.id()));

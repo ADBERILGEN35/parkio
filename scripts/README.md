@@ -5,8 +5,8 @@ Developer and CI helper scripts.
 | Script                | Purpose                                             |
 |-----------------------|-----------------------------------------------------|
 | `build-all.sh`        | Build and test every service via the Gradle wrapper.|
-| `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. |
-| `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. |
+| `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. With `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta`: deprecated as a production path (B7); it warns and runs. Production uses `parkio-prod-compose.sh`. |
+| `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. Same B7 deprecation for the Azure profile. |
 | `smoke-hosted-beta.sh` | Gateway/auth/parking/notifications/gamification smoke (no fakes). |
 | `smoke-parking-session-hosted-beta.sh` | ParkingSession lifecycle API smoke (PS-HB-01..26); requires disposable-account safety env vars. |
 | `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |

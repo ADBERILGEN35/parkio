@@ -13,6 +13,7 @@ public enum AuthErrorCode {
     INVALID_RESET_TOKEN("Password reset token is invalid or expired."),
     ACCOUNT_NOT_VERIFIED("Please verify your email before signing in."),
     WEAK_PASSWORD("Password does not meet the security requirements."),
+    PASSWORD_TOO_LONG("Password must be at most 72 bytes when UTF-8 encoded."),
     USER_NOT_ACTIVE("Account is not active."),
     USER_NOT_FOUND("User not found."),
     FORBIDDEN("You are not allowed to perform this action."),

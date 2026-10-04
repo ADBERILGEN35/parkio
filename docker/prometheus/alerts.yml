@@ -53,7 +53,7 @@ groups:
           severity: critical
         annotations:
           summary: "Dead-lettered outbox rows in {{ $labels.service }}"
-          description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive)."
+          description: "{{ $labels.service }} has {{ $value }} dead-lettered outbox row(s). Events are NOT being published. Follow the OutboxDeadlettered runbook (inspect failure_reason, fix, redrive). Rows with event type UserErasure* hold up an account erasure: retry them, never acknowledge them."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--outboxdeadlettered"
 
       - alert: OutboxOldestUnpublishedTooOld
@@ -734,5 +734,42 @@ groups:
           severity: warning
         annotations:
           summary: "Account erasure incomplete beyond operational SLA"
-          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant acks. Do not reverse completed deletions."
-          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/priv-001-account-data-erasure.md"
+          description: "{{ $value }} erasure request(s) still incomplete after 1h SLA. Check auth-service erasure_requests and participant ACKs, then look for dead-lettered erasure messages (OutboxDeadlettered rows with event type UserErasure*, DLT records from parkio.privacy.erasure): retry them once the cause is fixed and never acknowledge them. Do not reverse completed deletions."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/dlq-redrive-runbook.md#erasure-messages"
+
+  # Alert delivery itself (U06, CL-F04). These alerts travel the same Prometheus -> Alertmanager ->
+  # receiver path they watch. While the only integration is the failing one they show in the
+  # Prometheus and Alertmanager UIs, not in the operator channel; see docs/operations/alerting.md.
+  - name: parkio-alert-delivery
+    rules:
+      - alert: AlertmanagerNotificationsFailing
+        # Alertmanager gave up on a notification after retrying, at least twice in 15m: the receiver
+        # keeps failing. One failure is retried at the next group flush, so it does not fire alone.
+        # Alertmanager creates these counters at 0 for every integration and reason when it starts.
+        # contextCanceled is Alertmanager shutting down with notifications in flight, not a receiver
+        # failure.
+        expr: sum by (integration) (increase(alertmanager_notifications_failed_total{reason!="contextCanceled"}[15m])) >= 2
+        for: 1m
+        labels:
+          severity: critical
+          service: alertmanager
+        annotations:
+          summary: "Alertmanager cannot deliver notifications via {{ $labels.integration }}"
+          description: "Alertmanager gave up on notifications via {{ $labels.integration }} at least twice in 15m, after retrying. Alerts are not reaching the operator channel. Check the Alertmanager logs for the receiver error, then the receiver (webhook URL, Slack app, credentials)."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--alertmanagernotificationsfailing"
+
+      - alert: PrometheusNotificationsFailing
+        # Prometheus keeps failing to send alerts to an Alertmanager: a failed send in every 2m window
+        # for 5m. The counter counts failed batches, about one per rule group with active alerts, so a
+        # short outage can add several at once. Holding the condition makes this about duration:
+        # an outage of up to about three minutes stays below it. It resolves about 2m after sends
+        # succeed again.
+        expr: sum by (alertmanager) (increase(prometheus_notifications_errors_total[2m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: prometheus
+        annotations:
+          summary: "Prometheus cannot send alerts to Alertmanager"
+          description: "Prometheus has been failing to send alerts to {{ $labels.alertmanager }} for about five minutes. Alerts are not reaching Alertmanager or the operator channel. Check that Alertmanager is running and reachable from Prometheus."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--prometheusnotificationsfailing"

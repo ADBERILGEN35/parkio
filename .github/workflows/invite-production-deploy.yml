@@ -87,9 +87,13 @@ on:
 permissions:
   contents: read
 
+# Dispatch runs (build, deploy, rollback, runner acceptance, migration) share one
+# group and are never cancelled, so the production runner stays serialized.
+# Pull request runs only execute the GitHub-hosted build/dry-run job; they get a
+# per-ref group so that pushes to other PRs cannot cancel their pending run.
 concurrency:
-  group: invite-production-runner
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('invite-production-pr-{0}', github.ref) || 'invite-production-runner' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-images:
@@ -365,6 +369,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 20
     env:
+      # The dispatched commit, for the scripts below; this job's `if` pins it to github.sha (CL-F40).
+      PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
       # actions/setup-node resolves `node-version-file` with
       # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the
@@ -390,7 +396,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
 
@@ -532,6 +538,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 30
     env:
+      # The dispatched commit, for the scripts below; this job's `if` pins it to github.sha (CL-F40).
+      PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
       PARKIO_SOURCE_PATH: source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_SOURCE_DIR: ${{ github.workspace }}/source-${{ github.run_id }}-${{ github.run_attempt }}
       PARKIO_ENV_FILE: /dev/shm/parkio-invite-production-${{ github.run_id }}-${{ github.run_attempt }}.env
@@ -551,13 +559,13 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
 
       - name: Stage the stable runtime release
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
-        run: ./scripts/stage-invite-production-release.sh --sha '${{ inputs.git_sha }}'
+        run: ./scripts/stage-invite-production-release.sh --sha "$PARKIO_DISPATCH_GIT_SHA"
 
       - name: Materialize secrets into tmpfs through VM managed identity
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
@@ -569,7 +577,7 @@ jobs:
 
       - name: Rebind legacy workspace mounts onto the stable release
         working-directory: ${{ env.PARKIO_SOURCE_DIR }}
-        run: ./scripts/migrate-invite-production-workspace-mounts.sh --sha '${{ inputs.git_sha }}'
+        run: ./scripts/migrate-invite-production-workspace-mounts.sh --sha "$PARKIO_DISPATCH_GIT_SHA"
 
       - name: Cleanup per-job source and credentials
         if: ${{ always() }}
@@ -592,6 +600,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, parkio-invite-production]
     timeout-minutes: 120
     env:
+      # The dispatched commit, for the scripts below; this job's `if` pins it to github.sha (CL-F40).
+      PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
       PARKIO_DISPATCH_PUBLIC_EXPLORE_MODE: ${{ inputs.public_explore_mode || 'off' }}
       PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION: ${{ inputs.public_explore_authorization }}
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
@@ -624,7 +634,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
           ./scripts/attest-invite-production-dark-gateway-input.sh
@@ -661,7 +671,7 @@ jobs:
           ./scripts/attest-invite-production-deploy-dispatch.sh --env-file "$PARKIO_ENV_FILE"
           ./scripts/assert-invite-production-edge-resource-budget.sh \
             --env-file "$PARKIO_ENV_FILE" \
-            --candidate-sha '${{ inputs.git_sha }}' \
+            --candidate-sha "$PARKIO_DISPATCH_GIT_SHA" \
             --evidence deploy-artifacts/invite-production/invite-edge-resource-budget.json
 
       - name: Deploy exact commit with quarantined log
@@ -672,7 +682,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          ./scripts/deploy-invite-production.sh --expected-sha '${{ inputs.git_sha }}' \
+          ./scripts/deploy-invite-production.sh --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
             > "$PARKIO_JOB_LOG" 2>&1
           status=$?
           set +e
@@ -732,6 +742,8 @@ jobs:
       contents: read
       actions: read
     env:
+      # The dispatched commit, for the scripts below; this job's `if` pins it to github.sha (CL-F40).
+      PARKIO_DISPATCH_GIT_SHA: ${{ inputs.git_sha }}
       # actions/checkout resolves `path` against GITHUB_WORKSPACE, and
       # actions/setup-node resolves `node-version-file` with
       # path.join(GITHUB_WORKSPACE, input): an absolute input duplicates the
@@ -762,7 +774,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-invite-production-ref.sh \
-            --expected-sha '${{ inputs.git_sha }}' \
+            --expected-sha "$PARKIO_DISPATCH_GIT_SHA" \
             --ref-sha '${{ github.sha }}' \
             --ref-name '${{ github.ref }}'
           test -n "$PARKIO_MANIFEST_REFERENCE"
