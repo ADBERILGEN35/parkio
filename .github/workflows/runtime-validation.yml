@@ -380,8 +380,11 @@ jobs:
             wget -S -q -O /dev/null http://web/login 2>&1 | grep -i 'content-security-policy' \
             | tee runtime-validation-artifacts/spa-csp-upstream.txt
           expected="connect-src 'self' https://api.runtime-validation.localhost https://media.runtime-validation.localhost https://api.maptiler.com"
+          # The image derives img-src from the same origins, with no https: wildcard (CL-F39.2).
+          expected_img="img-src 'self' data: blob: https://api.runtime-validation.localhost https://media.runtime-validation.localhost https://api.maptiler.com;"
           test "$(grep -ci 'content-security-policy' runtime-validation-artifacts/spa-csp-upstream.txt)" -eq 1
           grep -qF "$expected" runtime-validation-artifacts/spa-csp-upstream.txt
+          grep -qF "$expected_img" runtime-validation-artifacts/spa-csp-upstream.txt
           grep -qF "worker-src 'self';" runtime-validation-artifacts/spa-csp-upstream.txt
           # Caddy's SPA header block deletes Server, which defers it to response time, so Caddy's
           # CSP replaces the image's on the edge: exactly one header, with the same connect-src.
