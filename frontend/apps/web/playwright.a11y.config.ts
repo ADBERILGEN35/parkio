@@ -25,9 +25,22 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 15_000 },
   use: { ...devices['Desktop Chrome'], trace: 'retain-on-failure' },
+  // Playwright clears the output folder of each project it runs. One folder per project, so the
+  // marketing run that follows the web run in `e2e:a11y` keeps the web results in test-results/a11y/
+  // for the CI artifact (#253 review B1).
   projects: [
-    { name: 'a11y-web', testMatch: /web\.a11y\.ts$/, use: { baseURL: WEB_URL } },
-    { name: 'a11y-marketing', testMatch: /marketing\.a11y\.ts$/, use: { baseURL: MARKETING_URL } },
+    {
+      name: 'a11y-web',
+      testMatch: /web\.a11y\.ts$/,
+      outputDir: 'test-results/a11y-web-output',
+      use: { baseURL: WEB_URL },
+    },
+    {
+      name: 'a11y-marketing',
+      testMatch: /marketing\.a11y\.ts$/,
+      outputDir: 'test-results/a11y-marketing-output',
+      use: { baseURL: MARKETING_URL },
+    },
   ],
   webServer: [
     ...(process.env.A11Y_WEB_URL

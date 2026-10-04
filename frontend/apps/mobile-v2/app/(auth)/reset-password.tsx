@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { isStrongPassword } from '@parkio/validation';
+import { isStrongPassword, isWithinPasswordByteLimit } from '@parkio/validation';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
@@ -29,10 +29,13 @@ export default function ResetPasswordScreen() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<{ message: string; traceId: string | null } | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  // The auth service rejects passwords over 72 UTF-8 bytes (CL-F36): say so while typing.
+  const passwordTooLong = !isWithinPasswordByteLimit(password);
 
   const submit = async () => {
     setError(null);
     setConfirmError(null);
+    if (passwordTooLong) return;
     if (!isStrongPassword(password)) {
       setError({ message: t('common.error.generic'), traceId: null });
       return;
@@ -85,6 +88,7 @@ export default function ResetPasswordScreen() {
           autoComplete="new-password"
           value={password}
           onChangeText={setPassword}
+          error={passwordTooLong ? t('auth.passwordTooLong') : null}
         />
         <PasswordChecklist password={password} />
       </View>

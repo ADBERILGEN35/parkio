@@ -145,6 +145,17 @@ jobs:
       - name: Accessibility browser measurement
         run: pnpm --filter @parkio/web e2e:a11y
 
+      # The per-page axe results and the known-issue sightings (mocked data only), kept for review
+      # also when the measurement passes (#247 review N4).
+      - name: Upload accessibility results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-results-attempt-${{ github.run_attempt }}
+          path: frontend/apps/web/test-results/a11y/
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: WP-03 routing browser acceptance
         run: pnpm --filter @parkio/web exec playwright test e2e/wp03-routing.spec.ts --project=wp03-chromium --workers=1 --retries=0
 

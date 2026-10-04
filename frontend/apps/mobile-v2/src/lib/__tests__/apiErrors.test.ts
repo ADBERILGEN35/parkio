@@ -39,6 +39,15 @@ describe('describeApiError', () => {
     expect(described.traceId).toBe('trc_123');
   });
 
+  it('describes the 72-byte password bound in the app language, not the backend text', () => {
+    // CL-F36: register, reset and change-password return 400 PASSWORD_TOO_LONG.
+    const described = describeApiError(
+      apiError(400, 'PASSWORD_TOO_LONG', 'Password must be at most 72 bytes.'),
+      t,
+    );
+    expect(described.message).toBe(tr['auth.passwordTooLong']);
+  });
+
   it('keeps the trace id for support', () => {
     const described = describeApiError(apiError(500, 'SOMETHING_ELSE'), t);
     expect(described.traceId).toBe('trc_123');

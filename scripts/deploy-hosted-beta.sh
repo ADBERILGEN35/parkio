@@ -83,6 +83,7 @@ fi
 
 if [ "$USE_HOSTED_BETA" -eq 1 ]; then
   parkio_configure_deployment_profile "$ENV_FILE"
+  parkio_warn_deprecated_production_path
 else
   PARKIO_DEPLOYMENT_PROFILE="local-dev"
   PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml"
