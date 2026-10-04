@@ -42,7 +42,7 @@ For comparison, the same specs ran on the default Vite dev server (`playwright.c
 - 360 px (`galaxy-360`) for the specs the default config runs at that width;
 - `wp03-routing` and `pending-profile-ownership` run on desktop only in the default config.
 
-Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all on Vite dev servers with a mocked API:
+Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all on local servers (Vite dev servers, the static marketing server, or the spec's own server), with mocked or synthetic data:
 - job `frontend-build`:
   - the marketing site's static and responsive validation (`test:marketing`);
   - the accessibility measurement (`e2e:a11y`);
@@ -56,7 +56,9 @@ Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all
   - the municipal discovery specs on desktop and at 360 px (`e2e:muni09:*`);
   - the product analytics specs (`e2e:y04a`).
 
-No workflow runs a spec against a built web image: the candidate-image projects above (`cxf11-existing-*`) were run locally only.
+No automatic workflow runs these mocked specs against a built web image; the candidate-image projects above (`cxf11-existing-*`) were run locally only. Two other workflows involve a built or deployed frontend, but neither runs these specs:
+- the manual *Frontend Real Stack E2E* (`frontend-real-e2e.yml`), in hosted mode, runs the separate real-stack suite against a deployed frontend;
+- `web-build-image-acceptance.yml` builds the web image and runs its own journeys for PRs #87 and #91 only; it is historical.
 
 | Spec | Dev server | Candidate | Why |
 |---|---|---|---|
