@@ -11,4 +11,33 @@ export interface KnownIssue {
   reason: string;
 }
 
-export const KNOWN_ISSUES: KnownIssue[] = [];
+export const KNOWN_ISSUES: KnownIssue[] = [
+  {
+    page: 'explore',
+    rule: 'target-size',
+    target: 'summary',
+    reason:
+      "MapLibre's attribution toggle (summary.maplibregl-ctrl-attrib-button, bottom-right) sits under the " +
+      'floating zoom rail on /explore at desktop width, leaving 24x6 px of it clickable (WCAG 2.5.8). ' +
+      'Measured once the public-explore flag is on (#229 review N2 follow-up). Fix: Asana 1219147334320125.',
+  },
+  {
+    page: 'explore',
+    rule: 'target-size',
+    target: 'maplibre.org',
+    reason:
+      "The release image's map shows MapLibre's attribution text, whose 'MapLibre' link is 55x14 px. It is " +
+      "an inline link inside the attribution line, which WCAG 2.5.8 exempts, but axe measures it as a target. " +
+      'Recorded with the attribution toggle above (Asana 1219147334320125); the dev server, without a ' +
+      'MapTiler key, does not show it.',
+  },
+  {
+    page: 'explore',
+    rule: 'target-size',
+    target: 'button[data-facility-id',
+    reason:
+      'Facility markers overlap until the explore map has framed them: at the starting zoom two car parks ' +
+      'about 1.4 km apart cover each other (40x2 px left clickable, WCAG 2.5.8). Whether axe runs before or ' +
+      'after the framing is timing, so it is reported when seen. Fix: Asana 1219147334320125.',
+  },
+];
