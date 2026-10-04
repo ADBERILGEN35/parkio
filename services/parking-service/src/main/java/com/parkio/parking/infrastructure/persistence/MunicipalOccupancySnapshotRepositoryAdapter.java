@@ -4,8 +4,10 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -43,7 +45,8 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 SELECT capacity_total,occupied_spaces,available_spaces,fetched_at,
                        CASE WHEN source_observed_at IS NULL THEN NULL
                             ELSE GREATEST(0,EXTRACT(EPOCH FROM (fetched_at-source_observed_at)))::bigint END source_age_seconds,
-                       occupancy_status <> 'INVALID' AS valid
+                       occupancy_status <> 'INVALID' AS valid,
+                       occupancy_status <> 'UNAVAILABLE' AS available
                 FROM municipal_occupancy_snapshots
                 WHERE facility_id=:facilityId
                 ORDER BY fetched_at DESC LIMIT 1
@@ -56,7 +59,8 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 SELECT o.capacity_total,o.occupied_spaces,o.available_spaces,o.fetched_at,
                        CASE WHEN o.source_observed_at IS NULL THEN NULL
                             ELSE GREATEST(0,EXTRACT(EPOCH FROM (o.fetched_at-o.source_observed_at)))::bigint END source_age_seconds,
-                       o.occupancy_status <> 'INVALID' AS valid
+                       o.occupancy_status <> 'INVALID' AS valid,
+                       o.occupancy_status <> 'UNAVAILABLE' AS available
                 FROM municipal_occupancy_snapshots o
                 JOIN municipal_facility_source_links l ON l.id=o.source_link_id AND l.active=true
                 JOIN municipal_data_sources s ON s.id=o.source_id
@@ -72,7 +76,8 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 SELECT capacity_total,occupied_spaces,available_spaces,fetched_at,
                        CASE WHEN source_observed_at IS NULL THEN NULL
                             ELSE GREATEST(0,EXTRACT(EPOCH FROM (fetched_at-source_observed_at)))::bigint END source_age_seconds,
-                       occupancy_status <> 'INVALID' AS valid
+                       occupancy_status <> 'INVALID' AS valid,
+                       occupancy_status <> 'UNAVAILABLE' AS available
                 FROM municipal_occupancy_snapshots
                 WHERE source_id=:sourceId
                 ORDER BY fetched_at DESC LIMIT 1
@@ -87,7 +92,26 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 (Integer) rs.getObject("available_spaces"),
                 fetched == null ? null : fetched.toInstant(),
                 (Long) rs.getObject("source_age_seconds"),
-                rs.getBoolean("valid"));
+                rs.getBoolean("valid"),
+                rs.getBoolean("available"));
+    }
+
+    @Override
+    public Map<String, PreviousObservation> latestRunObservations(UUID sourceId) {
+        // All snapshots of one run share its fetched_at, so the latest fetched_at is the latest run.
+        return jdbc.sql("""
+                SELECT l.external_id, o.raw_record_hash,
+                       COALESCE(o.source_observed_at, o.fetched_at) AS observed_at
+                FROM municipal_occupancy_snapshots o
+                JOIN municipal_facility_source_links l ON l.id = o.source_link_id
+                WHERE o.source_id = :sourceId
+                  AND o.fetched_at = (SELECT max(fetched_at) FROM municipal_occupancy_snapshots
+                                      WHERE source_id = :sourceId)
+                """).param("sourceId", sourceId)
+                .query((rs, row) -> Map.entry(rs.getString("external_id"), new PreviousObservation(
+                        rs.getString("raw_record_hash"), rs.getTimestamp("observed_at").toInstant())))
+                .list().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (first, second) -> first));
     }
 
     @Override

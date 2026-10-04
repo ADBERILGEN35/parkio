@@ -79,8 +79,17 @@ public class MunicipalFacilitySyncService {
                     adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload);
             Instant fetchedAt = clock.instant();
             List<NormalizedMunicipalFacility> normalized = adapter.normalizeFacilities(payload, fetchedAt);
-            Map<String, NormalizedMunicipalOccupancy> occupancy = adapter.normalizeOccupancy(payload, fetchedAt)
-                    .stream().collect(Collectors.toMap(NormalizedMunicipalOccupancy::externalId, Function.identity()));
+            // A feed without source timestamps that repeats the previous run unchanged keeps the time
+            // its content was first seen, so a frozen upstream ages instead of staying LIVE (CL-F22).
+            var observations = UnchangedFeedObservations.apply(
+                    adapter.normalizeOccupancy(payload, fetchedAt).stream().collect(Collectors.toMap(
+                            NormalizedMunicipalOccupancy::externalId, Function.identity())),
+                    ingestWriter.latestRunObservations(source.id()));
+            Map<String, NormalizedMunicipalOccupancy> occupancy = observations.occupancy();
+            if (observations.unchanged()) {
+                log.warn("municipal_sync_feed_unchanged sourceKey={} records={} unchangedSince={}",
+                        sourceKey, occupancy.size(), observations.unchangedSince());
+            }
 
             Set<String> previouslyActive = Set.copyOf(setReconciliation.activeExternalIds(source.id()));
             int inserted = 0, updated = 0, unchanged = 0, occupancyInserted = 0, reactivated = 0;
@@ -112,6 +121,7 @@ public class MunicipalFacilitySyncService {
                     ? MunicipalSyncRunStatus.SUCCESS : MunicipalSyncRunStatus.PARTIAL_SUCCESS;
 
             int deactivated = 0;
+            boolean incompleteSnapshotSkipped = false;
             if (isAuthoritativeSet(
                     adapter,
                     status,
@@ -137,6 +147,7 @@ public class MunicipalFacilitySyncService {
                         && accepted > 0
                         && accepted < previouslyActive.size()
                         && authoritativeValidUniqueExternalIds <= accepted) {
+                    incompleteSnapshotSkipped = true;
                     log.warn(
                             "municipal_sync_skip_reconcile_incomplete_snapshot sourceKey={} "
                                     + "previouslyActive={} accepted={} received={} "
@@ -179,9 +190,9 @@ public class MunicipalFacilitySyncService {
                         sourceKey, activeLinkCount, seen.size());
             }
 
-            MunicipalSyncResult result = result(status, received, accepted, rejected,
+            MunicipalSyncResult result = new MunicipalSyncResult(status, received, accepted, rejected,
                     inserted, updated, unchanged, occupancyInserted, deactivated, reactivated,
-                    activeLinkCount, null, null);
+                    activeLinkCount, null, null, incompleteSnapshotSkipped);
             if (!runs.complete(runId.get(), clock.instant(), result, fingerprint, null)) {
                 log.warn(
                         "municipal_sync_complete_ignored sourceKey={} runId={} reason=ownership_lost",
@@ -220,8 +231,12 @@ public class MunicipalFacilitySyncService {
 
     /**
      * Missing-set soft-deactivation runs only for {@link ReconciliationMode#AUTHORITATIVE_FULL_SET}
-     * sources after a fully successful non-empty validated feed. Partial success, empty feeds,
-     * and failures never mass-deactivate. Policy is source-scoped (never cross-provider).
+     * sources, after a SUCCESS or PARTIAL_SUCCESS run whose snapshot is structurally trustworthy:
+     * every received row is a valid, unique member. A PARTIAL_SUCCESS therefore reconciles only
+     * when the rows the adapter did not accept are its own intentional filter (ANPARK's
+     * {@code active=false} members); a feed with invalid rows has fewer valid ids than received rows
+     * and never mass-deactivates. Failed and skipped runs never reconcile, and neither do empty
+     * feeds. Policy is source-scoped (never cross-provider).
      */
     static boolean isAuthoritativeSet(
             MunicipalParkingSourceAdapter adapter,
@@ -239,7 +254,8 @@ public class MunicipalFacilitySyncService {
         // - received is the authoritative snapshot cardinality from fetch() output.
         // Reconciliation to an empty active set is allowed ONLY when the authoritative snapshot
         // is structurally trustworthy (valid unique ids == received > 0).
-        return mode == ReconciliationMode.AUTHORITATIVE_FULL_SET
+        return (status == MunicipalSyncRunStatus.SUCCESS || status == MunicipalSyncRunStatus.PARTIAL_SUCCESS)
+                && mode == ReconciliationMode.AUTHORITATIVE_FULL_SET
                 && authoritativeValidUniqueExternalIds > 0
                 && authoritativeValidUniqueExternalIds == received
                 && seen.size() == accepted;

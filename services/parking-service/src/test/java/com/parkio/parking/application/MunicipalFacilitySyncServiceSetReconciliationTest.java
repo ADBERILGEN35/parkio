@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,13 +15,17 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.parkio.parking.application.MunicipalFacilityIngestWriter.FacilityPersistResult;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
+import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository.PreviousObservation;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
 import com.parkio.parking.externalsource.MunicipalAccessClassification;
 import com.parkio.parking.externalsource.MunicipalFacilityType;
+import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
+import com.parkio.parking.externalsource.MunicipalTimestampProvenance;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
+import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import java.time.Clock;
@@ -34,6 +39,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -96,6 +102,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(2);
         assertThat(result.recordsDeactivated()).isZero();
         assertThat(result.activeLinkCount()).isEqualTo(3);
+        assertThat(result.incompleteSnapshotSkipped()).isTrue();
         verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
@@ -123,6 +130,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(3);
         assertThat(result.recordsDeactivated()).isEqualTo(1);
         assertThat(result.activeLinkCount()).isEqualTo(3);
+        assertThat(result.incompleteSnapshotSkipped()).isFalse();
         verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B", "D"), NOW, true);
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
@@ -154,6 +162,49 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(1);
         assertThat(result.recordsDeactivated()).isEqualTo(2);
         verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A"), NOW, true);
+    }
+
+    @Test
+    void anUnchangedFeedStoresTheTimeItsContentWasFirstSeen() {
+        // CL-F22 (c): the same records with the same raw hashes as the previous run.
+        Instant firstSeen = NOW.minusSeconds(600);
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")),
+                List.of(fetchedReading("A"), fetchedReading("B")), Set.of("A", "B"));
+        when(ingestWriter.latestRunObservations(SOURCE_ID)).thenReturn(Map.of(
+                "A", new PreviousObservation("occupancy-hash-A", firstSeen),
+                "B", new PreviousObservation("occupancy-hash-B", firstSeen)));
+
+        service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        ArgumentCaptor<NormalizedMunicipalOccupancy> stored = ArgumentCaptor.forClass(NormalizedMunicipalOccupancy.class);
+        verify(ingestWriter, times(2)).persistLiveAdapterFacility(
+                eq(SOURCE_ID), eq(RUN_ID), any(), any(), stored.capture(), eq(NOW));
+        assertThat(stored.getAllValues()).allSatisfy(reading -> {
+            assertThat(reading.sourceObservedAt()).isEqualTo(firstSeen);
+            assertThat(reading.fetchedAt()).isEqualTo(NOW);
+        });
+    }
+
+    @Test
+    void aMovingFeedKeepsTheFetchTime() {
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        stubSuccessfulFetch(payload, List.of(facility("A"), facility("B")),
+                List.of(fetchedReading("A"), fetchedReading("B")), Set.of("A", "B"));
+        when(ingestWriter.latestRunObservations(SOURCE_ID)).thenReturn(Map.of(
+                "A", new PreviousObservation("occupancy-hash-A", NOW.minusSeconds(600)),
+                "B", new PreviousObservation("an-older-hash", NOW.minusSeconds(600))));
+
+        service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        ArgumentCaptor<NormalizedMunicipalOccupancy> stored = ArgumentCaptor.forClass(NormalizedMunicipalOccupancy.class);
+        verify(ingestWriter, times(2)).persistLiveAdapterFacility(
+                eq(SOURCE_ID), eq(RUN_ID), any(), any(), stored.capture(), eq(NOW));
+        assertThat(stored.getAllValues()).allSatisfy(reading -> assertThat(reading.sourceObservedAt()).isNull());
     }
 
     @Test
@@ -269,16 +320,29 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
             ArrayNode payload,
             List<NormalizedMunicipalFacility> facilities,
             Set<String> previouslyActive) {
+        stubSuccessfulFetch(payload, facilities, List.of(), previouslyActive);
+    }
+
+    private void stubSuccessfulFetch(
+            ArrayNode payload,
+            List<NormalizedMunicipalFacility> facilities,
+            List<NormalizedMunicipalOccupancy> occupancy,
+            Set<String> previouslyActive) {
         when(adapter.fetch()).thenReturn(payload);
         when(adapter.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
         // Trustworthiness for reconciliation: every payload row must be structurally valid and unique
         // to allow AUTHORITATIVE_FULL_SET reconciliation logic to run.
         when(adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(payload.size());
         when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(facilities);
-        when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
+        when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(occupancy);
         when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(previouslyActive);
         when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
                 .thenAnswer(inv -> new FacilityPersistResult(UUID.randomUUID(), true, false, true));
+    }
+
+    private static NormalizedMunicipalOccupancy fetchedReading(String externalId) {
+        return new NormalizedMunicipalOccupancy(externalId, null, NOW, MunicipalTimestampProvenance.FETCH,
+                10, 4, 6, MunicipalOccupancyFreshness.LIVE, "occupancy-hash-" + externalId);
     }
 
     private ObjectNode record(String ufid) {

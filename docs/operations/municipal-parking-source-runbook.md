@@ -91,6 +91,31 @@ must keep age-based SLA.
 
 Public STALE masking remains authoritative for availability. Do **not** raise aging/stale thresholds to hide upstream outages.
 
+### Occupancy semantics for feeds without source timestamps (CL-F22)
+
+İZUM and İSPARK readings carry only the fetch time (`timestamp_provenance = FETCH`). Three rules
+keep a reading from looking LIVE when it is not.
+
+- **Unchanged feed.** A run that returns exactly the previous run's records, with the same external
+  ids and the same raw record hashes, observed nothing new. Each reading keeps the time its content
+  was first seen in `source_observed_at`. The source's own aging/stale thresholds then apply to that
+  time through `source_age_seconds`, so a frozen upstream cache goes AGING, then STALE.
+  - The sync logs `municipal_sync_feed_unchanged sourceKey=… records=… unchangedSince=…`.
+  - Any changed, added or missing record means the feed is moving, and readings use the fetch time
+    again.
+  - A source-level `occupancy_freshness` gauge in AGING/STALE while the source is HEALTHY is the
+    sign of a frozen upstream.
+  - Side effect: if every İZUM car park keeps exactly the same counts for longer than the stale
+    threshold (for example overnight), the whole source reads STALE until a count changes.
+- **Closed car park.** An İZUM record with `status` `Closed` (any case) is stored as `UNAVAILABLE`
+  and published without spaces. The counts stay in the row.
+  - Only `Closed` is treated as closed: the repository's fixtures show only `Opened`, and the
+    feed's full status vocabulary is not documented.
+  - Any other value keeps the previous behaviour.
+- **No free count.** A record without `occupancy.total.free` has no space count to publish. It is
+  stored as `UNAVAILABLE`. A reading stored UNAVAILABLE, or with a null `available_spaces`, is never
+  published as LIVE or AGING.
+
 ### Defaults (non-secret)
 
 | Setting | Default |
@@ -110,6 +135,16 @@ Public STALE masking remains authoritative for availability. Do **not** raise ag
 - **SecondsSinceSuccessWarning/Critical** — SCHEDULED (İZUM) only; no OSM age-only page.
 - **StaleRunningOperation** — a RUNNING row older than the stale-running threshold (İZUM and OSM).
 - **MunicipalSourceRecovered / MunicipalOsmRecovered** — info after a success resets a failure streak.
+- **MunicipalIzumIncompleteSnapshotsRepeated** (CL-F22) — warning.
+  - **Trigger:** three İZUM runs in a row returned fewer facilities than are active. Each time,
+    reconciliation was skipped, so the missing facilities were not deactivated.
+  - **Source:** `parkio_municipal_sync_consecutive_incomplete_snapshots`. A completed run without
+    the skip resets it; a failed run leaves it unchanged. The counter is
+    `parkio_municipal_sync_reconciliation_skipped_total{reason="incomplete_snapshot"}`.
+  - **Restart:** the gauge lives in memory, so a parking-service restart starts it again at 0.
+  - **Check:** the `municipal_sync_skip_reconcile_incomplete_snapshot` log lines (previouslyActive,
+    accepted, received). Then decide whether the feed is truncated, which needs no action, or the
+    facilities really closed, which needs a manual deactivation.
 
 Disabled sources must not page. Scheduler kill switch remains `izum.scheduler-enabled=false` (and/or `izum.enabled=false`).
 
