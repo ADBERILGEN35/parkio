@@ -241,7 +241,9 @@ export function NearbySpotsMap({
       <Map
         initialViewState={{ longitude: center.lng, latitude: center.lat, zoom }}
         mapStyle={getMapStyle()}
-        attributionControl={attributionTarget === undefined ? undefined : false}
+        // Only a map with an attribution target turns its own control off. An explicit
+        // `attributionControl={undefined}` would also remove MapLibre's default control (#258 B1).
+        {...(attributionTarget === undefined ? {} : { attributionControl: false as const })}
         dragRotate={false}
         pitchWithRotate={false}
         onLoad={() => {

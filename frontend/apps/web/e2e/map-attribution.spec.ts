@@ -3,7 +3,9 @@ import { expect, test, type Locator, type Page, type Route } from '@playwright/t
 /**
  * /map keeps MapLibre's attribution, which carries the map credits, visible and reachable, and on phones
  * the bottom sheet's handle too. Neither the desktop results sidebar, nor the phone sheet in any state,
- * nor the page's own top overlay may cover them (Asana 1219145771874977).
+ * nor the page's own top overlay may cover them (Asana 1219145771874977). /explore keeps MapLibre's own
+ * attribution control on its canvas (#258 review B1); this dev server runs with public explore off, so
+ * a11y/web.a11y.ts checks that on its explore-on server.
  *
  * Every supported width runs in each viewport project: 360 and 390 px get the phone sheet, 768 px and
  * wider the sidebar. The session is restored instead of signed in, so the transient sign-in toast is not
@@ -123,8 +125,10 @@ async function expectReachable(locator: Locator, what: string) {
 async function expectCreditsReachable(page: Page, where: string) {
   const attribution = page.locator('.maplibregl-ctrl-attrib');
   await expectReachable(attribution, `attribution, ${where}`);
+  // The style's OpenStreetMap credit and MapLibre's own credit, as on the canvas control (#258 N1).
+  await expect(attribution.locator('a[href*="openstreetmap.org/copyright"]'), `OSM credit, ${where}`).toHaveCount(1);
+  await expect(attribution.locator('a[href^="https://maplibre.org"]'), `MapLibre credit, ${where}`).toHaveCount(1);
   const links = await attribution.locator('a').all();
-  expect(links.length, `attribution links, ${where}`).toBeGreaterThan(0);
   for (const link of links) {
     await expectReachable(link, `attribution link "${(await link.textContent())?.trim()}", ${where}`);
   }
