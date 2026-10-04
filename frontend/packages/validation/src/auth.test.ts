@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { loginSchema, registerProfileSchema, registerSchema } from './auth';
+import {
+  loginSchema,
+  PASSWORD_MAX_BYTES,
+  registerProfileSchema,
+  registerSchema,
+  utf8ByteLength,
+} from './auth';
 
 describe('loginSchema', () => {
   it('accepts a valid email and password', () => {
@@ -97,5 +103,31 @@ describe('registerProfileSchema', () => {
     expect(
       registerProfileSchema.safeParse({ ...valid, phoneNumber: '1'.repeat(33) }).success,
     ).toBe(false);
+  });
+});
+
+describe('password byte limit (CL-F36)', () => {
+  const seventyTwoBytes = `Aa1${'ş'.repeat(34)}x`;
+  const seventyThreeBytes = `Aa1${'ş'.repeat(35)}`;
+
+  it('counts UTF-8 bytes per code point', () => {
+    expect(utf8ByteLength('abc')).toBe(3);
+    expect(utf8ByteLength('ş')).toBe(2);
+    expect(utf8ByteLength('€')).toBe(3);
+    expect(utf8ByteLength('😀')).toBe(4);
+    expect(utf8ByteLength(seventyTwoBytes)).toBe(PASSWORD_MAX_BYTES);
+    expect(utf8ByteLength(seventyThreeBytes)).toBe(PASSWORD_MAX_BYTES + 1);
+  });
+
+  it('accepts a 72-byte password and rejects 73 bytes even under 100 characters', () => {
+    expect(seventyThreeBytes.length).toBeLessThan(100);
+    expect(registerSchema.safeParse({ email: 'a@b.com', password: seventyTwoBytes }).success).toBe(true);
+
+    const result = registerSchema.safeParse({ email: 'a@b.com', password: seventyThreeBytes });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.message)).toContain(
+      'Password must be at most 72 bytes; letters such as ş or ğ count as two',
+    );
   });
 });

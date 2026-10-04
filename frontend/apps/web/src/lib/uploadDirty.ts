@@ -50,10 +50,16 @@ function isSameFormValue(a: unknown, b: unknown): boolean {
       a.every((item, index) => isSameFormValue(item, b[index]))
     );
   }
-  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
-    return !hasFormChanges(a, b);
-  }
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  if (isPlainObject(a) && isPlainObject(b)) return !hasFormChanges(a, b);
+  // Any other object (a File, a Blob) is the same value only when it is the same instance.
   return false;
+}
+
+function isPlainObject(value: unknown): value is object {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 /** Auth / security redirects must never be trapped by the unsaved-changes dialog. */

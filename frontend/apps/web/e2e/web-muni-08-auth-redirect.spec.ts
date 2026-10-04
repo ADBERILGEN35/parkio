@@ -157,9 +157,10 @@ test.describe('WEB-MUNI-08 auth redirect query preservation', () => {
     // (MapPage, since Smart Return in June). That search starts within moments of the URL
     // canonicalisation checked above, so the counts are read after it, not raced against it: one
     // login, one Smart Return read, one nearby search at the saved home, no municipal search (the
-    // flag is off here), and no repeat while the page settles.
+    // flag is off here), and no repeat while the page settles. The settle is 2 s so that a slow
+    // loop, a second search a second or two later, is caught too (#231 review N1).
     await expect.poll(() => api.getCounts().spotsNearbyRequests).toBe(1);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(2000);
     expect(api.getCounts()).toEqual({
       loginRequests: 1,
       smartReturnRequests: 1,
