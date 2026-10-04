@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
  * {@code parkio.outbox.oldest.unpublished.age.seconds}: it means the outbox relay is
  * not draining to Kafka.
  */
+// DO NOT MERGE: CI gate positive probe (a comment-only backend change).
 @Component
 public class MessagingMetrics {
 
