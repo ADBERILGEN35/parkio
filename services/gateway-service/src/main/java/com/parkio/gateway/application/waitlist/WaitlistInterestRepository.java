@@ -33,7 +33,15 @@ public interface WaitlistInterestRepository {
     /** Records a successful outbound confirmation attempt (after delivery succeeds). */
     void markVerificationSent(String emailHash, Instant sentAt, int resendCount);
 
-    List<WaitlistExportRow> exportConfirmed(Instant createdFrom, Instant createdTo);
+    /** Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)}. */
+    long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo);
+
+    /**
+     * The next page of confirmed subscriptions in {@code [confirmedFrom, confirmedTo)}, ordered by
+     * confirmation time then id, strictly after {@code after} ({@code null} for the first page).
+     */
+    List<WaitlistExportRow> exportConfirmedPage(Instant confirmedFrom, Instant confirmedTo,
+                                                WaitlistExportCursor after, int limit);
 
     WaitlistAdminCounts countByStatus();
 
