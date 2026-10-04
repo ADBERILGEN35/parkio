@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,6 +23,7 @@ import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.MunicipalSyncRunStatus;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
 import com.parkio.parking.externalsource.schema.SchemaFingerprint;
+import com.parkio.parking.infrastructure.ispark.IsparkMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import java.time.Clock;
 import java.time.Instant;
@@ -64,7 +66,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
                 ingestWriter,
                 setReconciliation,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        when(sources.requireBySourceKey(IzumMunicipalParkingAdapter.SOURCE_KEY))
+        lenient().when(sources.requireBySourceKey(IzumMunicipalParkingAdapter.SOURCE_KEY))
                 .thenReturn(new MunicipalDataSourceRepository.Source(
                         SOURCE_ID,
                         IzumMunicipalParkingAdapter.SOURCE_KEY,
@@ -190,6 +192,63 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         // Smaller than the active set and not reconciled: B stays listed, as with a guard skip, so the
         // run counts toward the incomplete-snapshot streak (#246 review N2).
         assertThat(result.incompleteSnapshotSkipped()).isTrue();
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void aFullSizeUntrustedFeedIsNotAnIncompleteSnapshot() {
+        // An invalid row keeps the feed from reconciling, but it is not smaller than the active set:
+        // nothing stays listed that a full feed would remove, so the streak does not grow
+        // (#246 delta review D1).
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        payload.add(record("C"));
+        when(adapter.fetch()).thenReturn(payload);
+        when(adapter.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
+        when(adapter.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(2);
+        when(adapter.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of(facility("A"), facility("B")));
+        when(adapter.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
+        when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of("A", "B"));
+        when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
+                .thenReturn(new FacilityPersistResult(UUID.randomUUID(), false, true, false));
+
+        var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.PARTIAL_SUCCESS);
+        assertThat(result.incompleteSnapshotSkipped()).isFalse();
+        verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void aSmallerUntrustedFeedOfAnotherSourceIsNotAnIncompleteSnapshot() {
+        // The incomplete-snapshot streak and its alert are İZUM's (#246 delta review D1).
+        MunicipalParkingSourceAdapter ispark = mock(MunicipalParkingSourceAdapter.class);
+        when(ispark.sourceKey()).thenReturn(IsparkMunicipalParkingAdapter.SOURCE_KEY);
+        lenient().when(ispark.reconciliationMode()).thenReturn(
+                com.parkio.parking.externalsource.provider.ReconciliationMode.AUTHORITATIVE_FULL_SET);
+        var isparkService = new MunicipalFacilitySyncService(
+                List.of(ispark), sources, runs, ingestWriter, setReconciliation, Clock.fixed(NOW, ZoneOffset.UTC));
+        when(sources.requireBySourceKey(IsparkMunicipalParkingAdapter.SOURCE_KEY))
+                .thenReturn(new MunicipalDataSourceRepository.Source(
+                        SOURCE_ID, IsparkMunicipalParkingAdapter.SOURCE_KEY, "publisher", "attribution", 300, 900,
+                        null, true));
+        ArrayNode payload = mapper.createArrayNode();
+        payload.add(record("A"));
+        payload.add(record("B"));
+        when(ispark.fetch()).thenReturn(payload);
+        when(ispark.validateContract(payload)).thenReturn(SchemaFingerprint.fromArray(payload));
+        when(ispark.countAuthoritativeValidUniqueFacilityExternalIds(payload)).thenReturn(1);
+        when(ispark.normalizeFacilities(eq(payload), eq(NOW))).thenReturn(List.of(facility("A")));
+        when(ispark.normalizeOccupancy(eq(payload), eq(NOW))).thenReturn(List.of());
+        when(setReconciliation.activeExternalIds(SOURCE_ID)).thenReturn(Set.of("A", "B", "C"));
+        when(ingestWriter.persistLiveAdapterFacility(eq(SOURCE_ID), eq(RUN_ID), any(), any(), any(), eq(NOW)))
+                .thenReturn(new FacilityPersistResult(UUID.randomUUID(), false, true, false));
+
+        var result = isparkService.sync(IsparkMunicipalParkingAdapter.SOURCE_KEY);
+
+        assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.PARTIAL_SUCCESS);
+        assertThat(result.incompleteSnapshotSkipped()).isFalse();
         verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
     }
 
