@@ -42,7 +42,21 @@ For comparison, the same specs ran on the default Vite dev server (`playwright.c
 - 360 px (`galaxy-360`) for the specs the default config runs at that width;
 - `wp03-routing` and `pending-profile-ownership` run on desktop only in the default config.
 
-Frontend CI runs these browser specs: `wp03-routing`, `pending-profile-ownership`, `auth-link-locale`, the service-worker upgrade spec, the accessibility measurement, and the CX-F11 acceptance scenarios (`e2e:cxf11`, project `cxf11-acceptance`, on the dev server with the bake flags). The existing specs above, which ran against the candidate image (`cxf11-existing-*`), were run locally only.
+Frontend CI (`.github/workflows/frontend-ci.yml`) runs these browser checks, all on Vite dev servers with a mocked API:
+- job `frontend-build`:
+  - the marketing site's static and responsive validation (`test:marketing`);
+  - the accessibility measurement (`e2e:a11y`);
+  - `wp03-routing`;
+  - `pending-profile-ownership` (`e2e:ownership`);
+  - the CX-F11 acceptance scenarios (`e2e:cxf11`, project `cxf11-acceptance`, with the bake flags);
+  - the service-worker upgrade (`e2e:sw-upgrade`);
+  - `auth-link-locale` (`e2e:link-locale`);
+- job `e2e-regression` (since #231):
+  - every default-server spec on desktop and at 360 px (`e2e:regression:desktop`, `e2e:regression:360`);
+  - the municipal discovery specs on desktop and at 360 px (`e2e:muni09:*`);
+  - the product analytics specs (`e2e:y04a`).
+
+No workflow runs a spec against a built web image: the candidate-image projects above (`cxf11-existing-*`) were run locally only.
 
 | Spec | Dev server | Candidate | Why |
 |---|---|---|---|
