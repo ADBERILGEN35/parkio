@@ -199,7 +199,9 @@ public class MediaApplicationService {
         String normalizedContentType = normalized.contentType();
         byte[] normalizedContent = normalized.content();
         String checksum = Checksums.sha256Hex(normalizedContent);
-        if (mediaFiles.existsByChecksum(checksum)) {
+        // Per owner and ignoring deleted files: another user's identical file must neither block
+        // this upload nor reveal that it exists (CL-F38c).
+        if (mediaFiles.existsLiveDuplicate(ownerUserId, checksum)) {
             reject(ownerUserId, MediaValidationType.DUPLICATE, "Duplicate normalized checksum", checksum);
             throw new MediaException(MediaErrorCode.DUPLICATE_MEDIA, "This file has already been uploaded.");
         }

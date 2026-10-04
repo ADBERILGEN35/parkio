@@ -1,8 +1,10 @@
 package com.parkio.media.application;
 
 import com.parkio.media.application.event.UserErasureRequestedEvent;
+import com.parkio.media.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.media.domain.MediaFile;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
+import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
 import com.parkio.media.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.media.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
 import com.parkio.media.infrastructure.persistence.jpa.MediaFileJpaRepository;
@@ -90,6 +92,39 @@ public class AccountErasureHandler {
             log.warn("erasure object phase deferred requestId={} service={} ({})", event.erasureRequestId(),
                     SERVICE_NAME, e.getClass().getSimpleName());
         }
+    }
+
+    /**
+     * Replays one user's erasure for an isolated recovery (docs/architecture/erasure-restore-replay-contract.md):
+     * the same two phases as {@link #handle}, with a job that carries the restore binding. The worker
+     * queues the attempt-bound restore ACK only once every stored object of the user, including the
+     * restored ones, is confirmed gone.
+     */
+    public void replayForRestore(UserErasureRestoreReplayRequestedEvent event) {
+        UUID jobId = restoreAckEventId(event);
+        RestoreBinding restore = new RestoreBinding(
+                event.recoveryAttemptId(), event.restoredDatasetId(), event.erasureSetDigest());
+        tx.executeWithoutResult(status -> {
+            jobs.holdOwner(event.authUserId());
+            Instant now = clock.instant();
+            eraseMetadata(event.authUserId(), now);
+            jobs.openRestore(jobId, restore, event.authUserId(), now, now.plus(lease));
+        });
+        log.info("erasure restore replay metadata committed attempt={} service={} status=OBJECTS_PENDING",
+                event.recoveryAttemptId(), SERVICE_NAME);
+        try {
+            objectEraser.process(jobId);
+        } catch (RuntimeException e) {
+            log.warn("erasure restore replay object phase deferred attempt={} service={} ({})",
+                    event.recoveryAttemptId(), SERVICE_NAME, e.getClass().getSimpleName());
+        }
+    }
+
+    /** One restore job and ACK per consumed replay event; a redelivery re-derives the same id. */
+    static UUID restoreAckEventId(UserErasureRestoreReplayRequestedEvent event) {
+        String key = event.eventId() + ":" + event.recoveryAttemptId() + ":" + event.authUserId() + ":"
+                + SERVICE_NAME + ":restore-ack";
+        return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

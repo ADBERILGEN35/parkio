@@ -11,6 +11,7 @@ import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.Verifi
 import com.parkio.auth.application.durable.EvidenceTrust;
 import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
@@ -46,8 +47,9 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * The object-lock durable store against a disposable MinIO bucket with object lock and
  * versioning: format v2 objects, idempotent and conflicting retries, overwrite and delete
- * attempts, the publication receipt, a crash between record and frontier, recovery from the
- * bucket alone, store timeouts and the no-transaction rule. Synthetic keys and data only.
+ * attempts, the returned publication receipt, COMPLIANCE against a governance bypass, a crash
+ * between record and frontier, recovery from the bucket alone, store timeouts and the
+ * no-transaction rule. Synthetic keys and data only.
  */
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
@@ -102,7 +104,7 @@ class ObjectLockDurableErasureRecordStoreIT {
                 .isEqualTo(DurableErasureEvidence.pendingRecord(record, 1, DATABASE, PRODUCER));
         assertThat(bucket.oldest(DurableErasureEvidence.sequenceKey(1)).orElseThrow().bytes())
                 .isEqualTo(DurableErasureEvidence.sequenceMarker(1, record.erasureRequestId()));
-        assertThat(bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes())
+        assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier()))
                 .isEqualTo(DurableErasureEvidence.frontier(1, 1, DATABASE, PRODUCER));
     }
 
@@ -163,20 +165,60 @@ class ObjectLockDurableErasureRecordStoreIT {
     }
 
     @Test
-    void publicationReceiptIsTheLockedCanonicalVersion() throws Exception {
+    void putReturnsTheReceiptOfTheLockedCanonicalVersion() throws Exception {
         DurableErasureRecord record = record("2026-09-29T08:16:00Z");
         Instant before = clock.instant();
-        store.putIfAbsent(record);
+        DurableErasureReceipt receipt = store.putIfAbsent(record).receipt();
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
 
-        ObjectLockBucket.StoredVersion receipt = bucket.oldest(key).orElseThrow();
-        Retention retention = bucket.retention(key, receipt.versionId());
+        // The bucket's own view of the canonical version, read independently of the store.
+        ObjectLockBucket.StoredVersion canonical = bucket.oldest(key).orElseThrow();
+        Retention retention = bucket.retention(key, canonical.versionId());
 
-        assertThat(sha256(receipt.bytes()))
+        assertThat(receipt.versionId()).isEqualTo(canonical.versionId());
+        assertThat(receipt.sha256())
+                .isEqualTo(sha256(canonical.bytes()))
                 .isEqualTo(sha256(DurableErasureEvidence.pendingRecord(record, 1, DATABASE, PRODUCER)));
-        assertThat(retention.mode()).isEqualTo(RetentionMode.GOVERNANCE);
-        assertThat(retention.retainUntilDate().toInstant())
+        assertThat(receipt.retentionMode()).isEqualTo("GOVERNANCE").isEqualTo(retention.mode().name());
+        assertThat(receipt.retainUntil())
+                .isEqualTo(retention.retainUntilDate().toInstant())
                 .isBetween(before.plus(RETENTION).minus(1, ChronoUnit.MINUTES), clock.instant().plus(RETENTION).plus(1, ChronoUnit.MINUTES));
+
+        // An identical retry and a conflicting retry name the same canonical version.
+        DurableErasurePutResult retry = store.putIfAbsent(record);
+        DurableErasurePutResult conflict = store.putIfAbsent(
+                DurableErasureRecord.of(record.erasureRequestId(), record.authUserId(), Instant.parse("2026-09-29T08:17:00Z")));
+        assertThat(retry.created()).isFalse();
+        assertThat(retry.receipt()).isEqualTo(receipt);
+        assertThat(conflict.conflict()).isTrue();
+        assertThat(conflict.receipt()).isEqualTo(receipt);
+    }
+
+    @Test
+    void complianceRefusesTheGovernanceBypassThatDeletesAGovernanceLockedRecord() throws Exception {
+        DurableErasureRecord governed = record("2026-09-29T08:16:00Z");
+        DurableErasureReceipt governedReceipt = store.putIfAbsent(governed).receipt();
+        ObjectLockDurableErasureRecordStore compliance = new ObjectLockDurableErasureRecordStore(
+                bucket, TRUST, PRODUCER.keyId(), RetentionMode.COMPLIANCE, RETENTION, clock);
+        DurableErasureRecord locked = record("2026-09-29T08:17:00Z");
+        DurableErasureReceipt lockedReceipt = compliance.putIfAbsent(locked).receipt();
+        String governedKey = DurableErasureEvidence.recordKey(governed.erasureRequestId());
+        String lockedKey = DurableErasureEvidence.recordKey(locked.erasureRequestId());
+
+        assertThat(governedReceipt.retentionMode()).isEqualTo("GOVERNANCE");
+        assertThat(lockedReceipt.retentionMode()).isEqualTo("COMPLIANCE");
+        assertThat(bucket.retention(lockedKey, lockedReceipt.versionId()).mode()).isEqualTo(RetentionMode.COMPLIANCE);
+
+        // A principal allowed to bypass governance retention (here the root user) deletes the
+        // GOVERNANCE-locked canonical version...
+        bypassDelete(governedKey, governedReceipt.versionId());
+        assertThat(bucket.versionCount(governedKey)).isZero();
+        assertThat(compliance.findByRequestId(governed.erasureRequestId())).isEmpty();
+        // ...and the same request is refused for the COMPLIANCE-locked one.
+        assertThatThrownBy(() -> bypassDelete(lockedKey, lockedReceipt.versionId()))
+                .isInstanceOf(ErrorResponseException.class);
+        assertThat(bucket.oldest(lockedKey).orElseThrow().versionId()).isEqualTo(lockedReceipt.versionId());
+        assertThat(compliance.findByRequestId(locked.erasureRequestId())).contains(locked);
     }
 
     @Test
@@ -254,7 +296,16 @@ class ObjectLockDurableErasureRecordStoreIT {
     }
 
     private RecoveryVerdict recover() {
-        return new DurableErasureEvidenceVerifier(TRUST, clock.instant()).recover(store.evidence(), null);
+        return verifier().recover(store.evidence(), null);
+    }
+
+    private DurableErasureEvidenceVerifier verifier() {
+        return new DurableErasureEvidenceVerifier(TRUST, clock.instant());
+    }
+
+    private void bypassDelete(String key, String versionId) throws Exception {
+        client.removeObject(RemoveObjectArgs.builder()
+                .bucket(bucketName).object(key).versionId(versionId).bypassGovernanceMode(true).build());
     }
 
     private static DurableErasureRecord record(String erasedAt) {

@@ -158,13 +158,19 @@ class ObjectLockKeyRotationIT {
         return new DurableErasureEvidenceVerifier(consumerTrust, at).recover(new ObjectLockEvidenceObjects(bucket), null);
     }
 
-    /** The keyId of the canonical version of every object under {@code prefix}. */
+    /**
+     * The keyId of the canonical version of every object under {@code prefix}; for the frontier,
+     * its highest verified version.
+     */
     private List<String> keyIdsUnder(String prefix) {
         Set<String> keys = new TreeSet<>(bucket.keys(prefix));
         return keys.stream().map(key -> {
             try {
-                return JSON.readTree((DurableErasureEvidence.FRONTIER_KEY.equals(key)
-                        ? bucket.latest(key) : bucket.oldest(key)).orElseThrow().bytes()).path("keyId").asText();
+                byte[] canonical = DurableErasureEvidence.FRONTIER_KEY.equals(key)
+                        ? ObjectLockTestBuckets.currentFrontier(bucket,
+                                new DurableErasureEvidenceVerifier(trust, afterRotation.plusSeconds(3600)))
+                        : bucket.oldest(key).orElseThrow().bytes();
+                return JSON.readTree(canonical).path("keyId").asText();
             } catch (IOException ex) {
                 throw new UncheckedIOException(ex);
             }
