@@ -96,10 +96,11 @@ const populated: Record<string, unknown> = {
     { id: '0b8f6c3a-0000-0000-0000-00000000c112', reporterUserId: USER_ID, targetType: 'PARKING_SPOT', targetId: spot(2, 'ACTIVE').id,
       reason: 'DUPLICATE_PHOTO', description: null, caseId: '0b8f6c3a-0000-0000-0000-00000000d111', createdAt: NOW },
   ],
+  // About 1.4 km apart, so the two markers never overlap at the explore map's zoom.
   'GET /public/explore/facilities': {
     facilities: [1, 2].map((n) => ({
       id: `a11y-facility-${n}`, displayName: `Synthetic Car Park ${n}`, operatorName: 'Synthetic Operator', facilityType: 'OFF_STREET',
-      addressText: `${n} Synthetic Square, Istanbul`, latitude: 41.01 + n / 1000, longitude: 28.97 + n / 1000, capacityTotal: 120,
+      addressText: `${n} Synthetic Square, Istanbul`, latitude: 41.01 + n / 100, longitude: 28.97 + n / 100, capacityTotal: 120,
       availableSpaces: 30 * n, availabilityFreshness: 'LIVE', dataUpdatedAt: NOW, sourceLabel: 'Synthetic source',
       attribution: 'Synthetic data for accessibility tests', accessClassification: 'PUBLIC',
     })),
@@ -118,6 +119,8 @@ interface WebPage {
    * to the marketing site (measured by a11y-marketing); the app's own legal pages open from its links.
    */
   inApp?: boolean;
+  /** Synthetic text from the populated mocks that the page must show, so its filled state is measured. */
+  shows?: string;
 }
 
 const PAGES: WebPage[] = [
@@ -129,15 +132,15 @@ const PAGES: WebPage[] = [
   { name: 'verify-email', path: '/verify-email?token=a11y-verify-token', signedIn: false },
   { name: 'terms', path: '/terms', signedIn: false, inApp: true },
   { name: 'privacy', path: '/privacy', signedIn: false, inApp: true },
-  { name: 'explore', path: '/explore', signedIn: false },
+  { name: 'explore', path: '/explore', signedIn: false, shows: 'Synthetic Car Park 1' },
   { name: 'map', path: '/map', signedIn: true },
   { name: 'upload', path: '/upload', signedIn: true },
-  { name: 'profile', path: '/profile', signedIn: true },
-  { name: 'my-spots', path: '/my-spots', signedIn: true },
-  { name: 'notifications', path: '/notifications', signedIn: true },
-  { name: 'gamification', path: '/gamification', signedIn: true },
-  { name: 'leaderboard', path: '/leaderboard', signedIn: true },
-  { name: 'reports', path: '/reports', signedIn: true },
+  { name: 'profile', path: '/profile', signedIn: true, shows: 'Ayşe Yılmaz' },
+  { name: 'my-spots', path: '/my-spots', signedIn: true, shows: '1 Synthetic Street, Istanbul' },
+  { name: 'notifications', path: '/notifications', signedIn: true, shows: 'Synthetic notification 1' },
+  { name: 'gamification', path: '/gamification', signedIn: true, shows: '340' },
+  { name: 'leaderboard', path: '/leaderboard', signedIn: true, shows: '790' },
+  { name: 'reports', path: '/reports', signedIn: true, shows: 'The photo shows a different street.' },
 ];
 
 async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmocked: string[]) {
@@ -204,6 +207,11 @@ for (const locale of ['tr', 'en'] as const) {
         await page.waitForLoadState('networkidle');
         // Pages have an h1 (some only for screen readers) or a main landmark; not always both.
         await expect(page.locator('h1, main, [role="main"]').first()).toBeAttached();
+        if (target.shows) {
+          // Visible text, or an accessible name such as a map marker's label.
+          const populatedContent = page.getByText(target.shows).or(page.getByLabel(target.shows));
+          await expect(populatedContent.first(), `${target.name} (${locale}): populated content`).toBeVisible();
+        }
         const landedOn = new URL(page.url()).pathname;
         testInfo.annotations.push({ type: 'landed', description: landedOn });
         if (unmocked.length) testInfo.annotations.push({ type: 'unmocked', description: unmocked.join(', ') });
@@ -218,3 +226,34 @@ for (const locale of ['tr', 'en'] as const) {
     }
   });
 }
+
+/**
+ * The focus-indicator rule itself (#229 review N1), on synthetic pages with no app code. A transparent
+ * outline, as Tailwind's `focus:outline-none` leaves, is not an indicator. A ring that fades in is one,
+ * once its transition has finished (the delay keeps it unchanged right after Tab), and so is a solid outline.
+ */
+test.describe('focus indicator rule', () => {
+  const html = (body: string) => `<!doctype html><html lang="en"><head><style>
+    button { all: unset; display: inline-block; padding: 8px; }
+    .transparent:focus { outline: 2px solid transparent; outline-offset: 2px; }
+    .ring { transition: box-shadow 150ms 300ms; }
+    .ring:focus { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px rgb(0, 80, 203); }
+    .solid:focus { outline: 2px solid rgb(0, 80, 203); }
+  </style></head><body><main><h1>Focus</h1>${body}</main></body></html>`;
+
+  test('a transparent outline alone is not a focus indicator', async ({ page }, testInfo) => {
+    await page.setContent(html('<button class="transparent">Transparent</button>'));
+    await expect(keyboardWalk(page, testInfo, 'focus-rule-transparent', 'en')).rejects.toThrow(
+      /without a visible indicator/,
+    );
+  });
+
+  test('a ring that fades in and a solid outline are focus indicators', async ({ page }, testInfo) => {
+    await page.setContent(html('<button class="ring">Ring</button><button class="solid">Solid</button>'));
+    const stops = await keyboardWalk(page, testInfo, 'focus-rule-visible', 'en');
+    expect(stops.map((stop) => [stop.name, stop.indicator])).toEqual([
+      ['Ring', true],
+      ['Solid', true],
+    ]);
+  });
+});
