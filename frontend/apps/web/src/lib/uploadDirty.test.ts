@@ -63,6 +63,15 @@ describe('hasFormChanges', () => {
   it('is clean again once a value returns to its default', () => {
     expect(hasFormChanges({ ...defaults, suitableVehicleTypes: [] }, defaults)).toBe(false);
   });
+
+  it('compares dates by time and other objects by identity', () => {
+    const photo = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    expect(hasFormChanges({ photo }, { photo })).toBe(false);
+    expect(hasFormChanges({ photo }, { photo: new File(['b'], 'a.jpg', { type: 'image/jpeg' }) })).toBe(true);
+    expect(hasFormChanges({ at: new Date(0) }, { at: new Date(0) })).toBe(false);
+    expect(hasFormChanges({ at: new Date(1) }, { at: new Date(0) })).toBe(true);
+    expect(hasFormChanges({ nested: { a: 1 } }, { nested: { a: 1 } })).toBe(false);
+  });
 });
 
 describe('isAuthEscapePath', () => {

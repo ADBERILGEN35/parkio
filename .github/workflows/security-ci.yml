@@ -48,7 +48,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: docker://zricethezav/gitleaks:v8.28.0
+        uses: docker://zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 # v8.28.0
         with:
           args: >
             git
@@ -118,7 +118,7 @@ jobs:
       # Authenticated ghcr pull avoids anonymous trivy-db rate limits
       # (TOOMANYREQUESTS) when fetching the vulnerability database.
       - name: Log in to ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -249,7 +249,7 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
