@@ -96,6 +96,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(2);
         assertThat(result.recordsDeactivated()).isZero();
         assertThat(result.activeLinkCount()).isEqualTo(3);
+        assertThat(result.incompleteSnapshotSkipped()).isTrue();
         verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
@@ -123,6 +124,7 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
         assertThat(result.recordsAccepted()).isEqualTo(3);
         assertThat(result.recordsDeactivated()).isEqualTo(1);
         assertThat(result.activeLinkCount()).isEqualTo(3);
+        assertThat(result.incompleteSnapshotSkipped()).isFalse();
         verify(setReconciliation).deactivateMissing(SOURCE_ID, Set.of("A", "B", "D"), NOW, true);
         verify(sources).markSuccessful(SOURCE_ID, NOW);
     }
@@ -185,6 +187,9 @@ class MunicipalFacilitySyncServiceSetReconciliationTest {
 
         assertThat(result.status()).isEqualTo(MunicipalSyncRunStatus.PARTIAL_SUCCESS);
         assertThat(result.recordsDeactivated()).isZero();
+        // Smaller than the active set and not reconciled: B stays listed, as with a guard skip, so the
+        // run counts toward the incomplete-snapshot streak (#246 review N2).
+        assertThat(result.incompleteSnapshotSkipped()).isTrue();
         verify(setReconciliation, never()).deactivateMissing(any(), any(), any(), anyBoolean());
     }
 
