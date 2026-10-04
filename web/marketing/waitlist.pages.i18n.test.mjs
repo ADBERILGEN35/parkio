@@ -11,11 +11,11 @@ const confirmHtml = readFileSync(resolve(root, 'waitlist/confirm/index.html'), '
 const withdrawHtml = readFileSync(resolve(root, 'waitlist/unsubscribe/index.html'), 'utf8');
 const waitlistJs = readFileSync(resolve(root, 'waitlist.js'), 'utf8');
 
-function loadI18n(search = '') {
+function createSandbox(search = '', dataset = {}) {
   const sandbox = {
     window: {},
     document: {
-      documentElement: { lang: 'tr' },
+      documentElement: { lang: 'tr', dataset },
       querySelectorAll: () => [],
       querySelector: () => null,
       title: '',
@@ -43,20 +43,44 @@ function loadI18n(search = '') {
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   vm.runInNewContext(i18nSource, sandbox);
-  return sandbox.ParkioI18n;
+  return sandbox;
+}
+
+function loadI18n(search = '') {
+  return createSandbox(search).ParkioI18n;
 }
 
 test('confirm and withdraw pages wire all visible copy through i18n keys', () => {
   for (const html of [confirmHtml, withdrawHtml]) {
     assert.match(html, /data-i18n="brand\.tagline"/);
     assert.match(html, /data-i18n="waitlist\.page\.kicker"/);
-    assert.match(html, /i18n\.js\?v=w01l7/);
+    assert.match(html, /i18n\.js\?v=w01l8/);
     assert.match(html, /waitlist\.js\?v=w01l7/);
     assert.doesNotMatch(html, /GET istekleri/);
     assert.doesNotMatch(html, /Alternatif silme talepleri/);
   }
   assert.match(confirmHtml, /data-i18n="waitlist\.page\.confirm\.note"/);
   assert.match(withdrawHtml, /data-i18n="waitlist\.page\.withdraw\.note"/);
+});
+
+test('confirm and withdraw pages name their title key and run no inline script (CL-F39.5)', () => {
+  assert.match(confirmHtml, /<html[^>]*\sdata-i18n-title="waitlist\.page\.confirm\.title"/);
+  assert.match(withdrawHtml, /<html[^>]*\sdata-i18n-title="waitlist\.page\.withdraw\.title"/);
+  for (const html of [confirmHtml, withdrawHtml]) {
+    assert.doesNotMatch(html, /<script(?![^>]*\ssrc=)[^>]*>/);
+  }
+});
+
+test('the document title follows data-i18n-title, else meta.title', () => {
+  const confirm = createSandbox('', { i18nTitle: 'waitlist.page.confirm.title' });
+  confirm.ParkioI18n.applyLocale('en');
+  assert.equal(confirm.document.title, 'Parkio | Confirm notification list');
+  confirm.ParkioI18n.applyLocale('tr');
+  assert.equal(confirm.document.title, 'Parkio | Bildirim listesi onayı');
+
+  const home = createSandbox();
+  home.ParkioI18n.applyLocale('en');
+  assert.equal(home.document.title, home.ParkioI18n.t('en', 'meta.title'));
 });
 
 test('EN dictionary localizes confirm/withdraw chrome without HTTP jargon', () => {

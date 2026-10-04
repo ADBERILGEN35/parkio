@@ -32,16 +32,25 @@ public final class ObjectLockEvidenceObjects implements EvidenceObjects {
         return bucket.keys(prefix);
     }
 
+    /** Every version of the frontier. Other objects are read by their canonical version with {@link #find}. */
     @Override
     public List<byte[]> findAll(String key) {
+        if (!DurableErasureEvidence.FRONTIER_KEY.equals(key)) {
+            throw new IllegalArgumentException("only the frontier is read by all its versions, not " + key);
+        }
         return bucket.allVersions(key).stream().map(ObjectLockBucket.StoredVersion::bytes).toList();
     }
 
+    /**
+     * The first (canonical) version of a record, marker or checkpoint. Refuses the frontier: no
+     * single listed version of it is reliably the current one, so it is read with {@link #findAll}
+     * and verified.
+     */
     @Override
     public Optional<byte[]> find(String key) {
-        Optional<ObjectLockBucket.StoredVersion> version = DurableErasureEvidence.FRONTIER_KEY.equals(key)
-                ? bucket.latest(key)
-                : bucket.oldest(key);
-        return version.map(ObjectLockBucket.StoredVersion::bytes);
+        if (DurableErasureEvidence.FRONTIER_KEY.equals(key)) {
+            throw new IllegalArgumentException("the frontier is read by all its versions (findAll), then verified");
+        }
+        return bucket.oldest(key).map(ObjectLockBucket.StoredVersion::bytes);
     }
 }

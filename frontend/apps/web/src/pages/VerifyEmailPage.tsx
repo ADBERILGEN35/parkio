@@ -1,3 +1,4 @@
+import { isParkioApiError } from '@parkio/api-client';
 import { Button, ErrorMessage, Icon } from '@parkio/ui';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -62,6 +63,17 @@ export function VerifyEmailPage() {
       })
       .catch((error) => {
         if (!current()) return;
+        // A link is spent on first use (CL-F35), so a second click, a second device or a mail
+        // scanner gets INVALID_VERIFICATION_TOKEN for an account that may already be verified.
+        // The copy covers both outcomes; the server keeps no token to tell them apart. It is
+        // rendered from the active locale (no stored message), so a link's lang applies.
+        if (isParkioApiError(error) && error.code === 'INVALID_VERIFICATION_TOKEN') {
+          setApiError(null);
+          setTraceId(error.traceId || undefined);
+          setState('error');
+          showError(t('auth:verifyEmail.invalidLink'));
+          return;
+        }
         const friendly = describeAuthError(error, t('errors:auth.verifyFailed'), t);
         setApiError(friendly.message);
         setTraceId(friendly.traceId);
@@ -103,7 +115,15 @@ export function VerifyEmailPage() {
               message={apiError ?? t('auth:verifyEmail.invalidLink')}
               traceId={traceId}
             />
-            <Button type="button" onClick={() => navigate('/check-email')} className="w-full">
+            <Button type="button" onClick={() => navigate('/login')} className="w-full">
+              {t('auth:verifyEmail.signIn')}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => navigate('/check-email')}
+              className="w-full"
+            >
               {t('auth:verifyEmail.requestNewLink')}
             </Button>
           </>

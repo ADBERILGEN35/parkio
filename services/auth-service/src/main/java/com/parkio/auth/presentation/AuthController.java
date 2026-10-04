@@ -15,6 +15,7 @@ import com.parkio.auth.application.result.RegisterResult;
 import com.parkio.auth.domain.AuthUser;
 import com.parkio.auth.domain.EmailLocale;
 import com.parkio.auth.domain.exception.LoginLockedException;
+import com.parkio.auth.infrastructure.config.AuthRecoveryDispatchConfig;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
 import com.parkio.auth.presentation.dto.AuthResponse;
@@ -39,8 +40,10 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseCookie;
@@ -68,13 +71,16 @@ public class AuthController {
     private final AuthApplicationService authService;
     private final AuthMetrics authMetrics;
     private final RefreshCookieProperties refreshCookie;
+    private final Executor recoveryDispatch;
 
     public AuthController(AuthApplicationService authService,
                           AuthMetrics authMetrics,
-                          RefreshCookieProperties refreshCookie) {
+                          RefreshCookieProperties refreshCookie,
+                          @Qualifier(AuthRecoveryDispatchConfig.EXECUTOR) Executor recoveryDispatch) {
         this.authService = authService;
         this.authMetrics = authMetrics;
         this.refreshCookie = refreshCookie;
+        this.recoveryDispatch = recoveryDispatch;
     }
 
     @Operation(summary = "Register a new account")
@@ -147,15 +153,9 @@ public class AuthController {
     public ResponseEntity<Void> resendVerification(@Valid @RequestBody ResendVerificationRequest request,
                                                    HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        // Enumeration-safe: EmailDeliveryException must leave the service method so
-        // @Transactional rolls back token rotation, then be absorbed here so eligible
-        // accounts cannot be distinguished from unknown/ineligible via HTTP status.
-        try {
-            authService.resendVerification(new ResendVerificationCommand(
-                    request.email(), EmailLocale.fromNullable(request.locale())));
-        } catch (EmailDeliveryException ex) {
-            log.warn("Public verification resend delivery failed; response remains enumeration-safe");
-        }
+        ResendVerificationCommand command = new ResendVerificationCommand(
+                request.email(), EmailLocale.fromNullable(request.locale()));
+        dispatchRecovery("verification resend", () -> authService.resendVerification(command));
         return ResponseEntity.accepted().build();
     }
 
@@ -164,12 +164,9 @@ public class AuthController {
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
                                                HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        try {
-            authService.forgotPassword(new ForgotPasswordCommand(
-                    request.email(), EmailLocale.fromNullable(request.locale())));
-        } catch (EmailDeliveryException ex) {
-            log.warn("Public password-reset delivery failed; response remains enumeration-safe");
-        }
+        ForgotPasswordCommand command = new ForgotPasswordCommand(
+                request.email(), EmailLocale.fromNullable(request.locale()));
+        dispatchRecovery("password-reset", () -> authService.forgotPassword(command));
         return ResponseEntity.ok().build();
     }
 
@@ -311,6 +308,24 @@ public class AuthController {
     private RuntimeException invalidRefreshToken() {
         return new com.parkio.auth.domain.exception.AuthException(
                 com.parkio.auth.domain.exception.AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    /**
+     * Enumeration-safe in status and in time (CL-F14.2): the public recovery work runs after the
+     * response is decided, so neither the provider call nor a delivery failure distinguishes an
+     * eligible account from an unknown or ineligible one. EmailDeliveryException still leaves the
+     * service method, so @Transactional rolls back the token rotation; it is absorbed here.
+     */
+    private void dispatchRecovery(String what, Runnable work) {
+        recoveryDispatch.execute(() -> {
+            try {
+                work.run();
+            } catch (EmailDeliveryException ex) {
+                log.warn("Public {} delivery failed; response remains enumeration-safe", what);
+            } catch (RuntimeException ex) {
+                log.error("Public {} failed after the response was sent", what, ex);
+            }
+        });
     }
 
     private void validateOriginIfPresent(HttpServletRequest request) {

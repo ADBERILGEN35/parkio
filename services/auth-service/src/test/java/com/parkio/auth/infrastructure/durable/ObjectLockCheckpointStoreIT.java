@@ -121,7 +121,7 @@ class ObjectLockCheckpointStoreIT {
         assertThat(published.bytes()).isEqualTo(DurableErasureEvidence.checkpoint(1, entries, DATABASE, PRODUCER));
         assertThat(bucket.oldest(DurableErasureEvidence.sequenceKey(1)).orElseThrow().bytes())
                 .isEqualTo(DurableErasureEvidence.sequenceMarker(1, DurableErasureEvidence.CHECKPOINT_RESERVATION));
-        assertThat(bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes())
+        assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier()))
                 .isEqualTo(DurableErasureEvidence.frontier(1, 1, DATABASE, PRODUCER));
         assertThat(checkpoint.ledgerDigest()).isEqualTo(verifier().verifyCheckpoint(published.bytes()).ledgerDigest());
         Retention retention = bucket.retention(key, published.versionId());
@@ -153,7 +153,7 @@ class ObjectLockCheckpointStoreIT {
     void aFailedCaptureReservesAndPublishesNothing() {
         store.putIfAbsent(record());
         List<String> before = bucket.keys("");
-        byte[] frontierBefore = bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes();
+        byte[] frontierBefore = ObjectLockTestBuckets.currentFrontier(bucket, verifier());
         int frontierVersionsBefore = bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY);
 
         assertThatThrownBy(() -> store.publishCheckpoint(() -> {
@@ -161,7 +161,7 @@ class ObjectLockCheckpointStoreIT {
         })).isInstanceOf(IllegalStateException.class).hasMessageContaining("lock timeout");
 
         assertThat(bucket.keys("")).isEqualTo(before);
-        assertThat(bucket.latest(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().bytes()).isEqualTo(frontierBefore);
+        assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier())).isEqualTo(frontierBefore);
         assertThat(bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY)).isEqualTo(frontierVersionsBefore);
     }
 

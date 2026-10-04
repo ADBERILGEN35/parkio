@@ -118,6 +118,7 @@ redrive scoped to one service.
 | `parkio.dlt.auth` | auth | 3 | 14d |
 | `parkio.dlt.user` | user | 3 | 14d |
 | `parkio.dlt.parking` | parking | 3 | 14d |
+| `parkio.dlt.media` | media | 3 | 14d |
 | `parkio.dlt.gamification` | gamification | 3 | 14d |
 | `parkio.dlt.notification` | notification | 3 | 14d |
 | `parkio.dlt.moderation` | moderation | 3 | 14d |

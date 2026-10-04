@@ -1,10 +1,12 @@
 package com.parkio.auth.application.support;
 
 import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,12 +59,18 @@ public final class InMemoryDurableErasureRecordStore implements DurableErasureRe
         }
         DurableErasureRecord existing = records.putIfAbsent(record.erasureRequestId(), record);
         if (existing == null) {
-            return DurableErasurePutResult.created(record);
+            return DurableErasurePutResult.created(record, receipt(record));
         }
         if (!existing.bodyDigest().equals(record.bodyDigest())) {
-            return DurableErasurePutResult.conflict(existing);
+            return DurableErasurePutResult.conflict(existing, receipt(existing));
         }
-        return DurableErasurePutResult.existing(existing);
+        return DurableErasurePutResult.existing(existing, receipt(existing));
+    }
+
+    /** Synthetic: this adapter has no versions and no lock. */
+    private static DurableErasureReceipt receipt(DurableErasureRecord record) {
+        return new DurableErasureReceipt("in-memory:" + record.erasureRequestId(), record.bodyDigest(), "NONE",
+                Instant.EPOCH);
     }
 
     @Override

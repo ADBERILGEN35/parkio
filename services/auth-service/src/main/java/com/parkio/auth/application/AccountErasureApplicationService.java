@@ -2,6 +2,7 @@ package com.parkio.auth.application;
 
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.DurableErasurePutResult;
+import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.InboxEventRepository;
@@ -11,6 +12,7 @@ import com.parkio.auth.application.port.PasswordResetRepository;
 import com.parkio.auth.application.port.RefreshTokenRepository;
 import com.parkio.auth.application.result.AccountDeletionStatusView;
 import com.parkio.auth.domain.AuthUser;
+import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.RefreshTokenRevocationReason;
 import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.domain.event.UserErasureRequestedEvent;
@@ -45,6 +47,7 @@ import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -331,6 +334,34 @@ public class AccountErasureApplicationService {
     }
 
     /**
+     * Auth's own share of a restore replay (docs/architecture/erasure-restore-replay-contract.md):
+     * brings one user of a trusted erasure set back to the erased end state in a restored database.
+     * The tombstone is kept, or recreated with the original {@code erasedAt}; active refresh and
+     * reset tokens are revoked; the account's login identifiers are replaced as when an erasure
+     * completes. Erasure request rows and their public status are not created or changed. Idempotent.
+     * Runs only inside the caller's transaction, so the caller can commit it together with auth's
+     * restore ACK.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void replayLocalErasureForRestore(UUID authUserId, Instant erasedAt) {
+        Instant now = erasureTime();
+        if (!tombstones.existsById(authUserId)) {
+            tombstones.save(new ErasedUserTombstoneEntity(authUserId, erasedAt));
+        }
+        refreshTokens.revokeAllActiveForUser(authUserId, RefreshTokenRevocationReason.ACCOUNT_ERASURE, now);
+        passwordResets.consumeActiveForUser(authUserId, now);
+        AuthUser user = users.findById(authUserId).orElse(null);
+        if (user == null || user.status() == AuthUserStatus.ERASED) {
+            return;
+        }
+        user.beginErasure(now);
+        String tombstoneEmail = "erased-" + user.id() + "@invalid.localhost";
+        user.finishErasure(tombstoneEmail, passwordHasher.hash(UUID.randomUUID().toString()), now);
+        users.save(user);
+        log.info("erasure restore replay service=auth status=ERASED");
+    }
+
+    /**
      * The time a new erasure request, its tombstone and its event carry, at PostgreSQL's
      * microsecond precision. The JDBC driver rounds a nanosecond instant when it stores it, while
      * evidence format v1 truncates {@code erasedAt}; with sub-microsecond digits the after-commit
@@ -351,6 +382,10 @@ public class AccountErasureApplicationService {
         if (result.conflict()) {
             throw new AuthException(AuthErrorCode.CONFLICT, "ambiguous durable recording retry");
         }
+        DurableErasureReceipt receipt = result.receipt();
+        log.info("erasure durable receipt requestId={} created={} versionId={} sha256={} lock={} until={}",
+                candidate.erasureRequestId(), result.created(), receipt.versionId(), receipt.sha256(),
+                receipt.retentionMode(), receipt.retainUntil());
     }
 
     /**

@@ -112,6 +112,7 @@ class ObjectLockFrontierVersionOrderIT {
         assertThat(verdict.verdict()).isEqualTo(Verdict.ACCEPT_ISOLATED);
         assertThat(verdict.expectedThrough()).isEqualTo(3L);
         assertThat(verdict.pending()).hasSize(3);
+        assertThat(verdict.ignoredFrontierVersions()).isZero();
     }
 
     @Test
@@ -130,6 +131,7 @@ class ObjectLockFrontierVersionOrderIT {
         assertThat(store.findByRequestId(next.erasureRequestId())).contains(next);
         RecoveryVerdict verdict = verifier().recover(new ObjectLockEvidenceObjects(bucket()), 2L);
         assertThat(verdict.expectedThrough()).isEqualTo(2L);
+        assertThat(verdict.ignoredFrontierVersions()).isOne();
     }
 
     @Test

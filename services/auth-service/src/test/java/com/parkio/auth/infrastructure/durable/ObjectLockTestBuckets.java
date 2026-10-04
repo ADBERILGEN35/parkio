@@ -1,5 +1,9 @@
 package com.parkio.auth.infrastructure.durable;
 
+import com.parkio.auth.application.durable.DurableErasureEvidence;
+import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
+import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier.VerifiedFrontier;
+import com.parkio.auth.application.durable.DurableEvidenceException;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
@@ -8,6 +12,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Disposable MinIO helpers for the object-lock ITs. MinIO answers {@code /minio/health/ready}
@@ -36,6 +41,33 @@ public final class ObjectLockTestBuckets {
                 Thread.sleep(250);
             }
         }
+    }
+
+    /**
+     * The bytes of the frontier version a store treats as current: its highest verified version.
+     * Never the first listed version, which a backward clock step on the store host can make stale.
+     */
+    static byte[] currentFrontier(ObjectLockBucket bucket, DurableErasureEvidenceVerifier verifier) {
+        byte[] current = null;
+        VerifiedFrontier highest = null;
+        for (ObjectLockBucket.StoredVersion version : bucket.allVersions(DurableErasureEvidence.FRONTIER_KEY)) {
+            VerifiedFrontier frontier;
+            try {
+                frontier = verifier.verifyFrontier(Optional.of(version.bytes())).orElseThrow();
+            } catch (DurableEvidenceException ignored) {
+                continue;
+            }
+            if (highest == null || frontier.expectedThrough() > highest.expectedThrough()
+                    || (frontier.expectedThrough() == highest.expectedThrough()
+                            && frontier.highestReserved() > highest.highestReserved())) {
+                highest = frontier;
+                current = version.bytes();
+            }
+        }
+        if (current == null) {
+            throw new AssertionError("no verified frontier version");
+        }
+        return current;
     }
 
     public static void awaitReady(String endpoint) throws Exception {
