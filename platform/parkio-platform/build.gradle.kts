@@ -19,6 +19,9 @@ repositories {
 
 dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:${libs.versions.springBoot.get()}"))
+    // The Boot BOM pins a vulnerable Jackson. Services override it through the dependency-management
+    // plugin (jackson-bom.version); this keeps the platform's own classpaths on the same patched release.
+    api(platform("com.fasterxml.jackson:jackson-bom:${project.property("jacksonBomVersion")}"))
     api(libs.kafka.clients)
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")

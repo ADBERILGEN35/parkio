@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { clearPendingProfile, setPendingProfile } from '@/auth/pendingProfile';
 import { AUTH_RETURN_QUERY_PARAM } from '@/auth/redirect';
+import { useLocaleStore } from '@/i18n/localeStore';
 import { API_BASE, apiErrorBody, server } from '@/test/server';
 import { renderWithProviders } from '@/test/utils';
 import { AccountPreparingPage } from './AccountPreparingPage';
@@ -58,6 +59,20 @@ async function fillAndSubmit(email: string, password: string) {
 
 describe('LoginPage', () => {
   beforeEach(() => clearPendingProfile());
+
+  it('renders in the language of a login link over a stored preference (CL-F21)', async () => {
+    useLocaleStore.getState().setLocale('tr');
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+      </Routes>,
+      { initialEntries: ['/login?lang=en'] },
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(useLocaleStore.getState().locale).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
 
   it('stores the session and redirects to /map on success', async () => {
     server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.json(authResponse)));

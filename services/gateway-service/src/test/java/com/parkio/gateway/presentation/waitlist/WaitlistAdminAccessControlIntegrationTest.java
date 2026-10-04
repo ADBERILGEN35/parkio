@@ -93,7 +93,8 @@ class WaitlistAdminAccessControlIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        when(repository.exportConfirmed(any(), any())).thenReturn(List.of());
+        when(repository.countConfirmedForExport(any(), any())).thenReturn(0L);
+        when(repository.exportConfirmedPage(any(), any(), any(), anyInt())).thenReturn(List.of());
         when(repository.countByStatus()).thenReturn(new WaitlistAdminCounts(0, 0, 0, 0));
         when(repository.findAdminPage(any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new WaitlistAdminPage(List.of(), 0, 20, 0, 0));
@@ -375,7 +376,8 @@ class WaitlistAdminAccessControlIntegrationTest {
     }
 
     private void assertNoAdminRepositoryCalls() {
-        verify(repository, never()).exportConfirmed(any(), any());
+        verify(repository, never()).countConfirmedForExport(any(), any());
+        verify(repository, never()).exportConfirmedPage(any(), any(), any(), anyInt());
         verify(repository, never()).countByStatus();
         verify(repository, never()).findAdminPage(any(), any(), any(), anyInt(), anyInt());
         clearInvocations(repository);

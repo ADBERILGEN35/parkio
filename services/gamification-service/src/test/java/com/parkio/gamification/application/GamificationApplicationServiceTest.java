@@ -29,6 +29,7 @@ import com.parkio.gamification.domain.TrustRule;
 import com.parkio.gamification.domain.TrustScore;
 import com.parkio.gamification.domain.UserLevelProgress;
 import com.parkio.gamification.domain.event.GamificationEvent;
+import com.parkio.gamification.domain.event.PointsEarnedEvent;
 import com.parkio.gamification.domain.event.TrustScoreUpdatedEvent;
 import com.parkio.gamification.domain.event.UserLevelChangedEvent;
 import java.time.Clock;
@@ -233,6 +234,39 @@ class GamificationApplicationServiceTest {
     }
 
     @Test
+    void pointsAndLevelEventsCarryTheProgressVersionOfTheirChange() {
+        UUID owner = UUID.randomUUID();
+        for (int i = 0; i < 4; i++) {
+            service.handleParkingSpotClaimed(
+                    new ParkingSpotClaimedEvent(UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW));
+        }
+
+        List<Long> versions = outbox.eventsOfType("PointsEarned").stream()
+                .map(PointsEarnedEvent.class::cast)
+                .filter(event -> event.userId().equals(owner))
+                .map(PointsEarnedEvent::aggregateVersion)
+                .toList();
+        assertThat(versions).containsExactly(0L, 1L, 2L, 3L);
+        // The fourth claim (90 -> 120) crossed into level 2: same change, same version.
+        UserLevelChangedEvent levelChange = (UserLevelChangedEvent) outbox.eventsOfType("UserLevelChanged").get(0);
+        assertThat(levelChange.aggregateVersion()).isEqualTo(3L);
+    }
+
+    @Test
+    void trustEventsCarryTheTrustScoreVersionOfTheirChange() {
+        UUID owner = UUID.randomUUID();
+        service.handleParkingSpotRejectedByModerator(new ParkingSpotRejectedByModeratorEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                "ILLEGAL_OR_RISKY", NOW)); // 100 -> 90
+        service.handleParkingSpotClaimed(new ParkingSpotClaimedEvent(
+                UUID.randomUUID(), UUID.randomUUID(), owner, UUID.randomUUID(), NOW)); // +1 -> 91
+
+        assertThat(outbox.eventsOfType("TrustScoreUpdated").stream()
+                .map(event -> ((TrustScoreUpdatedEvent) event).aggregateVersion())
+                .toList()).containsExactly(0L, 1L);
+    }
+
+    @Test
     void accessPolicyForUnknownUserReflectsLevelOne() {
         AccessPolicy policy = service.getAccessPolicy(UUID.randomUUID());
 
@@ -340,10 +374,13 @@ class GamificationApplicationServiceTest {
     private static final class FakeProgressRepository implements UserLevelProgressRepository {
         private final Map<UUID, UserLevelProgress> byUser = new HashMap<>();
 
+        /** Like the JPA adapter: a new row gets version 0 and every later save the next one. */
         @Override
         public UserLevelProgress save(UserLevelProgress p) {
-            byUser.put(p.userId(), p);
-            return p;
+            UserLevelProgress saved = new UserLevelProgress(p.userId(), p.totalPoints(), p.currentLevel(),
+                    p.createdAt(), p.updatedAt(), p.version() == null ? 0L : p.version() + 1);
+            byUser.put(p.userId(), saved);
+            return saved;
         }
 
         @Override
@@ -427,10 +464,13 @@ class GamificationApplicationServiceTest {
     private static final class FakeTrustScoreRepository implements TrustScoreRepository {
         private final Map<UUID, TrustScore> byUser = new HashMap<>();
 
+        /** Like the JPA adapter: a new row gets version 0 and every later save the next one. */
         @Override
         public TrustScore save(TrustScore trustScore) {
-            byUser.put(trustScore.userId(), trustScore);
-            return trustScore;
+            TrustScore saved = new TrustScore(trustScore.userId(), trustScore.score(), trustScore.createdAt(),
+                    trustScore.updatedAt(), trustScore.version() == null ? 0L : trustScore.version() + 1);
+            byUser.put(trustScore.userId(), saved);
+            return saved;
         }
 
         @Override

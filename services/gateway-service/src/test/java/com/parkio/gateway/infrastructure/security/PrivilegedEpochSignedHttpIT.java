@@ -159,7 +159,8 @@ class PrivilegedEpochSignedHttpIT {
     @BeforeEach
     void stubs() {
         when(userStatusClient.fetchStatus(anyString())).thenReturn(Mono.just(UserStatusLookup.found("ACTIVE")));
-        when(repository.exportConfirmed(any(), any())).thenReturn(List.of());
+        when(repository.countConfirmedForExport(any(), any())).thenReturn(0L);
+        when(repository.exportConfirmedPage(any(), any(), any(), anyInt())).thenReturn(List.of());
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
         when(repository.countByStatus()).thenReturn(new WaitlistAdminCounts(0, 0, 0, 0));
         when(repository.findAdminPage(any(), any(), any(), anyInt(), anyInt()))
