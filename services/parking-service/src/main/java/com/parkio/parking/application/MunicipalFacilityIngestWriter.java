@@ -6,6 +6,7 @@ import com.parkio.parking.application.port.MunicipalSourceLinkRepository;
 import com.parkio.parking.externalsource.NormalizedMunicipalFacility;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,6 +36,12 @@ public class MunicipalFacilityIngestWriter {
 
     public record FacilityPersistResult(
             UUID facilityId, boolean inserted, boolean changed, boolean occupancyInserted) {}
+
+    /** The previous run's occupancy records of a source, for the unchanged-feed check (CL-F22). */
+    public Map<String, MunicipalOccupancySnapshotRepository.PreviousObservation> latestRunObservations(
+            UUID sourceId) {
+        return snapshots.latestRunObservations(sourceId);
+    }
 
     @Transactional
     public FacilityPersistResult persistLiveAdapterFacility(

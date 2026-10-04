@@ -240,8 +240,11 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
         Instant staleCutoff = now.minusSeconds(Math.max(0, staleSeconds));
         return jdbc.sql("""
                 WITH latest AS (
+                    -- Age a reading from its observation time, as both query services do: an unchanged
+                    -- feed keeps the time of the last run in which it changed (CL-F22 (c)).
                     SELECT DISTINCT ON (o.facility_id)
-                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status
+                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status,
+                           LEAST(COALESCE(o.source_observed_at, o.fetched_at), o.fetched_at) AS observed_at
                     FROM municipal_occupancy_snapshots o
                     JOIN municipal_data_sources s ON s.id = o.source_id
                     JOIN municipal_parking_facilities f ON f.id = o.facility_id AND f.active = TRUE
@@ -249,11 +252,11 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                     ORDER BY o.facility_id, o.fetched_at DESC
                 )
                 SELECT
-                    count(*) FILTER (WHERE fetched_at >= :agingCutoff)::bigint AS live,
-                    count(*) FILTER (WHERE fetched_at < :agingCutoff
-                                       AND fetched_at >= :staleCutoff)::bigint AS aging,
-                    count(*) FILTER (WHERE fetched_at < :staleCutoff)::bigint AS stale,
-                    count(*) FILTER (WHERE fetched_at >= :staleCutoff
+                    count(*) FILTER (WHERE observed_at >= :agingCutoff)::bigint AS live,
+                    count(*) FILTER (WHERE observed_at < :agingCutoff
+                                       AND observed_at >= :staleCutoff)::bigint AS aging,
+                    count(*) FILTER (WHERE observed_at < :staleCutoff)::bigint AS stale,
+                    count(*) FILTER (WHERE observed_at >= :staleCutoff
                                        AND available_spaces IS NOT NULL
                                        AND occupancy_status <> 'UNAVAILABLE')::bigint AS availability_exposed,
                     count(*)::bigint AS total
@@ -302,7 +305,8 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                 ),
                 izum_latest AS (
                     SELECT DISTINCT ON (o.facility_id)
-                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status
+                           o.facility_id, o.fetched_at, o.available_spaces, o.occupancy_status,
+                           LEAST(COALESCE(o.source_observed_at, o.fetched_at), o.fetched_at) AS observed_at
                     FROM municipal_occupancy_snapshots o
                     JOIN municipal_data_sources d ON d.id = o.source_id
                     WHERE d.source_key = :izumKey
@@ -318,7 +322,7 @@ public class MunicipalQualityReportQueryAdapter implements MunicipalQualityRepor
                        f.longitude,
                        (osm.facility_id IS NOT NULL) AS osm_linked,
                        (izum.facility_id IS NOT NULL) AS izum_linked,
-                       (izum_latest.fetched_at >= :staleCutoff
+                       (izum_latest.observed_at >= :staleCutoff
                           AND izum_latest.available_spaces IS NOT NULL
                           AND izum_latest.occupancy_status <> 'UNAVAILABLE') AS izum_exposed,
                        (osm.label_outcome IN (:realName, :localized)) AS osm_real_name,

@@ -91,6 +91,33 @@ must keep age-based SLA.
 
 Public STALE masking remains authoritative for availability. Do **not** raise aging/stale thresholds to hide upstream outages.
 
+### Unchanged feeds without source timestamps (CL-F22)
+
+İZUM and İSPARK readings carry only the fetch time (`timestamp_provenance = FETCH`), so a frozen
+upstream cache would look LIVE on every fetch.
+
+- **Rule.** A run that returns exactly the previous run's records, with the same external ids and the
+  same raw record hashes, observed nothing new. Each reading keeps the previous run's observation
+  time in `source_observed_at`, which is the fetch time of the last run in which the feed changed.
+  - The source's own aging/stale thresholds then apply to that time through `source_age_seconds`,
+    so a frozen upstream cache goes AGING, then STALE. The operator quality report ages İZUM
+    readings from the same time.
+  - Any changed, added or missing record means the feed is moving, and readings use the fetch time
+    again.
+  - The rule is all-or-nothing: an upstream in which only some car parks are stuck is not detected.
+- **Logs.** The first unchanged run of a streak logs
+  `municipal_sync_feed_unchanged sourceKey=… records=… unchangedSince=…` at WARN. Every later run of
+  the same streak logs `municipal_sync_feed_still_unchanged` at INFO; for İZUM that is every 2 minutes
+  at the default `parkio.municipal.izum.fixed-delay-ms`.
+- **Signal.** A source-level `occupancy_freshness` gauge in AGING/STALE while the source is HEALTHY
+  is the sign of a frozen upstream.
+- **Side effects.**
+  - If every car park of a source keeps exactly the same counts for longer than the stale threshold
+    (for example overnight), the whole source reads STALE and publishes no space counts until a count
+    changes.
+  - After a sync outage longer than the stale threshold, a first successful run that returns the
+    content of the last run before the outage is STALE at once.
+
 ### İZUM readings with nothing to publish (CL-F22)
 
 Two rules keep an İZUM reading that has no occupancy to publish from looking LIVE. The operator
