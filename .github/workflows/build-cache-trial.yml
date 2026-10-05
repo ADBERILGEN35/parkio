@@ -1,0 +1,77 @@
+# BuildKit/Gradle build-cache trial (owner decision 6, 2026-10-05).
+#
+# user-service and gamification-service mount a BuildKit cache at the Gradle user home for their
+# bootJar step. scripts/ci/build_cache_trial.py builds each four times on this runner's daemon:
+#   - without and with the cache, cold, which are equivalent builds;
+#   - without and with the cache after a one-line change to the service, also equivalent.
+# It requires byte-identical jars for the same source, and the change in both warm jars, so the
+# cache can neither alter an image nor hide a changed input. It records the four build times for the
+# decision whether to expand the cache; it does not judge them.
+#
+# The trial measures what one runner gains from its own cache. No cache is shared between jobs or
+# workflows, nothing is pushed, and the Actions cache is not used. The cache mounts are emptied with
+# --prune-cache-mounts, which is safe only on this disposable runner. The Dockerfile change itself is
+# scanned by Security CI's container scan, which selects both services.
+
+name: Build cache trial
+
+on:
+  pull_request:
+    branches: [api]
+    paths:
+      - "scripts/ci/build_cache_trial.py"
+      - "scripts/ci/test_build_cache_trial.py"
+      - ".github/workflows/build-cache-trial.yml"
+      - "services/user-service/Dockerfile"
+      - "services/gamification-service/Dockerfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-cache-trial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trial:
+    name: Cold and warm builds with and without the Gradle cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # A pull request runs on its merge commit: the first parent is the base branch, whose
+          # Dockerfiles the trial ones must equal apart from the cache mount.
+          fetch-depth: 2
+
+      - name: Unit tests
+        run: python3 scripts/ci/test_build_cache_trial.py
+
+      - name: Build, compare and time
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          baseline=()
+          if [ "$EVENT_NAME" = "pull_request" ]; then baseline=(--baseline-ref HEAD^1); fi
+          status=0
+          python3 scripts/ci/build_cache_trial.py \
+            --service user-service --service gamification-service \
+            --context . --revision "$(git rev-parse HEAD)" --prune-cache-mounts \
+            --out "$RUNNER_TEMP/build-cache-trial" "${baseline[@]}" || status=$?
+          if [ -f "$RUNNER_TEMP/build-cache-trial/summary.md" ]; then
+            { echo "### Build cache trial"; cat "$RUNNER_TEMP/build-cache-trial/summary.md"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Upload the trial report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-cache-trial-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/build-cache-trial/
+          retention-days: 30
+          if-no-files-found: error

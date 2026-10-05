@@ -5,7 +5,11 @@ FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
-RUN ./gradlew :services:user-service:bootJar --no-daemon
+# Build-cache trial (owner decision 6, 2026-10-05): Gradle's user home (wrapper distribution,
+# dependencies, build cache) is a BuildKit cache mount shared by the trial services. It never
+# enters a layer, and scripts/ci/build_cache_trial.py checks the jar is byte-identical without it.
+RUN --mount=type=cache,id=parkio-gradle-home,target=/root/.gradle \
+    ./gradlew :services:user-service:bootJar --no-daemon
 
 # ---- runtime stage ----
 FROM eclipse-temurin:21-jre AS runtime
