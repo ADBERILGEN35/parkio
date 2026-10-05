@@ -1,7 +1,18 @@
-# Conservative weekly dependency updates for the Gradle build (version catalog
-# + wrapper), the pnpm frontend workspace, Docker base images and GitHub Actions
-# used by CI. Low PR limits keep the noise down; security updates are always
-# raised regardless of these schedules.
+# Weekly version updates for the Gradle build (version catalog + wrapper), the pnpm frontend
+# workspace, Docker base images and GitHub Actions.
+#
+# Target branch (U08, CL-F07R; owner approval 2026-10-05, strategy in api's
+# docs/security/DEPENDENCY-UPDATE-AND-VULNERABILITY-STRATEGY.md): GitHub reads this file from the
+# default branch (master) only, so every entry sets `target-branch: "api"`. Update PRs open against
+# api, the release line, and are built from api's manifests. Minor and patch updates are grouped
+# per ecosystem so each weekly cycle opens few PRs, and major updates stay separate. Dependabot
+# security updates stay disabled while master is not the release line (owner decision O7).
+#
+# Not covered, by owner decision O8:
+# - Compose image pins under docker/ stay with the release process, which changes digests only in
+#   release PRs.
+# - scripts/newrelic_log_pilot's helper Dockerfile is an acceptance helper, not a shipped image.
+# - Terraform provider locks: no entry, because the Azure path is deprecated (B7).
 #
 # Dependency-line policy
 # ----------------------
@@ -12,17 +23,24 @@
 # their major bumps are ignored below. Patch and minor updates — including
 # in-line security fixes — are still raised normally. Removing an `ignore` entry
 # is the explicit signal that the corresponding migration has been scheduled.
+# The majors added by owner decision O4 (V3) are migration projects, not weekly
+# updates: Java base images beyond 21 LTS, Gradle 9, kafka-clients 4 and Babel 8 on
+# the Expo toolchain.
 version: 2
 
 updates:
   - package-ecosystem: gradle
     directory: "/"
+    target-branch: "api"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     labels:
       - dependencies
-    # Block only `semver-major` for these two libraries; patch/minor (and
+    groups:
+      gradle-minor-and-patch:
+        update-types: ["minor", "patch"]
+    # Block only `semver-major` for these libraries; patch/minor (and
     # security patches within the current major) continue to flow. This keeps
     # Dependabot useful without proposing upgrades that break the build.
     ignore:
@@ -40,112 +58,69 @@ updates:
       # not this line. See README "Dependency-line policy".
       - dependency-name: "org.springdoc:springdoc-openapi-starter-webmvc-ui"
         update-types: ["version-update:semver-major"]
+      # Gradle 9 (#22) is a build migration project (V3).
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
+      # kafka-clients 4 (#23) is a broker-protocol migration project (V3).
+      - dependency-name: "org.apache.kafka:kafka-clients"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: "api"
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
     labels:
       - dependencies
+    groups:
+      github-actions-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: "/frontend"
+    target-branch: "api"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     labels:
       - dependencies
       - frontend
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Babel 8 (#28) on the Expo mobile toolchain is a migration project (V3).
+      - dependency-name: "@babel/core"
+        update-types: ["version-update:semver-major"]
 
-  # Docker ecosystem entries are per directory, so every runtime service
-  # Dockerfile is listed explicitly. Keep this list aligned with
-  # `.github/workflows/security-ci.yml`'s image scan matrix.
+  # One docker entry covers every runtime Dockerfile: the ten services, docker/ and the web
+  # image. Keep this list aligned with `.github/workflows/security-ci.yml`'s image scan matrix.
   - package-ecosystem: docker
-    directory: "/services/ai-validation-service"
+    directories:
+      - "/services/ai-validation-service"
+      - "/services/analytics-service"
+      - "/services/auth-service"
+      - "/services/gamification-service"
+      - "/services/gateway-service"
+      - "/services/media-service"
+      - "/services/moderation-service"
+      - "/services/notification-service"
+      - "/services/parking-service"
+      - "/services/user-service"
+      - "/docker"
+      - "/frontend/apps/web"
+    target-branch: "api"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 5
     labels:
       - dependencies
       - docker
-  - package-ecosystem: docker
-    directory: "/services/analytics-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/auth-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/gamification-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/gateway-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/media-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/moderation-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/notification-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/parking-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/services/user-service"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    labels:
-      - dependencies
-      - docker
-  - package-ecosystem: docker
-    directory: "/docker"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - docker
+    groups:
+      docker-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Java base images stay on the 21 LTS line (#32–#41 proposed the non-LTS 24-jre, V3).
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
