@@ -677,6 +677,65 @@ parkio_effective_feature_configuration_json() {
         --public-explore-authorization "${PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION:-}"
 }
 
+# F-INV-3 (owner decision 2026-10-05): the deployed release's recorded manifest. A deploy or a
+# rollback records the manifest of the release it is about to start, before any of its containers
+# start: Flyway may apply that release's migrations as soon as a service starts, even if the start
+# then fails. A later rollback reads this record, never a checkout's deploy-artifacts/current.json,
+# to know the live schema (parkio_assert_rollback_schema_compatible). A rollback is often a new
+# workflow run on a clean checkout, so the record lives outside any checkout, in one place per host
+# that every deployer shares (#290 review B2: a per-user record lets another user's older record pass):
+#   - invite-production: its runtime root, beside the `current` release link (/opt/parkio/invite-production);
+#   - hosted-beta and azure-hosted-beta: /var/lib/parkio/<profile>. Every user who deploys or rolls back
+#     on the host must be able to write it, for example:
+#       sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta
+#   - local-dev (--no-hosted-beta-overlay, a developer machine): ${XDG_STATE_HOME:-$HOME/.local/state}/parkio/local-dev.
+# PARKIO_DEPLOY_STATE_DIR overrides all of them; the override is logged.
+parkio_deploy_state_dir() {
+  if [ -n "${PARKIO_DEPLOY_STATE_DIR:-}" ]; then
+    echo "NOTE: deploy state directory overridden by PARKIO_DEPLOY_STATE_DIR: $PARKIO_DEPLOY_STATE_DIR" >&2
+    printf '%s\n' "$PARKIO_DEPLOY_STATE_DIR"
+    return 0
+  fi
+  case "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" in
+    invite-production) printf '%s\n' "${PARKIO_RUNTIME_ROOT:-/opt/parkio/invite-production}" ;;
+    local-dev) printf '%s/parkio/local-dev\n' "${XDG_STATE_HOME:-$HOME/.local/state}" ;;
+    *) printf '/var/lib/parkio/%s\n' "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" ;;
+  esac
+}
+
+# parkio_assert_deploy_state_dir_writable: exit-3-style refusal (returns 3) when the deploy state
+# directory cannot be created or written, so a live deploy stops before it builds or starts anything.
+parkio_assert_deploy_state_dir_writable() {
+  local dir
+  dir="$(parkio_deploy_state_dir)"
+  if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
+    echo "ERROR: the deploy state directory $dir is not writable by $(id -un)." >&2
+    echo "       A deploy records the deployed release's manifest there, and a rollback refuses without it" >&2
+    echo "       (F-INV-3). Create it for every deployer, e.g.: sudo install -d -m 2775 -g <group> $dir" >&2
+    return 3
+  fi
+}
+
+parkio_deployed_manifest_path() {
+  printf '%s/deployed-manifest.json\n' "$(parkio_deploy_state_dir)"
+}
+
+# parkio_record_deployed_manifest MANIFEST: atomically records MANIFEST as the deployed release's.
+# Returns non-zero, leaving the previous record in place, when it cannot; callers test the status,
+# so each step checks its own.
+parkio_record_deployed_manifest() {
+  local manifest="$1" dest tmp
+  dest="$(parkio_deployed_manifest_path)" || return 1
+  mkdir -p "$(dirname "$dest")" || return 1
+  tmp="$dest.tmp.$$"
+  if ! cp -- "$manifest" "$tmp" || ! mv -f -T -- "$tmp" "$dest"; then
+    rm -f -- "$tmp"
+    echo "ERROR: cannot record the deployed release's manifest at $dest" >&2
+    return 1
+  fi
+  echo "Deployed release manifest recorded: $dest"
+}
+
 parkio_wait_healthy() {
   local env_file="$1"
   local timeout_s="${2:-900}"
@@ -845,18 +904,27 @@ parkio_write_manifest() {
   disabled_services_json="$(parkio_disabled_services_json)"
   # hosted-beta (CL-F12): `images` lists only the services the model builds, under the tags this
   # deploy gives them and a rollback re-points to; `pinnedImages` lists the digest pins it runs.
+  # azure-hosted-beta keeps every app service in `images` (docker-compose.images.yml tags them all),
+  # and records the pins that win over those tags too: a rollback is refused when its pins differ
+  # from the deployed release's (#290 review B1).
   pinned_images_json="null"
-  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ] || [ "$PARKIO_DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
     plan="${PARKIO_HOSTED_BETA_IMAGE_PLAN:-}"
     if [ -z "$plan" ]; then
       plan="$(parkio_hosted_beta_image_plan "$env_file")" || return 2
     fi
-    image_services=()
+    if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+      image_services=()
+    fi
     pinned_images_json="{"
     first=1
     while IFS=$'\t' read -r kind svc image platform; do
       case "$kind" in
-        built) image_services+=("$svc") ;;
+        built)
+          if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+            image_services+=("$svc")
+          fi
+          ;;
         pinned)
           if [ "$first" -eq 1 ]; then first=0; else pinned_images_json+=","; fi
           pinned_images_json+="\"${svc}\":\"${image}\""

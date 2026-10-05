@@ -168,13 +168,18 @@ What the script does:
    Other profiles build **all** app images (`docker compose build`) and tag each `beta-latest`.
 4. Writes the plan into the manifest:
    - `images`: the built services and their `sha-` tags;
-   - `pinnedImages`: the digest pins.
-5. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
-6. Waits for readiness healthchecks
-7. Runs `scripts/smoke-hosted-beta.sh`
-8. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
+   - `pinnedImages`: the digest pins. azure-hosted-beta manifests record them too, beside every app service in `images`.
+5. Records the manifest as the deployed release's, before anything starts (F-INV-3).
+   - **Where:** `deployed-manifest.json`, outside the checkout, in one directory per host: `/var/lib/parkio/<profile>` for hosted-beta and azure-hosted-beta, the runtime root for invite-production, and `${XDG_STATE_HOME:-~/.local/state}/parkio/local-dev` for local-dev. `PARKIO_DEPLOY_STATE_DIR` overrides it; the scripts say so.
+   - **Why:** the rollback's schema gate reads it to know the live schema and the digest pins that run. It refuses without it.
+   - **Who writes it:** every deploy and rollback on the host, whichever user runs it.
+   - **Prerequisite:** create the directory once, writable by every user who deploys or rolls back, for example `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. A live deploy refuses (exit 3) before it builds anything when it cannot write there.
+6. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
+7. Waits for readiness healthchecks
+8. Runs `scripts/smoke-hosted-beta.sh`
+9. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
    (includes `images`, `composeFiles`, `migrationVersions`, `rollbackCommand`)
-9. Prints the rollback command
+10. Prints the rollback command
 
 ### Verify the running commit
 
@@ -229,6 +234,12 @@ running `deploy-hosted-beta.sh` by hand.
 - **Docker Compose version.**
 - **Platform.** It is `linux/amd64`, because the production model sets `platform: linux/amd64`.
 - **Registry access.** It can read the GHCR digest pins: gateway, auth, parking, media and web, as it already does for the MinIO images. Packages that are not public need a `docker login ghcr.io` with read access. Without it, the deploy stops at the pull, before any build.
+
+**Operator step on that host (F-INV-3, #290): create the deploy state directory.**
+- Run once, before the next deploy: `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. The group must include the runner user and every operator who deploys or rolls back.
+- Without it, the deploy refuses (exit 3) before it pulls or builds anything: "the deploy state directory /var/lib/parkio/hosted-beta is not writable".
+- That deploy records `deployed-manifest.json` there. Until a deploy has recorded it, every live rollback is refused (see the [rollback runbook](./rollback-runbook.md)).
+- An azure-hosted-beta host needs `/var/lib/parkio/azure-hosted-beta` in the same way. Its rollbacks are refused until an azure deploy records its digest pins.
 
 **What changes on that host at the next deploy:**
 - **Observability services.** The deploy no longer starts `alertmanager`, `loki`, `promtail` and `tempo`.

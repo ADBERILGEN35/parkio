@@ -12,7 +12,8 @@
 #     shim that answers `image inspect`, renders `compose ... config` with the real docker and refuses
 #     everything else): a release without one of the listed files is refused with exit 3 before it
 #     is activated and before any other docker call; a complete release passes the check and is
-#     activated.
+#     activated. Each live case starts from a deployed release's record that is compatible with
+#     the target, so the schema gate (F-INV-3) passes and the file check decides.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -138,21 +139,31 @@ live() { # live NAME RUNTIME_ROOT: a live rollback; exit code in $rc
     >"$work/$1.out" 2>"$work/$1.err" || rc=$?
 }
 
+# The deployed release's record (F-INV-3): another commit with the target's migrations.
+seed_record() { # seed_record RUNTIME_ROOT
+  jq '.gitSha = "4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d"' "$work/target.json" >"$1/deployed-manifest.json"
+}
+
 stage_release "$work/runtime-missing" docker/docker-compose.managed-db.yml
+seed_record "$work/runtime-missing"
+cp "$work/runtime-missing/deployed-manifest.json" "$work/missing-record.json"
 live missing "$work/runtime-missing"
 if [ "$rc" -eq 3 ] && grep -qF "compose file missing from the target release" "$work/missing.err" \
   && grep -qF "docker/docker-compose.managed-db.yml" "$work/missing.err" \
+  && cmp -s "$work/missing-record.json" "$work/runtime-missing/deployed-manifest.json" \
   && [ ! -e "$work/runtime-missing/current" ] && ! grep -v -- ' config' "$work/missing.docker" | grep -q '^compose'; then
-  pass "file missing: a release without docker/docker-compose.managed-db.yml is refused before activation, and nothing is started"
+  pass "file missing: a release without docker/docker-compose.managed-db.yml is refused before activation and before the record changes, and nothing is started"
 else
   bad "file missing: exit $rc, current: $(readlink "$work/runtime-missing/current" || echo none), error: $(grep ERROR "$work/missing.err" | head -n 2 | tr '\n' ' ')"
 fi
 
 stage_release "$work/runtime-complete"
+seed_record "$work/runtime-complete"
 live complete "$work/runtime-complete"
-if ! grep -qF "compose file missing" "$work/complete.err" \
-  && [ "$(readlink "$work/runtime-complete/current")" = "$work/runtime-complete/releases/$SHA" ]; then
-  pass "a complete release passes the check and is activated (the shim then stops the start, exit $rc)"
+if ! grep -qF "compose file missing" "$work/complete.err" && grep -qF "rollback schema gate: compatible" "$work/complete.out" \
+  && [ "$(readlink "$work/runtime-complete/current")" = "$work/runtime-complete/releases/$SHA" ] \
+  && cmp -s "$work/target.json" "$work/runtime-complete/deployed-manifest.json"; then
+  pass "a complete release passes the schema gate and the check, is recorded and activated (the shim then stops the start, exit $rc)"
 else
   bad "complete release: exit $rc, current: $(readlink "$work/runtime-complete/current" || echo none), error: $(head -n 2 "$work/complete.err" | tr '\n' ' ')"
 fi

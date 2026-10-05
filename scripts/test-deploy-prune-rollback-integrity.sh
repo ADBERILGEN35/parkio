@@ -239,14 +239,16 @@ check "current.json gitSha protected" "[ -d '$RELEASES/$SHA_B' ]"
 check "previousManifest gitSha protected" "[ -d '$RELEASES/$SHA_A' ]"
 unset PARKIO_DEPLOY_ARTIFACT_DIR
 
-echo "== PA-12-H: schema-incompatible rollback is refused =="
-CUR_M="$TMP/cur-manifest.json"
+echo "== PA-12-H: schema-incompatible rollback is refused (F-INV-3: migrationVersions, deployed record) =="
+CUR_M="$TMP/deployed-manifest.json"
 TGT_M="$TMP/tgt-manifest.json"
 cat > "$CUR_M" <<'EOF'
-{"migrations":{"parking-service":["V1__a.sql","V2__b.sql","V3__c.sql"]}}
+{"gitSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","images":{"parking-service":"parkio/parking-service:sha-b"},
+ "migrationVersions":{"parking-service":["V1__a.sql","V2__b.sql","V3__c.sql"]}}
 EOF
 cat > "$TGT_M" <<'EOF'
-{"migrations":{"parking-service":["V1__a.sql","V2__b.sql"]}}
+{"gitSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","images":{"parking-service":"parkio/parking-service:sha-a"},
+ "migrationVersions":{"parking-service":["V1__a.sql","V2__b.sql"]}}
 EOF
 set +e
 parkio_assert_rollback_schema_compatible "$TGT_M" "$CUR_M" >/dev/null 2>&1
@@ -255,15 +257,28 @@ set -e
 check "schema gate refuses advanced live migrations" "[ '$sch_rc' -eq 3 ]"
 # Compatible case
 cat > "$CUR_M" <<'EOF'
-{"migrations":{"parking-service":["V1__a.sql","V2__b.sql"]}}
+{"gitSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","images":{"parking-service":"parkio/parking-service:sha-b"},
+ "migrationVersions":{"parking-service":["V1__a.sql","V2__b.sql"]}}
 EOF
 set +e
 parkio_assert_rollback_schema_compatible "$TGT_M" "$CUR_M" >/dev/null 2>&1
 sch_ok=$?
 set -e
 check "schema gate allows matching migrations" "[ '$sch_ok' -eq 0 ]"
-check "rollback script invokes schema gate" \
-  "grep -q 'parkio_assert_rollback_schema_compatible' '$ROOT/scripts/rollback-hosted-beta.sh'"
+# Fail closed: no deployed record, and the key the old gate read instead of migrationVersions.
+set +e
+parkio_assert_rollback_schema_compatible "$TGT_M" "$TMP/no-such-deployed-manifest.json" >/dev/null 2>&1
+sch_missing=$?
+printf '{"migrations":{"parking-service":["V1__a.sql"]}}\n' > "$CUR_M"
+parkio_assert_rollback_schema_compatible "$TGT_M" "$CUR_M" >/dev/null 2>&1
+sch_legacy=$?
+set -e
+check "schema gate refuses without the deployed release's record" "[ '$sch_missing' -eq 3 ]"
+check "schema gate refuses a manifest without migrationVersions" "[ '$sch_legacy' -eq 3 ]"
+check "rollback script invokes schema gate with the deployed release's record" \
+  "grep -q 'parkio_assert_rollback_schema_compatible \"\$MANIFEST\" \"\$DEPLOYED_MANIFEST\"' '$ROOT/scripts/rollback-hosted-beta.sh'"
+check "rollback script no longer feeds the checkout's current.json to the schema gate" \
+  "! grep -q 'parkio_assert_rollback_schema_compatible \"\$MANIFEST\" \"\$PREVIOUS\"' '$ROOT/scripts/rollback-hosted-beta.sh'"
 
 echo "== PA-12-I: stage --dry-run prune path =="
 rm -rf -- "$RELEASES"/*

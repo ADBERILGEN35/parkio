@@ -832,46 +832,18 @@ parkio_prune_releases() {
   return 0
 }
 
-# Refuse image/config rollback when the live schema has advanced past the
-# target manifest's recorded migrations. Image rollback ≠ DB restore.
+# F-INV-3 (owner decision 2026-10-05): refuse an image/config rollback when the live schema has
+# migrations the target release lacks. Image rollback is not a database restore.
+#   parkio_assert_rollback_schema_compatible TARGET_MANIFEST DEPLOYED_MANIFEST [IMAGE_PLAN_FILE]
+# DEPLOYED_MANIFEST is the deployed release's recorded manifest (parkio_deployed_manifest_path),
+# never this checkout's deploy-artifacts/current.json. scripts/lib/rollback_schema_gate.py compares,
+# per service the rollback re-points, the migrationVersions script names. With IMAGE_PLAN_FILE
+# (hosted-beta and azure-hosted-beta), the re-pointed services are the plan's built ones, and the plan's digest pins must
+# equal the record's pinnedImages. A missing, unreadable or malformed manifest fails closed. Returns
+# 0 when compatible, 3 when refused.
 parkio_assert_rollback_schema_compatible() {
-  local target_manifest="$1"
-  local current_manifest="${2:-}"
-
-  if [ -z "$current_manifest" ] || [ ! -f "$current_manifest" ]; then
-    echo "WARN: no current manifest for schema comparison; operator must confirm DB compatibility." >&2
-    return 0
-  fi
-
-  python3 - "$target_manifest" "$current_manifest" <<'PY'
-import json, sys
-
-target_path, current_path = sys.argv[1], sys.argv[2]
-with open(target_path, encoding="utf-8") as fh:
-    target = json.load(fh)
-with open(current_path, encoding="utf-8") as fh:
-    current = json.load(fh)
-
-if "migrations" not in target:
-    print("ERROR: target manifest missing migrations; refuse rollback without schema evidence.", file=sys.stderr)
-    sys.exit(3)
-if "migrations" not in current:
-    print("WARN: current manifest missing migrations; operator must confirm DB compatibility.", file=sys.stderr)
-    sys.exit(0)
-
-extra = []
-for service, cur_list in (current.get("migrations") or {}).items():
-    tgt_set = set(target.get("migrations", {}).get(service) or [])
-    for mig in cur_list or []:
-        if mig not in tgt_set:
-            extra.append({"service": service, "migration": mig})
-
-if extra:
-    print("ERROR: live schema has migrations not present in the rollback target.", file=sys.stderr)
-    print("       Image/config rollback would leave an incompatible database.", file=sys.stderr)
-    print("       This is not a DB restore. Refusing automatic rollback.", file=sys.stderr)
-    print("       Extra migrations:", json.dumps(extra), file=sys.stderr)
-    sys.exit(3)
-sys.exit(0)
-PY
+  local target_manifest="$1" deployed_manifest="${2:-}" plan_file="${3:-}"
+  local -a args=(--target "$target_manifest" --deployed "$deployed_manifest")
+  [ -z "$plan_file" ] || args+=(--image-plan "$plan_file")
+  python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rollback_schema_gate.py" "${args[@]}"
 }

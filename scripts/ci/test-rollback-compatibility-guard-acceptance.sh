@@ -54,8 +54,9 @@ synthetic acme public true
 
 echo "--- compatible path ---"
 accept staged "$work/staged.json" --expect compatible
-if [ "$rc" -eq 0 ] && has staged "PASS (compatible" && grep -qF "not** operational rollback acceptance" "$work/staged.summary"; then
-  pass "a public-staged deploy with this checkout's list: the dry run succeeds and targets it; the summary says it is not operational acceptance"
+if [ "$rc" -eq 0 ] && has staged "PASS (compatible" && grep -qF "not** operational rollback acceptance" "$work/staged.summary" \
+  && grep -qF "The schema gate is not exercised by dry runs" "$work/staged.summary"; then
+  pass "a public-staged deploy with this checkout's list: the dry run succeeds and targets it; the summary says it is not operational acceptance, and that dry runs do not exercise the schema gate"
 else bad "public-staged compatible: exit $rc: $(tail -n 2 "$work/staged.log")"; fi
 accept dark "$work/dark.json" --expect compatible
 if [ "$rc" -eq 0 ] && has dark "PASS (compatible"; then pass "a dark deploy: the edge mode is taken from its composeFiles, and it is compatible"
@@ -70,8 +71,9 @@ edit "$work/staged.json" "$work/changed.json" 'm["composeFiles"] = [f for f in m
 accept changed "$work/changed.json"
 statement="rollback to changed is NOT currently possible: compose file list changed (added docker/docker-compose.managed-db.yml; removed docker/docker-compose.retired.yml); a post-change deploy is required."
 if [ "$rc" -eq 0 ] && has changed "PASS (the guard refused correctly)" && has changed "$statement" \
-  && has changed "Operational rollback acceptance remains BLOCKED" && grep -qF "**BLOCKED**" "$work/changed.summary"; then
-  pass "a deploy that rendered another list: the guard's refusal names both files, and the result states that a rollback is NOT currently possible"
+  && has changed "Operational rollback acceptance remains BLOCKED" && grep -qF "**BLOCKED**" "$work/changed.summary" \
+  && grep -qF "The schema gate is not exercised by dry runs" "$work/changed.summary"; then
+  pass "a deploy that rendered another list: the guard's refusal names both files, and the result states that a rollback is NOT currently possible and that dry runs do not exercise the schema gate"
 else bad "refusal path: exit $rc: $(tail -n 3 "$work/changed.log")"; fi
 if ! find "$work/run-changed/artifacts" -name 'rollback-to-*.json' 2>/dev/null | grep -q .; then
   pass "the refused dry run wrote no rollback manifest"

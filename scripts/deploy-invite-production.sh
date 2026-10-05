@@ -253,6 +253,8 @@ done
 parkio_write_manifest "$MANIFEST_PATH" "deploy" "$OPERATOR" "$ENV_FILE" \
   "$IMAGE_TAG" "$GIT_SHA" "$BRANCH" "$CREATED" "$VERSION" "$PREVIOUS" "$COMPOSE_STRUCTURE"
 
+# F-INV-3: record this release before any of its containers start; Flyway migrates on startup.
+parkio_record_deployed_manifest "$MANIFEST_PATH"
 echo "Starting invite-production stack..."
 parkio_compose_up "$ENV_FILE"
 

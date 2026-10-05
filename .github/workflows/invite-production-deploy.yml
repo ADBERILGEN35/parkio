@@ -192,6 +192,8 @@ jobs:
           bash scripts/test-backup-complete-gate.sh
           bash scripts/test-invite-production-runtime-release.sh
           bash scripts/test-deploy-prune-rollback-integrity.sh
+          python3 scripts/test_rollback_schema_gate.py
+          bash scripts/test-rollback-schema-gate.sh
           bash scripts/test-invite-production-failure-evidence.sh
           bash scripts/test-invite-production-workspace-migration.sh
           bash scripts/test-managed-parking-flyway-baseline.sh
