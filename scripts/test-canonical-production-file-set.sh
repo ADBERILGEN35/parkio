@@ -22,6 +22,22 @@ while IFS= read -r line || [ -n "$line" ]; do
 done < docker/compose.production.files
 [ "${#canonical[@]}" -gt 0 ] || fail "docker/compose.production.files lists no files"
 
+# --- Default profile selection -------------------------------------------------
+# An env file without PARKIO_DEPLOYMENT_PROFILE selects hosted-beta. The lookup used to fail on the
+# absent key under pipefail and end a `set -euo pipefail` caller silently (exit 1), so the default
+# profile's entry points stopped before rendering anything.
+no_profile_env="$(mktemp)"
+grep -v '^PARKIO_DEPLOYMENT_PROFILE=' docker/.env.hosted-beta.example > "$no_profile_env" || true
+resolved_rc=0
+resolved="$(env -u PARKIO_DEPLOYMENT_PROFILE bash -c 'set -euo pipefail
+  source scripts/lib/deploy-common.sh
+  parkio_configure_deployment_profile "$1" >/dev/null
+  printf "%s" "$PARKIO_DEPLOYMENT_PROFILE"' _ "$no_profile_env")" || resolved_rc=$?
+rm -f "$no_profile_env"
+[ "$resolved_rc" -eq 0 ] || fail "an env file without PARKIO_DEPLOYMENT_PROFILE ends a set -euo pipefail caller (exit $resolved_rc)"
+[ "$resolved" = "hosted-beta" ] || fail "an env file without PARKIO_DEPLOYMENT_PROFILE selected '$resolved', not hosted-beta"
+pass "an env file without PARKIO_DEPLOYMENT_PROFILE selects hosted-beta under set -euo pipefail"
+
 # --- deploy/rollback path -----------------------------------------------------
 deploy_args="$(bash -c 'set -e
   source scripts/lib/deploy-common.sh

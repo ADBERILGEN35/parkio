@@ -99,7 +99,9 @@ parkio_configure_deployment_profile() {
   local env_file="$1"
   local requested="${PARKIO_DEPLOYMENT_PROFILE:-}"
   if [ -z "$requested" ]; then
-    requested="$(parkio_env_value "$env_file" PARKIO_DEPLOYMENT_PROFILE)"
+    # An env file without the key selects the default. parkio_env_value fails under pipefail when
+    # the key is absent, which used to end a `set -e` caller here silently.
+    requested="$(parkio_env_value "$env_file" PARKIO_DEPLOYMENT_PROFILE || true)"
   fi
   requested="${requested:-hosted-beta}"
 
