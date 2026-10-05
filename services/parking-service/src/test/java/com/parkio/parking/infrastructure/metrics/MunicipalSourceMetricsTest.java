@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.MunicipalSourceHealthService;
 import com.parkio.parking.application.MunicipalSourceSlaPolicy;
+import com.parkio.parking.externalsource.MunicipalFeedChange;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import com.parkio.parking.externalsource.MunicipalSourceOperationalState;
@@ -145,6 +146,62 @@ class MunicipalSourceMetricsTest {
         metrics.record(izum, complete, Duration.ZERO);
         assertThat(consecutiveIncompleteSnapshots(registry, izum)).isZero();
         assertThat(consecutiveIncompleteSnapshots(registry, "istanbul-ispark-parks")).isZero();
+    }
+
+    @Test
+    void tracksHowLongAFeedHasRepeatedItselfAndResetsOnAChange() {
+        // CL-F22, owner option C: the operator-only gauges the MunicipalFeedUnchangedTooLong alert reads.
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        MunicipalSourceHealthService healthService = mock(MunicipalSourceHealthService.class);
+        MunicipalSourceSlaPolicy.Evaluation healthy = evaluation(0, true, MunicipalSourceOperationalState.HEALTHY);
+        when(healthService.izumSnapshot()).thenReturn(snapshot(IzumMunicipalParkingAdapter.SOURCE_KEY, healthy));
+        when(healthService.snapshot(anyString(), anyBoolean(), anyBoolean()))
+                .thenAnswer(inv -> snapshot(inv.getArgument(0), healthy));
+        MunicipalSourceProperties properties = new MunicipalSourceProperties();
+        properties.getIzum().setUnchangedFeedAlertAfter(Duration.ofMinutes(10));
+        MunicipalSourceMetrics metrics = new MunicipalSourceMetrics(registry, healthService, properties);
+        metrics.registerGauges();
+        String izum = IzumMunicipalParkingAdapter.SOURCE_KEY;
+        Instant t0 = Instant.parse("2026-10-05T08:00:00Z");
+
+        // The streak counts from the fetch time of the run it repeats.
+        metrics.record(izum, withFeedChange(new MunicipalFeedChange(true, t0, t0.plusSeconds(120))), Duration.ZERO);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", izum)).isEqualTo(120.0);
+        metrics.record(izum, withFeedChange(new MunicipalFeedChange(true, t0.plusSeconds(120), t0.plusSeconds(240))),
+                Duration.ZERO);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", izum)).isEqualTo(240.0);
+
+        // A failed run, or one without a comparison, leaves the age where it was.
+        metrics.record(izum, new MunicipalSyncResult(MunicipalSyncRunStatus.FAILED, 0, 0, 0, 0, 0, 0, 0,
+                "upstream_5xx", null), Duration.ZERO);
+        metrics.record(izum, withFeedChange(null), Duration.ZERO);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", izum)).isEqualTo(240.0);
+
+        // A changed feed resets it, and the next repeat counts from the changed run.
+        metrics.record(izum, withFeedChange(new MunicipalFeedChange(false, t0.plusSeconds(240), t0.plusSeconds(360))),
+                Duration.ZERO);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", izum)).isZero();
+        metrics.record(izum, withFeedChange(new MunicipalFeedChange(true, t0.plusSeconds(360), t0.plusSeconds(480))),
+                Duration.ZERO);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", izum)).isEqualTo(120.0);
+
+        // Thresholds come from configuration; İSPARK keeps the 4-hour default and its own age.
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_threshold_seconds", izum)).isEqualTo(600.0);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_threshold_seconds", "istanbul-ispark-parks"))
+                .isEqualTo(14_400.0);
+        assertThat(gauge(registry, "parkio.municipal.sync.unchanged_feed_seconds", "istanbul-ispark-parks")).isZero();
+        assertThat(registry.find("parkio.municipal.sync.unchanged_feed_seconds")
+                        .tag("source_key", "osm-geofabrik-turkey").gauge())
+                .isNull();
+    }
+
+    private static MunicipalSyncResult withFeedChange(MunicipalFeedChange change) {
+        return new MunicipalSyncResult(MunicipalSyncRunStatus.SUCCESS, 2, 2, 0, 0, 0, 2, 2, 0, 0, 2,
+                null, null, false, change);
+    }
+
+    private static double gauge(SimpleMeterRegistry registry, String name, String sourceKey) {
+        return registry.find(name).tag("source_key", sourceKey).gauge().value();
     }
 
     private static double consecutiveIncompleteSnapshots(SimpleMeterRegistry registry, String sourceKey) {

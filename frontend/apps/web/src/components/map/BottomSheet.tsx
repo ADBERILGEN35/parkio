@@ -52,6 +52,17 @@ export interface BottomSheetProps {
   handleAriaLabel: string;
   /** Compact content shown in the always-visible peek (e.g. result count). */
   summary?: ReactNode;
+  /**
+   * A line below the handle, also inside the peek and outside the scrolling content, so it is
+   * visible in every state (e.g. the map attribution). It is not part of the handle button.
+   */
+  peekFooter?: ReactNode;
+  /**
+   * Height in px at the top of the sheet's container that the sheet leaves free, so overlays the page
+   * keeps above the sheet (e.g. /map's search bar and alerts) cannot cover its handle and peek when it
+   * is expanded. 0 (the default) lets the sheet use the whole container.
+   */
+  topInset?: number;
   children: ReactNode;
   className?: string;
 }
@@ -74,6 +85,8 @@ export function BottomSheet({
   ariaLabel,
   handleAriaLabel,
   summary,
+  peekFooter,
+  topInset = 0,
   children,
   className,
 }: BottomSheetProps) {
@@ -242,6 +255,7 @@ export function BottomSheet({
       )}
       style={{
         height: 'min(88dvh, 100%)',
+        maxHeight: topInset > 0 ? `calc(100% - ${topInset}px)` : undefined,
         transform: `translateY(${offsetFor(state)}px)`,
         transition: sheetTransition,
       }}
@@ -263,6 +277,7 @@ export function BottomSheet({
         <span aria-hidden className="mx-auto h-1.5 w-12 shrink-0 rounded-full bg-outline-variant" />
         {summary ? <span className="block">{summary}</span> : null}
       </button>
+      {peekFooter ? <div className="shrink-0 px-md pb-xs">{peekFooter}</div> : null}
 
       <div
         ref={contentRef}

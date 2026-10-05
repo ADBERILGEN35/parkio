@@ -5,6 +5,7 @@ import { memo, useCallback, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
+import { DetachedAttribution } from './DetachedAttribution';
 import { MapFloatingControls } from './MapFloatingControls';
 import { FitDiscoveryFrame, type FitDiscoveryFrameProps } from './FitDiscoveryFrame';
 import { MunicipalFacilityMarker } from './MunicipalFacilityMarker';
@@ -68,6 +69,11 @@ export interface NearbySpotsMapProps {
    * summary counts match on-screen green markers after locate/destination.
    */
   discoveryFrame?: Omit<FitDiscoveryFrameProps, 'enabled'> & { enabled?: boolean };
+  /**
+   * Show the map's attribution in this element instead of the canvas corner. When the prop is given,
+   * the canvas has no attribution of its own; `null` until the element mounts.
+   */
+  attributionTarget?: HTMLElement | null;
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -157,6 +163,7 @@ export function NearbySpotsMap({
   destinationMarker = null,
   recommendedRefIds,
   discoveryFrame,
+  attributionTarget,
 }: NearbySpotsMapProps) {
   const { t } = useTranslation('map');
   const descriptionId = useId();
@@ -234,6 +241,9 @@ export function NearbySpotsMap({
       <Map
         initialViewState={{ longitude: center.lng, latitude: center.lat, zoom }}
         mapStyle={getMapStyle()}
+        // Only a map with an attribution target turns its own control off. An explicit
+        // `attributionControl={undefined}` would also remove MapLibre's default control (#258 B1).
+        {...(attributionTarget === undefined ? {} : { attributionControl: false as const })}
         dragRotate={false}
         pitchWithRotate={false}
         onLoad={() => {
@@ -250,6 +260,7 @@ export function NearbySpotsMap({
         style={{ height: '100%', width: '100%' }}
       >
         <Recenter lat={center.lat} lng={center.lng} zoom={zoom} />
+        {attributionTarget !== undefined ? <DetachedAttribution target={attributionTarget} /> : null}
         {discoveryFrame ? (
           <FitDiscoveryFrame
             anchor={discoveryFrame.anchor}

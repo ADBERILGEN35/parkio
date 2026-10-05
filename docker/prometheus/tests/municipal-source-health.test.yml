@@ -135,3 +135,105 @@ tests:
       - eval_time: 4m
         alertname: MunicipalIzumIncompleteSnapshotsRepeated
         exp_alerts: []
+
+  # CL-F22 (owner option C): operator-only unchanged-feed age against its configured threshold.
+  - name: izum unchanged feed fires one minute after reaching its threshold and resolves on a change
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_unchanged_feed_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "0 7200 14400 14460 14520 0 0"
+      - series: 'parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "14400x6"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0x6"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalFeedUnchangedTooLong
+              severity: warning
+              owner: parking
+              source_key: izmir-izum-otoparklar
+              source_mode: SCHEDULED
+            exp_annotations:
+              summary: izmir-izum-otoparklar beslemesi uzun süredir değişmedi
+              description: izmir-izum-otoparklar beslemesi 4h 1m 0s süredir bir önceki çalıştırmayla birebir aynı kayıtları döndürüyor. Kamuya açık tazelik ve sayılar etkilenmez; kaynak tarafında donmuş bir önbellek olabilir.
+              operator_action: Runbook’u açın; municipal_sync_feed_unchanged_threshold log satırını ve kaynağın kendi API yanıtını kontrol edin.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+      - eval_time: 6m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+
+  - name: izum unchanged feed just below its threshold stays silent
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_unchanged_feed_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "14399x5"
+      - series: 'parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "14400x5"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+
+  - name: a zero threshold disables the unchanged-feed alert
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_unchanged_feed_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "90000x5"
+      - series: 'parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "0x5"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "0x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+
+  - name: a disabled source does not raise the unchanged-feed alert
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_unchanged_feed_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "90000x5"
+      - series: 'parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key="izmir-izum-otoparklar",source_mode="SCHEDULED"}'
+        values: "14400x5"
+      - series: 'parkio_municipal_source_operational_state{source_key="izmir-izum-otoparklar",state="DISABLED"}'
+        values: "1x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts: []
+
+  - name: ispark unchanged feed fires with its own source key and threshold
+    interval: 1m
+    input_series:
+      - series: 'parkio_municipal_sync_unchanged_feed_seconds{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"}'
+        values: "3600x5"
+      - series: 'parkio_municipal_sync_unchanged_feed_threshold_seconds{source_key="istanbul-ispark-parks",source_mode="SCHEDULED"}'
+        values: "1800x5"
+      - series: 'parkio_municipal_source_operational_state{source_key="istanbul-ispark-parks",state="DISABLED"}'
+        values: "0x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MunicipalFeedUnchangedTooLong
+        exp_alerts:
+          - exp_labels:
+              alertname: MunicipalFeedUnchangedTooLong
+              severity: warning
+              owner: parking
+              source_key: istanbul-ispark-parks
+              source_mode: SCHEDULED
+            exp_annotations:
+              summary: istanbul-ispark-parks beslemesi uzun süredir değişmedi
+              description: istanbul-ispark-parks beslemesi 1h 0m 0s süredir bir önceki çalıştırmayla birebir aynı kayıtları döndürüyor. Kamuya açık tazelik ve sayılar etkilenmez; kaynak tarafında donmuş bir önbellek olabilir.
+              operator_action: Runbook’u açın; municipal_sync_feed_unchanged_threshold log satırını ve kaynağın kendi API yanıtını kontrol edin.
+              runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
