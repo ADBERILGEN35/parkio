@@ -9,6 +9,11 @@ export interface MunicipalFacilityMarkerProps {
   /** Highlight when this facility appears in assistant recommendations. */
   recommended?: boolean;
   onSelect: (id: string) => void;
+  /**
+   * The selected marker's pulsing halo lets the pointer through, so a fanned-out neighbour that the halo
+   * reaches stays clickable (Public Explore, Asana 1219147334320125).
+   */
+  inertHalo?: boolean;
 }
 
 function freshnessTone(freshness: MunicipalOccupancyFreshness | null | undefined): string {
@@ -34,6 +39,7 @@ export const MunicipalFacilityMarker = memo(function MunicipalFacilityMarker({
   selected,
   recommended = false,
   onSelect,
+  inertHalo = false,
 }: MunicipalFacilityMarkerProps) {
   const { t } = useTranslation('map');
   const title =
@@ -63,7 +69,13 @@ export const MunicipalFacilityMarker = memo(function MunicipalFacilityMarker({
       )}
     >
       {selected ? (
-        <span className="absolute inset-0 rounded-xl bg-secondary opacity-30 motion-safe:animate-ping" />
+        <span
+          data-testid="municipal-facility-marker-halo"
+          className={cn(
+            'absolute inset-0 rounded-xl bg-secondary opacity-30 motion-safe:animate-ping',
+            inertHalo && 'pointer-events-none',
+          )}
+        />
       ) : null}
       <span className="relative flex h-6 w-6 items-center justify-center rounded-md bg-secondary text-on-secondary shadow-sm transition-transform duration-std group-hover:scale-105">
         <Icon name="local_parking" className="text-[14px] leading-none" filled />

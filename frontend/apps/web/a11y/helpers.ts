@@ -117,15 +117,24 @@ async function injectAxe(page: Page) {
  * Runs axe on the current page and records the result; fails on violations that are not known.
  * `lang` is the language the page's content is in: the selected locale for translated pages, or the
  * page's own language for single-language pages (WCAG 3.1.1 asks that <html lang> match the content).
+ * `knownIssuesOf` names the page whose known issues apply, for a variant of a page measured under its
+ * own name (for example /explore with other data).
  */
-export async function measurePage(page: Page, testInfo: TestInfo, name: string, locale: Locale, lang: string = locale) {
+export async function measurePage(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  locale: Locale,
+  lang: string = locale,
+  knownIssuesOf: string = name,
+) {
   await injectAxe(page);
   const run = (await page.evaluate(async (tags) => {
     const axe = (window as unknown as { axe: { run: (ctx: Document, opts: unknown) => Promise<unknown> } }).axe;
     return axe.run(document, { runOnly: { type: 'tag', values: tags }, resultTypes: ['violations', 'incomplete'] });
   }, WCAG_TAGS)) as AxeRun;
 
-  const known = KNOWN_ISSUES.filter((issue) => issue.page === name || issue.page === '*');
+  const known = KNOWN_ISSUES.filter((issue) => issue.page === knownIssuesOf || issue.page === '*');
   const violations: AxeRuleResult[] = [];
   const knownViolations: AxeRuleResult[] = [];
   for (const rule of run.violations) {
@@ -356,7 +365,7 @@ export async function measureToastPalette(page: Page, testInfo: TestInfo, locale
   return colours;
 }
 
-function writeReport(testInfo: TestInfo, file: string, data: unknown) {
+export function writeReport(testInfo: TestInfo, file: string, data: unknown) {
   const dir = path.join(testInfo.config.rootDir, '..', 'test-results', 'a11y');
   mkdirSync(dir, { recursive: true });
   const body = JSON.stringify(data, null, 2);

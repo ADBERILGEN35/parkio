@@ -18,6 +18,16 @@ vi.mock('@/config/env', async (importOriginal) => {
   };
 });
 
+// The props of each render of the stubbed map (Asana 1219147334320125: fan-out and coordinates).
+const mapRenders = vi.hoisted(
+  () =>
+    [] as Array<{
+      municipalFacilities: Array<{ id: string; latitude: number; longitude: number }>;
+      fanOutMunicipalMarkers?: boolean;
+      topOverlayRef?: { current: HTMLElement | null };
+    }>,
+);
+
 vi.mock('@/components/map/NearbySpotsMap', () => ({
   NearbySpotsMap: ({
     municipalFacilities,
@@ -27,15 +37,21 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     spots,
     destinationMarker,
     onStyleUnavailable,
+    fanOutMunicipalMarkers,
+    topOverlayRef,
   }: {
-    municipalFacilities: Array<{ id: string; displayName: string | null }>;
+    municipalFacilities: Array<{ id: string; displayName: string | null; latitude: number; longitude: number }>;
     onSelectMunicipalFacility?: (id: string | null) => void;
     onLocate?: () => void;
     locating?: boolean;
     spots: unknown[];
     destinationMarker?: { latitude: number; longitude: number; label: string } | null;
     onStyleUnavailable?: () => void;
-  }) => (
+    fanOutMunicipalMarkers?: boolean;
+    topOverlayRef?: { current: HTMLElement | null };
+  }) => {
+    mapRenders.push({ municipalFacilities, fanOutMunicipalMarkers, topOverlayRef });
+    return (
     <div aria-label="Parkio public parking map" data-testid="public-explore-map">
       {/* Stands in for MapLibre reporting a style that never loaded (CL-F20). */}
       <button type="button" data-testid="fail-map-style" onClick={() => onStyleUnavailable?.()}>
@@ -65,7 +81,8 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
         </button>
       ))}
     </div>
-  ),
+    );
+  },
 }));
 
 const facility = {
@@ -348,6 +365,57 @@ describe('PublicExplorePage', () => {
     expect(await screen.findByTestId('selected-municipal-facility-preview')).not.toHaveTextContent(
       /km|m\b/i,
     );
+  });
+
+  it('fans out the municipal markers on /explore, below the search and discovery stack', async () => {
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () => HttpResponse.json(discoveryResponse())),
+    );
+    mapRenders.length = 0;
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByRole('button', { name: facility.displayName });
+
+    const last = mapRenders.at(-1)!;
+    expect(last.fanOutMunicipalMarkers).toBe(true);
+    const overlay = last.topOverlayRef?.current;
+    expect(overlay).toBeInstanceOf(HTMLElement);
+    expect(within(overlay!).getByTestId('public-explore-destination-search')).toBeInTheDocument();
+    expect(within(overlay!).getByTestId('public-explore-discovery-summary')).toBeInTheDocument();
+  });
+
+  it('selects, previews and opens car parks at one point with their own coordinates', async () => {
+    // Two car parks at one point fan out on the map; the page keeps both facilities as the API sent them.
+    const twin = { ...farFacility, id: '00000000-0000-0000-0000-000000000903', displayName: 'Alsancak Liman Otoparki B' };
+    getCurrentPosition.mockImplementation((success: PositionCallback) => {
+      success(grantedPosition(38.4237, 27.1428));
+    });
+    server.use(
+      http.get(`${API_BASE}/public/explore/facilities`, () =>
+        HttpResponse.json(discoveryResponse({ facilities: [farFacility, twin], municipalTotalInScope: 2 })),
+      ),
+    );
+    mapRenders.length = 0;
+
+    renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+    await screen.findByRole('button', { name: twin.displayName });
+    await userEvent.click(screen.getByTestId('map-floating-locate'));
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalled());
+
+    await userEvent.click(await screen.findByRole('button', { name: twin.displayName }));
+    const preview = await screen.findByTestId('selected-municipal-facility-preview');
+    expect(preview).toHaveTextContent(twin.displayName);
+    // The distance runs from the user to the car park's own coordinates, (38.45, 27.2): 5,777 m.
+    expect(preview).toHaveTextContent(/5\.8 km/);
+
+    for (const render of mapRenders) {
+      for (const shown of render.municipalFacilities) {
+        expect([shown.latitude, shown.longitude]).toEqual([38.45, 27.2]);
+      }
+    }
+
+    await userEvent.click(screen.getByTestId('municipal-facility-view-details'));
+    expect(await screen.findByTestId('auth-gate-dialog')).toHaveAttribute('data-auth-gate-intent', 'facilityDetail');
   });
 
   it('shows distance from the real user position after locate succeeds', async () => {

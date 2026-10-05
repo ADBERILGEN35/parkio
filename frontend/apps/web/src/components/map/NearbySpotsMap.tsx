@@ -1,14 +1,16 @@
 import './maplibreSetup';
 import type { MunicipalFacility, PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
-import { memo, useCallback, useId, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import Map, { Marker } from 'react-map-gl/maplibre';
+import Map, { Marker, useMap } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
 import { DetachedAttribution } from './DetachedAttribution';
 import { MapFloatingControls } from './MapFloatingControls';
 import { FitDiscoveryFrame, type FitDiscoveryFrameProps } from './FitDiscoveryFrame';
 import { MunicipalFacilityMarker } from './MunicipalFacilityMarker';
+import { fanOutMarkers } from './markerFanOut';
+import { mapTopInset, type MapTopOverlayRef } from './mapTopInset';
 import { ParkedCarFocus } from './ParkedCarFocus';
 import { ParkedCarMarker } from './ParkedCarMarker';
 import { isUsableParkedCoordinate, type ParkedCarFocusRequest } from './parkedCarCoords';
@@ -80,6 +82,93 @@ export interface NearbySpotsMapProps {
    * after the style loaded are not detected.
    */
   onStyleUnavailable?: () => void;
+  /**
+   * Public Explore only (Asana 1219147334320125, owner decision 2026-10-05): municipal markers that would
+   * cover one another, or share a point, fan out on a small ring, each tied to its true location by a dot
+   * and a line. Only the drawn marker moves, by a pixel offset; coordinates, names, selection and the Tab
+   * order stay as they are. The focused or selected marker is drawn on top. /map does not pass it.
+   */
+  fanOutMunicipalMarkers?: boolean;
+  /** Controls drawn over the top of the map: framing and fanned markers stay below them. */
+  topOverlayRef?: MapTopOverlayRef;
+}
+
+type PixelOffset = [number, number];
+const NO_OFFSET: PixelOffset = [0, 0];
+const NO_OFFSETS: ReadonlyMap<string, PixelOffset> = new globalThis.Map();
+
+function sameOffsets(a: ReadonlyMap<string, PixelOffset>, b: ReadonlyMap<string, PixelOffset>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, [dx, dy]] of a) {
+    const other = b.get(id);
+    if (!other || other[0] !== dx || other[1] !== dy) return false;
+  }
+  return true;
+}
+
+/**
+ * Lays out the municipal markers with {@link fanOutMarkers} whenever the view settles (load, moveend,
+ * resize) or the facilities change, and reports each marker's pixel offset.
+ */
+function MunicipalMarkerFanOut({
+  facilities,
+  topOverlayRef,
+  onOffsets,
+}: {
+  facilities: readonly MunicipalFacility[];
+  topOverlayRef?: MapTopOverlayRef;
+  onOffsets: (offsets: ReadonlyMap<string, PixelOffset>) => void;
+}) {
+  const { current: map } = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    const layout = () => {
+      const container = map.getContainer();
+      const box = container.getBoundingClientRect();
+      const points = facilities.map((facility) => {
+        const point = map.project([facility.longitude, facility.latitude]);
+        return { id: facility.id, x: point.x, y: point.y };
+      });
+      onOffsets(
+        fanOutMarkers(points, { width: box.width, height: box.height, top: mapTopInset(container, topOverlayRef) }),
+      );
+    };
+    layout();
+    map.on('load', layout);
+    map.on('moveend', layout);
+    map.on('resize', layout);
+    return () => {
+      map.off('load', layout);
+      map.off('moveend', layout);
+      map.off('resize', layout);
+    };
+  }, [map, facilities, topOverlayRef, onOffsets]);
+
+  return null;
+}
+
+/**
+ * Where a fanned marker really is: a dot at its coordinates and a line to the marker's centre. Decorative:
+ * hidden from assistive technology and from the pointer, and drawn under the markers (they have a
+ * z-index; connectors created later in the DOM would otherwise paint over them).
+ */
+function FanConnector({ facilityId, offset }: { facilityId: string; offset: PixelOffset }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      data-testid="municipal-facility-fan-connector"
+      data-fan-for={facilityId}
+      width="1"
+      height="1"
+      overflow="visible"
+      className="pointer-events-none block"
+    >
+      <line x1="0" y1="0" x2={offset[0]} y2={offset[1]} className="stroke-secondary" strokeWidth={2} />
+      <circle cx="0" cy="0" r={4} className="fill-secondary stroke-white" strokeWidth={1.5} />
+    </svg>
+  );
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -171,6 +260,8 @@ export function NearbySpotsMap({
   discoveryFrame,
   attributionTarget,
   onStyleUnavailable,
+  fanOutMunicipalMarkers = false,
+  topOverlayRef,
 }: NearbySpotsMapProps) {
   const { t } = useTranslation('map');
   const styleReadyRef = useRef(false);
@@ -186,6 +277,11 @@ export function NearbySpotsMap({
     [onSelectMunicipalFacility],
   );
   const handleSelectParkedCar = useCallback(() => onSelectParkedCar?.(), [onSelectParkedCar]);
+  const [fanOffsets, setFanOffsets] = useState<ReadonlyMap<string, PixelOffset>>(NO_OFFSETS);
+  const handleFanOffsets = useCallback(
+    (next: ReadonlyMap<string, PixelOffset>) => setFanOffsets((previous) => (sameOffsets(previous, next) ? previous : next)),
+    [],
+  );
 
   // Marker geometry/labels change only with the spot set; `selected` styling is a
   // cheap per-marker prop. Panning/dragging never rebuilds this list.
@@ -206,22 +302,56 @@ export function NearbySpotsMap({
 
   const municipalMarkers = useMemo(
     () =>
-      municipalFacilities.map((facility) => (
-        <Marker
-          key={`facility-${facility.id}`}
-          longitude={facility.longitude}
-          latitude={facility.latitude}
-          anchor="center"
-        >
-          <MunicipalFacilityMarker
-            facility={facility}
-            selected={selectedMunicipalId === facility.id}
-            recommended={recommendedRefIds?.has(facility.id) ?? false}
-            onSelect={handleSelectMunicipal}
-          />
-        </Marker>
-      )),
-    [municipalFacilities, selectedMunicipalId, handleSelectMunicipal, recommendedRefIds],
+      municipalFacilities.map((facility) => {
+        const selected = selectedMunicipalId === facility.id;
+        return (
+          <Marker
+            key={`facility-${facility.id}`}
+            longitude={facility.longitude}
+            latitude={facility.latitude}
+            anchor="center"
+            {...(fanOutMunicipalMarkers
+              ? {
+                  offset: fanOffsets.get(facility.id) ?? NO_OFFSET,
+                  // Above the fan connectors, whatever their order in the DOM; raised further while focused
+                  // or selected, so no other marker covers it or its focus ring.
+                  className: selected ? 'z-[2]' : 'z-[1] focus-within:z-[2]',
+                }
+              : {})}
+          >
+            <MunicipalFacilityMarker
+              facility={facility}
+              selected={selected}
+              recommended={recommendedRefIds?.has(facility.id) ?? false}
+              onSelect={handleSelectMunicipal}
+              inertHalo={fanOutMunicipalMarkers}
+            />
+          </Marker>
+        );
+      }),
+    [municipalFacilities, selectedMunicipalId, handleSelectMunicipal, recommendedRefIds, fanOutMunicipalMarkers, fanOffsets],
+  );
+
+  const fanConnectors = useMemo(
+    () =>
+      fanOutMunicipalMarkers
+        ? municipalFacilities.flatMap((facility) => {
+            const offset = fanOffsets.get(facility.id) ?? NO_OFFSET;
+            if (offset[0] === 0 && offset[1] === 0) return [];
+            return [
+              <Marker
+                key={`facility-fan-${facility.id}`}
+                longitude={facility.longitude}
+                latitude={facility.latitude}
+                anchor="center"
+                className="pointer-events-none"
+              >
+                <FanConnector facilityId={facility.id} offset={offset} />
+              </Marker>,
+            ];
+          })
+        : [],
+    [fanOutMunicipalMarkers, municipalFacilities, fanOffsets],
   );
 
   const showParkedCar =
@@ -285,6 +415,14 @@ export function NearbySpotsMap({
             points={discoveryFrame.points}
             revision={discoveryFrame.revision}
             enabled={discoveryFrame.enabled !== false}
+            topOverlayRef={topOverlayRef}
+          />
+        ) : null}
+        {fanOutMunicipalMarkers ? (
+          <MunicipalMarkerFanOut
+            facilities={municipalFacilities}
+            topOverlayRef={topOverlayRef}
+            onOffsets={handleFanOffsets}
           />
         ) : null}
         <ParkedCarFocus request={parkedCarFocusRequest} />
@@ -326,6 +464,7 @@ export function NearbySpotsMap({
           </Marker>
         ) : null}
 
+        {fanConnectors}
         {municipalMarkers}
         {markers}
 

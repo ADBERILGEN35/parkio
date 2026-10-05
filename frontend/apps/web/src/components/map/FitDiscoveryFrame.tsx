@@ -2,6 +2,7 @@ import { LngLatBounds } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 import { useMap } from 'react-map-gl/maplibre';
 import type { LatLng } from './mapConfig';
+import { mapTopInset, TOP_OVERLAY_CLEARANCE, type MapTopOverlayRef } from './mapTopInset';
 
 /** Keep local discovery context readable after locate / destination framing. */
 const MAX_FIT_ZOOM = 15;
@@ -22,6 +23,11 @@ export interface FitDiscoveryFrameProps {
   revision: string;
   /** When false, skip framing (e.g. while a fetch is in flight). */
   enabled: boolean;
+  /**
+   * Controls drawn over the top of the map. The frame keeps every point at least a marker's half height
+   * below them, so no marker starts under them (Asana 1219147334320125).
+   */
+  topOverlayRef?: MapTopOverlayRef;
 }
 
 /**
@@ -34,6 +40,7 @@ export function FitDiscoveryFrame({
   points,
   revision,
   enabled,
+  topOverlayRef,
 }: FitDiscoveryFrameProps) {
   const { current: map } = useMap();
   const appliedRevisionRef = useRef<string | null>(null);
@@ -54,8 +61,9 @@ export function FitDiscoveryFrame({
         bounds.extend([point.lng, point.lat]);
       }
 
+      const topInset = mapTopInset(map.getContainer(), topOverlayRef);
       map.fitBounds(bounds, {
-        padding: FIT_PADDING,
+        padding: { ...FIT_PADDING, top: Math.max(FIT_PADDING.top, topInset + TOP_OVERLAY_CLEARANCE) },
         maxZoom: MAX_FIT_ZOOM,
         duration: 700,
       });
@@ -74,7 +82,7 @@ export function FitDiscoveryFrame({
       window.clearTimeout(timer);
       map.off('load', apply);
     };
-  }, [map, enabled, revision, anchor.lat, anchor.lng, points]);
+  }, [map, enabled, revision, anchor.lat, anchor.lng, points, topOverlayRef]);
 
   return null;
 }

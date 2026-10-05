@@ -38,6 +38,9 @@ function renderWithProviders(
   return renderWithBaseProviders(ui, { ...options, runtime });
 }
 
+// Whether each render asked for fanned-out municipal markers: only Public Explore does (Asana 1219147334320125).
+const fanOutRequests = vi.hoisted(() => [] as Array<boolean | undefined>);
+
 // Leaflet can't render in jsdom; stub the map. It exposes the resolved center so
 // the fallback viewport can be asserted, plus a button that simulates clicking
 // the map to set the search center.
@@ -56,6 +59,7 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     ariaLabel,
     ariaDescription,
     selectionSummary,
+    fanOutMunicipalMarkers,
   }: {
     center: { lat: number; lng: number };
     onPickCenter: (lat: number, lng: number) => void;
@@ -70,7 +74,10 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     ariaLabel?: string;
     ariaDescription?: string;
     selectionSummary?: string | null;
-  }) => (
+    fanOutMunicipalMarkers?: boolean;
+  }) => {
+    fanOutRequests.push(fanOutMunicipalMarkers);
+    return (
     <div role="region" aria-label={ariaLabel} aria-describedby="stub-map-description stub-map-selection">
       <span id="stub-map-description">{ariaDescription}</span>
       <span id="stub-map-selection" data-testid="stub-map-selection" role="status" aria-live="polite">
@@ -109,7 +116,8 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
         </>
       ) : null}
     </div>
-  ),
+    );
+  },
 }));
 
 /** Replace the browser Geolocation API for a single test. */
@@ -240,6 +248,15 @@ describe('MapPage', () => {
     expect(await screen.findByTestId('map-center')).toHaveTextContent('38.4237,27.1428');
     // No search runs automatically for the fallback viewport.
     expect(screen.getByText('Search for nearby spots')).toBeInTheDocument();
+  });
+
+  it('keeps its municipal markers where they are: fan-out is for Public Explore only', async () => {
+    fanOutRequests.length = 0;
+    renderWithProviders(<MapPage />);
+
+    await screen.findByTestId('map-center');
+    expect(fanOutRequests.length).toBeGreaterThan(0);
+    expect(fanOutRequests.every((requested) => requested === undefined)).toBe(true);
   });
 
   it('auto-fills coordinates and searches when geolocation succeeds on mount', async () => {

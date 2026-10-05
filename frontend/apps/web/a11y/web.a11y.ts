@@ -5,6 +5,7 @@ import {
   measurePage,
   measureToastPalette,
   reportKnownIssueSightings,
+  writeReport,
   type AxeNode,
   type Locale,
 } from './helpers';
@@ -186,7 +187,14 @@ async function expectMapAttributionOnCanvas(page: Page) {
   await expect(attribution.locator('a[href^="https://maplibre.org"]'), 'explore: MapLibre credit').toHaveCount(1);
 }
 
-async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmocked: string[]) {
+/** `overrides` answers some calls with other data than `populated`, keyed the same way. */
+async function installMocks(
+  page: Page,
+  locale: Locale,
+  signedIn: boolean,
+  unmocked: string[],
+  overrides: Record<string, unknown> = {},
+) {
   await page.addInitScript((value) => localStorage.setItem('parkio.locale', value), locale);
   // Nothing leaves the machine: every other host is aborted. Later routes take precedence, so the API
   // mock below still answers a built image's https://api.parkio.dev/api/v1 calls.
@@ -220,6 +228,7 @@ async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmoc
     if (key === 'GET /users/me/preferences') {
       return json({ ...(populated[key] as Record<string, unknown>), preferredLocale: locale });
     }
+    if (key in overrides) return json(overrides[key]);
     if (key in populated) return json(populated[key]);
     const publicProfile = /^GET \/users\/([^/]+)\/public-profile$/.exec(key);
     if (publicProfile) {
@@ -273,6 +282,310 @@ for (const locale of ['tr', 'en'] as const) {
     }
   });
 }
+
+/**
+ * Asana 1219147334320125 (b): dense and coincident car parks on /explore, at a laptop and a phone width.
+ * The explore API answers with up to 6 car parks within 5 km of the origin, nearest first. Each answer
+ * here is one such discovery; the names are synthetic.
+ */
+const exploreFacility = (n: number, latitude: number, longitude: number) => ({
+  id: `a11y-explore-${n}`, displayName: `Synthetic Explore Car Park ${n}`, operatorName: 'Synthetic Operator',
+  facilityType: 'OFF_STREET', addressText: `${n} Synthetic Avenue, Izmir`, latitude, longitude, capacityTotal: 80,
+  availableSpaces: 10 + n, availabilityFreshness: 'LIVE', dataUpdatedAt: NOW, sourceLabel: 'Synthetic source',
+  attribution: 'Synthetic data for accessibility tests', accessClassification: 'PUBLIC',
+});
+const exploreAnswer = (facilities: ReturnType<typeof exploreFacility>[]) => ({
+  facilities, municipalTotalInScope: facilities.length, municipalHiddenCount: 0, communitySpotCountInScope: null,
+});
+
+/**
+ * Six car parks over 3.6 km, so the map frames them at about zoom 12–13:
+ * - 1–4 at the coordinates of real İzmir car parks of the İZUM test fixture
+ *   (services/parking-service/src/test/resources/fixtures/municipal/izum/otoparklar-sample.json),
+ *   80–230 m apart;
+ * - 5 and 6 at one point, as two entries for one building do. Zooming never separates them.
+ */
+const DENSE_EXPLORE = exploreAnswer([
+  exploreFacility(1, 38.432585, 27.14668),
+  exploreFacility(2, 38.432968, 27.145272),
+  exploreFacility(3, 38.433614, 27.144863),
+  exploreFacility(4, 38.433452, 27.1475),
+  exploreFacility(5, 38.403563, 27.11006),
+  exploreFacility(6, 38.403563, 27.11006),
+]);
+/** Car parks to the south and the north: at 360 px the map frames the northern one at its top edge. */
+const NORTH_SOUTH_EXPLORE = exploreAnswer([exploreFacility(7, 38.4037, 27.1458), exploreFacility(8, 38.4537, 27.1398)]);
+/** One car park to the north-west: at 1280 px the map frames it near its top-left corner. */
+const NORTH_WEST_EXPLORE = exploreAnswer([exploreFacility(9, 38.4357, 27.1028)]);
+
+const FACILITY_MARKER = '[data-testid="municipal-facility-marker"]';
+
+/** Waits until the facility markers stop moving: the map frames them with an animation. */
+async function waitForStillMarkers(page: Page) {
+  let previous = '';
+  let stillPolls = 0;
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(
+          await page.locator(FACILITY_MARKER).evaluateAll((els) =>
+            els.map((el) => {
+              const box = el.getBoundingClientRect();
+              return [Math.round(box.left), Math.round(box.top)];
+            }),
+          ),
+        );
+        stillPolls = now === previous ? stillPolls + 1 : 0;
+        previous = now;
+        return stillPolls;
+      },
+      { message: 'explore: the markers settle after framing', intervals: [400], timeout: 20_000 },
+    )
+    .toBeGreaterThanOrEqual(3);
+}
+
+interface MarkerTarget {
+  id: string;
+  name: string | null;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** The share of a 9×9 grid of points over the marker where the marker is the topmost element. */
+  onTopShare: number;
+  /** What is on top of the marker elsewhere: another marker, or a page element by its test id. */
+  coveredBy: string[];
+}
+
+/** Hit-tests each facility marker on a grid, so a covered marker and what covers it are named. */
+async function measureMarkerTargets(page: Page): Promise<MarkerTarget[]> {
+  return page.locator(FACILITY_MARKER).evaluateAll((els) =>
+    els.map((el) => {
+      const box = el.getBoundingClientRect();
+      const steps = 9;
+      let onTop = 0;
+      const coveredBy = new Set<string>();
+      for (let i = 0; i < steps; i++) {
+        for (let j = 0; j < steps; j++) {
+          const x = box.left + 1 + ((box.width - 2) * i) / (steps - 1);
+          const y = box.top + 1 + ((box.height - 2) * j) / (steps - 1);
+          const hit = document.elementFromPoint(x, y);
+          if (hit && (hit === el || el.contains(hit) || hit === el.parentElement)) {
+            onTop++;
+            continue;
+          }
+          // A hit on another marker's MapLibre wrapper (outside its rounded corners) is that marker.
+          const owner =
+            hit?.closest('.maplibregl-marker')?.querySelector<HTMLElement>('[data-facility-id]') ??
+            hit?.closest<HTMLElement>('[data-facility-id], [data-testid]');
+          coveredBy.add(
+            owner?.dataset.facilityId
+              ? `marker ${owner.dataset.facilityId}`
+              : (owner?.dataset.testid ?? hit?.tagName.toLowerCase() ?? 'nothing'),
+          );
+        }
+      }
+      return {
+        id: el.getAttribute('data-facility-id') ?? '',
+        name: el.getAttribute('aria-label'),
+        left: Math.round(box.left),
+        top: Math.round(box.top),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+        onTopShare: onTop / (steps * steps),
+        coveredBy: [...coveredBy],
+      };
+    }),
+  );
+}
+
+interface FacilityFocusStop {
+  id: string;
+  name: string | null;
+  /** The focused marker is the topmost element at its centre and at four inner points. */
+  onTop: boolean;
+}
+
+/** Tabs through the page and records each facility marker that takes the focus, in order. */
+async function walkFacilityMarkers(page: Page, limit = 80): Promise<FacilityFocusStop[]> {
+  await page.locator('body').click({ position: { x: 1, y: 1 } });
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const stops: FacilityFocusStop[] = [];
+  for (let index = 0; index < limit; index++) {
+    await page.keyboard.press('Tab');
+    const stop = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body || el === document.documentElement) return 'left';
+      const id = el.getAttribute('data-facility-id');
+      if (!id) return 'other';
+      const box = el.getBoundingClientRect();
+      const points = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+      const onTop = points.every(([fx, fy]) => {
+        const hit = document.elementFromPoint(box.left + box.width * fx, box.top + box.height * fy);
+        return Boolean(hit) && (hit === el || el.contains(hit));
+      });
+      return { id, name: el.getAttribute('aria-label'), onTop };
+    });
+    if (stop === 'left') break;
+    if (stop !== 'other') {
+      if (stops.some((seen) => seen.id === stop.id)) break;
+      stops.push(stop);
+    }
+  }
+  return stops;
+}
+
+/** The bottom of each element over the top of the map, measured from the top of the map region. */
+async function measureTopOverlay(page: Page) {
+  return page.evaluate(() => {
+    const map = document.querySelector('.maplibregl-map')?.getBoundingClientRect();
+    const ids = ['public-explore-destination-search', 'public-explore-discovery-summary', 'public-explore-contribute-cta'];
+    return {
+      mapTop: map ? Math.round(map.top) : null,
+      elements: ids.map((id) => {
+        const box = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+        return box && map
+          ? { id, left: Math.round(box.left), right: Math.round(box.right), bottomBelowMapTop: Math.round(box.bottom - map.top) }
+          : { id, missing: true };
+      }),
+    };
+  });
+}
+
+async function openExplore(page: Page, viewport: { width: number; height: number }, answer: unknown) {
+  await page.setViewportSize(viewport);
+  const unmocked: string[] = [];
+  await installMocks(page, 'en', false, unmocked, { 'GET /public/explore/facilities': answer });
+  await page.goto('/explore');
+  await page.waitForLoadState('networkidle');
+  return unmocked;
+}
+
+test.describe('explore: dense and coincident car parks (Asana 1219147334320125)', () => {
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 800 }]) {
+    const size = `${viewport.width}x${viewport.height}`;
+    test(`every car park is a reachable target at ${size}`, async ({ page }, testInfo) => {
+      const name = `explore-dense-${size}`;
+      const unmocked = await openExplore(page, viewport, DENSE_EXPLORE);
+      const markers = page.locator(FACILITY_MARKER);
+      await expect(markers).toHaveCount(DENSE_EXPLORE.facilities.length);
+      await waitForStillMarkers(page);
+      // The accessible names stay the facilities' names.
+      expect(await markers.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual(
+        DENSE_EXPLORE.facilities.map((facility) => `Municipal parking facility: ${facility.displayName}`),
+      );
+      const targets = await measureMarkerTargets(page);
+      await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+      const focusStops = await walkFacilityMarkers(page);
+      const overlay = await measureTopOverlay(page);
+      writeReport(testInfo, `${testInfo.project.name}-${name}-markers`, { page: name, targets, focusStops, overlay });
+      expect
+        .soft(
+          targets.filter((target) => target.onTopShare < 1).map((target) => `${target.id} covered by ${target.coveredBy.join(', ')}`),
+          `${name}: car park markers that something else covers`,
+        )
+        .toEqual([]);
+      expect
+        .soft(focusStops.map((stop) => stop.id), `${name}: Tab reaches every car park, in the API's order`)
+        .toEqual(DENSE_EXPLORE.facilities.map((facility) => facility.id));
+      expect
+        .soft(focusStops.filter((stop) => !stop.onTop).map((stop) => stop.id), `${name}: focused car parks that something covers`)
+        .toEqual([]);
+      await keyboardWalk(page, testInfo, name, 'en', 150);
+      await measurePage(page, testInfo, name, 'en', 'en', 'explore');
+      expect(unmocked, `${name}: API calls without a populated mock`).toEqual([]);
+    });
+  }
+
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 800 }]) {
+    const size = `${viewport.width}x${viewport.height}`;
+    test(`fanned car parks follow the zoom, and focus and selection stay, at ${size}`, async ({ page }, testInfo) => {
+      const name = `explore-zoom-${size}`;
+      const unmocked = await openExplore(page, viewport, DENSE_EXPLORE);
+      await expect(page.locator(FACILITY_MARKER)).toHaveCount(DENSE_EXPLORE.facilities.length);
+      await waitForStillMarkers(page);
+      // A connector created later sits later in the DOM, so they are compared as a set.
+      const fannedIds = async () =>
+        (
+          await page
+            .locator('[data-testid="municipal-facility-fan-connector"]')
+            .evaluateAll((els) => els.map((el) => el.getAttribute('data-fan-for') ?? ''))
+        ).sort();
+      const allIds = DENSE_EXPLORE.facilities.map((facility) => facility.id);
+      await expect.poll(fannedIds, { message: `${name}: framed, every car park is fanned` }).toEqual(allIds);
+
+      // Select car park 2 with the keyboard.
+      const second = page.locator('[data-facility-id="a11y-explore-2"]');
+      await second.focus();
+      await page.keyboard.press('Enter');
+      await expect(second).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('selected-municipal-facility-preview')).toContainText('Synthetic Explore Car Park 2');
+
+      // Wheel-zooms over the group, a step at a time, until the fanned car parks are `expected`.
+      const zoomUntil = async (direction: 1 | -1, expected: string[], what: string) => {
+        for (let step = 0; step < 16; step++) {
+          if (JSON.stringify(await fannedIds()) === JSON.stringify(expected)) break;
+          await page.mouse.wheel(0, 300 * direction);
+          await waitForStillMarkers(page);
+        }
+        expect(await fannedIds(), `${name}: ${what}`).toEqual(expected);
+      };
+
+      // Zoom in over the group until its car parks no longer touch: they go back to their places. The
+      // pair at one point stays fanned at every zoom.
+      const box = (await second.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await zoomUntil(-1, ['a11y-explore-5', 'a11y-explore-6'], 'zoomed in, only the pair at one point is fanned');
+      const zoomedIn = await measureMarkerTargets(page);
+      await page.screenshot({ path: testInfo.outputPath(`${name}-in.png`) });
+      await expect(second, `${name}: focus stays on car park 2`).toBeFocused();
+      await expect(second).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('selected-municipal-facility-preview')).toContainText('Synthetic Explore Car Park 2');
+
+      // Zoom back out until they meet again: they fan out again.
+      await zoomUntil(1, allIds, 'zoomed out, the group is fanned again');
+      const zoomedOut = await measureMarkerTargets(page);
+      await page.screenshot({ path: testInfo.outputPath(`${name}-out.png`) });
+      await expect(second, `${name}: focus stays on car park 2`).toBeFocused();
+      await expect(second).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('selected-municipal-facility-preview')).toContainText('Synthetic Explore Car Park 2');
+
+      writeReport(testInfo, `${testInfo.project.name}-${name}-markers`, { page: name, zoomedIn, zoomedOut });
+      const covered = (targets: MarkerTarget[]) =>
+        targets
+          .filter((target) => target.onTopShare < 1 && target.coveredBy.some((what) => what.startsWith('marker ')))
+          .map((target) => `${target.id} covered by ${target.coveredBy.join(', ')}`);
+      expect(covered(zoomedIn), `${name}: zoomed in, car parks that another car park covers`).toEqual([]);
+      expect(covered(zoomedOut), `${name}: zoomed out, car parks that another car park covers`).toEqual([]);
+      expect(unmocked, `${name}: API calls without a populated mock`).toEqual([]);
+    });
+  }
+
+  for (const [label, answer, viewport] of [
+    ['north-south', NORTH_SOUTH_EXPLORE, { width: 360, height: 800 }],
+    ['north-west', NORTH_WEST_EXPLORE, { width: 1280, height: 720 }],
+  ] as const) {
+    const size = `${viewport.width}x${viewport.height}`;
+    test(`a car park framed at the top edge stays clear of the controls over the map: ${label} at ${size}`, async ({ page }, testInfo) => {
+      const name = `explore-top-${label}-${size}`;
+      const unmocked = await openExplore(page, viewport, answer);
+      await expect(page.locator(FACILITY_MARKER)).toHaveCount(answer.facilities.length);
+      await waitForStillMarkers(page);
+      const targets = await measureMarkerTargets(page);
+      const overlay = await measureTopOverlay(page);
+      await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+      writeReport(testInfo, `${testInfo.project.name}-${name}-markers`, { page: name, targets, overlay });
+      expect
+        .soft(
+          targets.filter((target) => target.onTopShare < 1).map((target) => `${target.id} covered by ${target.coveredBy.join(', ')}`),
+          `${name}: car park markers that something else covers`,
+        )
+        .toEqual([]);
+      await measurePage(page, testInfo, name, 'en', 'en', 'explore');
+      expect(unmocked, `${name}: API calls without a populated mock`).toEqual([]);
+    });
+  }
+});
 
 /**
  * The focus-indicator rule itself (#229 review N1), on synthetic pages with no app code. A transparent
