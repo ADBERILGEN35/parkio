@@ -1,6 +1,18 @@
 # Practical security gates for Parkio. The policy is deliberately high-signal:
-# secrets always fail, dependency scans fail on HIGH/CRITICAL, and representative
-# container images fail on CRITICAL only while the baseline matures.
+# secrets always fail, dependency scans fail on HIGH/CRITICAL, and container images
+# fail on CRITICAL findings with a fix in OS and library packages and, through S1,
+# on HIGH/CRITICAL application-library findings with a fix. The images are the ten
+# services and the web image (S2).
+#
+# Container scan selection (U08, owner decision 2026-10-05):
+# - A pull request scans the images its changed files can affect
+#   (scripts/ci/select_container_scans.py). Unclassified paths, scan inputs and an
+#   unknown file list select every image. A path under scripts/ or docker/ selects
+#   the images whose Dockerfile or Gradle build names it.
+# - Every other event scans everything: a push to api or master, and a
+#   workflow_dispatch, which includes master's scheduled dispatch onto api.
+# - The summary fails when the selection fails, a selected scan fails or leaves no
+#   report, or the scan is skipped while images were selected.
 #
 # CodeQL and Trivy SARIF upload publish to GitHub Code Scanning, which requires
 # Code scanning (and, on private repos, GitHub Advanced Security) to be enabled.
@@ -234,24 +246,42 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  select:
+    name: Container scan selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.select.outputs.images }}
+      any: ${{ steps.select.outputs.any }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'schedule' && 'api' || github.sha }}
+
+      - name: Selection and summary-gate tests
+        run: python3 -m unittest scripts/ci/test_select_container_scans.py scripts/ci/test_security_ci_summary.py
+
+      # A pull request scans the images its changed files can affect; every other event, including
+      # master's scheduled dispatch onto api, scans all of them. Unclassified paths and unknown file
+      # lists select every image (U08, owner decision 2026-10-05).
+      - name: Select the images to scan
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+        run: python3 scripts/ci/select_container_scans.py --event "$EVENT" --github-output "$GITHUB_OUTPUT"
+
   container-images:
     name: Container scan (${{ matrix.service }})
+    needs: select
+    if: ${{ needs.select.outputs.any == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        service:
-          - ai-validation-service
-          - analytics-service
-          - auth-service
-          - gamification-service
-          - gateway-service
-          - media-service
-          - moderation-service
-          - notification-service
-          - parking-service
-          - user-service
+        service: ${{ fromJSON(needs.select.outputs.images) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -295,12 +325,24 @@ jobs:
       - name: Ensure gradlew executable
         run: chmod +x gradlew
 
-      - name: Build service image
+      # S2: the web image is built as the release builds it (release bake values) with a
+      # synthetic MapTiler key; only its dependencies and base image matter to the scan.
+      - name: Build image
+        env:
+          SERVICE: ${{ matrix.service }}
         run: |
-          docker build \
-            -f services/${{ matrix.service }}/Dockerfile \
-            -t parkio/${{ matrix.service }}:security-ci \
-            .
+          set -euo pipefail
+          if [ "$SERVICE" = "web" ]; then
+            args=()
+            while IFS='=' read -r key value; do
+              case "$key" in VITE_*) args+=(--build-arg "$key=$value") ;; esac
+            done < <(grep -v -E '^\s*(#|$)' docker/web-hosted-beta.release-bake.env)
+            docker build -f frontend/apps/web/Dockerfile "${args[@]}" \
+              --build-arg VITE_MAPTILER_KEY=securityScanSyntheticMapKey00 \
+              -t "parkio/web:security-ci" .
+          else
+            docker build -f "services/${SERVICE}/Dockerfile" -t "parkio/${SERVICE}:security-ci" .
+          fi
 
       - name: Scan image for high and critical findings
         run: |
@@ -355,15 +397,65 @@ jobs:
             --exit-code 1 \
             --cache-dir /root/.cache/trivy
 
-      - name: Show image report on failure
-        if: failure()
+      - name: Block on high and critical library findings with a fix
+        if: ${{ !cancelled() }}
+        env:
+          SERVICE: ${{ matrix.service }}
         run: |
-          report="trivy-image-${{ matrix.service }}.txt"
-          if [ -s "$report" ]; then
-            cat "$report"
-          else
-            echo "No image table report was generated. Check the preceding Trivy command output."
-          fi
+          set -euo pipefail
+          image_ref="parkio/${SERVICE}:security-ci"
+          echo "Scan target: ${image_ref} (application libraries only)"
+          echo "Severity policy: block on HIGH/CRITICAL library vulnerabilities that have a fix."
+          echo "Ignore policy: .trivyignore.yaml (narrow, expiring exceptions only)"
+          for format in table sarif; do
+            ext=$([ "$format" = table ] && echo txt || echo sarif)
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+              -v "${GITHUB_WORKSPACE}:/work" \
+              -w /work \
+              "${TRIVY_IMAGE}" \
+              image "${image_ref}" \
+              --scanners vuln \
+              --pkg-types library \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --ignorefile .trivyignore.yaml \
+              --format "$format" \
+              --output "trivy-image-${SERVICE}-library.${ext}" \
+              --exit-code "$([ "$format" = sarif ] && echo 1 || echo 0)" \
+              --cache-dir /root/.cache/trivy
+          done
+
+      - name: Show image reports on failure
+        if: failure()
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          for report in "trivy-image-${SERVICE}.txt" "trivy-image-${SERVICE}-library.txt"; do
+            if [ -s "$report" ]; then
+              echo "== $report"
+              cat "$report"
+            else
+              echo "No table report $report was generated. Check the preceding Trivy command output."
+            fi
+          done
+
+      # Missing results fail the job: a selected scan must leave all four reports.
+      - name: Require every scan report
+        if: ${{ !cancelled() }}
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          missing=0
+          for report in "trivy-image-${SERVICE}.txt" "trivy-image-${SERVICE}.sarif" \
+                        "trivy-image-${SERVICE}-library.txt" "trivy-image-${SERVICE}-library.sarif"; do
+            if [ ! -s "$report" ]; then
+              echo "::error::missing scan result ${report}"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Upload image SARIF to Code Scanning
         if: ${{ always() && vars.CODEQL_ENABLED == 'true' }}
@@ -371,6 +463,13 @@ jobs:
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
+
+      - name: Upload library SARIF to Code Scanning
+        if: ${{ always() && vars.CODEQL_ENABLED == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-image-${{ matrix.service }}-library.sarif
+          category: trivy-image-${{ matrix.service }}-library
 
       - name: Upload image report artifacts
         if: always()
@@ -380,6 +479,8 @@ jobs:
           path: |
             trivy-image-${{ matrix.service }}.txt
             trivy-image-${{ matrix.service }}.sarif
+            trivy-image-${{ matrix.service }}-library.txt
+            trivy-image-${{ matrix.service }}-library.sarif
           if-no-files-found: ignore
           retention-days: 14
 
@@ -387,13 +488,15 @@ jobs:
     name: Security CI summary
     runs-on: ubuntu-latest
     if: always()
-    needs: [secrets, codeql, dependencies, container-images]
+    needs: [secrets, codeql, dependencies, select, container-images]
     steps:
       - name: Write summary
         env:
           SECRETS_RESULT: ${{ needs.secrets.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           DEPENDENCIES_RESULT: ${{ needs.dependencies.result }}
+          SELECT_RESULT: ${{ needs.select.result }}
+          SELECTED_IMAGES: ${{ needs.select.outputs.images }}
           CONTAINER_RESULT: ${{ needs.container-images.result }}
           CODEQL_ENABLED: ${{ vars.CODEQL_ENABLED }}
         run: |
@@ -412,7 +515,8 @@ jobs:
             echo "| --- | --- | --- |"
             echo "| Secret scan (gitleaks) | blocking — fails on any detected secret | ${SECRETS_RESULT} |"
             echo "| Trivy dependency scan | blocking — fails on HIGH/CRITICAL fixable library vulns | ${DEPENDENCIES_RESULT} |"
-            echo "| Trivy container scan | reporting HIGH/CRITICAL; blocking on CRITICAL image vulns | ${CONTAINER_RESULT} |"
+            echo "| Container scan selection | images this run must scan; unknown paths select all | ${SELECT_RESULT}: ${SELECTED_IMAGES:-unknown} |"
+            echo "| Trivy container scan | reporting HIGH/CRITICAL; blocking on CRITICAL image vulns and on HIGH/CRITICAL fixable library vulns | ${CONTAINER_RESULT} |"
             echo "| CodeQL (SAST) | ${codeql_line} |  |"
             echo ""
             echo "All scan reports are published as workflow artifacts regardless of CodeQL state."
@@ -429,13 +533,24 @@ jobs:
           SECRETS_RESULT: ${{ needs.secrets.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           DEPENDENCIES_RESULT: ${{ needs.dependencies.result }}
+          SELECT_RESULT: ${{ needs.select.result }}
+          SELECT_ANY: ${{ needs.select.outputs.any }}
           CONTAINER_RESULT: ${{ needs.container-images.result }}
         run: |
           # codeql may legitimately be "skipped" (gate off) — that is not a failure.
           fail=0
-          for r in "$SECRETS_RESULT" "$DEPENDENCIES_RESULT" "$CONTAINER_RESULT"; do
+          for r in "$SECRETS_RESULT" "$DEPENDENCIES_RESULT" "$SELECT_RESULT"; do
             if [ "$r" != "success" ]; then fail=1; fi
           done
+          # The container scan may be skipped only when the selection chose no image; a skip for any
+          # other reason (a failed or missing selection) fails closed.
+          if [ "$CONTAINER_RESULT" != "success" ]; then
+            if [ "$CONTAINER_RESULT" = "skipped" ] && [ "$SELECT_RESULT" = "success" ] && [ "$SELECT_ANY" = "false" ]; then
+              echo "Container scan skipped: the selection chose no image."
+            else
+              fail=1
+            fi
+          fi
           if [ "$CODEQL_RESULT" = "failure" ]; then fail=1; fi
           if [ "$fail" -eq 1 ]; then
             echo "::error::One or more Security CI gates failed. See the job summary."
