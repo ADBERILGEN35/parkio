@@ -96,6 +96,14 @@ The rollback, the deploy and `scripts/parkio-prod-compose.sh` refuse a web image
 - **No break-glass.** The check has none, and the map and conf.d break-glasses do not skip it.
 - **The fix.** Start a web image built for this env's API, or correct the env's `VITE_API_BASE_URL` and `PARKIO_DOMAIN` if they are wrong.
 
+## Production configuration on the hosted-beta profile
+
+The rollback, like the deploy, refuses a configuration whose rendered model gives the edge a production hostname (`api.parkio.dev`, `app.parkio.dev` or `media.parkio.dev`).
+- **Where it looks.** Caddy's `PARKIO_DOMAIN`, `PARKIO_WEB_DOMAIN` and `PARKIO_MEDIA_DOMAIN`, and web's CSP hosts, as Compose resolves them from the env file.
+- **When it stops.** After the read-only `docker compose config` render, before anything changes ("…is a production hostname; the hosted-beta profile refuses production configuration").
+- **Production.** Production runs through `scripts/parkio-prod-compose.sh`, which this check does not affect.
+- **No override.** There is none (owner decision 2026-10-05).
+
 ## If images are missing
 
 ```bash
