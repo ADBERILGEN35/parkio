@@ -2,10 +2,11 @@
 
 > **Deprecated as a production path (owner decision B7, 2026-10-03).** The supported
 > production path is the canonical wrapper, `scripts/parkio-prod-compose.sh` with
-> `docker/compose.production.files`. This profile keeps working for environments that use it
+> `docker/compose.production.files`. This profile is left unchanged for environments that use it
 > today, and nothing live changes. `deploy-hosted-beta.sh` and `rollback-hosted-beta.sh` print
 > a warning when they run it. Known gaps compared with the wrapper:
-> - it cannot build digest-pinned services ("build tag cannot contain a digest");
+> - it cannot build digest-pinned services ("build tag cannot contain a digest"), so a fresh
+>   build-and-deploy stops at the first pinned service; rendering, dry-run and rollback work;
 > - it adds `docker/docker-compose.images.yml` (build arguments and `parkio/<service>:sha-…`
 >   names for the unpinned services);
 > - it has no Civo Alertmanager overlay.
@@ -19,7 +20,7 @@
 | Profile | `azure-hosted-beta` |
 | Selector | `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta` |
 | Environment | `docker/.env.azure-hosted-beta` copied from `.env.azure-hosted-beta.example` |
-| Compose files | base -> apps -> images -> hosted-beta -> Azure overlay |
+| Compose files | `docker/compose.production.files` in order, with `docker-compose.images.yml` after the apps overlay: base -> apps -> images -> hosted-beta -> Azure overlay -> release pins and auth registration env |
 | Azure overlay | `docker/docker-compose.azure-hosted-beta.yml` |
 | Runtime target | 32 services: 31 steady-running plus `minio-setup` one-shot |
 | Excluded | `alertmanager`, `loki`, `promtail`, `tempo` |

@@ -124,13 +124,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A day-bucketed key: the first run of a day restores the latest earlier DB, Trivy refreshes
+      # it if it is stale, and the result is saved under the new day. The constant key it replaces
+      # was saved once (2026-06-22) and never refreshed (CI audit item 6). Only the vulnerability
+      # DB (db/, about 71 MB) is cached. The Java DB (java-db/, 933 MiB) that the library scans
+      # download is left out, so a daily entry cannot push other caches out of the repository's
+      # 10 GB.
+      - name: Trivy database cache day
+        id: trivy-day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy database
         uses: actions/cache@v4
         with:
-          path: ${{ env.TRIVY_CACHE_DIR }}
-          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}
+          path: ${{ env.TRIVY_CACHE_DIR }}/db
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-${{ steps.trivy-day.outputs.day }}
           restore-keys: |
-            trivy-db-${{ runner.os }}-
+            trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-
 
       - name: Show Trivy Docker image version
         run: |
@@ -255,13 +265,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A day-bucketed key: the first run of a day restores the latest earlier DB, Trivy refreshes
+      # it if it is stale, and the result is saved under the new day. The constant key it replaces
+      # was saved once (2026-06-22) and never refreshed (CI audit item 6). Only the vulnerability
+      # DB (db/, about 71 MB) is cached. The Java DB (java-db/, 933 MiB) that the library scans
+      # download is left out, so a daily entry cannot push other caches out of the repository's
+      # 10 GB.
+      - name: Trivy database cache day
+        id: trivy-day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy database
         uses: actions/cache@v4
         with:
-          path: ${{ env.TRIVY_CACHE_DIR }}
-          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}
+          path: ${{ env.TRIVY_CACHE_DIR }}/db
+          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-${{ steps.trivy-day.outputs.day }}
           restore-keys: |
-            trivy-db-${{ runner.os }}-
+            trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-
 
       - name: Show Trivy Docker image version
         run: |

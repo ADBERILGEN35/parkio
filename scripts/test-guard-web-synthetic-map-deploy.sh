@@ -2,7 +2,9 @@
 # Regression tests for the production web map deploy guard (audit F-05):
 #   scripts/guard-web-synthetic-map-deploy.sh, scripts/lib/web_bundle_map_config.py,
 #   scripts/lib/web-map-guard.sh and its callers scripts/parkio-prod-compose.sh and
-#   parkio_compose_up (scripts/lib/deploy-common.sh).
+#   parkio_compose_up (scripts/lib/deploy-common.sh). The callers' conf.d check (B8b,
+#   scripts/lib/web_conf_d_guard.py) is covered here too; its own tests are in
+#   scripts/test-web-conf-d-guard.sh.
 #
 # Part A drives the real scripts with a fake `docker` on PATH (controlled image
 # fixtures; every compose mutation is logged so "nothing started" is asserted).
@@ -47,6 +49,9 @@ case "$1" in
     ;;
   create)
     id="${@: -1}"
+    # A reference (repo@digest, tag) resolves to its image ID, as the daemon would.
+    f="$d/images/$(key "$id").json"
+    [ -f "$f" ] && id="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[0]["Id"])' "$f")"
     root="$d/roots/${id#sha256:}"
     [ -d "$root" ] || { echo "Error: No such image: $id" >&2; exit 1; }
     echo "cid-${id#sha256:}"
@@ -54,7 +59,10 @@ case "$1" in
   cp)
     src="${2%%:*}"; path="${2#*:}"
     root="$d/roots/${src#cid-}"
-    [ -d "$root$path" ] || { echo "Error: Could not find the file $path" >&2; exit 1; }
+    if [ "$path" = /etc/nginx/templates/default.conf.template ] && [ -f "$d/cp-template-error" ]; then
+      echo "Error response from daemon: permission denied" >&2; exit 1
+    fi
+    [ -e "$root$path" ] || { echo "Error: Could not find the file $path" >&2; exit 1; }
     tar -C "$root$(dirname "$path")" -cf - "$(basename "$path")"
     ;;
   rm) ;;
@@ -126,7 +134,7 @@ export FAKE_DOCKER_DIR="$FAKE"
 
 fake_reset() {
   rm -f "$FAKE"/calls.log "$FAKE"/config.log "$FAKE"/mutations.log "$FAKE"/compose-fail
-  rm -f "$FAKE"/save-fail "$FAKE"/save-mismatch "$FAKE"/save-nocfg
+  rm -f "$FAKE"/save-fail "$FAKE"/save-mismatch "$FAKE"/save-nocfg "$FAKE"/cp-template-error
   unset FAKE_DAEMON_PLATFORM || true
 }
 
@@ -199,6 +207,11 @@ PY
 cfg_id() { printf 'sha256:%064d' "$1"; }
 dig() { printf 'sha256:%s' "$(printf '%s' "$1" | sha256sum | cut -c1-64)"; }
 
+# compose_model_conf_d IMAGE: a web service with a tmpfs at /etc/nginx/conf.d (B8b)
+compose_model_conf_d() {
+  printf '{"services":{"gateway-service":{"image":"gw:1"},"web":{"image":"%s","tmpfs":["/etc/nginx/conf.d:size=1m,mode=755"]}}}\n' "$1" >"$FAKE/compose-config.json"
+}
+
 compose_model() { # compose_model IMAGE|-  (- = no web service)
   if [ "$1" = "-" ]; then
     echo '{"services":{"gateway-service":{"image":"gw:1"}}}' >"$FAKE/compose-config.json"
@@ -228,6 +241,11 @@ echo "=== Part A: guard, classifier and callers (fake docker) ==="
 # Fixtures
 GOOD_ID="$(cfg_id 1)"; GOOD_DIG="$(dig good)"
 fake_image "$REPO@$GOOD_DIG" "$GOOD_ID" linux/amd64 "$REPO@$GOOD_DIG" good
+# B8b: the same valid bundle in an image that renders /etc/nginx/conf.d at start (#198 on).
+B9_ID="$(cfg_id 77)"; B9_DIG="$(dig b9)"
+fake_image "$REPO@$B9_DIG" "$B9_ID" linux/amd64 "$REPO@$B9_DIG" good
+mkdir -p "$FAKE/roots/${B9_ID#sha256:}/etc/nginx/templates"
+echo 'server { listen 80; }' >"$FAKE/roots/${B9_ID#sha256:}/etc/nginx/templates/default.conf.template"
 fake_image "$REPO:good-tag" "$GOOD_ID" linux/amd64 "$REPO@$GOOD_DIG" good
 fake_image "$REPO:bad-config-alias" "$BAD_CONFIG" linux/amd64 "" synthetic
 fake_image "$REPO:bad-manifest-alias" "$(cfg_id 2)" linux/amd64 "$REPO@$BAD_MANIFEST" good
@@ -492,6 +510,22 @@ fake_reset; compose_model "$REPO:synthetic"
 PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE wrapper 0 yes "explicit break-glass token skips with a warning" up -d --no-deps web
 grep -q 'break-glass' "$TMP/err" && pass "break-glass warning printed" || bad "break-glass warning printed"
 
+echo "--- conf.d check (B8b, real wrapper) ---"
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+wrapper 1 no "tmpfs at /etc/nginx/conf.d with an image built before #198: refused, nothing started" up -d --no-deps web
+grep -q 'built before #198' "$TMP/err" && grep -q 'move the web pin' "$TMP/err" && pass "refusal names the cause and the fix" || bad "refusal names the cause and the fix"
+grep -q '^create .*--entrypoint /parkio-web-conf-d-guard-noop' "$FAKE/calls.log" && ! grep -Eq '^(start|run|exec) ' "$FAKE/calls.log" && pass "conf.d check creates the image and never starts it" || bad "conf.d check creates the image and never starts it"
+fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
+wrapper 0 yes "tmpfs at /etc/nginx/conf.d with an image from #198 on: started" up -d --no-deps web
+grep -q 'web-conf-d-guard: PASS' "$TMP/out" && pass "conf.d check passed before the start" || bad "conf.d check passed before the start"
+grep -q 'SECRET\|listen 80' "$TMP/out" "$TMP/err" && bad "template content printed" || pass "template content not printed"
+fake_reset; compose_model "$REPO@$GOOD_DIG"
+wrapper 0 yes "no tmpfs at /etc/nginx/conf.d: conf.d check skipped" up -d --no-deps web
+grep -q 'web-conf-d-guard: SKIP' "$TMP/out" && ! grep -q 'parkio-web-conf-d-guard-noop' "$FAKE/calls.log" && pass "skip inspects nothing" || bad "skip inspects nothing"
+fake_reset; compose_model_conf_d "$REPO@$B9_DIG"; touch "$FAKE/cp-template-error"
+wrapper 1 no "conf.d inspection failure: refused, nothing started" up -d --no-deps web
+grep -q 'cannot inspect' "$TMP/err" && pass "inspection failure is named" || bad "inspection failure is named"
+
 echo "--- compose argument parsing (real wrapper) ---"
 fake_reset; compose_model "$REPO:synthetic"
 wrapper 1 no "run --no-deps --use-aliases web <cmd>: --use-aliases is a flag, web is gated" run --no-deps --use-aliases web echo hi
@@ -597,6 +631,10 @@ fake_reset; compose_model "-"
 compose_up 0 yes "deploy/rollback up with no web service in the model proceeds" gateway-service
 fake_reset; compose_model "$REPO@$BAD_MANIFEST"
 compose_up 1 no "rollback to the known-bad manifest is refused"
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+compose_up 1 no "deploy/rollback with the conf.d tmpfs and an image built before #198 is refused" gateway-service web
+fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
+compose_up 0 yes "deploy/rollback with the conf.d tmpfs and an image from #198 on proceeds" gateway-service web
 
 for f in scripts/deploy-hosted-beta.sh scripts/deploy-invite-production.sh scripts/rollback-hosted-beta.sh; do
   if grep -Eq '^[^#]*(docker compose|parkio_compose)[^#]*[[:space:]]up([[:space:]]|$)' "$ROOT/$f"; then

@@ -215,6 +215,7 @@ jobs:
           # F-05 web map deploy guard + its real callers; Part B needs the
           # runner's docker daemon and must not silently skip here.
           PARKIO_GUARD_TEST_REQUIRE_DOCKER=1 bash scripts/test-guard-web-synthetic-map-deploy.sh
+          PARKIO_GUARD_TEST_REQUIRE_DOCKER=1 bash scripts/test-web-conf-d-guard.sh
 
       - name: Meta
         id: meta

@@ -27,9 +27,10 @@ test('a hardened model passes, including recorded capabilities and exceptions', 
       ...hardenedAs('promtail', { volumes: [{ type: 'bind', source: '/var/run/docker.sock', target: '/var/run/docker.sock' }] }),
       ...hardenedAs('node-exporter', { pid: 'host' }),
       ...hardenedAs('clamav', { cap_add: ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'] }),
+      ...hardenedAs('web', { cap_add: ['CHOWN', 'NET_BIND_SERVICE', 'SETGID', 'SETUID'] }),
     },
   });
-  assert.equal(services, 6);
+  assert.equal(services, 7);
   assert.deepEqual(failures, []);
 });
 
@@ -77,7 +78,7 @@ test('Docker socket, host PID and privileged are refused outside the documented 
   ]);
 });
 
-test('a writable root filesystem fails outside the recorded exception (B8)', () => {
+test('a writable root filesystem fails for every service, web included (B8, B8b)', () => {
   const { failures } = evaluateHardening({
     services: {
       ...hardenedAs('media-service', { read_only: false, volumes: [{ type: 'volume', target: '/tmp' }] }),
@@ -90,6 +91,7 @@ test('a writable root filesystem fails outside the recorded exception (B8)', () 
     'clamav: root filesystem is not read-only',
     'kafka: root filesystem is not read-only',
     'media-service: root filesystem is not read-only',
+    'web: root filesystem is not read-only',
   ]);
 });
 

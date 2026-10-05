@@ -29,11 +29,11 @@ export const DOCKER_SOCKET_EXCEPTIONS = new Set(['promtail']);
 export const HOST_PID_EXCEPTIONS = new Set(['node-exporter']);
 
 /**
- * Services allowed a writable root filesystem; see the inventory for why (B8). web is temporary:
- * its read-only root needs a tmpfs over /etc/nginx/conf.d, which only works with the image that
- * renders that directory at start (B9, #198).
+ * Services allowed a writable root filesystem; see the inventory for why (B8). None since B8b: web
+ * runs read-only too, with a tmpfs over /etc/nginx/conf.d. That needs an image that renders the
+ * directory at start (B9, #198), and scripts/lib/web_conf_d_guard.py refuses an older one at deploy.
  */
-export const WRITABLE_ROOT_EXCEPTIONS = new Set(['web']);
+export const WRITABLE_ROOT_EXCEPTIONS = new Set();
 
 // tmpfs mounts of the read-only roots (B8), exactly as the Compose files declare them. Each has a
 // size, because tmpfs pages count against the container's memory limit, and keeps Docker's
@@ -53,6 +53,7 @@ export const TMPFS_MOUNTS = {
   tempo: ['/tmp:size=16m'],
   grafana: ['/tmp:size=32m'],
   caddy: ['/tmp:size=8m'],
+  web: ['/etc/nginx/conf.d:size=1m,mode=755', '/run:size=1m,mode=755', '/tmp:size=8m', '/var/cache/nginx:size=8m,mode=755'],
   clamav: ['/run/clamav:size=1m', '/run/lock:size=1m', '/tmp:size=128m', '/var/log/clamav:size=16m'],
 };
 
