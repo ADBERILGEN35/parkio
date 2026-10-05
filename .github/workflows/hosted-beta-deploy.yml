@@ -3,6 +3,11 @@
 # Always builds images from the workflow commit (sha-<gitsha>). Deploy and rollback
 # are workflow_dispatch only — nothing auto-deploys to a VPS.
 #
+# The deploy and rollback jobs run the default hosted-beta profile. It renders
+# docker/compose.production.files (CL-F12): deploy builds the services that list does not
+# pin and pulls the digest pins, and rollback re-points the built ones. Before the next
+# deploy, confirm the parkio-beta runner host: docs/beta/deploy-runbook.md, "Release step".
+#
 # Jobs:
 #   build-images  — build + tag all app images, write deploy manifest artifact
 #   deploy        — optional; needs self-hosted runner labeled parkio-beta

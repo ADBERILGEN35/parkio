@@ -60,7 +60,9 @@ root and needs them to prepare a data directory or switch to its service user.
    - The exposure is accepted only for the current non-production promtail setup: the default
      development stack and CI.
    - The hosted-beta deploy profile is not covered. It is a supported deployment path (CL-F12,
-     decision 1b), and it starts promtail with the socket today, so its exposure stays open.
+     decision 1b). Since CL-F12 it no longer starts promtail, but a promtail container from an
+     earlier hosted-beta deploy keeps running with the socket until an operator stops it, so its
+     exposure stays open until then.
    - Production enablement stays blocked until a secrets-exposure solution has been reviewed.
    - This records the state. It changes no live configuration and closes no operational criterion.
 2. **node-exporter shares the host PID namespace** and mounts `/`, `/proc` and `/sys` read-only

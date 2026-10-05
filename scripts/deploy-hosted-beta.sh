@@ -2,9 +2,13 @@
 #
 # Parkio — hosted-beta deploy from the current git commit.
 #
-# Builds all app images from source, tags them with sha-<gitsha> and beta-latest,
+# Builds the app images from source, tags them with sha-<gitsha> and beta-latest,
 # starts the stack (Flyway runs on startup), waits for health, runs smoke checks,
 # and writes a deploy manifest under deploy-artifacts/.
+#
+# The default hosted-beta profile renders docker/compose.production.files exactly (CL-F12). It
+# builds only the services that list does not pin by digest, under the names the model gives them,
+# and pulls the digest-pinned images; `up` then never builds. Other profiles build every app image.
 #
 # Usage (from repo root):
 #   PARKIO_ENV_FILE=docker/.env ./scripts/deploy-hosted-beta.sh
@@ -127,14 +131,29 @@ mkdir -p "$ARTIFACT_DIR"
 parkio_compose "$ENV_FILE" config > "$ARTIFACT_DIR/compose-config.rendered.yml"
 parkio_compose "$ENV_FILE" config --quiet
 
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  # One plan for the manifest, the builds and the pulls (CL-F12).
+  PARKIO_HOSTED_BETA_IMAGE_PLAN="$(parkio_hosted_beta_image_plan "$ENV_FILE")"
+  export PARKIO_HOSTED_BETA_IMAGE_PLAN
+  echo "imagePlan (kind, service, image, platform):"
+  printf '%s\n' "$PARKIO_HOSTED_BETA_IMAGE_PLAN" | sed 's/^/  /'
+fi
+
 parkio_write_manifest "$MANIFEST_PATH" "deploy" "$OPERATOR" "$ENV_FILE" \
   "$IMAGE_TAG" "$GIT_SHA" "$BRANCH" "$CREATED" "$VERSION" "$PREVIOUS"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY-RUN: would build images and run:"
-  echo "  parkio_compose $ENV_FILE build"
-  echo "  tag beta-latest for each service"
-  echo "  parkio_compose_up $ENV_FILE"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+    echo "  pull each pinned image in the image plan that is not present"
+    echo "  parkio_compose $ENV_FILE build <each built service in the image plan>"
+    echo "  tag $IMAGE_TAG and beta-latest for each built service"
+    echo "  parkio_compose_up $ENV_FILE (--no-build)"
+  else
+    echo "  parkio_compose $ENV_FILE build"
+    echo "  tag beta-latest for each service"
+    echo "  parkio_compose_up $ENV_FILE"
+  fi
   echo "  wait healthy + smoke"
   echo "Manifest written: $MANIFEST_PATH"
   echo "Rollback would be:"
@@ -142,17 +161,45 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-echo "Building images from current source sequentially (refuses stale jars)..."
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  # CL-F12: build only what the production list does not pin. The build-args give the images the
+  # OCI labels docker-compose.images.yml gave them, without adding that file to the model. The
+  # built image keeps its model name, which `up` uses, and gets the immutable tag the manifest
+  # records for a rollback.
+  # The pins come first: a host without access to their registry fails before any build.
+  echo "Checking the digest-pinned images..."
+  while IFS=$'\t' read -r kind svc image platform; do
+    [ "$kind" = "pinned" ] || continue
+    parkio_ensure_pinned_image "$svc" "$image" "$platform"
+  done <<< "$PARKIO_HOSTED_BETA_IMAGE_PLAN"
 
-for svc in "${PARKIO_APP_SERVICES[@]}"; do
-  echo "=== Building $svc ==="
-  parkio_compose "$ENV_FILE" build "$svc"
-done
+  echo "Building the services the production list does not pin, sequentially (refuses stale jars)..."
+  while IFS=$'\t' read -r kind svc image platform; do
+    [ "$kind" = "built" ] || continue
+    echo "=== Building $svc as $image ==="
+    parkio_compose "$ENV_FILE" build \
+      --build-arg "IMAGE_VERSION=$VERSION" \
+      --build-arg "IMAGE_REVISION=$GIT_SHA" \
+      --build-arg "IMAGE_CREATED=$CREATED" \
+      "$svc"
+    docker tag "$image" "$(parkio_image_ref "$svc" "$IMAGE_TAG")"
+    docker tag "$image" "$(parkio_image_ref "$svc" "beta-latest")"
+  done <<< "$PARKIO_HOSTED_BETA_IMAGE_PLAN"
+  # Every image is built or pulled now: `up` must not build anything else.
+  export PARKIO_COMPOSE_UP_NO_BUILD=1
+else
+  echo "Building images from current source sequentially (refuses stale jars)..."
 
-echo "Tagging beta-latest..."
-for svc in "${PARKIO_APP_SERVICES[@]}"; do
-  docker tag "$(parkio_image_ref "$svc" "$IMAGE_TAG")" "$(parkio_image_ref "$svc" "beta-latest")"
-done
+  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+    echo "=== Building $svc ==="
+    parkio_compose "$ENV_FILE" build "$svc"
+  done
+
+  echo "Tagging beta-latest..."
+  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+    docker tag "$(parkio_image_ref "$svc" "$IMAGE_TAG")" "$(parkio_image_ref "$svc" "beta-latest")"
+  done
+fi
 
 echo "Starting stack (Flyway migrates on startup)..."
 parkio_compose_up "$ENV_FILE"

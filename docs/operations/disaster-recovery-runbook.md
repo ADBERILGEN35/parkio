@@ -21,6 +21,15 @@ stamp or restoring outside the scripts).
 | MinIO only | **BLOCKED** | `restore-hosted-beta.sh --only minio` is refused: `parkio_restore_refuse_unsupported_production_scope` (restored objects would not get erasures applied), exit 3 |
 | Kafka/outbox poison | Supported | DLQ/outbox runbooks; no restore involved |
 
+**One compose file set (CL-F12).**
+- With the default hosted-beta profile, deploy, rollback and DR render `docker/compose.production.files` exactly, so they share one model: the production pins and settings.
+- The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. A pin is rolled back by reverting its pin file, then deploying.
+- Start the stack only through those scripts, never with a hand-written `-f` list.
+- `scripts/test-canonical-production-file-set.sh` checks the file set.
+- **The rollback schema gate in the "Bad deploy" row never compares migrations today (F-INV-3, reported).** It reads a `migrations` key that manifests do not write.
+  - A local rollback with `deploy-artifacts/current.json` present is refused with exit 3.
+  - A workflow rollback, which runs on a clean checkout, skips the gate.
+
 The refusals live in `scripts/lib/restore-safe-preflight.sh` and are explained in
 [restore-safe-preflight.md](restore-safe-preflight.md). The only restores the scripts allow
 are synthetic, destination-bound isolated fixtures (`--isolated-fixture` with a matching
@@ -68,7 +77,7 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 
 1. Provision VPS (see `docs/operations/runtime-sizing.md`).
 2. Install Docker, clone the repo at a known good tag, restore `docker/.env` from the secrets
-   store.
+   store. The host needs read access to the registry of the digest-pinned images (GHCR).
 3. Copy the backup set from offsite (`BACKUP_MC_DEST`) to `BACKUP_DIR` and verify it
    (`sha256sum -c <stamp>/SHA256SUMS`, `test -f <stamp>/COMPLETE`).
 4. Run the stamp preflight only:

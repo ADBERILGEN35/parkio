@@ -110,9 +110,12 @@ accepted as a documented limitation only for the current non-production promtail
 development stack and the CI stacks that start promtail.
 - **hosted-beta is not covered.**
   - The hosted-beta deploy profile is a supported deployment path (CL-F12, owner decision 1b).
-  - A hosted-beta deploy starts promtail with the Docker socket today: `scripts/lib/deploy-common.sh`
-    disables no service for that profile, and `docker/docker-compose.hosted-beta.yml` keeps promtail.
-  - Its exposure stays open under the next rule.
+  - Since CL-F12 that profile renders `docker/compose.production.files`, whose Azure overlay puts
+    promtail in an inactive profile, so a hosted-beta deploy no longer starts or updates promtail.
+  - A promtail container started by an earlier hosted-beta deploy keeps running with the Docker
+    socket until an operator stops it (Compose 5.5.1 leaves a service that moved into an inactive
+    profile running). The deploy runbook's release step names this. Its exposure stays open under
+    the next rule until then.
 - **Production enablement of promtail stays blocked** until a secrets-exposure solution has been
   reviewed. The invite-production models disable promtail, and the Civo and Azure models have none.
 - The candidate solutions are a filtering proxy that drops `Config.Env`, or file-based collection.

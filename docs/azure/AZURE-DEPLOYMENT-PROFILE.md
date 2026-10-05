@@ -12,6 +12,16 @@
 > - it has no Civo Alertmanager overlay.
 >
 > New production environments use the wrapper.
+>
+> **Documented exceptions (CL-F12, owner decision 2a, 2026-10-05).** This deprecated path differs
+> from `docker/compose.production.files` in exactly two ways, accepted only as documented
+> exceptions for it:
+> 1. it adds `docker/docker-compose.images.yml` after the apps overlay;
+> 2. it has no Civo Alertmanager overlay, which only the Civo host's wrapper adds.
+>
+> Its rendered model is therefore not identical to the wrapper's or to the default hosted-beta
+> profile's, which renders the list exactly. `scripts/test-canonical-production-file-set.sh` pins
+> both exceptions and checks each supported path's deploy, rollback and DR file set on its own.
 
 ## Contract
 

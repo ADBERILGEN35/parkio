@@ -47,6 +47,19 @@ What the script does:
 5. Runs smoke checks
 6. Writes `deploy-artifacts/rollback-to-<sha>-<time>.json` and updates `current.json`
 
+With the default hosted-beta profile (CL-F12), the model is `docker/compose.production.files`, rendered from this checkout. Steps 2 and 3 differ:
+
+- **Built services.** For each service the list builds, the target manifest must record `parkio/<service>:<imageTag>`, and that image must be present. Otherwise the rollback refuses (exit 2) before it changes anything. The script then points the model's name for the service (`parkio-<service>`) at that image.
+- **Pinned services.** The digest-pinned services keep this checkout's pins; a missing pin is pulled. To roll a pin back, revert its pin file (for example `docker/docker-compose.web-release-pin.yml`) and deploy.
+- **Start.** `up -d --no-build`.
+- **Older manifests.** A manifest written before CL-F12 recorded every app service. Its images for the five pinned services are not used.
+- **A different file set.** When the target deploy rendered other compose files, the script prints a NOTE with both lists.
+- **Known limitation (F-INV-3, reported; not fixed by CL-F12).** A local rollback with `deploy-artifacts/current.json` present is refused with exit 3.
+  - The schema gate (`parkio_assert_rollback_schema_compatible`) reads a `migrations` key that manifests never write; they write `migrationVersions`. It therefore reports "target manifest missing migrations".
+  - The workflow's rollback job runs on a clean checkout without `current.json`, so there the gate is skipped.
+  - In neither case does the gate compare migrations.
+- **Web image.** The rollback runs the current web pin, so it is refused like the deploy until that pin moves to an image built from #198 or later (next section).
+
 ## Web images built before #198
 
 From #261 on, the compose files give web a read-only root and an empty tmpfs at

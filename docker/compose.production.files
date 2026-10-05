@@ -1,9 +1,12 @@
 # Canonical production compose file set for parkio-civo-prod (post GMP pin).
 # Paths relative to repository root (e.g. /opt/parkio).
-# Consumed by scripts/parkio-prod-compose.sh and by the azure-hosted-beta profile in
-# scripts/lib/deploy-common.sh (deploy/rollback), which inserts docker-compose.images.yml
-# after the apps overlay. scripts/test-canonical-production-file-set.sh pins both
-# (CL-F12). Keep digest pins last.
+# Consumed by (CL-F12; scripts/test-canonical-production-file-set.sh pins all three):
+#   - scripts/parkio-prod-compose.sh, which appends the Civo Alertmanager overlay;
+#   - the default hosted-beta profile in scripts/lib/deploy-common.sh, exactly, for deploy,
+#     rollback and DR;
+#   - the deprecated azure-hosted-beta profile, which inserts docker-compose.images.yml after
+#     the apps overlay.
+# Keep digest pins last.
 # Order: GMP service pins, then auth registration env, then auth/web pins.
 docker/docker-compose.yml
 docker/docker-compose.apps.yml
@@ -14,7 +17,8 @@ docker/docker-compose.gmp-release-pins.yml
 # the pin remains image-only. Do not add waitlist-ops-inbox.yml here:
 # that overlay stays activation-only and fails without INBOX_GID.
 # Do not add docker-compose.civo-alertmanager.yml here. The Civo wrapper
-# appends it; the deploy-common profile does not (open CL-F12 owner decision).
+# appends it as a Civo-host-specific addition; the deploy-common profiles do
+# not (CL-F12 owner decision).
 docker/docker-compose.auth-registration-env.yml
 docker/docker-compose.auth-release-pin.yml
 docker/docker-compose.web-release-pin.yml

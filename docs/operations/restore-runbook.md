@@ -102,7 +102,7 @@ A successful data restore is **not** authorization to expose applications.
 publishers, schedulers, Slack, or Fluent Bit. A copy whose erasure tail after the backup is
 unknown must stay unexposed; applying erasures after users are back on it is not accepted.
 
-1. `docker compose ... up -d` if services were stopped — operator decision, not part of restore.
+1. Start stopped services through the deployment profile's scripts, not a hand-written `docker compose -f` list. This is an operator decision, not part of the restore. With the default hosted-beta profile, `deploy-hosted-beta.sh` and `rollback-hosted-beta.sh` render `docker/compose.production.files` (CL-F12).
 2. Wait for healthchecks (`docker compose ps`).
 3. `./scripts/smoke-hosted-beta.sh`
 4. Verify Grafana dashboards and outbox/DLQ metrics.
