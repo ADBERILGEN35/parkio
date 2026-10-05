@@ -103,7 +103,7 @@ class ImageInputRefsTest(unittest.TestCase):
     # Top-level names a repository path must start with; the tree also holds the given files.
     TOP = {"scripts/run.sh": "", "docker/compose.yml": "", "web/index.html": "", ".github/x.yml": "",
            "benchmarks/data/x": "", ".node-version": "22\n", "gradlew": "", "gradle/libs.versions.toml": "",
-           "frontend/apps/web/x": "", "platform/p/x": "", "tools/t/x": "",
+           "frontend/apps/web/x": "", "platform/p/x": "", "tools/t/x": "", "Makefile": "all:\n",
            "services/a-service/Dockerfile": "FROM x\n", "services/b-service/Dockerfile": "FROM x\n"}
 
     def tree(self, files):
@@ -155,6 +155,47 @@ class ImageInputRefsTest(unittest.TestCase):
             "benchmarks/data/x": (["a-service", "b-service"], False),
             "web/index.html": (["a-service"], False),
         })
+
+    def test_arg_and_env_values_resolve_variable_sources(self):
+        """#279 review B1: ARG defaults and ENV values are substituted before the path is classified."""
+        cases = {
+            "ARG D=scripts/tools\nCOPY ${D}/t.sh /t\n": "scripts/tools/t.sh",
+            "ARG D=scripts\nCOPY $D /s\n": "scripts",
+            "COPY ${SRC:-docker/conf} /etc/conf\n": "docker/conf",
+            "ENV SRC=web/static\nCOPY ${SRC}/a.html /srv/\n": "web/static/a.html",
+            "ARG GEN=scripts/gen.sh\nRUN sh $GEN\n": "scripts/gen.sh",
+        }
+        for lines, path in cases.items():
+            with self.subTest(dockerfile=lines):
+                self.assertEqual(self.refs({"services/a-service/Dockerfile": f"FROM x\n{lines}"}),
+                                 {path: (["a-service"], False)})
+
+    def test_an_unresolved_variable_source_selects_everything(self):
+        """B1: a source that still holds a variable could be any file, so it fails closed."""
+        for lines in ("ARG X\nCOPY ${X}/t.sh /t\n", "COPY $UNDEFINED/t.sh /t\n", "RUN sh $UNDEFINED/gen.sh\n"):
+            with self.subTest(dockerfile=lines):
+                self.assertEqual(self.refs({"services/a-service/Dockerfile": f"FROM x\n{lines}"}),
+                                 {"": (["a-service"], False)})
+        root = self.tree({"services/a-service/Dockerfile": "FROM x\nARG X\nCOPY ${X}/t.sh /t\n"})
+        known = sel.services(root)
+        self.assertEqual(sel.select("pull_request", ["docs/a.md"], known, sel.image_input_refs(root, known))[0],
+                         sorted(known + ["web"]))
+
+    def test_shell_variables_in_run_are_not_paths(self):
+        dockerfile = 'FROM x\nRUN set -e; args="--dist out"; node build.mjs ${args} --env ${APP_ENV}\n'
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": dockerfile}), {})
+
+    def test_a_run_heredoc_body_is_read_and_a_copy_heredoc_body_is_not(self):
+        """B1: RUN <<EOT bodies are part of the RUN; COPY <<EOF writes a file, it reads nothing."""
+        dockerfile = ("FROM x\nRUN <<EOT\nset -e\nsh scripts/gen.sh\nEOT\n"
+                      "COPY <<EOF /etc/notes\nscripts/not-read.sh\nEOF\n")
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": dockerfile}),
+                         {"scripts/gen.sh": (["a-service"], False)})
+
+    def test_a_bare_top_level_file_in_run_is_read(self):
+        """#279 review N2."""
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": "FROM x\nRUN cat Makefile .node-version\n"}),
+                         {".node-version": (["a-service"], False), "Makefile": (["a-service"], False)})
 
     def test_the_whole_build_context_counts_only_in_the_final_stage(self):
         self.assertEqual(self.refs({"services/a-service/Dockerfile": "FROM x\nCOPY . /app\n"}),

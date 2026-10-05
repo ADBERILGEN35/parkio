@@ -17,8 +17,10 @@ For a pull request each changed path is classified by the first matching rule:
      scripts, Compose and observability configuration, ...)                -> none
   7. anything else                                                          -> every image (fail closed)
 On top of these rules, the paths an image's build reads are collected from two sources:
-  - the scanned images' Dockerfiles: COPY and ADD sources, RUN --mount sources, paths in RUN commands,
-    and build-stage paths resolved against the stage's WORKDIR;
+  - the scanned images' Dockerfiles: COPY and ADD sources, RUN --mount sources, paths in RUN commands
+    (heredoc bodies included), and build-stage paths resolved against the stage's WORKDIR. ARG defaults
+    and ENV values are substituted first; a source or RUN path that still holds a variable cannot be
+    classified and selects every image;
   - every backend Gradle build file: string paths, and names given to file()/files()/fileTree()/from().
 A path counts in any form: a file or a directory, with or without a trailing slash, or with a glob (its
 directory counts). Comments do not count. `COPY . .` in a build stage is the Gradle build's context,
@@ -77,6 +79,9 @@ WORD_SPLIT = re.compile(r"[\s;,|&()<>\"'`=]+")
 GRADLE_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 # In these Gradle calls a bare name is a path even without a slash: file("scripts").
 GRADLE_FILE_CALL = re.compile(r'\b(?:file|files|fileTree|from)\(\s*"([^"/\s]+)"')
+# Dockerfile heredocs (RUN <<EOT ... EOT) and variable references ($NAME, ${NAME}, ${NAME:-default}).
+HEREDOC = re.compile(r"<<(-?)\s*([\"']?)([A-Za-z_][A-Za-z0-9_]*)\2")
+VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-+])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def services(root: Path = ROOT) -> list[str]:
@@ -95,28 +100,97 @@ def _gradle_code(text: str) -> str:
 
 
 def _dockerfile_instructions(text: str) -> list:
-    """[(INSTRUCTION, arguments)], with comment lines removed and continuation lines joined."""
+    """[(INSTRUCTION, arguments)], with comment lines removed and continuation lines joined.
+
+    A heredoc's body (RUN <<EOT ... EOT) belongs to its instruction: a RUN gets it appended to its
+    arguments, other instructions (COPY <<EOF writes a file) only consume it."""
     instructions, current = [], ""
-    for raw in text.splitlines():
-        line = raw.strip()
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
         if not line or line.startswith("#"):
             continue
         if line.endswith("\\"):
             current += line[:-1] + " "
             continue
         word, _, rest = (current + line).strip().partition(" ")
-        instructions.append((word.upper(), rest.strip()))
         current = ""
+        body = []
+        for _dash, _quote, delimiter in HEREDOC.findall(rest):
+            while index < len(lines):
+                body_line = lines[index]
+                index += 1
+                if body_line.strip() == delimiter:
+                    break
+                body.append(body_line)
+        if word.upper() == "RUN" and body:
+            rest = f"{rest} {' '.join(body)}"
+        instructions.append((word.upper(), rest.strip()))
     if current.strip():
         word, _, rest = current.strip().partition(" ")
         instructions.append((word.upper(), rest.strip()))
     return instructions
 
 
-def _repo_path(token: str, top: set, base: str = "", workdir: str = "") -> Optional[str]:
-    """The repository path a build-input token names, "" for the whole build context, or None."""
+def _expand(token: str, variables: dict) -> Optional[str]:
+    """`token` with the Dockerfile's ARG and ENV values substituted; None if a reference stays unresolved."""
+    unresolved = False
+
+    def value_of(match):
+        nonlocal unresolved
+        name = match.group(1) or match.group(4)
+        operator, alternative = match.group(2), match.group(3)
+        value = variables.get(name)
+        if operator in (":-", "-"):
+            if value is None or (operator == ":-" and value == ""):
+                return alternative or ""
+            return value
+        if operator in (":+", "+"):
+            if value is None:
+                unresolved = True
+                return match.group(0)
+            return (alternative or "") if (value or operator == "+") else ""
+        if value is None:
+            unresolved = True
+            return match.group(0)
+        return value
+
+    expanded = VARIABLE.sub(value_of, token)
+    return None if unresolved or "$" in expanded else expanded
+
+
+def _declare(word: str, args: str, variables: dict) -> None:
+    """Record an ARG default or ENV value. An ARG without a default is unknown: a build may pass anything."""
+    try:
+        items = shlex.split(args)
+    except ValueError:
+        items = args.split()
+    if word == "ENV" and items and "=" not in items[0]:
+        items = [f"{items[0]}={' '.join(items[1:])}"]  # legacy `ENV NAME value`
+    for item in items:
+        name, has_value, value = item.partition("=")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            continue
+        if has_value:
+            expanded = _expand(value, variables)
+            if expanded is None:
+                variables.pop(name, None)
+            else:
+                variables[name] = expanded
+        elif word == "ARG":
+            variables.pop(name, None)
+
+
+def _repo_path(token: str, top: set, base: str = "", workdir: str = "", strip_vars: bool = False) -> Optional[str]:
+    """The repository path a build-input token names, "" for the whole build context, or None.
+
+    `strip_vars` drops a leading ${rootDir}/-style prefix, for Gradle strings. Dockerfile tokens are
+    expanded with _expand() before they get here."""
     token = token.strip().strip("\"'")
-    token = re.sub(r"^\$\{[^}]*\}/|^\$[A-Za-z_][A-Za-z0-9_]*/", "", token)
+    if strip_vars:
+        token = re.sub(r"^\$\{[^}]*\}/|^\$[A-Za-z_][A-Za-z0-9_]*/", "", token)
     if not token or "://" in token or token.startswith("-") or token.startswith("<<"):
         return None
     glob = GLOB.search(token)
@@ -166,17 +240,30 @@ def _copy_sources(args: str) -> tuple[dict, list]:
 
 
 def _dockerfile_refs(text: str, top: set, top_files: set) -> set:
-    """Repository paths a Dockerfile's build reads; "" stands for the whole build context."""
+    """Repository paths a Dockerfile's build reads; "" stands for the whole build context.
+
+    A source or a path in a RUN command that still holds a variable after the ARG and ENV values are
+    substituted cannot be classified, so it is recorded as "": every image (R2-1, owner decision 3)."""
     instructions = _dockerfile_instructions(text)
     final = max((index for index, (word, _) in enumerate(instructions) if word == "FROM"), default=0)
     refs: set = set()
+    variables: dict = {}
     workdir, stage, stage_workdirs = "", "", {}
+
+    def source_path(raw: str, stage_workdir: str = "") -> Optional[str]:
+        expanded = _expand(raw, variables)
+        if expanded is None:
+            return ""  # unresolved variable: the source could be anything in the context
+        return _repo_path(expanded, top, workdir=stage_workdir)
+
     for index, (word, args) in enumerate(instructions):
-        if word == "FROM":
+        if word in ("ARG", "ENV"):
+            _declare(word, args, variables)
+        elif word == "FROM":
             named = re.search(r"\s[Aa][Ss]\s+(\S+)\s*$", args)
             stage, workdir = (named.group(1).lower() if named else ""), ""
         elif word == "WORKDIR":
-            path = args.strip().strip("\"'")
+            path = (_expand(args.strip().strip("\"'"), variables) or "")
             workdir = path if path.startswith("/") else posixpath.join(workdir or "/", path)
             if stage:
                 stage_workdirs[stage] = workdir
@@ -185,11 +272,11 @@ def _dockerfile_refs(text: str, top: set, top_files: set) -> set:
             source_stage = flags.get("from")
             for source in sources:
                 if source_stage is None:
-                    path = _repo_path(source, top)
-                    if path == "" and index < final:
+                    path = source_path(source)
+                    if path == "" and index < final and "$" not in source:
                         continue  # COPY . . in a build stage: the Gradle build's context (rules 2 and 3)
                 else:
-                    path = _repo_path(source, top, workdir=stage_workdirs.get(source_stage.lower(), ""))
+                    path = source_path(source, stage_workdirs.get(source_stage.lower(), ""))
                 if path is not None:
                     refs.add(path)
         elif word == "RUN":
@@ -197,12 +284,17 @@ def _dockerfile_refs(text: str, top: set, top_files: set) -> set:
                 options = dict(item.partition("=")[::2] for item in mount.split(","))
                 source = options.get("source") or options.get("src")
                 if options.get("type", "bind") == "bind" and source and "from" not in options:
-                    path = _repo_path(source, top)
+                    path = source_path(source)
                     if path is not None:
                         refs.add(path)
             for token in WORD_SPLIT.split(re.sub(r"--mount=\S+", " ", args)):
-                if "/" in token or token in top_files:
-                    path = _repo_path(token, top, workdir=workdir)
+                expanded = _expand(token, variables)
+                if expanded is None:
+                    if "/" in token:
+                        refs.add("")  # a path built from an unresolved variable
+                    continue  # a shell variable such as ${args}, not a path
+                if "/" in expanded or expanded in top_files:
+                    path = _repo_path(expanded, top, workdir=workdir)
                     if path:
                         refs.add(path)
     return refs
@@ -215,7 +307,7 @@ def _gradle_refs(text: str, top: set, base: str) -> set:
     for literal in GRADLE_STRING.findall(code):
         for token in literal.split():
             if "/" in token:
-                path = _repo_path(token, top, base=base)
+                path = _repo_path(token, top, base=base, strip_vars=True)
                 if path:
                     refs.add(path)
     for name in GRADLE_FILE_CALL.findall(code):
