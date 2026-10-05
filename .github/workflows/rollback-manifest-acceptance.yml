@@ -2,8 +2,19 @@ name: Rollback manifest acceptance
 
 # U13 CL-F06: a rollback runs as a new workflow run and must fetch the manifest of an earlier
 # deploy run. This workflow fetches a real one the way both deploy workflows' rollback jobs do,
-# checks that wrong references fail closed, and dry-runs the rollback with it. Nothing deploys,
-# and the manifest's contents are not printed.
+# and checks that wrong references fail closed. Nothing deploys, and the manifest's contents are
+# not printed.
+#
+# Rollback compatibility-guard acceptance (CL-F12 F-INV-2; owner decision 2026-10-05, "Assert
+# correct refusal"). An invite-production rollback refuses a target whose compose file list differs
+# from the one it would render. The job dry-runs that guard twice:
+#   - against a synthetic deploy manifest with this checkout's list, which must succeed;
+#   - against the latest real deploy manifest. A compatible list must dry-run successfully; an
+#     incompatible one must be refused by the guard itself, naming the files, before anything is
+#     written. The job then states that a rollback to the latest deploy is NOT currently possible.
+# This is not operational rollback acceptance. A green result does not mean that a rollback to the
+# latest deployed release currently works. That acceptance remains BLOCKED until an authorized
+# compatible release exists.
 
 on:
   pull_request:
@@ -14,6 +25,12 @@ on:
       - "scripts/ci/test_deploy_workflow_guards.py"
       - "scripts/rollback-hosted-beta.sh"
       - "scripts/rollback-invite-production.sh"
+      - "scripts/lib/deploy-common.sh"
+      - "scripts/lib/runtime-release.sh"
+      - "scripts/ci/rollback-compatibility-guard-acceptance.sh"
+      - "scripts/ci/test-rollback-compatibility-guard-acceptance.sh"
+      - "scripts/ci/write-synthetic-invite-deploy-manifest.sh"
+      - "scripts/test-invite-rollback-compose-files.sh"
       - ".github/workflows/rollback-manifest-acceptance.yml"
       - ".github/workflows/invite-production-deploy.yml"
       - ".github/workflows/hosted-beta-deploy.yml"
@@ -31,7 +48,7 @@ permissions:
 
 jobs:
   acceptance:
-    name: Fetch an earlier deploy run's manifest and dry-run the rollback
+    name: Rollback compatibility-guard acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -40,6 +57,26 @@ jobs:
 
       - name: Unit tests (fake GitHub API, synthetic manifests)
         run: ./scripts/ci/test-rollback-manifest-retrieval.sh
+
+      - name: Record what this check is (rollback compatibility-guard acceptance)
+        run: |
+          {
+            echo "## Rollback compatibility-guard acceptance"
+            echo
+            echo "This checks the invite-production rollback's compose file-list guard (F-INV-2) against a synthetic"
+            echo "compatible manifest and the latest real deploy manifest. It performs no rollback."
+            echo
+            echo "> [!IMPORTANT]"
+            echo "> A green result does **not** mean that a rollback to the latest deployed release currently works."
+            echo "> Operational rollback acceptance remains **BLOCKED** until an authorized compatible release exists."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rollback compatibility-guard unit tests (compose file list; both acceptance branches)
+        run: |
+          set -euo pipefail
+          bash scripts/test-invite-rollback-compose-files.sh
+          bash scripts/ci/test-rollback-compatibility-guard-acceptance.sh
 
       - name: Install validation tools
         run: sudo apt-get update && sudo apt-get install -y python3-yaml
@@ -187,23 +224,25 @@ jobs:
           if [ "$rc" -ne 3 ]; then echo "::error::another SHA-256 was not refused (exit $rc)"; exit 1; fi
           echo "the pinned reference accepts its manifest and refuses other content"
 
-      - name: Dry-run the rollback to that manifest (no deploy)
-        env:
-          PARKIO_ENV_FILE: docker/.env.invite-production.example
-          PARKIO_DEPLOY_ARTIFACT_DIR: ${{ runner.temp }}/rollback-dry-run
-          PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
+      - name: "Rollback compatibility-guard acceptance: synthetic compatible manifest (positive path)"
         run: |
           set -euo pipefail
-          ./scripts/rollback-invite-production.sh --manifest "$PARKIO_VERIFIED_MANIFEST" --dry-run
-          # The rollback manifest it writes must target exactly the earlier deploy's images.
-          python3 - "$PARKIO_VERIFIED_MANIFEST" "$PARKIO_DEPLOY_ARTIFACT_DIR" <<'PY'
-          import glob, json, sys
-          target = json.load(open(sys.argv[1]))
-          written = glob.glob(f"{sys.argv[2]}/rollback-to-*.json")
-          assert len(written) == 1, f"expected one rollback manifest, found {written}"
-          rollback = json.load(open(written[0]))
-          assert rollback["action"] == "rollback", rollback["action"]
-          for key in ("gitSha", "imageTag", "images", "deploymentProfile"):
-              assert rollback[key] == target[key], f"{key} differs from the earlier deploy's manifest"
-          print(f"rollback dry-run targets {target['imageTag']} for {len(target['images'])} services")
-          PY
+          work="$RUNNER_TEMP/compatibility-guard"
+          mkdir -p "$work"
+          bash scripts/ci/write-synthetic-invite-deploy-manifest.sh \
+            --env-file docker/.env.invite-production.example --out "$work/synthetic-deploy.json"
+          bash scripts/ci/rollback-compatibility-guard-acceptance.sh --manifest "$work/synthetic-deploy.json" \
+            --env-template docker/.env.invite-production.example --work-dir "$work/synthetic" \
+            --expect compatible --label "a synthetic deploy with this checkout's compose file list" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: "Rollback compatibility-guard acceptance: the latest real deploy manifest"
+        env:
+          PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
+          SOURCE_REFERENCE: ${{ steps.source.outputs.reference }}
+        run: |
+          set -euo pipefail
+          echo "Latest real deploy manifest: \`$SOURCE_REFERENCE\`" >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/ci/rollback-compatibility-guard-acceptance.sh --manifest "$PARKIO_VERIFIED_MANIFEST" \
+            --env-template docker/.env.invite-production.example --work-dir "$RUNNER_TEMP/compatibility-guard/latest" \
+            --label "the latest deploy" --summary "$GITHUB_STEP_SUMMARY"
