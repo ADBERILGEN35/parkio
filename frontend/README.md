@@ -978,8 +978,9 @@ key is set, otherwise it falls back to **OpenStreetMap raster tiles** so the map
 
 MapTiler/geocoding are optional only in dev/test. **Production:** set `VITE_MAPTILER_KEY`
 (OSM's public tile servers are not intended for production traffic) and allow the tile host in the SPA's CSP via
-`PARKIO_MAP_CONNECT_SRC` (Caddy; defaults to `https://api.maptiler.com`). Inject the key at
-build/deploy time; do not commit production keys.
+`PARKIO_MAP_CONNECT_SRC` (Caddy; defaults to `https://api.maptiler.com`). The same origins go into `connect-src`
+and `img-src`; `img-src` has no `https:` wildcard (CL-F39.2). Inject the key at build/deploy time; do not
+commit production keys.
 
 `VITE_MAPTILER_KEY` is public client configuration, not a server secret: Vite embeds every
 `VITE_*` value in JavaScript downloaded by the browser. Storing it in GitHub Actions secrets

@@ -1,7 +1,8 @@
 #!/bin/sh
-# Parkio web image: connect-src of the image Content-Security-Policy (CL-F39.4, owner decision B9).
-# The nginx entrypoint sources this file before it renders /etc/nginx/templates/*.template, so
-# the exported PARKIO_WEB_CSP_CONNECT_SRC reaches nginx.conf.
+# Parkio web image: connect-src and img-src of the image Content-Security-Policy (CL-F39.4, owner
+# decision B9; CL-F39.2). The nginx entrypoint sources this file before it renders
+# /etc/nginx/templates/*.template, so the exported PARKIO_WEB_CSP_CONNECT_SRC and
+# PARKIO_WEB_CSP_IMG_SRC reach nginx.conf.
 #
 # - PARKIO_WEB_CSP_CONNECT_SRC set: used as given. The production Compose model renders it from the
 #   inputs of the Caddy SPA policy (docker/docker-compose.hosted-beta.yml); a local container can
@@ -54,3 +55,14 @@ else
   PARKIO_WEB_CSP_CONNECT_SRC="'self' https://$PARKIO_DOMAIN https://$PARKIO_MEDIA_DOMAIN $parkio_web_csp_map"
 fi
 export PARKIO_WEB_CSP_CONNECT_SRC
+
+# img-src (CL-F39.2) is always derived from connect-src, like the Caddy SPA policy: the app's own
+# images, data: and blob: URLs (inline SVG, upload previews, map images the browser decodes) and the
+# connect-src origins (API, presigned media, map). There is no https: wildcard, so no third-party
+# image host, and a PARKIO_WEB_CSP_IMG_SRC passed in is replaced, so it cannot widen the policy.
+parkio_web_csp_img="'self' data: blob:"
+for parkio_web_csp_source in $PARKIO_WEB_CSP_CONNECT_SRC; do
+  [ "$parkio_web_csp_source" = "'self'" ] || parkio_web_csp_img="$parkio_web_csp_img $parkio_web_csp_source"
+done
+PARKIO_WEB_CSP_IMG_SRC=$parkio_web_csp_img
+export PARKIO_WEB_CSP_IMG_SRC

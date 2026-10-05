@@ -163,7 +163,7 @@ real value.
 | `PARKIO_WEB_DOMAIN` | Yes | Web FQDN, bare hostname | No |
 | `PARKIO_WEB_UPSTREAM` | Yes | `web:80` | No |
 | `PARKIO_MEDIA_DOMAIN` | Yes | Media FQDN, bare hostname | No |
-| `PARKIO_MAP_CONNECT_SRC` | Optional | `https://api.maptiler.com` | No |
+| `PARKIO_MAP_CONNECT_SRC` | Optional | `https://api.maptiler.com`; map origins for the SPA CSP's `connect-src` and `img-src` | No |
 | `PARKIO_ACME_EMAIL` | Yes | Operator email | No |
 | `PARKIO_MAX_UPLOAD_SIZE` | Optional | `25MB` | No |
 | `PARKIO_TRUSTED_PROXIES` | Yes | Docker/private CIDRs only | No |

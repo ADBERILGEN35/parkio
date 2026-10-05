@@ -44,6 +44,47 @@ function dispatchPointer(
 }
 
 describe('BottomSheet', () => {
+  it('shows the peek footer outside the handle and outside the hidden content', () => {
+    render(
+      <BottomSheet
+        state="collapsed"
+        onStateChange={() => {}}
+        ariaLabel="Results"
+        handleAriaLabel="Results, collapsed."
+        peekFooter={<span>Map credits</span>}
+      >
+        <p>Sheet body</p>
+      </BottomSheet>,
+    );
+    const footer = screen.getByText('Map credits');
+    expect(handle()).not.toContainElement(footer);
+    expect(footer.closest('[aria-hidden="true"]')).toBeNull();
+    expect(footer.closest('[inert]')).toBeNull();
+  });
+
+  it('leaves a given top inset free and otherwise uses the whole container', () => {
+    const { rerender } = render(
+      <BottomSheet state="expanded" onStateChange={() => {}} ariaLabel="Results" handleAriaLabel="Results, expanded.">
+        <p>Sheet body</p>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('complementary', { name: 'Results' });
+    expect(sheet.style.maxHeight).toBe('');
+
+    rerender(
+      <BottomSheet
+        state="expanded"
+        onStateChange={() => {}}
+        ariaLabel="Results"
+        handleAriaLabel="Results, expanded."
+        topInset={140}
+      >
+        <p>Sheet body</p>
+      </BottomSheet>,
+    );
+    expect(sheet.style.maxHeight).toBe('calc(100% - 140px)');
+  });
+
   it('keeps its content mounted but hidden from the accessibility tree while collapsed', () => {
     render(<Harness />);
     const content = screen.getByRole('button', { name: 'Sheet body content', hidden: true });
