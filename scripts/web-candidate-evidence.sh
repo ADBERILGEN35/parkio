@@ -37,7 +37,7 @@
 #       * the image identity and the serving container's image id;
 #       * suite results and run provenance.
 #     OUT/SUMMARY.md says the same for people. OUT/SHA256SUMS, written last, covers every other
-#     file in OUT.
+#     file in OUT except hidden ones, which the artifact upload leaves out too.
 # The container and the image are removed at the end unless KEEP_IMAGE=1.
 #
 #   scripts/web-candidate-evidence.sh [OUT_DIR]   (default: ./web-candidate-evidence; absent or empty)
@@ -71,7 +71,8 @@ cleanup() {
   docker logs "$NAME" >"$OUT/container.log" 2>&1 || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   if [ "${KEEP_IMAGE:-0}" != "1" ]; then docker image rm "$TAG" >/dev/null 2>&1 || true; fi
-  if ! (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum >SHA256SUMS); then
+  # Hidden files (Playwright's .last-run.json) stay out, as actions/upload-artifact leaves them out.
+  if ! (cd "$OUT" && find . -type f ! -name SHA256SUMS ! -path '*/.*' -print0 | sort -z | xargs -0 -r sha256sum >SHA256SUMS); then
     echo "FAIL: could not write $OUT/SHA256SUMS" >&2
     [ "$rc" -ne 0 ] || rc=3
   fi
@@ -268,7 +269,10 @@ record = {
         "clean": git("status", "--porcelain", "--untracked-files=no") == "",
         "ref": env.get("GITHUB_REF", git("rev-parse", "--abbrev-ref", "HEAD")),
         "event": env.get("GITHUB_EVENT_NAME", "local"),
-        "pull_request": {"head": pr_head, "base": pr_base,
+        # event_base is the base branch tip in the event; merge_parent is the base the merge commit was
+        # actually made on, which can be newer.
+        "pull_request": {"head": pr_head, "event_base": pr_base,
+                         "merge_parent": parents[0] if len(parents) == 2 else None,
                          "head_is_parent": pr_head in parents if pr_head else None} if (pr_head or pr_base) else None,
         # Everything the image is built from: the Dockerfile copies only from frontend/, the build
         # context filter is the root .dockerignore, and the arguments come from the bake file and
@@ -345,7 +349,8 @@ lines = [
     "# Candidate web image evidence",
     "",
     f"- Source: `{sha}` (tree `{src['tree']}`, parents {', '.join(f'`{p[:12]}`' for p in parents) or 'none'}, "
-    f"clean: {src['clean']}, {src['event']})" + (f"; pull request head `{(pr['head'] or '')[:12]}`, base `{(pr['base'] or '')[:12]}`" if pr else ""),
+    f"clean: {src['clean']}, {src['event']})" + (f"; pull request head `{(pr['head'] or '')[:12]}`, merged onto "
+                                                  f"`{(pr['merge_parent'] or '')[:12]}` (event base `{(pr['event_base'] or '')[:12]}`)" if pr else ""),
     f"- Build: as release.yml builds web: `{dockerfile}` with `{bake}` (sha256 `{record['build']['bake']['sha256'][:12]}`), "
     f"bundle gates VERIFY_REQUIRE_PUBLIC_EXPLORE=true and VERIFY_REQUIRE_MUNICIPAL={municipal}, "
     f"builder {builder.get('Driver') or 'unknown'} (BuildKit {builder.get('BuildKit version') or 'unknown'})",
@@ -354,7 +359,7 @@ lines = [
     f"- Run: {record['run']['url'] or 'local'}",
     "- Differences from a release build:",
     *[f"  - {d}" for d in differences],
-    "- Checksums: `SHA256SUMS` covers every other file of this evidence.",
+    "- Checksums: `SHA256SUMS` covers every other file of this evidence except hidden ones, which the artifact leaves out.",
     "",
     "| Suite | Result | Expected | Unexpected | Flaky | Skipped |",
     "|---|---|---|---|---|---|",
