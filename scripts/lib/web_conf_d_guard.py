@@ -13,7 +13,7 @@ map guard inspects it:
   never started;
 - ``docker cp CONTAINER:TEMPLATE -`` streams the template as a tar archive, which is read in
   memory only to confirm it holds a non-empty regular file;
-- ``docker rm -f`` removes the container.
+- ``docker rm -fv`` removes the container and any anonymous volume the image declares.
 The template's content is never written or printed.
 
 Usage:
@@ -125,7 +125,7 @@ def image_renders_conf_d(image: str, run: Runner = run_docker) -> tuple:
             return "no", f"{TEMPLATE} is absent"
         return "error", f"docker cp failed (exit {copied.returncode})"
     finally:
-        removed = run(["rm", "-f", container])
+        removed = run(["rm", "-fv", container])
         if removed.returncode != 0:
             print(f"web-conf-d-guard: WARNING: could not remove inspection container {container}", file=sys.stderr)
 

@@ -93,7 +93,7 @@ showed it: under these mounts `/login` was refused before and after a restart.
 - **Gate.** It checks only a model that mounts a tmpfs at `/etc/nginx/conf.d` for web.
 - **Inspection.** It creates the bound image without starting it, copies
   `/etc/nginx/templates/default.conf.template` out as a tar stream to confirm a non-empty file, and
-  removes the container. Nothing is printed from the file.
+  removes the container with its anonymous volumes. Nothing is printed from the file.
 - **Refusal.** An image without the template, or one it cannot inspect, stops the command before
   anything starts. The message names the fix: move the web pin
   (`docker/docker-compose.web-release-pin.yml`) to an image built from #198 or later.
@@ -102,6 +102,10 @@ The break-glass `PARKIO_SKIP_WEB_MAP_GUARD` skips this check together with the m
 
 **Release step.** The current Civo pin predates #198. Move it before the first deploy that
 includes this change; until then the deploy commands refuse to start web.
+
+**Rollback.** With these compose files, the check also refuses a rollback of web to an image built
+before #198. `docs/beta/rollback-runbook.md` ("Web images built before #198") names the supported
+paths: forward to a #198+ image, or back with the older release's compose files.
 
 **The guard records these mounts.** `scripts/lib/assert-compose-hardening.mjs` fails when:
 - a tmpfs has no size;

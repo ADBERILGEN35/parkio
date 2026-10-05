@@ -110,7 +110,7 @@ class WebConfDGuardTest(unittest.TestCase):
         self.assertEqual(create, ["create", "--pull", "never", "--network", "none", "--entrypoint",
                                   guard.NOOP_ENTRYPOINT, "web:new"])
         self.assertEqual(cp, ["cp", "cid-1:/etc/nginx/templates/default.conf.template", "-"])
-        self.assertEqual(rm, ["rm", "-f", "cid-1"])
+        self.assertEqual(rm, ["rm", "-fv", "cid-1"])
 
     def test_a_failed_cleanup_warns_but_keeps_the_verdict(self):
         docker = FakeDocker(cp_rc=1, cp_stderr=MISSING, rm_rc=1)
