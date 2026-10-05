@@ -51,7 +51,10 @@ cd "$ROOT"
 # gateway-service`, logs, ps) run unchanged.
 # The same rendered model then goes to the conf.d check (B8b): a tmpfs at /etc/nginx/conf.d needs a
 # web image that renders it at start (#198 or later), so an older bound image is refused before
-# anything starts. The break-glass PARKIO_SKIP_WEB_MAP_GUARD skips both checks.
+# anything starts. Each check has its own break-glass, and neither is set by default:
+#   - PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE skips the map guard and the binding. The
+#     conf.d check then inspects the image the model names.
+#   - PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D skips only the conf.d check.
 # shellcheck source=lib/web-map-guard.sh
 source "$ROOT/scripts/lib/web-map-guard.sh"
 # shellcheck source=lib/web-conf-d-guard.sh
@@ -63,20 +66,24 @@ if [ "$PWG_DECISION" = "refuse" ]; then
   exit 1
 fi
 if [ "$PWG_DECISION" = "run" ]; then
-  skip_rc=0
-  parkio_web_guard_skip_requested || skip_rc=$?
-  if [ "$skip_rc" -eq 2 ]; then
+  map_rc=0
+  parkio_web_guard_skip_requested || map_rc=$?
+  conf_d_rc=0
+  parkio_web_conf_d_skip_requested || conf_d_rc=$?
+  if [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; then
     exit 1
-  elif [ "$skip_rc" -ne 0 ]; then
+  elif [ "$map_rc" -ne 0 ] || [ "$conf_d_rc" -ne 0 ]; then
     guard_dir="$(mktemp -d)"
     chmod 700 "$guard_dir"
     trap 'rm -rf "$guard_dir"' EXIT
     # The rendered model contains interpolated env values: private dir, removed on exit.
     docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" config --format json >"$guard_dir/model.json" \
       || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
-    parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
-      || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
-    if [ -f "$guard_dir/web-binding.yml" ]; then
+    if [ "$map_rc" -ne 0 ]; then
+      parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
+        || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
+    fi
+    if [ "$conf_d_rc" -ne 0 ]; then
       parkio_web_conf_d_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
         || { echo "ERROR: web conf.d check failed; nothing was started" >&2; exit 1; }
     fi

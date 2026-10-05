@@ -17,11 +17,13 @@ map guard inspects it:
 The template's content is never written or printed.
 
 Usage:
-    web_conf_d_guard.py --config-json MODEL.json (--binding WEB-BINDING.json | --image REF)
+    web_conf_d_guard.py --config-json MODEL.json (--binding WEB-BINDING.json | --image REF | --model-image)
 
 MODEL.json is ``docker compose config --format json``. WEB-BINDING.json is the binding override
 that scripts/guard-web-synthetic-map-deploy.sh writes; its services.web.image is the image the
-deploy starts. --image names the image directly.
+deploy starts. --image names the image directly. --model-image inspects the image that the model's
+services.web names. The callers use it when the web map guard's own break-glass skipped the binding,
+so that break-glass does not skip this check.
 
 Exit codes: 0 = no tmpfs at /etc/nginx/conf.d (skip), or the image renders its config at start
 (pass); 1 = refused (an image built before #198, an unreadable model or binding, or an image
@@ -83,6 +85,15 @@ def mounts_conf_d_tmpfs(model: dict) -> Optional[bool]:
     entries += [v for v in (web.get("volumes") or []) if isinstance(v, dict)]
     targets = {_target(entry) for entry in entries}
     return any(isinstance(t, str) and t.rstrip("/") == CONF_D for t in targets)
+
+
+def model_image(model: dict) -> Optional[str]:
+    """services.web.image of the rendered model, or None."""
+    try:
+        image = model["services"]["web"]["image"]
+    except (KeyError, TypeError):
+        return None
+    return image if isinstance(image, str) and image.strip() else None
 
 
 def bound_image(binding: dict) -> Optional[str]:
@@ -168,6 +179,7 @@ def main(argv: list, run: Runner = run_docker) -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--binding")
     source.add_argument("--image")
+    source.add_argument("--model-image", action="store_true")
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
@@ -176,7 +188,7 @@ def main(argv: list, run: Runner = run_docker) -> int:
     if model is None:
         print("web-conf-d-guard: BLOCKED: the rendered compose model is unreadable", file=sys.stderr)
         return 1
-    image = args.image
+    image = model_image(model) if args.model_image else args.image
     if args.binding is not None:
         binding = _load_json(args.binding)
         image = bound_image(binding) if binding is not None else None
