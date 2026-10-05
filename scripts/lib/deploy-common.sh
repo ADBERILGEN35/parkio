@@ -218,7 +218,10 @@ parkio_configure_deployment_profile() {
       edge_mode="$(parkio_invite_edge_mode_from_env "$env_file")" || return 2
       acme_authorized="$(parkio_invite_acme_authorized_from_env "$env_file")" || return 2
 
-      local invite_base="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml"
+      # The auth registration overlay passes every PARKIO_REGISTRATION_* setting, each off by default
+      # (F-INV-1, owner decision 2026-10-05). It comes before the edge overlay, whose `:?` mapping of
+      # PARKIO_REGISTRATION_MODE still refuses a render without the mode.
+      local invite_base="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml -f docker/docker-compose.auth-registration-env.yml"
       local disabled_common=(
         postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
         postgres-gamification postgres-notification postgres-moderation postgres-analytics

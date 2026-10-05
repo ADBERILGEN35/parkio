@@ -118,8 +118,10 @@ class ExploreDeployModeTest(unittest.TestCase):
                        if (path := shutil.which(name)) and subprocess.run(
                            [path, "compose", "version"], capture_output=True).returncode == 0), None)
         self.assertIsNotNone(docker, "Docker Compose config is required (no daemon needed)")
+        # The invite-production model's order (scripts/lib/deploy-common.sh), with the public edge.
         files = ["docker-compose.yml", "docker-compose.apps.yml", "docker-compose.images.yml",
-                 "docker-compose.hosted-beta.yml", "docker-compose.managed-db.yml", "docker-compose.invite-public.yml"]
+                 "docker-compose.hosted-beta.yml", "docker-compose.managed-db.yml",
+                 "docker-compose.auth-registration-env.yml", "docker-compose.invite-public.yml"]
         with tempfile.TemporaryDirectory(prefix=".explore-contract-", dir=ROOT) as work:
             path = Path(work) / "candidate.env"
             path.write_bytes((ROOT / "docker/.env.invite-production.example").read_bytes())

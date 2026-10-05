@@ -4,6 +4,13 @@
 # Precedence in docker/compose.production.files:
 #   after azure-hosted-beta.yml (auth-service only sets tracing there)
 #   before docker-compose.auth-release-pin.yml (image only)
+# Precedence in the three invite-production models (scripts/lib/deploy-common.sh, F-INV-1):
+#   after docker-compose.managed-db.yml, before the edge overlay (invite-dark, or invite-public
+#   and invite-public-staged). The edge overlay maps PARKIO_REGISTRATION_MODE with `:?`, so there
+#   a missing mode still refuses the render.
+# Every setting is off by default, and an explicit value in the host env file reaches
+# auth-service (scripts/test_registration_default_closed.py renders every model). The invite-only
+# PRIV-001 synthetic bypass is passed by the invite edge overlays, not here (#287 review N1).
 # Duplicate-mount: this file declares no volumes, so it cannot remount
 # auth-service or collide with waitlist-ops-inbox.yml (gateway-only).
 # Token is interpolated from the host env file; never commit a literal.
