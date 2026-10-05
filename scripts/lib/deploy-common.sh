@@ -182,7 +182,7 @@ parkio_configure_deployment_profile() {
 
 # Owner decision B7 (2026-10-03): the canonical wrapper, scripts/parkio-prod-compose.sh with
 # docker/compose.production.files, is the supported production path. The azure-hosted-beta
-# deploy/rollback path keeps working for existing environments but is deprecated; this only
+# deploy/rollback path is left unchanged for existing environments but is deprecated; this only
 # warns, so nothing that runs today changes behaviour.
 parkio_warn_deprecated_production_path() {
   if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "azure-hosted-beta" ]; then
@@ -319,11 +319,14 @@ parkio_validate_azure_disabled_services() {
 # Web map deploy guard (audit F-05). Verify the web image the rendered model
 # selects, then start the stack with a binding override as the LAST -f that pins
 # services.web to the verified immutable reference with pull_policy: never.
-# Covers deploy-hosted-beta, deploy-invite-production and both rollbacks.
+# Covers deploy-hosted-beta, deploy-invite-production and both rollbacks. The same
+# rendered model then goes to the conf.d check (B8b, scripts/lib/web_conf_d_guard.py).
 parkio_web_guard_before_up() {
   local env_file="$1" binding_out="$2" skip_rc=0 guard_dir rc=0
   # shellcheck source=web-map-guard.sh
   source "$(parkio_repo_root)/scripts/lib/web-map-guard.sh"
+  # shellcheck source=web-conf-d-guard.sh
+  source "$(parkio_repo_root)/scripts/lib/web-conf-d-guard.sh"
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
     parkio_web_guard_split_args up -d "${PARKIO_RUNTIME_SERVICES[@]}"
   else
@@ -342,11 +345,18 @@ parkio_web_guard_before_up() {
     return 1
   fi
   parkio_web_guard_bind "$guard_dir/model.json" "$binding_out" --env-file "$env_file" || rc=$?
-  rm -rf "$guard_dir"
   if [ "$rc" -ne 0 ]; then
+    rm -rf "$guard_dir"
     echo "ERROR: web map deploy guard failed; nothing was started" >&2
     return 1
   fi
+  # B8b: a tmpfs at /etc/nginx/conf.d needs a web image that renders it at start (#198 or later).
+  if [ -f "$binding_out" ] && ! parkio_web_conf_d_check "$guard_dir/model.json" "$binding_out"; then
+    rm -rf "$guard_dir"
+    echo "ERROR: web conf.d check failed; nothing was started" >&2
+    return 1
+  fi
+  rm -rf "$guard_dir"
 }
 
 parkio_compose_up() {

@@ -85,18 +85,19 @@ jobs:
           done
           ./scripts/slack_biz/deploy/civo/install-relay.sh --help >/dev/null
 
+      - name: Compose integration check tests (no Docker)
+        run: bash scripts/slack_biz/deploy/civo/test-compose-check.sh
+
       - name: Production Compose integration (synthetic env)
         run: |
           set -euo pipefail
-          # Production compose contract lives on api. Umbrella PRs that target
-          # master (pre-contract tree) must not compare against a missing file set.
-          base_ref="${{ github.base_ref }}"
-          if [ -z "${base_ref}" ] || [ "${base_ref}" = "master" ]; then
-            base="origin/api"
-          else
-            base="origin/${base_ref}"
-          fi
+          # Comparison base (U09), chosen under the owner's batch authorization of 2026-10-05; the
+          # owner may override it. It is the merge-base of the candidate with origin/api, or the
+          # previous api commit when the candidate is api itself, never the candidate's own tree.
+          # The production compose contract lives on api, so umbrella PRs into master compare
+          # against api's history too. See scripts/slack_biz/deploy/civo/select-compose-base.sh.
           git fetch --no-tags origin api
+          base="$(bash scripts/slack_biz/deploy/civo/select-compose-base.sh origin/api)"
           ./scripts/slack_biz/deploy/civo/validate-compose-integration.sh "$base"
 
       - name: Upload acceptance evidence

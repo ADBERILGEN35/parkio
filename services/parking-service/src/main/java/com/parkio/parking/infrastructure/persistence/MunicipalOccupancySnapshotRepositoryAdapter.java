@@ -4,8 +4,10 @@ import com.parkio.parking.application.port.MunicipalOccupancySnapshotRepository;
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -92,6 +94,23 @@ public class MunicipalOccupancySnapshotRepositoryAdapter implements MunicipalOcc
                 (Long) rs.getObject("source_age_seconds"),
                 rs.getBoolean("valid"),
                 rs.getBoolean("available"));
+    }
+
+    @Override
+    public Map<String, PreviousObservation> latestRunObservations(UUID sourceId) {
+        // All snapshots of one run share its fetched_at, so the latest fetched_at is the latest run.
+        return jdbc.sql("""
+                SELECT l.external_id, o.raw_record_hash, o.fetched_at
+                FROM municipal_occupancy_snapshots o
+                JOIN municipal_facility_source_links l ON l.id = o.source_link_id
+                WHERE o.source_id = :sourceId
+                  AND o.fetched_at = (SELECT max(fetched_at) FROM municipal_occupancy_snapshots
+                                      WHERE source_id = :sourceId)
+                """).param("sourceId", sourceId)
+                .query((rs, row) -> Map.entry(rs.getString("external_id"), new PreviousObservation(
+                        rs.getString("raw_record_hash"), rs.getTimestamp("fetched_at").toInstant())))
+                .list().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (first, second) -> first));
     }
 
     @Override
