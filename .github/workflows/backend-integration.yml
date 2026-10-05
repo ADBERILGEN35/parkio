@@ -25,9 +25,13 @@ on:
       - "tools/**"
       - "buildSrc/**"
       - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
       - "build.gradle*"
       - "settings.gradle*"
       - "gradle.properties"
+      # ManagedParkingPublicCensusIT runs scripts/azure/sql/managed-parking-public-census.sql (CI audit N6).
+      - "scripts/azure/sql/**"
       - "docker/**"
       - "scripts/ci/check-integration-test-not-reused.sh"
       - ".github/workflows/backend-integration.yml"
