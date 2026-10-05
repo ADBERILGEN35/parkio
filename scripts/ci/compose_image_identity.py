@@ -10,8 +10,8 @@ nothing. What this script adds is identity:
       MODEL.json is `docker compose config --format json`. For every service that the model builds,
       it records the image reference Compose uses (`image`, or `<project>-<service>` when the service
       only has `build`), the image id, the RootFS layer digests and the OCI revision label.
-      It fails when such an image is missing. With --expect-revision, it also fails when a revision
-      label is anything other than SHA. OVERRIDE.json is a Compose file that sets
+      It fails when such an image is missing. With --expect-revision, it also fails when an image has no
+      revision label or a label other than SHA. OVERRIDE.json is a Compose file that sets
       `pull_policy: never` on exactly those services, so `up --no-build -f OVERRIDE.json` can
       neither build nor pull them.
 
@@ -91,8 +91,9 @@ def record(model: dict, expect_revision: Optional[str], run: Runner = run_docker
             continue
         revision = ((image.get("Config") or {}).get("Labels") or {}).get(REVISION)
         entries[name] = {"image": ref, "id": image.get("Id"), "layers": layers_of(image), "revision": revision}
-        if expect_revision and revision is not None and revision != expect_revision:
-            problems.append(f"{name}: revision label {revision!r}, expected {expect_revision}")
+        if expect_revision and revision != expect_revision:
+            problems.append(f"{name}: no revision label, expected {expect_revision}" if revision is None
+                            else f"{name}: revision label {revision!r}, expected {expect_revision}")
     rec = {"project": model["name"], "expected_revision": expect_revision, "services": entries}
     override = {"services": {name: {"pull_policy": "never"} for name in refs}}
     if problems:

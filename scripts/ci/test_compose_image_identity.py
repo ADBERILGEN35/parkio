@@ -31,10 +31,11 @@ def image(image_id: str, revision=SHA, layers=("sha256:base", "sha256:app")) -> 
 class FakeDocker:
     """Answers `image inspect`, `ps` and `inspect` from dictionaries and records every call."""
 
-    def __init__(self, images=None, containers=None, served=None):
+    def __init__(self, images=None, containers=None, served=None, ps_rc=0):
         self.images = images or {}
         self.containers = containers or {}
         self.served = served or {}
+        self.ps_rc = ps_rc
         self.calls = []
 
     def __call__(self, args):
@@ -45,6 +46,8 @@ class FakeDocker:
                 return subprocess.CompletedProcess(args, 1, "", "Error: No such image")
             return subprocess.CompletedProcess(args, 0, json.dumps([found]), "")
         if args[0] == "ps":
+            if self.ps_rc:
+                return subprocess.CompletedProcess(args, self.ps_rc, "", "Cannot connect to the Docker daemon")
             service = next(a.split("=", 2)[2] for a in args if a.startswith("label=com.docker.compose.service="))
             return subprocess.CompletedProcess(args, 0, "\n".join(self.containers.get(service, [])) + "\n", "")
         if args[0] == "inspect":
@@ -95,18 +98,20 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("auth-service: revision label 'unknown'", message)
 
-    def test_an_image_without_a_revision_label_is_recorded_not_failed(self):
+    def test_an_image_without_a_revision_label_fails(self):
         images = both_built()
         images["parkio-ci-1-1-user-service"] = image("sha256:user", revision=None)
 
         code, message, rec, _ = identity.record(MODEL, SHA, FakeDocker(images=images))
 
-        self.assertEqual(code, 0, message)
+        self.assertEqual(code, 1)
+        self.assertIn(f"user-service: no revision label, expected {SHA}", message)
         self.assertIsNone(rec["services"]["user-service"]["revision"])
 
-    def test_without_an_expected_revision_any_label_is_accepted(self):
+    def test_without_an_expected_revision_any_label_or_none_is_accepted(self):
         images = both_built()
         images["parkio/auth-service:ci-runtime"] = image("sha256:auth", revision="ci-runtime")
+        images["parkio-ci-1-1-user-service"] = image("sha256:user", revision=None)
 
         code, message, _, _ = identity.record(MODEL, None, FakeDocker(images=images))
 
@@ -164,6 +169,13 @@ class VerifyTest(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("auth-service: parkio/auth-service:ci-runtime now names sha256:other", message)
+
+    def test_a_failing_container_listing_fails(self):
+        code, message = identity.verify(self.rec, self.docker(ps_rc=1))
+
+        self.assertEqual(code, 1)
+        self.assertIn("auth-service: cannot list its containers", message)
+        self.assertIn("user-service: cannot list its containers", message)
 
     def test_an_empty_record_fails(self):
         code, _ = identity.verify({"project": "p", "services": {}}, self.docker())
