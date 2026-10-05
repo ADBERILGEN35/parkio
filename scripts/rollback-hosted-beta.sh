@@ -133,12 +133,14 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# Image/config rollback is not a DB restore. Refuse when live schema migrations
-# have advanced past the target manifest (PA-12 / G03).
-if [ -n "$PREVIOUS" ] && [ -f "$PREVIOUS" ]; then
-  source "$ROOT/scripts/lib/runtime-release.sh"
-  parkio_assert_rollback_schema_compatible "$MANIFEST" "$PREVIOUS" || exit 3
-fi
+# Image/config rollback is not a DB restore (PA-12 / G03, F-INV-3). Refuse when the live schema, as
+# the deployed release's recorded manifest describes it, has migrations the target lacks. That
+# record lives outside any checkout (parkio_deployed_manifest_path); without it the rollback is
+# refused. This checkout's deploy-artifacts/current.json is not used.
+source "$ROOT/scripts/lib/runtime-release.sh"
+DEPLOYED_MANIFEST="$(parkio_deployed_manifest_path)"
+echo "deployedManifest=$DEPLOYED_MANIFEST"
+parkio_assert_rollback_schema_compatible "$MANIFEST" "$DEPLOYED_MANIFEST" || exit 3
 
 # Verify images exist locally (live rollback only)
 missing=0
@@ -212,6 +214,8 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
   export PARKIO_COMPOSE_UP_NO_BUILD=1
 fi
 
+# F-INV-3: the target release is about to start; record its manifest first.
+parkio_record_deployed_manifest "$MANIFEST"
 echo "Starting previous images (no rebuild)..."
 parkio_compose_up "$ENV_FILE"
 

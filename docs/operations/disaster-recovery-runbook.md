@@ -15,7 +15,7 @@ stamp or restoring outside the scripts).
 
 | Scenario | Status on current code | Path |
 |----------|------------------------|------|
-| Bad deploy | Supported (no data restore) | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). It refuses, exit 3, when live schema migrations are not compatible with the previous release (`parkio_assert_rollback_schema_compatible`) |
+| Bad deploy | Supported (no data restore) | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). It refuses, exit 3, before anything changes, when the live schema has migrations the target release lacks, or when the deployed release's recorded manifest is missing or unreadable (`parkio_assert_rollback_schema_compatible`, F-INV-3) |
 | Data corruption (one DB) | **BLOCKED** | `restore-database.sh` refuses production apply: `parkio_restore_refuse_standalone_database` (it does not replay erasures) and `parkio_restore_refuse_unverified_production`, exit 3 |
 | Full host loss | **BLOCKED** for data | `restore-hosted-beta.sh` refuses a non-dry-run production restore: `parkio_restore_refuse_unverified_production`, exit 3. Stamp preflight and `--dry-run` still run |
 | MinIO only | **BLOCKED** | `restore-hosted-beta.sh --only minio` is refused: `parkio_restore_refuse_unsupported_production_scope` (restored objects would not get erasures applied), exit 3 |
@@ -26,9 +26,14 @@ stamp or restoring outside the scripts).
 - The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. A pin is rolled back by reverting its pin file, then deploying.
 - Start the stack only through those scripts, never with a hand-written `-f` list.
 - `scripts/test-canonical-production-file-set.sh` checks the file set.
-- **The rollback schema gate in the "Bad deploy" row never compares migrations today (F-INV-3, reported).** It reads a `migrations` key that manifests do not write.
-  - A local rollback with `deploy-artifacts/current.json` present is refused with exit 3.
-  - A workflow rollback, which runs on a clean checkout, skips the gate.
+- **The rollback schema gate (F-INV-3, owner decision 2026-10-05).**
+  - **What it compares.** For each service the rollback re-points, every Flyway script that the deployed release's manifest lists in `migrationVersions` must also be in the target's list. It compares script names, not a maximum version. Digest-pinned services keep their images and are not compared.
+  - **Where the live schema comes from.** A deploy or a rollback records the manifest of the release it starts, before any container starts, outside any checkout (`deployed-manifest.json`):
+    - invite-production: in its runtime root, `/opt/parkio/invite-production`;
+    - other profiles: under `${XDG_STATE_HOME:-~/.local/state}/parkio/<profile>`.
+    `PARKIO_DEPLOY_STATE_DIR` overrides both. `deploy-artifacts/current.json` is not used.
+  - **Fail-closed.** A missing, unreadable or malformed record or target refuses the rollback with exit 3, before anything changes. There is no override.
+  - **First rollback after this change.** Until a deploy made with this change has recorded its manifest, a live rollback is refused. Dry runs do not run the gate.
 
 The refusals live in `scripts/lib/restore-safe-preflight.sh` and are explained in
 [restore-safe-preflight.md](restore-safe-preflight.md). The only restores the scripts allow

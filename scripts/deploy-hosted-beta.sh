@@ -201,6 +201,8 @@ else
   done
 fi
 
+# F-INV-3: record this release before any of its containers start; Flyway migrates on startup.
+parkio_record_deployed_manifest "$MANIFEST_PATH"
 echo "Starting stack (Flyway migrates on startup)..."
 parkio_compose_up "$ENV_FILE"
 

@@ -169,12 +169,16 @@ What the script does:
 4. Writes the plan into the manifest:
    - `images`: the built services and their `sha-` tags;
    - `pinnedImages`: the digest pins.
-5. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
-6. Waits for readiness healthchecks
-7. Runs `scripts/smoke-hosted-beta.sh`
-8. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
+5. Records the manifest as the deployed release's, before anything starts (F-INV-3).
+   - **Where:** `deployed-manifest.json`, outside the checkout, in `${XDG_STATE_HOME:-~/.local/state}/parkio/<profile>`. Set `PARKIO_DEPLOY_STATE_DIR` to use another directory.
+   - **Why:** the rollback's schema gate reads it to know the live schema. It refuses without it.
+   - **Who writes it:** a deploy or rollback run by the same user, or one using the same `PARKIO_DEPLOY_STATE_DIR`.
+6. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
+7. Waits for readiness healthchecks
+8. Runs `scripts/smoke-hosted-beta.sh`
+9. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
    (includes `images`, `composeFiles`, `migrationVersions`, `rollbackCommand`)
-9. Prints the rollback command
+10. Prints the rollback command
 
 ### Verify the running commit
 

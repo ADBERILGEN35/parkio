@@ -592,6 +592,41 @@ parkio_effective_feature_configuration_json() {
         --public-explore-authorization "${PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION:-}"
 }
 
+# F-INV-3 (owner decision 2026-10-05): the deployed release's recorded manifest. A deploy or a
+# rollback records the manifest of the release it is about to start, before any of its containers
+# start: Flyway may apply that release's migrations as soon as a service starts, even if the start
+# then fails. A later rollback reads this record, never a checkout's deploy-artifacts/current.json,
+# to know the live schema (parkio_assert_rollback_schema_compatible). A rollback is often a new
+# workflow run on a clean checkout, so the record lives outside any checkout:
+#   - invite-production: its runtime root, beside the `current` release link (/opt/parkio/invite-production);
+#   - other profiles: ${XDG_STATE_HOME:-$HOME/.local/state}/parkio/<profile>, so per host user.
+# PARKIO_DEPLOY_STATE_DIR overrides both.
+parkio_deploy_state_dir() {
+  if [ -n "${PARKIO_DEPLOY_STATE_DIR:-}" ]; then
+    printf '%s\n' "$PARKIO_DEPLOY_STATE_DIR"
+    return 0
+  fi
+  case "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" in
+    invite-production) printf '%s\n' "${PARKIO_RUNTIME_ROOT:-/opt/parkio/invite-production}" ;;
+    *) printf '%s/parkio/%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}" "${PARKIO_DEPLOYMENT_PROFILE:-hosted-beta}" ;;
+  esac
+}
+
+parkio_deployed_manifest_path() {
+  printf '%s/deployed-manifest.json\n' "$(parkio_deploy_state_dir)"
+}
+
+# parkio_record_deployed_manifest MANIFEST: atomically records MANIFEST as the deployed release's.
+parkio_record_deployed_manifest() {
+  local manifest="$1" dest tmp
+  dest="$(parkio_deployed_manifest_path)"
+  mkdir -p "$(dirname "$dest")"
+  tmp="$dest.tmp.$$"
+  cp -- "$manifest" "$tmp"
+  mv -f -- "$tmp" "$dest"
+  echo "Deployed release manifest recorded: $dest"
+}
+
 parkio_wait_healthy() {
   local env_file="$1"
   local timeout_s="${2:-900}"

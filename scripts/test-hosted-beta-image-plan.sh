@@ -32,7 +32,8 @@ mkdir -p "$tree/scripts/lib" "$tree/docker" "$work/bin" "$state/images"
 
 cp "$ROOT/scripts/deploy-hosted-beta.sh" "$ROOT/scripts/rollback-hosted-beta.sh" "$tree/scripts/"
 cp "$ROOT/scripts/lib/deploy-common.sh" "$ROOT/scripts/lib/dark-gateway-url.sh" "$ROOT/scripts/lib/invite-edge-mode.sh" \
-  "$ROOT/scripts/lib/disk-space.sh" "$ROOT/scripts/lib/runtime-release.sh" "$tree/scripts/lib/"
+  "$ROOT/scripts/lib/disk-space.sh" "$ROOT/scripts/lib/runtime-release.sh" "$ROOT/scripts/lib/rollback_schema_gate.py" \
+  "$tree/scripts/lib/"
 cp "$ROOT/docker/compose.production.files" "$tree/docker/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tree/scripts/preflight-hosted-beta.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tree/scripts/smoke-hosted-beta.sh"
@@ -149,6 +150,7 @@ run() { # run ARTIFACT_DIR SCRIPT ARGS... ; sets rc and leaves output in $work/o
   rc=0
   (cd "$tree" && FAKE_STATE="$state" PATH="$work/bin:$PATH" PARKIO_ENV_FILE="$work/env" \
     PARKIO_DEPLOY_ARTIFACT_DIR="$artifacts" PARKIO_DEPLOY_MIN_FREE_BYTES=1 PARKIO_DEPLOY_OPERATOR=test \
+    PARKIO_DEPLOY_STATE_DIR="${RUN_STATE_DIR:-$work/deploy-state}" \
     PARKIO_DEPLOY_HEALTH_TIMEOUT=5 env -u PARKIO_DEPLOYMENT_PROFILE "$@") > "$work/out" 2>&1 || rc=$?
 }
 plan() { # plan [ENV...]: runs the plan function alone in the tree
@@ -217,6 +219,12 @@ fi
 if [ "$(calls | tail -n 1)" = "UP -d --no-build" ]; then pass "deploy starts last, with up -d --no-build"; else
   bad "deploy's last call is '$(calls | tail -n 1)', not 'UP -d --no-build'"; fi
 manifest_a="$(find "$work/deploy-a" -maxdepth 1 -name 'deploy-*.json' | head -n 1)"
+# F-INV-3: the deploy records its manifest as the deployed release's, outside the checkout.
+if [ -n "$manifest_a" ] && cmp -s "$manifest_a" "$work/deploy-state/deployed-manifest.json"; then
+  pass "deploy records its manifest as the deployed release's (PARKIO_DEPLOY_STATE_DIR)"
+else
+  bad "deploy did not record its manifest in the deploy state directory"
+fi
 if [ -n "$manifest_a" ] && python3 - "$manifest_a" "$TAG" "${PINNED[*]}" "${BUILT[*]}" <<'PY'
 import json, sys
 m, tag = json.load(open(sys.argv[1])), sys.argv[2]
@@ -271,6 +279,30 @@ if calls | grep -Eq '^(BUILD|PULL) '; then bad "rollback builds or pulls: $(call
 if [ "$(calls | tail -n 1)" = "UP -d --no-build" ]; then pass "rollback starts last, with up -d --no-build"; else
   bad "rollback's last call is '$(calls | tail -n 1)', not 'UP -d --no-build'"; fi
 
+# F-INV-3: the schema gate reads the deployed release's record, and refuses, before anything is
+# re-pointed or started, without it or when the live schema is ahead of the target.
+rollback_state
+RUN_STATE_DIR="$work/no-record" run "$work/rollback-no-record" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "the deployed release's manifest is missing" "$work/out" \
+  && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) '; then
+  pass "rollback without the deployed release's record is refused (exit 3) before it changes anything"
+else
+  bad "rollback without a record: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+mkdir -p "$work/ahead-state"
+jq '.migrationVersions["user-service"] += ["V999__applied_by_a_later_release.sql"]' \
+  "$work/deploy-state/deployed-manifest.json" > "$work/ahead-state/deployed-manifest.json"
+rollback_state
+RUN_STATE_DIR="$work/ahead-state" run "$work/rollback-ahead" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "the live schema is ahead of the rollback target (user-service: V999__applied_by_a_later_release.sql)" "$work/out" \
+  && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) '; then
+  pass "rollback with the live schema ahead of the target is refused (exit 3) before it changes anything"
+else
+  bad "rollback with the schema ahead: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+
 # A manifest written before CL-F12 recorded every app service; the pinned ones keep their pins.
 legacy="$work/legacy/deploy-legacy.json"
 mkdir -p "$work/legacy"
@@ -281,6 +313,11 @@ run "$work/rollback-b" ./scripts/rollback-hosted-beta.sh --manifest "$legacy" --
 if [ "$rc" -eq 0 ] && [ "$(calls | grep -c '^TAG ')" -eq 6 ] && ! calls | grep -q '^TAG parkio/web' \
   && grep -q "web keeps its pin ghcr.io/example/parkio/web@" "$work/out"; then
   pass "a rollback to a pre-CL-F12 manifest re-points the built services and keeps the pins"
+  if cmp -s "$legacy" "$work/deploy-state/deployed-manifest.json"; then
+    pass "the rollback records its target's manifest as the deployed release's"
+  else
+    bad "the rollback did not record its target's manifest"
+  fi
 else
   bad "a rollback to a pre-CL-F12 manifest: exit $rc, calls: $(calls | tr '\n' ';')"
 fi
