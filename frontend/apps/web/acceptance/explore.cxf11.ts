@@ -63,7 +63,7 @@ for (const locale of ['tr', 'en'] as const) {
     api.unavailable.delete('GET /public/explore/facilities');
     await alert.getByRole('button').first().click();
     await expect(alert).toHaveCount(0);
-    await expect(page.getByText(EXPLORE_FACILITY.displayName).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: EXPLORE_FACILITY.displayName }).first()).toBeVisible();
   });
 
   test(`a failed map style or tile load shows an alert and a list fallback (${locale})`, async ({ page }, testInfo) => {
@@ -91,7 +91,7 @@ for (const locale of ['tr', 'en'] as const) {
     await tabTo(page, retry);
     await page.keyboard.press('Enter');
     await expect(page.getByRole('alert')).toHaveCount(0);
-    await expect(page.getByText(EXPLORE_FACILITY.displayName).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: EXPLORE_FACILITY.displayName }).first()).toBeVisible();
   });
 
   test(`the list fallback is reached and used from the keyboard (${locale})`, async ({ page }) => {
