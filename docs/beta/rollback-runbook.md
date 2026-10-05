@@ -50,14 +50,16 @@ What the script does:
 With the default hosted-beta profile (CL-F12), the model is `docker/compose.production.files`, rendered from this checkout. Steps 2 and 3 differ:
 
 - **Built services.** For each service the list builds, the target manifest must record `parkio/<service>:<imageTag>`, and that image must be present. Otherwise the rollback refuses (exit 2) before it changes anything. The script then points the model's name for the service (`parkio-<service>`) at that image.
-- **Pinned services.** The digest-pinned services keep this checkout's pins; a missing pin is pulled. To roll a pin back, revert its pin file (for example `docker/docker-compose.web-release-pin.yml`) and deploy.
+- **Pinned services.** The digest-pinned services keep this checkout's pins; a missing pin is pulled. A live rollback refuses (exit 3) before it changes anything when those pins differ from the deployed release's recorded `pinnedImages`, or when the record has none: a pinned image's migrations are recorded nowhere. To roll a pin back, revert its pin file (for example `docker/docker-compose.web-release-pin.yml`) and deploy. After a pin change merges, deploy before you roll back.
 - **Start.** `up -d --no-build`.
 - **Older manifests.** A manifest written before CL-F12 recorded every app service. Its images for the five pinned services are not used.
 - **A different file set.** When the target deploy rendered other compose files, the script prints a NOTE with both lists.
 - **Schema gate (F-INV-3, owner decision 2026-10-05).**
   - **Live runs only.** Before it re-points or starts anything, a live rollback compares the deployed release's recorded `migrationVersions` with the target's, per re-pointed service and by script name. It refuses with exit 3 when the live schema has a script the target lacks ("the live schema is ahead of the rollback target"). Image rollback is not a database restore.
-  - **The deployed release's record** is written by every deploy and rollback before it starts a release, outside the checkout (`deployed-manifest.json`; see the DR runbook). `deploy-artifacts/current.json` is not used.
-  - **Fail-closed.** The rollback is refused when that record is missing, unreadable or malformed, so the first rollback after this change needs a deploy that recorded it.
+  - **The deployed release's record** is written by every deploy and rollback before it starts a release, outside the checkout, in one directory per host (`/var/lib/parkio/hosted-beta/deployed-manifest.json`; see the DR runbook). `deploy-artifacts/current.json` is not used.
+  - **Record order.** The rollback records its target, with the pins that run, before it re-points or starts anything. If a later step fails before the start, the previous record is restored.
+  - **Fail-closed.** The rollback is refused when that record is missing, unreadable or malformed, or its directory is not writable, so the first rollback after this change needs a deploy that recorded it.
+  - **Dry runs** do not exercise the gate, and say so.
 - **Web image.** The rollback runs the current web pin, so it is refused like the deploy until that pin moves to an image built from #198 or later (next section).
 
 ## Web images built before #198

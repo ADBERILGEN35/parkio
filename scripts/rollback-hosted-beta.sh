@@ -8,7 +8,8 @@
 # The default hosted-beta profile renders docker/compose.production.files exactly (CL-F12). For
 # each service that list builds, it points the model's image name back at the sha-* tag the target
 # manifest records, then starts the stack with `up --no-build`. Digest-pinned services keep the
-# pins of this checkout: a pin is rolled back by reverting its pin file, not by this script.
+# pins of this checkout: a pin is rolled back by reverting its pin file and deploying, not by this
+# script. A live rollback is refused when those pins differ from the deployed release's.
 #
 # Usage:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/deploy-....json
@@ -92,10 +93,15 @@ OUT_NAME="rollback-to-${GIT_SHA:0:12}-$(date -u +%Y%m%dT%H%M%SZ).json"
 OUT_PATH="$ARTIFACT_DIR/$OUT_NAME"
 mkdir -p "$ARTIFACT_DIR"
 
+case "$PARKIO_DEPLOYMENT_PROFILE" in
+  hosted-beta|azure-hosted-beta)
+    # One plan for the manifest, the schema gate's pin check and, on hosted-beta, the re-pointing
+    # (CL-F12, #290 review B1).
+    PARKIO_HOSTED_BETA_IMAGE_PLAN="$(parkio_hosted_beta_image_plan "$ENV_FILE")"
+    export PARKIO_HOSTED_BETA_IMAGE_PLAN
+    ;;
+esac
 if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
-  # One plan for the manifest and the re-pointing (CL-F12).
-  PARKIO_HOSTED_BETA_IMAGE_PLAN="$(parkio_hosted_beta_image_plan "$ENV_FILE")"
-  export PARKIO_HOSTED_BETA_IMAGE_PLAN
   # The model always comes from this checkout. Say so when the target deploy rendered other files.
   TARGET_COMPOSE_FILES="$(jq -c '.composeFiles // []' "$MANIFEST")"
   CURRENT_COMPOSE_FILES="$(parkio_compose_files_json | jq -c .)"
@@ -129,18 +135,36 @@ if [ "$DRY_RUN" -eq 1 ]; then
   else
     echo "DRY-RUN: would verify local images and run parkio_compose_up $ENV_FILE (no --build)"
   fi
+  echo "DRY-RUN: the schema gate is not exercised by dry runs; a live rollback evaluates it first"
   echo "Rollback manifest: $OUT_PATH"
   exit 0
 fi
 
 # Image/config rollback is not a DB restore (PA-12 / G03, F-INV-3). Refuse when the live schema, as
 # the deployed release's recorded manifest describes it, has migrations the target lacks. That
-# record lives outside any checkout (parkio_deployed_manifest_path); without it the rollback is
-# refused. This checkout's deploy-artifacts/current.json is not used.
+# record lives outside any checkout, in one directory per host that every deployer shares
+# (parkio_deployed_manifest_path); without it the rollback is refused. This checkout's
+# deploy-artifacts/current.json is not used. The rollback records its target there before it
+# changes anything, so the directory must be writable first.
 source "$ROOT/scripts/lib/runtime-release.sh"
+parkio_assert_deploy_state_dir_writable || exit 3
 DEPLOYED_MANIFEST="$(parkio_deployed_manifest_path)"
 echo "deployedManifest=$DEPLOYED_MANIFEST"
-parkio_assert_rollback_schema_compatible "$MANIFEST" "$DEPLOYED_MANIFEST" || exit 3
+# hosted-beta and azure-hosted-beta also start this checkout's digest pins. A pinned image's
+# migrations are recorded nowhere, so the gate holds the pins to the deployed release's (#290 review B1).
+PINNED_PLAN=0
+GATE_PLAN_FILE=""
+case "$PARKIO_DEPLOYMENT_PROFILE" in
+  hosted-beta|azure-hosted-beta)
+    PINNED_PLAN=1
+    GATE_PLAN_FILE="$(mktemp)"
+    printf '%s\n' "$PARKIO_HOSTED_BETA_IMAGE_PLAN" >"$GATE_PLAN_FILE"
+    ;;
+esac
+gate_rc=0
+parkio_assert_rollback_schema_compatible "$MANIFEST" "$DEPLOYED_MANIFEST" "$GATE_PLAN_FILE" || gate_rc=$?
+[ -z "$GATE_PLAN_FILE" ] || rm -f -- "$GATE_PLAN_FILE"
+[ "$gate_rc" -eq 0 ] || exit 3
 
 # Verify images exist locally (live rollback only)
 missing=0
@@ -202,6 +226,39 @@ if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "invite-production" ]; then
   parkio_assert_release_readable "$GIT_SHA" >/dev/null || exit 3
   export PARKIO_COMPOSE_BASE_DIR="$ROLLBACK_RELEASE"
   echo "composeBaseDir=$PARKIO_COMPOSE_BASE_DIR"
+fi
+
+# F-INV-3: record the target as the deployed release before anything changes; Flyway migrates on
+# startup. With an image plan, the record names the pins that actually run: this checkout's, which
+# the gate held equal to the deployed release's (#290 review B1). When the record cannot be
+# written, nothing has changed yet. When a later step fails before the start, the previous record
+# is restored (#290 review N4).
+TARGET_RECORD="$(mktemp)"
+PREVIOUS_RECORD="$(mktemp)"
+cp -- "$DEPLOYED_MANIFEST" "$PREVIOUS_RECORD"
+if [ "$PINNED_PLAN" -eq 1 ]; then
+  jq --arg plan "$PARKIO_HOSTED_BETA_IMAGE_PLAN" '.pinnedImages = ([$plan | split("\n")[] | split("\t")
+    | select(.[0] == "pinned") | {key: .[1], value: .[2]}] | from_entries)' "$MANIFEST" >"$TARGET_RECORD"
+else
+  cp -- "$MANIFEST" "$TARGET_RECORD"
+fi
+if ! parkio_record_deployed_manifest "$TARGET_RECORD"; then
+  rm -f -- "$TARGET_RECORD" "$PREVIOUS_RECORD"
+  echo "ERROR: cannot record the target as the deployed release in $DEPLOYED_MANIFEST; nothing was changed." >&2
+  exit 3
+fi
+restore_deployed_record() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "ERROR: the rollback stopped before it started the target (exit $status); restoring the deployed release's record." >&2
+    parkio_record_deployed_manifest "$PREVIOUS_RECORD" >&2 \
+      || echo "ERROR: cannot restore $DEPLOYED_MANIFEST. It names the target, whose migrations include every one the deployed release recorded for the services the rollback changes." >&2
+  fi
+  rm -f -- "$TARGET_RECORD" "$PREVIOUS_RECORD"
+}
+trap restore_deployed_record EXIT
+
+if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "invite-production" ]; then
   parkio_activate_release "$GIT_SHA"
 fi
 
@@ -214,8 +271,9 @@ if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
   export PARKIO_COMPOSE_UP_NO_BUILD=1
 fi
 
-# F-INV-3: the target release is about to start; record its manifest first.
-parkio_record_deployed_manifest "$MANIFEST"
+# From here on the record stays: the target may have started, and its migrations may have run.
+trap - EXIT
+rm -f -- "$TARGET_RECORD" "$PREVIOUS_RECORD"
 echo "Starting previous images (no rebuild)..."
 parkio_compose_up "$ENV_FILE"
 

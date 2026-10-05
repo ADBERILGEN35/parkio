@@ -15,7 +15,7 @@ stamp or restoring outside the scripts).
 
 | Scenario | Status on current code | Path |
 |----------|------------------------|------|
-| Bad deploy | Supported (no data restore) | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). It refuses, exit 3, before anything changes, when the live schema has migrations the target release lacks, or when the deployed release's recorded manifest is missing or unreadable (`parkio_assert_rollback_schema_compatible`, F-INV-3) |
+| Bad deploy | **Conditional** (no data restore): refused until a deploy made with the F-INV-3 change has recorded its manifest; then only when the schema gate passes | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). It refuses, exit 3, before anything changes, when the live schema has migrations the target release lacks, when the digest pins it would start differ from the deployed release's, or when the deployed release's recorded manifest is missing or unreadable (`parkio_assert_rollback_schema_compatible`, F-INV-3). A bad release that added a migration to a service the rollback changes cannot be rolled back; with the data restores below BLOCKED, its scripted recovery is a forward fix |
 | Data corruption (one DB) | **BLOCKED** | `restore-database.sh` refuses production apply: `parkio_restore_refuse_standalone_database` (it does not replay erasures) and `parkio_restore_refuse_unverified_production`, exit 3 |
 | Full host loss | **BLOCKED** for data | `restore-hosted-beta.sh` refuses a non-dry-run production restore: `parkio_restore_refuse_unverified_production`, exit 3. Stamp preflight and `--dry-run` still run |
 | MinIO only | **BLOCKED** | `restore-hosted-beta.sh --only minio` is refused: `parkio_restore_refuse_unsupported_production_scope` (restored objects would not get erasures applied), exit 3 |
@@ -27,13 +27,16 @@ stamp or restoring outside the scripts).
 - Start the stack only through those scripts, never with a hand-written `-f` list.
 - `scripts/test-canonical-production-file-set.sh` checks the file set.
 - **The rollback schema gate (F-INV-3, owner decision 2026-10-05).**
-  - **What it compares.** For each service the rollback re-points, every Flyway script that the deployed release's manifest lists in `migrationVersions` must also be in the target's list. It compares script names, not a maximum version. Digest-pinned services keep their images and are not compared.
-  - **Where the live schema comes from.** A deploy or a rollback records the manifest of the release it starts, before any container starts, outside any checkout (`deployed-manifest.json`):
+  - **What it compares.** For each service the rollback re-points, every Flyway script that the deployed release's manifest lists in `migrationVersions` must also be in the target's list. It compares script names, not a maximum version.
+  - **Digest pins.** On hosted-beta and azure-hosted-beta the rollback also starts this checkout's digest pins. A pinned image's migrations are recorded nowhere, so the rollback keeps the deployed release's pins: it refuses (exit 3) when this checkout's pins differ from the record's `pinnedImages`, or when the record has none. Roll a pin through a deploy, then roll back.
+  - **Where the live schema comes from.** A deploy or a rollback records the manifest of the release it starts, before any container starts, outside any checkout, in one directory per host that every deployer shares (`deployed-manifest.json`):
     - invite-production: in its runtime root, `/opt/parkio/invite-production`;
-    - other profiles: under `${XDG_STATE_HOME:-~/.local/state}/parkio/<profile>`.
-    `PARKIO_DEPLOY_STATE_DIR` overrides both. `deploy-artifacts/current.json` is not used.
+    - hosted-beta and azure-hosted-beta: in `/var/lib/parkio/<profile>`. Every user who deploys or rolls back on the host must be able to write it, for example after `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. A live deploy or rollback refuses (exit 3) before it changes anything when it cannot;
+    - local-dev (`--no-hosted-beta-overlay`, a developer machine): under `${XDG_STATE_HOME:-~/.local/state}/parkio/local-dev`.
+    `PARKIO_DEPLOY_STATE_DIR` overrides them, and the scripts say so. `deploy-artifacts/current.json` is not used.
+  - **Record order.** A rollback records its target, with the pins that run, before it activates a release or re-points an image. When it cannot, nothing has changed. When a later step fails before the start, the previous record is restored.
   - **Fail-closed.** A missing, unreadable or malformed record or target refuses the rollback with exit 3, before anything changes. There is no override.
-  - **First rollback after this change.** Until a deploy made with this change has recorded its manifest, a live rollback is refused. Dry runs do not run the gate.
+  - **First rollback after this change.** Until a deploy made with this change has recorded its manifest, a live rollback is refused. On hosted-beta that first deploy needs the host directory above. Dry runs do not exercise the gate, and say so.
 
 The refusals live in `scripts/lib/restore-safe-preflight.sh` and are explained in
 [restore-safe-preflight.md](restore-safe-preflight.md). The only restores the scripts allow
@@ -107,12 +110,15 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 
 ## Exact commands
 
-### Bad deploy (no data loss) — supported
+### Bad deploy (no data loss) — conditional (schema gate)
 
 ```bash
 cd /opt/parkio
 PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh
 ```
+
+It refuses (exit 3) until a deploy made with the F-INV-3 change has recorded its manifest, and
+whenever the schema gate does not pass (see the rollback schema gate above).
 
 ### Single database corruption — BLOCKED
 

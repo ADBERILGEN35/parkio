@@ -811,13 +811,16 @@ parkio_prune_releases() {
 
 # F-INV-3 (owner decision 2026-10-05): refuse an image/config rollback when the live schema has
 # migrations the target release lacks. Image rollback is not a database restore.
-#   parkio_assert_rollback_schema_compatible TARGET_MANIFEST DEPLOYED_MANIFEST
+#   parkio_assert_rollback_schema_compatible TARGET_MANIFEST DEPLOYED_MANIFEST [IMAGE_PLAN_FILE]
 # DEPLOYED_MANIFEST is the deployed release's recorded manifest (parkio_deployed_manifest_path),
 # never this checkout's deploy-artifacts/current.json. scripts/lib/rollback_schema_gate.py compares,
-# per service the rollback re-points, the migrationVersions script names. A missing, unreadable or
-# malformed manifest fails closed. Returns 0 when compatible, 3 when refused.
+# per service the rollback re-points, the migrationVersions script names. With IMAGE_PLAN_FILE
+# (hosted-beta and azure-hosted-beta), the re-pointed services are the plan's built ones, and the plan's digest pins must
+# equal the record's pinnedImages. A missing, unreadable or malformed manifest fails closed. Returns
+# 0 when compatible, 3 when refused.
 parkio_assert_rollback_schema_compatible() {
-  local target_manifest="$1" deployed_manifest="${2:-}"
-  python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rollback_schema_gate.py" \
-    --target "$target_manifest" --deployed "$deployed_manifest"
+  local target_manifest="$1" deployed_manifest="${2:-}" plan_file="${3:-}"
+  local -a args=(--target "$target_manifest" --deployed "$deployed_manifest")
+  [ -z "$plan_file" ] || args+=(--image-plan "$plan_file")
+  python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rollback_schema_gate.py" "${args[@]}"
 }

@@ -161,6 +161,10 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# F-INV-3: this deploy records its manifest in the host's deploy state directory before it starts;
+# stop now, before any build, when that directory is not writable (#290 review B2).
+parkio_assert_deploy_state_dir_writable || exit 3
+
 if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
   # CL-F12: build only what the production list does not pin. The build-args give the images the
   # OCI labels docker-compose.images.yml gave them, without adding that file to the model. The

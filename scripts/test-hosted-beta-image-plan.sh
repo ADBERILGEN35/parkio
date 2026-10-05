@@ -125,6 +125,7 @@ case "${1:-}" in
   inspect) echo healthy ;;
   tag)
     log "TAG $2 $3"
+    if grep -qxF "$3" "$S/tag-fails" 2>/dev/null; then echo "Error: injected tag failure: $3" >&2; exit 1; fi
     present "$2" || { echo "Error: No such image: $2" >&2; exit 1; }
     cp "$S/images/$(key "$2")" "$S/images/$(key "$3")"
     ;;
@@ -152,6 +153,9 @@ run() { # run ARTIFACT_DIR SCRIPT ARGS... ; sets rc and leaves output in $work/o
     PARKIO_DEPLOY_ARTIFACT_DIR="$artifacts" PARKIO_DEPLOY_MIN_FREE_BYTES=1 PARKIO_DEPLOY_OPERATOR=test \
     PARKIO_DEPLOY_STATE_DIR="${RUN_STATE_DIR:-$work/deploy-state}" \
     PARKIO_DEPLOY_HEALTH_TIMEOUT=5 env -u PARKIO_DEPLOYMENT_PROFILE "$@") > "$work/out" 2>&1 || rc=$?
+}
+plan_pins_json() { # the pins of the current model's plan, as a manifest's pinnedImages
+  plan | jq -R -s '[split("\n")[] | split("\t") | select(.[0] == "pinned") | {key: .[1], value: .[2]}] | from_entries'
 }
 plan() { # plan [ENV...]: runs the plan function alone in the tree
   (cd "$tree" && FAKE_STATE="$state" PATH="$work/bin:$PATH" bash -c 'set -euo pipefail
@@ -242,6 +246,17 @@ else
   bad "the deploy manifest does not record the plan"; cat "$manifest_a" >&2 2>/dev/null || true
 fi
 
+# #290 review B2: the deploy records in the host's deploy state directory; when it cannot be
+# written, the deploy stops before any pull, build or start.
+reset_state
+: >"$work/not-a-directory"
+RUN_STATE_DIR="$work/not-a-directory/state" run "$work/deploy-nostate" ./scripts/deploy-hosted-beta.sh --allow-dirty --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "is not writable by" "$work/out" && ! calls | grep -Eq '^(BUILD|PULL|TAG|UP) '; then
+  pass "a deploy state directory that cannot be written stops the deploy (exit 3) before any pull, build or start"
+else
+  bad "unwritable deploy state directory: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+
 # A pin that cannot be pulled stops the deploy before any build or start.
 reset_state
 echo "ghcr.io/example/parkio/web@$(digest 5)" > "$state/pull-fails"
@@ -278,6 +293,12 @@ if calls | grep -q '^TAG ghcr.io'; then bad "rollback re-tags a pin"; fi
 if calls | grep -Eq '^(BUILD|PULL) '; then bad "rollback builds or pulls: $(calls | grep -E '^(BUILD|PULL) ' | tr '\n' ';')"; fi
 if [ "$(calls | tail -n 1)" = "UP -d --no-build" ]; then pass "rollback starts last, with up -d --no-build"; else
   bad "rollback's last call is '$(calls | tail -n 1)', not 'UP -d --no-build'"; fi
+if grep -qF "the digest pins equal the deployed release's" "$work/out" \
+  && [ "$(jq -S . "$work/deploy-state/deployed-manifest.json")" = "$(jq -S --argjson pins "$(plan_pins_json)" '.pinnedImages = $pins' "$manifest_a")" ]; then
+  pass "with the deployed release's pins, the gate passes and the rollback records the target with the pins that run"
+else
+  bad "rollback with equal pins: gate or record differs"
+fi
 
 # F-INV-3: the schema gate reads the deployed release's record, and refuses, before anything is
 # re-pointed or started, without it or when the live schema is ahead of the target.
@@ -303,6 +324,57 @@ else
   bad "rollback with the schema ahead: exit $rc, calls: $(calls | tr '\n' ';')"
 fi
 
+# #290 review B2: the rollback records its target in the host's deploy state directory; when it
+# cannot be written, the rollback is refused before the gate and before it changes anything.
+rollback_state
+RUN_STATE_DIR="$work/not-a-directory/state" run "$work/rollback-nostate" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "is not writable by" "$work/out" && ! grep -qF "rollback schema gate" "$work/out" \
+  && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) '; then
+  pass "rollback with a deploy state directory that cannot be written is refused (exit 3) before it changes anything"
+else
+  bad "rollback with an unwritable deploy state directory: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+
+# #290 review B1: the rollback starts this checkout's pins, whose migrations are recorded nowhere.
+# A record whose pins differ, or that records none, is refused before anything changes.
+mkdir -p "$work/pin-state" "$work/nopin-state"
+jq --arg pin "ghcr.io/example/parkio/auth-service@$(digest 9)" '.pinnedImages["auth-service"] = $pin' \
+  "$manifest_a" > "$work/pin-state/deployed-manifest.json"
+rollback_state
+RUN_STATE_DIR="$work/pin-state" run "$work/rollback-pin-differs" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "would change digest pins the deployed release runs (auth-service: ghcr.io/example/parkio/auth-service@$(digest 9) -> ghcr.io/example/parkio/auth-service@$(digest 2))" "$work/out" \
+  && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) ' && cmp -s "$work/pin-state/deployed-manifest.json" <(jq --arg pin "ghcr.io/example/parkio/auth-service@$(digest 9)" '.pinnedImages["auth-service"] = $pin' "$manifest_a"); then
+  pass "rollback whose pins differ from the deployed release's is refused (exit 3) before it changes anything"
+else
+  bad "rollback with a pin that differs: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+jq 'del(.pinnedImages)' "$manifest_a" > "$work/nopin-state/deployed-manifest.json"
+rollback_state
+RUN_STATE_DIR="$work/nopin-state" run "$work/rollback-no-pins" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "records no readable pinnedImages" "$work/out" && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) '; then
+  pass "rollback against a record without pinnedImages is refused (exit 3) before it changes anything"
+else
+  bad "rollback against a record without pins: exit $rc, calls: $(calls | tr '\n' ';')"
+fi
+
+# #290 review N4: a step that fails after the record was written, before the start, restores it.
+mkdir -p "$work/retag-state"
+jq '.gitSha = "previous-release"' "$manifest_a" > "$work/retag-state/deployed-manifest.json"
+cp "$work/retag-state/deployed-manifest.json" "$work/retag-previous.json"
+rollback_state
+echo "parkio-moderation-service" > "$state/tag-fails"
+RUN_STATE_DIR="$work/retag-state" run "$work/rollback-retag-fails" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -ne 0 ] && grep -qF "restoring the deployed release's record" "$work/out" \
+  && cmp -s "$work/retag-previous.json" "$work/retag-state/deployed-manifest.json" && ! calls | grep -q '^UP '; then
+  pass "a re-pointing that fails after the record was written restores the previous record, and nothing starts (exit $rc)"
+else
+  bad "re-pointing fails: exit $rc, record gitSha $(jq -r .gitSha "$work/retag-state/deployed-manifest.json"), calls: $(calls | tr '\n' ';')"
+fi
+
 # A manifest written before CL-F12 recorded every app service; the pinned ones keep their pins.
 legacy="$work/legacy/deploy-legacy.json"
 mkdir -p "$work/legacy"
@@ -313,10 +385,11 @@ run "$work/rollback-b" ./scripts/rollback-hosted-beta.sh --manifest "$legacy" --
 if [ "$rc" -eq 0 ] && [ "$(calls | grep -c '^TAG ')" -eq 6 ] && ! calls | grep -q '^TAG parkio/web' \
   && grep -q "web keeps its pin ghcr.io/example/parkio/web@" "$work/out"; then
   pass "a rollback to a pre-CL-F12 manifest re-points the built services and keeps the pins"
-  if cmp -s "$legacy" "$work/deploy-state/deployed-manifest.json"; then
-    pass "the rollback records its target's manifest as the deployed release's"
+  # #290 review B1: the record names the pins that run, which the target did not record.
+  if [ "$(jq -S . "$work/deploy-state/deployed-manifest.json")" = "$(jq -S --argjson pins "$(plan_pins_json)" '.pinnedImages = $pins' "$legacy")" ]; then
+    pass "the rollback records its target's manifest, with the pins that run, as the deployed release's"
   else
-    bad "the rollback did not record its target's manifest"
+    bad "the rollback did not record its target's manifest with the pins that run"
   fi
 else
   bad "a rollback to a pre-CL-F12 manifest: exit $rc, calls: $(calls | tr '\n' ';')"

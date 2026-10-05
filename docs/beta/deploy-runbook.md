@@ -168,11 +168,12 @@ What the script does:
    Other profiles build **all** app images (`docker compose build`) and tag each `beta-latest`.
 4. Writes the plan into the manifest:
    - `images`: the built services and their `sha-` tags;
-   - `pinnedImages`: the digest pins.
+   - `pinnedImages`: the digest pins. azure-hosted-beta manifests record them too, beside every app service in `images`.
 5. Records the manifest as the deployed release's, before anything starts (F-INV-3).
-   - **Where:** `deployed-manifest.json`, outside the checkout, in `${XDG_STATE_HOME:-~/.local/state}/parkio/<profile>`. Set `PARKIO_DEPLOY_STATE_DIR` to use another directory.
-   - **Why:** the rollback's schema gate reads it to know the live schema. It refuses without it.
-   - **Who writes it:** a deploy or rollback run by the same user, or one using the same `PARKIO_DEPLOY_STATE_DIR`.
+   - **Where:** `deployed-manifest.json`, outside the checkout, in one directory per host: `/var/lib/parkio/<profile>` for hosted-beta and azure-hosted-beta, the runtime root for invite-production, and `${XDG_STATE_HOME:-~/.local/state}/parkio/local-dev` for local-dev. `PARKIO_DEPLOY_STATE_DIR` overrides it; the scripts say so.
+   - **Why:** the rollback's schema gate reads it to know the live schema and the digest pins that run. It refuses without it.
+   - **Who writes it:** every deploy and rollback on the host, whichever user runs it.
+   - **Prerequisite:** create the directory once, writable by every user who deploys or rolls back, for example `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. A live deploy refuses (exit 3) before it builds anything when it cannot write there.
 6. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
 7. Waits for readiness healthchecks
 8. Runs `scripts/smoke-hosted-beta.sh`
