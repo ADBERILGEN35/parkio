@@ -24,7 +24,7 @@ MANIFEST=""
 TEMPLATE=""
 WORK=""
 EXPECT="auto"
-LABEL="the latest deploy"
+LABEL="the target deploy"
 SUMMARY=""
 usage() {
   echo "usage: $0 --manifest TARGET --env-template ENV --work-dir DIR [--expect compatible|auto] [--label TEXT] [--summary FILE]" >&2

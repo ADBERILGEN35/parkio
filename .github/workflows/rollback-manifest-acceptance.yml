@@ -9,9 +9,10 @@ name: Rollback manifest acceptance
 # correct refusal"). An invite-production rollback refuses a target whose compose file list differs
 # from the one it would render. The job dry-runs that guard twice:
 #   - against a synthetic deploy manifest with this checkout's list, which must succeed;
-#   - against the latest real deploy manifest. A compatible list must dry-run successfully; an
-#     incompatible one must be refused by the guard itself, naming the files, before anything is
-#     written. The job then states that a rollback to the latest deploy is NOT currently possible.
+#   - against the manifest of the newest qualifying deploy run (by creation time). A compatible
+#     list must dry-run successfully; an incompatible one must be refused by the guard itself,
+#     naming the files, before anything is written. The job then states that a rollback to that
+#     deploy run is NOT currently possible.
 # This is not operational rollback acceptance. A green result does not mean that a rollback to the
 # latest deployed release currently works. That acceptance remains BLOCKED until an authorized
 # compatible release exists.
@@ -30,6 +31,8 @@ on:
       - "scripts/ci/rollback-compatibility-guard-acceptance.sh"
       - "scripts/ci/test-rollback-compatibility-guard-acceptance.sh"
       - "scripts/ci/write-synthetic-invite-deploy-manifest.sh"
+      - "scripts/ci/select-rollback-acceptance-source.py"
+      - "scripts/ci/test_select_rollback_acceptance_source.py"
       - "scripts/test-invite-rollback-compose-files.sh"
       - ".github/workflows/rollback-manifest-acceptance.yml"
       - ".github/workflows/invite-production-deploy.yml"
@@ -64,7 +67,7 @@ jobs:
             echo "## Rollback compatibility-guard acceptance"
             echo
             echo "This checks the invite-production rollback's compose file-list guard (F-INV-2) against a synthetic"
-            echo "compatible manifest and the latest real deploy manifest. It performs no rollback."
+            echo "compatible manifest and the newest qualifying deploy run's manifest. It performs no rollback."
             echo
             echo "> [!IMPORTANT]"
             echo "> A green result does **not** mean that a rollback to the latest deployed release currently works."
@@ -77,6 +80,7 @@ jobs:
           set -euo pipefail
           bash scripts/test-invite-rollback-compose-files.sh
           bash scripts/ci/test-rollback-compatibility-guard-acceptance.sh
+          python3 scripts/ci/test_select_rollback_acceptance_source.py
 
       - name: Install validation tools
         run: sudo apt-get update && sudo apt-get install -y python3-yaml
@@ -84,65 +88,19 @@ jobs:
       - name: Deploy workflow guards (no operator text as shell source, allowlisted uploads)
         run: python3 scripts/ci/test_deploy_workflow_guards.py
 
-      # The latest real deploy (deploy job successful) is the source. A build-only run (deploy
-      # skipped) that still holds its manifest, if one exists, must be refused.
+      # The newest qualifying deploy run is the source: a run whose deploy job succeeded and which
+      # holds exactly one unexpired manifest, chosen by created_at (#289 review R2-F1). A newer run
+      # whose listing is anything else fails the step instead of being passed over. A build-only run
+      # (deploy skipped) that still holds its manifest, if one exists, must be refused.
       #
       # Manifest artifacts are kept 90 days, the maximum for a public repository. This check, like
       # a rollback itself, can therefore only reach an api deploy from that window (#204 review
       # N5). The summary records when the source manifest expires and warns two weeks ahead.
-      - name: Find the latest successful invite-production deploy run with a manifest
+      - name: Find the newest qualifying invite-production deploy run (deploy succeeded, one manifest)
         id: source
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import datetime, json, os, urllib.request
-          api, repo = os.environ["GITHUB_API_URL"], os.environ["GITHUB_REPOSITORY"]
-          def get(path):
-              req = urllib.request.Request(f"{api}/repos/{repo}/{path}", headers={
-                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                  "Accept": "application/vnd.github+json"})
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  return json.load(resp)
-          runs = get("actions/workflows/invite-production-deploy.yml/runs"
-                     "?event=workflow_dispatch&branch=api&status=success&per_page=50")["workflow_runs"]
-          found = {}
-          for run in runs:
-              name = f"invite-production-manifest-{run['head_sha']}"
-              arts = [a for a in get(f"actions/runs/{run['id']}/artifacts?name={name}")["artifacts"]
-                      if not a["expired"]]
-              if len(arts) != 1:
-                  continue
-              deploys = [j["conclusion"] for j in get(f"actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
-                         if j["name"] == "Deploy invite-production"]
-              kind = {"success": "deployed", "skipped": "build_only"}.get(deploys[0]) if len(deploys) == 1 else None
-              if kind and kind not in found:
-                  found[kind] = (f"{run['id']}/{name}", arts[0]["expires_at"])
-                  print(f"{kind} run {run['id']} ({run['created_at']}), artifact {name}")
-              if len(found) == 2:
-                  break
-          if "deployed" not in found:
-              print("::error::No successful invite-production deploy run on api holds an unexpired "
-                    "manifest. Artifacts are kept 90 days, the maximum for a public repository, so "
-                    "this check needs an api deploy from that window, as a rollback does. That is a "
-                    "missing precondition, not a code defect: a new api deploy restores it. The unit "
-                    "tests above still cover the resolver and the verifier.")
-              raise SystemExit(1)
-          reference, expires_at = found["deployed"]
-          expires = datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-          days_left = (expires - datetime.datetime.now(datetime.timezone.utc)).days
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"Source deploy manifest: `{reference}`, expires {expires_at} ({days_left} days).\n")
-          if days_left < 14:
-              print(f"::warning::The source deploy manifest {reference} expires on {expires_at}. After "
-                    "that, this check and a rollback to that deploy fail closed until a new api deploy.")
-          run_id, artifact = reference.split("/", 1)
-          build_only = found.get("build_only", ("", ""))[0]
-          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-              out.write(f"reference={reference}\nrun_id={run_id}\nartifact={artifact}\n"
-                        f"build_only_reference={build_only}\n")
-          PY
+        run: python3 scripts/ci/select-rollback-acceptance-source.py
 
       - name: Resolve that run as the rollback job does
         id: resolved
@@ -236,13 +194,15 @@ jobs:
             --expect compatible --label "a synthetic deploy with this checkout's compose file list" \
             --summary "$GITHUB_STEP_SUMMARY"
 
-      - name: "Rollback compatibility-guard acceptance: the latest real deploy manifest"
+      - name: "Rollback compatibility-guard acceptance: the newest qualifying deploy run's manifest"
         env:
           PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
-          SOURCE_REFERENCE: ${{ steps.source.outputs.reference }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.run_head_sha }}
+          SOURCE_CREATED_AT: ${{ steps.source.outputs.run_created_at }}
         run: |
           set -euo pipefail
-          echo "Latest real deploy manifest: \`$SOURCE_REFERENCE\`" >> "$GITHUB_STEP_SUMMARY"
+          label="the newest qualifying deploy run $SOURCE_RUN_ID (commit ${SOURCE_HEAD_SHA:0:12}, created $SOURCE_CREATED_AT)"
           bash scripts/ci/rollback-compatibility-guard-acceptance.sh --manifest "$PARKIO_VERIFIED_MANIFEST" \
-            --env-template docker/.env.invite-production.example --work-dir "$RUNNER_TEMP/compatibility-guard/latest" \
-            --label "the latest deploy" --summary "$GITHUB_STEP_SUMMARY"
+            --env-template docker/.env.invite-production.example --work-dir "$RUNNER_TEMP/compatibility-guard/newest" \
+            --label "$label" --summary "$GITHUB_STEP_SUMMARY"
