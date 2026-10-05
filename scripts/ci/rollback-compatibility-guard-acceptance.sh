@@ -129,8 +129,9 @@ PY
   message="compatible: $LABEL renders this checkout's compose file list; the rollback dry run succeeds and targets $(jq -r .imageTag "$MANIFEST") for $images services."
   echo "rollback compatibility-guard acceptance: PASS ($message)"
   echo "This performs no rollback; it is not operational rollback acceptance."
+  echo "The schema gate is not exercised by dry runs."
   if [ -n "$SUMMARY" ]; then
-    printf '### Rollback compatibility-guard acceptance (%s): PASS\n\n- %s\n- This check performs no rollback. It is **not** operational rollback acceptance.\n\n' \
+    printf '### Rollback compatibility-guard acceptance (%s): PASS\n\n- %s\n- This check performs no rollback. It is **not** operational rollback acceptance.\n- The schema gate is not exercised by dry runs (F-INV-3).\n\n' \
       "$LABEL" "$message" >>"$SUMMARY"
   fi
   exit 0
@@ -147,8 +148,9 @@ statement="rollback to $LABEL is NOT currently possible: $expected; a post-chang
 echo "rollback compatibility-guard acceptance: PASS (the guard refused correctly)"
 echo "$statement"
 echo "Operational rollback acceptance remains BLOCKED until an authorized compatible release exists."
+echo "The schema gate is not exercised by dry runs."
 if [ -n "$SUMMARY" ]; then
-  printf '### Rollback compatibility-guard acceptance (%s): PASS, refusal correct\n\n> [!WARNING]\n> **%s**\n>\n> Operational rollback acceptance remains **BLOCKED** until an authorized compatible release exists. This check performs no rollback.\n\n' \
+  printf '### Rollback compatibility-guard acceptance (%s): PASS, refusal correct\n\n> [!WARNING]\n> **%s**\n>\n> Operational rollback acceptance remains **BLOCKED** until an authorized compatible release exists. This check performs no rollback. The schema gate is not exercised by dry runs (F-INV-3).\n\n' \
     "$LABEL" "$statement" >>"$SUMMARY"
 fi
 exit 0

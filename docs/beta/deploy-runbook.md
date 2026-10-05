@@ -235,6 +235,12 @@ running `deploy-hosted-beta.sh` by hand.
 - **Platform.** It is `linux/amd64`, because the production model sets `platform: linux/amd64`.
 - **Registry access.** It can read the GHCR digest pins: gateway, auth, parking, media and web, as it already does for the MinIO images. Packages that are not public need a `docker login ghcr.io` with read access. Without it, the deploy stops at the pull, before any build.
 
+**Operator step on that host (F-INV-3, #290): create the deploy state directory.**
+- Run once, before the next deploy: `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. The group must include the runner user and every operator who deploys or rolls back.
+- Without it, the deploy refuses (exit 3) before it pulls or builds anything: "the deploy state directory /var/lib/parkio/hosted-beta is not writable".
+- That deploy records `deployed-manifest.json` there. Until a deploy has recorded it, every live rollback is refused (see the [rollback runbook](./rollback-runbook.md)).
+- An azure-hosted-beta host needs `/var/lib/parkio/azure-hosted-beta` in the same way. Its rollbacks are refused until an azure deploy records its digest pins.
+
 **What changes on that host at the next deploy:**
 - **Observability services.** The deploy no longer starts `alertmanager`, `loki`, `promtail` and `tempo`.
   - Containers an earlier deploy started keep running, no longer updated. Compose 5.5.1, in a local probe, leaves a service that moved into an inactive profile running.
