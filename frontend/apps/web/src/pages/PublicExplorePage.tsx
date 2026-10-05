@@ -1,7 +1,7 @@
 import { Icon, MapSearchSkeleton } from '@parkio/ui';
 import { haversineMeters, isValidLatLng } from '@parkio/geo';
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
@@ -30,6 +30,8 @@ const NearbySpotsMap = lazy(() =>
 /** Certified R6A anonymous caps — never exceed on the client. */
 const PUBLIC_EXPLORE_LIMIT = 6;
 const PUBLIC_EXPLORE_RADIUS_METERS = 5_000;
+/** CL-F20: one automatic retry after a failed public query; after that the visitor retries. */
+const PUBLIC_EXPLORE_QUERY_RETRIES = 1;
 
 /** Destination framing: enough context for nearby municipal markers without over-zoom. */
 const DESTINATION_ZOOM = DEFAULT_PICKER_ZOOM;
@@ -58,6 +60,9 @@ interface SelectedDestination {
  * when authenticated (public payload is aggregate-only — no anonymous precise pins).
  *
  * Count invariant: displayed visible count == renderable green marker count.
+ *
+ * Failures (CL-F20): the map and search stay when the public query fails. An alert explains it and
+ * offers a retry. When the map style never loads, the facilities are listed instead, under an alert.
  */
 export function PublicExplorePage() {
   const { publicExploreApi, publicGeocodingApi } = useParkioSdk();
@@ -78,6 +83,27 @@ export function PublicExplorePage() {
   /** Remount search when locate clears destination so the field resets. */
   const [searchResetKey, setSearchResetKey] = useState(0);
   const [locating, setLocating] = useState(false);
+  /** CL-F20: the map style never loaded, so the facilities are listed instead. */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const listHeadingId = useId();
+  const mapUnavailableTitleId = useId();
+  /**
+   * CL-F20: the outcome of the last Retry the user pressed, with the update time of the data or error
+   * it produced. It is announced only while the page still shows that outcome, so a later load never
+   * repeats it (review R2-N3).
+   */
+  const [retryOutcome, setRetryOutcome] = useState<{
+    kind: 'succeeded' | 'failed';
+    at: number;
+  } | null>(null);
+  /**
+   * CL-F20: incremented when a Retry the user pressed succeeds; the results then take the focus. A
+   * failed Retry requests nothing, so a later, unrelated load cannot move the focus (review R2-N2).
+   */
+  const [resultsFocusRequest, setResultsFocusRequest] = useState(0);
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const emptyStatusRef = useRef<HTMLParagraphElement>(null);
+  const listFallbackRef = useRef<HTMLElement>(null);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
   /** Autocomplete open — hide competing discovery chrome (presentation only). */
   const [searchInteractionActive, setSearchInteractionActive] = useState(false);
@@ -107,7 +133,7 @@ export function PublicExplorePage() {
       }),
     enabled: frontendConfig.features.publicExplore,
     staleTime: 30_000,
-    retry: false,
+    retry: PUBLIC_EXPLORE_QUERY_RETRIES,
   });
 
   /** Only facilities with usable coordinates may count or render as green pins. */
@@ -161,9 +187,41 @@ export function PublicExplorePage() {
   );
 
   const flagOff = !frontendConfig.features.publicExplore;
-  const hardUnavailable = flagOff || query.isError;
-  const showMap = frontendConfig.features.publicExplore && !query.isError;
+  const hardUnavailable = flagOff;
+  const showMap = frontendConfig.features.publicExplore;
   const discoverySettled = !query.isLoading && !query.isFetching;
+  /**
+   * CL-F20: from the first failure until the query succeeds. In TanStack Query v5 a refetch of a
+   * query without data resets it to pending, so isError alone would unmount the alert, and the
+   * focused Retry button with it, for as long as the retry runs.
+   */
+  const queryFailed = query.errorUpdatedAt > query.dataUpdatedAt;
+  const showListFallback = mapUnavailable && query.isSuccess;
+  const listFallbackEmpty = showListFallback && municipalFacilities.length === 0;
+  const retryStatus =
+    retryOutcome?.kind === 'succeeded' && query.isSuccess && query.dataUpdatedAt === retryOutcome.at
+      ? t('explore:retrySucceeded')
+      : retryOutcome?.kind === 'failed' && queryFailed && query.errorUpdatedAt === retryOutcome.at
+        ? t('explore:retryFailed')
+        : '';
+
+  const retryQuery = () => {
+    if (query.isFetching) return;
+    setRetryOutcome(null);
+    void query.refetch().then((result) => {
+      if (result.isSuccess) {
+        setRetryOutcome({ kind: 'succeeded', at: result.dataUpdatedAt });
+        setResultsFocusRequest((count) => count + 1);
+      } else if (result.isError) {
+        setRetryOutcome({ kind: 'failed', at: result.errorUpdatedAt });
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (resultsFocusRequest === 0) return;
+    (listFallbackRef.current ?? summaryRef.current ?? emptyStatusRef.current)?.focus();
+  }, [resultsFocusRequest]);
 
   const openContributeGate = useCallback(() => {
     if (requireAuth('/upload', 'contribute')) {
@@ -297,14 +355,49 @@ export function PublicExplorePage() {
                 />
               </div>
 
+              {queryFailed ? (
+                <div
+                  role="alert"
+                  data-testid="public-explore-query-error"
+                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
+                >
+                  <h2 className="m-0 text-title-sm font-semibold text-on-surface">
+                    {t('explore:unavailableTitle')}
+                  </h2>
+                  <p className="m-0 mt-xs text-body-sm text-on-surface-variant">
+                    {t('explore:queryErrorBody')}
+                  </p>
+                  {/* aria-disabled, not disabled: a disabled button would drop the keyboard focus. */}
+                  <button
+                    type="button"
+                    data-testid="public-explore-retry"
+                    onClick={retryQuery}
+                    aria-disabled={query.isFetching || undefined}
+                    aria-busy={query.isFetching || undefined}
+                    className="mt-sm inline-flex min-h-11 items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 aria-disabled:cursor-progress aria-disabled:opacity-60"
+                  >
+                    <Icon
+                      name="refresh"
+                      className={`text-[18px] leading-none${query.isFetching ? ' motion-safe:animate-spin' : ''}`}
+                    />
+                    {t('explore:retry')}
+                  </button>
+                </div>
+              ) : null}
+              <p role="status" data-testid="public-explore-retry-status" className="sr-only">
+                {retryStatus}
+              </p>
+
               {/* Discovery chrome — suppressed while autocomplete is actively open. */}
               {!searchInteractionActive ? (
                 <>
               {/* Coherent discovery stack — visible count + optional membership teasers. */}
               {discoverySettled && municipalFacilities.length > 0 ? (
                 <div
+                  ref={summaryRef}
+                  tabIndex={-1}
                   data-testid="public-explore-discovery-summary"
-                  className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5"
+                  className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5 rounded-2xl focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
                 >
                   <div className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md text-on-surface shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm">
                     <Icon
@@ -361,14 +454,61 @@ export function PublicExplorePage() {
                   {locationFeedback}
                 </p>
               ) : null}
-              {discoverySettled && municipalFacilities.length === 0 ? (
+              {discoverySettled && !queryFailed && municipalFacilities.length === 0 && !showListFallback ? (
                 <p
+                  ref={emptyStatusRef}
+                  tabIndex={-1}
                   role="status"
                   data-testid="public-explore-empty"
-                  className="pointer-events-none m-0 max-w-md rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-sm text-on-surface-variant shadow-sm"
+                  className="pointer-events-none m-0 max-w-md rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-sm text-on-surface-variant shadow-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
                 >
                   {t('explore:emptyMunicipal')}
                 </p>
+              ) : null}
+              {showListFallback ? (
+                <section
+                  ref={listFallbackRef}
+                  tabIndex={-1}
+                  aria-labelledby={listFallbackEmpty ? mapUnavailableTitleId : listHeadingId}
+                  data-testid="public-explore-list-fallback"
+                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 md:w-[400px]"
+                >
+                  <div role="alert" data-testid="public-explore-map-unavailable">
+                    <p id={mapUnavailableTitleId} className="m-0 text-label-md font-semibold text-on-surface">
+                      {t('explore:mapUnavailableTitle')}
+                    </p>
+                    <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">
+                      {listFallbackEmpty ? t('explore:emptyMunicipal') : t('explore:mapUnavailableBody')}
+                    </p>
+                  </div>
+                  {listFallbackEmpty ? null : (
+                    <>
+                      <h2 id={listHeadingId} className="m-0 mt-sm text-label-md font-semibold text-on-surface">
+                        {t('explore:listHeading')}
+                      </h2>
+                      <ul role="list" className="m-0 mt-xs flex max-h-[40vh] list-none flex-col gap-1 overflow-y-auto p-0">
+                        {municipalFacilities.map((facility) => (
+                          <li key={facility.id}>
+                            <button
+                              type="button"
+                              data-testid="public-explore-list-item"
+                              aria-pressed={selectedId === facility.id}
+                              onClick={() => setSelectedId(facility.id)}
+                              className="flex min-h-11 w-full items-center gap-xs rounded-xl px-sm py-xs text-left text-label-md text-on-surface transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+                            >
+                              <Icon name="garage" className="shrink-0 text-[18px] leading-none text-secondary" />
+                              <span className="min-w-0 truncate">
+                                {facility.displayName?.trim() ||
+                                  facility.addressText?.trim() ||
+                                  t('map:municipal.unnamedFacility')}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </section>
               ) : null}
               {/* Contribution discoverability — AuthGate only; registration stays CLOSED. */}
               <button
@@ -421,6 +561,7 @@ export function PublicExplorePage() {
                 locating={locating}
                 ariaLabel={t('explore:mapAria')}
                 ariaDescription={t('explore:mapDescription')}
+                onStyleUnavailable={() => setMapUnavailable(true)}
               />
             </Suspense>
 

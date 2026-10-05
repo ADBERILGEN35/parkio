@@ -211,4 +211,55 @@ describe('NearbySpotsMap', () => {
     fireEvent.click(screen.getByTestId('municipal-facility-marker'));
     expect(onSelectMunicipal).toHaveBeenCalledWith('fac-a');
   });
+
+  describe('style failure (CL-F20)', () => {
+    type Handlers = {
+      onError: (event: Record<string, unknown>) => void;
+      onStyleData: () => void;
+      onLoad: () => void;
+    };
+
+    function renderMap(onStyleUnavailable: () => void): Handlers {
+      mapProps.length = 0;
+      renderWithProviders(
+        <NearbySpotsMap
+          center={{ lat: 41, lng: 29 }}
+          spots={[]}
+          onPickCenter={() => undefined}
+          onStyleUnavailable={onStyleUnavailable}
+        />,
+      );
+      return mapProps.at(-1) as unknown as Handlers;
+    }
+
+    it('reports a style that never loaded, once', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      map.onError({ type: 'error', error: new Error('Failed to fetch') });
+      map.onError({ type: 'error', error: new Error('Failed to fetch') });
+
+      expect(onStyleUnavailable).toHaveBeenCalledOnce();
+    });
+
+    it('does not report tile or source errors', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onError({ type: 'error', error: new Error('source'), sourceId: 'osm' });
+
+      expect(onStyleUnavailable).not.toHaveBeenCalled();
+    });
+
+    it('does not report errors after the style loaded', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      map.onStyleData();
+      map.onError({ type: 'error', error: new Error('later') });
+
+      expect(onStyleUnavailable).not.toHaveBeenCalled();
+    });
+  });
 });
