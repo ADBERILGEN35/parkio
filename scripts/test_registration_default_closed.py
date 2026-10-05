@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Registration stays closed by default in every rendered model (owner decision 2026-10-05, H1).
+"""Registration settings are off by default, and explicit ones reach auth, in every rendered model
+(owner decisions 2026-10-05: H1, and F-INV-1 option (a)).
 
 For each model a deploy path renders:
   - local: docker-compose.yml + apps + images (docker/.env.example);
@@ -7,14 +8,18 @@ For each model a deploy path renders:
   - civo-wrapper: scripts/parkio-prod-compose.sh, the list plus the Civo Alertmanager overlay;
   - azure-hosted-beta: the deprecated Azure profile, the list with images.yml;
   - invite-dark, invite-public-staged, invite-public: the invite-production edge modes,
-it renders `docker compose config` and reads auth-service's PARKIO_REGISTRATION_MODE and, where the
-model can build web, web's VITE_REGISTRATION_MODE build argument. It requires:
-  * with the example env file as shipped: closed, or no setting, so auth's default (closed) applies;
-  * with PARKIO_REGISTRATION_MODE removed from it: closed, or for invite-production, whose edge
-    overlays require the variable, a refused render;
-  * with an explicit PARKIO_REGISTRATION_MODE=open: open, so opening still works when asked for.
-Other variables that a render requires get non-secret placeholders; PARKIO_REGISTRATION_MODE never
-does. Nothing is started.
+it renders `docker compose config` and reads auth-service's five PARKIO_REGISTRATION_* settings and,
+where the model can build web, web's VITE_REGISTRATION_MODE build argument. It requires:
+  * with the example env file as shipped: registration closed, and invite creation and the PRIV-001
+    synthetic bypass off;
+  * with every registration setting removed: auth gets the defaults (closed, false, empty, P7D,
+    false), or for invite-production, whose edge overlays require the mode, a refused render;
+  * with only PARKIO_REGISTRATION_MODE=closed left: auth gets the other four defaults;
+  * with explicit values for all five: auth gets exactly those, so opting in works when asked for.
+Every model but local must pass auth all five settings. Local passes none, so auth's own defaults
+apply there, and its explicit case is not checked. Other variables that a render requires get
+non-secret placeholders; the registration settings never do. Nothing is started, and no token value
+is printed.
 """
 from __future__ import annotations
 
@@ -28,8 +33,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY = "PARKIO_REGISTRATION_MODE"
+TOKEN = "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"
+SETTINGS = {  # auth-service's registration settings and their off values (its application.yml defaults)
+    KEY: "closed",
+    "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED": "false",
+    TOKEN: "",
+    "PARKIO_REGISTRATION_INVITE_TTL": "P7D",
+    "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS": "false",
+}
+SWITCHES = ("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED", "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS")
+OPT_IN = {  # synthetic, non-secret values that differ from every default
+    KEY: "open",
+    "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED": "true",
+    TOKEN: "synthetic-operator-token-registration-test-0123",
+    "PARKIO_REGISTRATION_INVITE_TTL": "P3D",
+    "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS": "true",
+}
 MISSING = re.compile(r"required variable ([A-Z0-9_]+) is missing")
 REFUSED = "refused"
+OMITTED = "registration settings omitted"
 
 EXAMPLES = {
     "local": "docker/.env.example",
@@ -88,7 +110,7 @@ def model_files(model: str, env_file: Path) -> list:
 
 
 def render(files: list, env_text: str, extra_env: dict) -> object:
-    """The rendered model, or REFUSED when it needs PARKIO_REGISTRATION_MODE; placeholders fill the rest."""
+    """The rendered model, or REFUSED when it needs a registration setting; placeholders fill the rest."""
     with tempfile.TemporaryDirectory() as tmp:
         env_file = Path(tmp) / "env"
         text = env_text + "".join(f"\n{k}={v}" for k, v in extra_env.items()) + "\nPARKIO_IMAGE_TAG=sha-registration-test\n"
@@ -97,53 +119,72 @@ def render(files: list, env_text: str, extra_env: dict) -> object:
             env_file.write_text(text)
             done = subprocess.run(["docker", "compose", "--env-file", str(env_file), *args, "config", "--format", "json"],
                                   cwd=ROOT, capture_output=True, text=True,
-                                  env={k: v for k, v in os.environ.items() if k != KEY})
+                                  env={k: v for k, v in os.environ.items() if k not in SETTINGS})
             if done.returncode == 0:
                 return json.loads(done.stdout)
             missing = MISSING.search(done.stderr)
             if not missing:
                 raise SystemExit(f"FAIL: compose render failed: {done.stderr.strip()[:400]}")
-            if missing.group(1) == KEY:
+            if missing.group(1) in SETTINGS:
                 return REFUSED
             text += f"\n{missing.group(1)}=example.invalid"
         raise SystemExit("FAIL: compose render still misses required variables")
 
 
+def mapping(value) -> dict:
+    if isinstance(value, list):
+        return dict(item.split("=", 1) for item in value if "=" in item)
+    return value or {}
+
+
 def registration(model: dict) -> dict:
-    """{"auth": value or None, "web-build": value or None} of a rendered model."""
+    """{"auth": {setting: value or None}, "web-build": value or None} of a rendered model."""
     services = model.get("services") or {}
-    env = (services.get("auth-service") or {}).get("environment") or {}
-    if isinstance(env, list):
-        env = dict(item.split("=", 1) for item in env if "=" in item)
-    args = ((services.get("web") or {}).get("build") or {}).get("args") or {}
-    if isinstance(args, list):
-        args = dict(item.split("=", 1) for item in args if "=" in item)
-    return {"auth": env.get(KEY), "web-build": args.get("VITE_REGISTRATION_MODE")}
+    env = mapping((services.get("auth-service") or {}).get("environment"))
+    args = mapping(((services.get("web") or {}).get("build") or {}).get("args"))
+    return {"auth": {k: env.get(k) for k in SETTINGS}, "web-build": args.get("VITE_REGISTRATION_MODE")}
 
 
-def without_key(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not re.match(rf"\s*{KEY}\s*=", line))
+def shown(key: str, value) -> str:
+    if key == TOKEN and value:
+        return "<set>"
+    return repr(value)
+
+
+def without(text: str, keys) -> str:
+    pattern = re.compile(r"\s*(" + "|".join(map(re.escape, keys)) + r")\s*=")
+    return "\n".join(line for line in text.splitlines() if not pattern.match(line))
 
 
 def check(model: str, case: str, result: object, expected: str) -> list:
-    """Problems for one render. `expected` is "closed", "open" or "closed-or-refused"."""
+    """Problems for one render. `expected` is "shipped", "defaults" or "opt-in"."""
     if result == REFUSED:
-        if expected == "closed-or-refused" and model.startswith("invite-"):
+        if case == OMITTED and model.startswith("invite-"):
             return []
-        return [f"{model} / {case}: the render was refused for a missing {KEY}"]
+        return [f"{model} / {case}: the render was refused for a missing registration setting"]
     values = registration(result)
-    want = "open" if expected == "open" else "closed"
+    want = {"shipped": {KEY: "closed", **{k: "false" for k in SWITCHES}}, "defaults": SETTINGS, "opt-in": OPT_IN}[expected]
     problems = []
-    # auth-service: no setting means its default, closed; anything set must be the expected value.
-    if values["auth"] is None:
-        if want == "open":
-            problems.append(f"{model} / {case}: auth-service gets no {KEY}, so an explicit open is lost")
-    elif values["auth"] != want:
-        problems.append(f"{model} / {case}: auth-service {KEY}={values['auth']!r}, expected {want!r}")
-    # web: a build argument, where the model has one, must follow the same value.
-    if values["web-build"] is not None and values["web-build"] != want:
-        problems.append(f"{model} / {case}: web build VITE_REGISTRATION_MODE={values['web-build']!r}, expected {want!r}")
+    for key in SETTINGS:
+        got = values["auth"][key]
+        if got is None:
+            if model != "local":  # local passes auth no registration setting; its defaults apply
+                problems.append(f"{model} / {case}: auth-service gets no {key}")
+        elif key in want and got != want[key]:
+            problems.append(f"{model} / {case}: auth-service {key}={shown(key, got)}, expected {shown(key, want[key])}")
+    # web: a build argument, where the model has one, must follow the registration mode.
+    web_want = OPT_IN[KEY] if expected == "opt-in" else "closed"
+    if values["web-build"] is not None and values["web-build"] != web_want:
+        problems.append(f"{model} / {case}: web build VITE_REGISTRATION_MODE={values['web-build']!r}, expected {web_want!r}")
     return problems
+
+
+def summary(result: object) -> str:
+    if result == REFUSED:
+        return REFUSED
+    values = registration(result)
+    auth = ", ".join(f"{k.removeprefix('PARKIO_REGISTRATION_')}={shown(k, v)}" for k, v in values["auth"].items())
+    return f"auth {{{auth}}}, web-build {values['web-build']!r}"
 
 
 def main() -> int:
@@ -153,23 +194,24 @@ def main() -> int:
         text = example_path.read_text()
         files = model_files(model, example_path)
         extra = INVITE_EDGE.get(model, {})
-        cases = [("example as shipped", text, "closed"),
-                 (f"{KEY} omitted", without_key(text), "closed-or-refused")]
-        if model != "local":  # the local model passes no registration setting to auth at all
-            cases.append((f"explicit {KEY}=open", without_key(text) + f"\n{KEY}=open", "open"))
+        omitted = without(text, SETTINGS)
+        cases = [("example as shipped", text, "shipped"),
+                 (OMITTED, omitted, "defaults"),
+                 (f"only {KEY}=closed set", omitted + f"\n{KEY}=closed", "defaults")]
+        if model != "local":  # the local model passes auth no registration setting at all
+            cases.append(("explicit opt-in to all five", omitted + "".join(f"\n{k}={v}" for k, v in OPT_IN.items()), "opt-in"))
         for case, env_text, expected in cases:
             result = render(files, env_text, extra)
             found = check(model, case, result, expected)
             problems += found
-            shown = REFUSED if result == REFUSED else registration(result)
-            lines.append(f"{'FAIL' if found else 'PASS'}: {model} / {case} -> {shown}")
+            lines.append(f"{'FAIL' if found else 'PASS'}: {model} / {case} -> {summary(result)}")
     print("\n".join(lines))
     if problems:
-        print("FAIL: registration is not closed by default everywhere:", file=sys.stderr)
+        print("FAIL: registration settings are not off by default, or do not reach auth, everywhere:", file=sys.stderr)
         for problem in problems:
             print("  " + problem, file=sys.stderr)
         return 1
-    print(f"=== registration closed by default: PASS ({len(lines)} renders) ===")
+    print(f"=== registration settings off by default and explicit ones reach auth: PASS ({len(lines)} renders) ===")
     return 0
 
 

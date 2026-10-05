@@ -4,6 +4,12 @@
 # Precedence in docker/compose.production.files:
 #   after azure-hosted-beta.yml (auth-service only sets tracing there)
 #   before docker-compose.auth-release-pin.yml (image only)
+# Precedence in the three invite-production models (scripts/lib/deploy-common.sh, F-INV-1):
+#   after docker-compose.managed-db.yml, before the edge overlay (invite-dark, or invite-public
+#   and invite-public-staged). The edge overlay maps PARKIO_REGISTRATION_MODE with `:?`, so there
+#   a missing mode still refuses the render.
+# Every setting is off by default, and an explicit value in the host env file reaches
+# auth-service (scripts/test_registration_default_closed.py renders every model).
 # Duplicate-mount: this file declares no volumes, so it cannot remount
 # auth-service or collide with waitlist-ops-inbox.yml (gateway-only).
 # Token is interpolated from the host env file; never commit a literal.
@@ -16,3 +22,6 @@ services:
       PARKIO_REGISTRATION_INVITE_CREATION_ENABLED: ${PARKIO_REGISTRATION_INVITE_CREATION_ENABLED:-false}
       PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN: ${PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN:-}
       PARKIO_REGISTRATION_INVITE_TTL: ${PARKIO_REGISTRATION_INVITE_TTL:-P7D}
+      # PRIV-001 synthetic harness (operator-only acceptance tooling): allows only
+      # priv001a-*@priv001a.parkio.invalid while registration is closed, and only when set.
+      PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS: ${PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS:-false}
