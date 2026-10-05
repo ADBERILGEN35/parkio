@@ -545,8 +545,11 @@ PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 1 no "conf.d break-glass keep
 fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
 PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 0 yes "conf.d break-glass alone: a verified image built before #198 starts, bound" up -d --no-deps web
 grep -q 'PARKIO_SKIP_WEB_CONF_D_CHECK break-glass' "$TMP/err" && grep -Eq '^MUTATION .* -f [^ ]*web-binding\.yml up -d --no-deps web$' "$FAKE/mutations.log" && pass "conf.d break-glass warned and the map guard still bound web" || bad "conf.d break-glass warned and the map guard still bound web"
-fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
-PARKIO_SKIP_WEB_CONF_D_CHECK=1 wrapper 1 no "conf.d break-glass with any other value is refused" up -d --no-deps web
+# #280 review N1: an image from #198 on would pass both checks, so only the flag value can refuse it.
+for value in 1 0 false yes "$MAP_TOKEN"; do
+  fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
+  PARKIO_SKIP_WEB_CONF_D_CHECK=$value wrapper 1 no "conf.d break-glass value '$value' is refused before anything starts" up -d --no-deps web
+done
 fake_reset; compose_model_conf_d "$REPO:synthetic"
 PARKIO_SKIP_WEB_MAP_GUARD=$MAP_TOKEN PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 0 yes "both break-glasses set: both checks skipped, with both warnings" up -d --no-deps web
 grep -q 'PARKIO_SKIP_WEB_MAP_GUARD break-glass' "$TMP/err" && grep -q 'PARKIO_SKIP_WEB_CONF_D_CHECK break-glass' "$TMP/err" && pass "both warnings printed" || bad "both warnings printed"
@@ -666,8 +669,13 @@ fake_reset; compose_model_conf_d "$REPO:synthetic-b9"
 PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D compose_up 1 no "deploy/rollback: conf.d break-glass keeps the map guard" gateway-service web
 fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
 PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D compose_up 0 yes "deploy/rollback: conf.d break-glass alone proceeds with the bound image" gateway-service web
-fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
-PARKIO_SKIP_WEB_CONF_D_CHECK=yes compose_up 1 no "deploy/rollback: conf.d break-glass with any other value is refused" gateway-service web
+for value in 1 0 false yes I_ACCEPT_UNVERIFIED_WEB_IMAGE; do
+  fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
+  PARKIO_SKIP_WEB_CONF_D_CHECK=$value compose_up 1 no "deploy/rollback: conf.d break-glass value '$value' is refused" gateway-service web
+done
+fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
+PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE compose_up 0 yes "deploy/rollback: map break-glass alone with an image from #198 on proceeds" gateway-service web
+grep -q 'web-conf-d-guard: PASS' "$TMP/out" && pass "deploy/rollback: the conf.d check passed under the map break-glass" || bad "deploy/rollback: the conf.d check passed under the map break-glass"
 
 for f in scripts/deploy-hosted-beta.sh scripts/deploy-invite-production.sh scripts/rollback-hosted-beta.sh; do
   if grep -Eq '^[^#]*(docker compose|parkio_compose)[^#]*[[:space:]]up([[:space:]]|$)' "$ROOT/$f"; then
