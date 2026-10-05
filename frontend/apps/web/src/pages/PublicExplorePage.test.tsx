@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, server } from '@/test/server';
@@ -26,6 +26,7 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     locating,
     spots,
     destinationMarker,
+    onStyleUnavailable,
   }: {
     municipalFacilities: Array<{ id: string; displayName: string | null }>;
     onSelectMunicipalFacility?: (id: string | null) => void;
@@ -33,8 +34,13 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     locating?: boolean;
     spots: unknown[];
     destinationMarker?: { latitude: number; longitude: number; label: string } | null;
+    onStyleUnavailable?: () => void;
   }) => (
     <div aria-label="Parkio public parking map" data-testid="public-explore-map">
+      {/* Stands in for MapLibre reporting a style that never loaded (CL-F20). */}
+      <button type="button" data-testid="fail-map-style" onClick={() => onStyleUnavailable?.()}>
+        Fail style
+      </button>
       <button
         type="button"
         data-testid="map-floating-locate"
@@ -496,10 +502,232 @@ describe('PublicExplorePage', () => {
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
-    expect(await screen.findByText('Parking data is temporarily unavailable.')).toBeInTheDocument();
+    // One automatic retry (CL-F20) delays the error by about a second.
+    expect(
+      await screen.findByText('Parking data is temporarily unavailable.', undefined, { timeout: 4000 }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(facility.displayName)).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('failures (CL-F20)', () => {
+    it('keeps the map, alerts on a failed query and retries it', async () => {
+      let available = false;
+      const calls = vi.fn();
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => {
+          calls();
+          return available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+        }),
+      );
+      const user = userEvent.setup();
+
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      expect(alert).toHaveTextContent('Parking data is temporarily unavailable.');
+      expect(calls).toHaveBeenCalledTimes(2); // the first request and one bounded automatic retry
+      expect(screen.getByTestId('public-explore-map')).toBeInTheDocument();
+      expect(screen.getByTestId('public-explore-destination-search')).toBeInTheDocument();
+      expect(screen.queryByTestId('public-explore-empty')).not.toBeInTheDocument();
+
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(await screen.findByTestId('municipal-facility-marker')).toHaveTextContent(facility.displayName);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('keeps the alert and the focused Retry button while a retry runs and fails', async () => {
+      const calls = vi.fn();
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => {
+          calls();
+          return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      const retry = within(alert).getByRole('button', { name: 'Try again' });
+
+      await user.click(retry);
+      await user.click(retry); // ignored while the retry runs
+
+      expect(retry).toHaveFocus();
+      expect(retry).toHaveAttribute('aria-busy', 'true');
+      expect(retry).toHaveAttribute('aria-disabled', 'true');
+      expect(retry).not.toBeDisabled();
+      expect(screen.getByRole('alert')).toBe(alert);
+      await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy'), { timeout: 4000 });
+      expect(calls).toHaveBeenCalledTimes(4); // two per attempt: the request and one automatic retry
+      expect(retry).toBeInTheDocument();
+      expect(retry).toHaveFocus();
+      expect(screen.getByRole('alert')).toBe(alert);
+      expect(screen.getByTestId('public-explore-retry-status')).toHaveTextContent(
+        "Parking data still couldn't be loaded.",
+      );
+    });
+
+    it('moves focus to the results and announces them when a retry succeeds', async () => {
+      let available = false;
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      available = true;
+
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      const summary = await screen.findByTestId('public-explore-discovery-summary');
+      await waitFor(() => expect(summary).toHaveFocus());
+      expect(summary).toHaveTextContent('1 parking facilities');
+      expect(screen.getByTestId('public-explore-retry-status')).toHaveTextContent('Parking data loaded.');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    // Review R2-N2: a failed Retry must not leave a pending focus move for a later, unrelated load.
+    it('does not move focus to the results when data loads for another reason after a failed Retry', async () => {
+      let available = false;
+      getCurrentPosition.mockImplementation((success: PositionCallback) => {
+        success(grantedPosition(38.45, 27.2));
+      });
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+          if (!available) return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+          const located = new URL(request.url).searchParams.get('lat') === '38.45';
+          return HttpResponse.json(discoveryResponse(located ? { facilities: [farFacility] } : {}));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      const retry = within(alert).getByRole('button', { name: 'Try again' });
+      await user.click(retry);
+      await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy'), { timeout: 4000 });
+      expect(retry).toHaveFocus();
+
+      available = true;
+      await user.click(screen.getByTestId('map-floating-locate'));
+
+      expect(await screen.findByText(farFacility.displayName)).toBeInTheDocument();
+      expect(screen.getByTestId('public-explore-discovery-summary')).not.toHaveFocus();
+      expect(screen.getByTestId('public-explore-retry-status').textContent).toBe('');
+    });
+
+    // Review R2-N3: the success of a Retry is announced once, not again after every later load.
+    it('announces loaded data only for the Retry that loaded it', async () => {
+      let available = false;
+      getCurrentPosition.mockImplementation((success: PositionCallback) => {
+        success(grantedPosition(38.45, 27.2));
+      });
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+          if (!available) return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+          const located = new URL(request.url).searchParams.get('lat') === '38.45';
+          return HttpResponse.json(discoveryResponse(located ? { facilities: [farFacility] } : {}));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      const status = screen.getByTestId('public-explore-retry-status');
+      await waitFor(() => expect(status).toHaveTextContent('Parking data loaded.'));
+
+      await user.click(screen.getByTestId('map-floating-locate'));
+
+      expect(await screen.findByText(farFacility.displayName)).toBeInTheDocument();
+      expect(status.textContent).toBe('');
+    });
+
+    it('says no parking was found, without a list, when the map fails and nothing is nearby', async () => {
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          HttpResponse.json(discoveryResponse({ facilities: [], municipalTotalInScope: 0 })),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByTestId('public-explore-empty');
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent("The map couldn't load.");
+      expect(alert).toHaveTextContent('No municipal parking nearby.');
+      expect(alert).not.toHaveTextContent('listed below');
+      expect(screen.queryByRole('list')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('public-explore-empty')).not.toBeInTheDocument();
+      expect(screen.getByRole('region', { name: "The map couldn't load." })).toBeInTheDocument();
+    });
+
+    it('alerts and lists the facilities when the map style never loads', async () => {
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => HttpResponse.json(discoveryResponse())),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByTestId('municipal-facility-marker');
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent("The map couldn't load.");
+      const list = screen.getByRole('list');
+      expect(list).toHaveTextContent(facility.displayName);
+      await user.click(within(list).getByRole('button', { name: facility.displayName }));
+      expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+    });
+
+    it('still alerts on a map failure after an earlier query error recovered', async () => {
+      let available = false;
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      await screen.findByTestId('municipal-facility-marker');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent("The map couldn't load.");
+      expect(screen.getByRole('list')).toHaveTextContent(facility.displayName);
+    });
+
+    it('shows the failure copy in Turkish', async () => {
+      await withLocale('tr');
+      try {
+        server.use(
+          http.get(`${API_BASE}/public/explore/facilities`, () =>
+            HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+          ),
+        );
+        renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+        const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+        expect(alert).toHaveTextContent('Otopark verileri yüklenemedi.');
+        expect(screen.getByRole('button', { name: 'Yeniden dene' })).toBeInTheDocument();
+      } finally {
+        await withLocale('en');
+      }
     });
   });
 

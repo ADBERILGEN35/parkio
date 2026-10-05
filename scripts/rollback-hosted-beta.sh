@@ -5,6 +5,11 @@
 # Does NOT rebuild images. Requires the previous sha-* images to exist locally
 # (or in a registry you have already pulled).
 #
+# The default hosted-beta profile renders docker/compose.production.files exactly (CL-F12). For
+# each service that list builds, it points the model's image name back at the sha-* tag the target
+# manifest records, then starts the stack with `up --no-build`. Digest-pinned services keep the
+# pins of this checkout: a pin is rolled back by reverting its pin file, not by this script.
+#
 # Usage:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/deploy-....json
 #   PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/current.json --dry-run
@@ -33,7 +38,7 @@ while [ "$#" -gt 0 ]; do
     --skip-smoke) SKIP_SMOKE=1; shift ;;
     --no-hosted-beta-overlay) USE_HOSTED_BETA=0; shift ;;
     --operator) OPERATOR="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -87,6 +92,19 @@ OUT_NAME="rollback-to-${GIT_SHA:0:12}-$(date -u +%Y%m%dT%H%M%SZ).json"
 OUT_PATH="$ARTIFACT_DIR/$OUT_NAME"
 mkdir -p "$ARTIFACT_DIR"
 
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  # One plan for the manifest and the re-pointing (CL-F12).
+  PARKIO_HOSTED_BETA_IMAGE_PLAN="$(parkio_hosted_beta_image_plan "$ENV_FILE")"
+  export PARKIO_HOSTED_BETA_IMAGE_PLAN
+  # The model always comes from this checkout. Say so when the target deploy rendered other files.
+  TARGET_COMPOSE_FILES="$(jq -c '.composeFiles // []' "$MANIFEST")"
+  CURRENT_COMPOSE_FILES="$(parkio_compose_files_json | jq -c .)"
+  if [ "$TARGET_COMPOSE_FILES" != "$CURRENT_COMPOSE_FILES" ]; then
+    echo "NOTE: the target deploy rendered $TARGET_COMPOSE_FILES;" >&2
+    echo "      this rollback renders $CURRENT_COMPOSE_FILES, with this checkout's pins and settings." >&2
+  fi
+fi
+
 echo "=== Parkio hosted-beta rollback ==="
 echo "targetManifest=$MANIFEST"
 echo "imageTag=$IMAGE_TAG"
@@ -96,12 +114,21 @@ echo "composeFiles=$PARKIO_COMPOSE_FILES"
 echo "runtimeServices=${PARKIO_RUNTIME_SERVICES[*]:-all}"
 echo "disabledServices=${PARKIO_DISABLED_SERVICES[*]:-none}"
 echo "dryRun=$DRY_RUN"
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  echo "imagePlan (kind, service, image, platform):"
+  printf '%s\n' "$PARKIO_HOSTED_BETA_IMAGE_PLAN" | sed 's/^/  /'
+fi
 
 parkio_write_manifest "$OUT_PATH" "rollback" "$OPERATOR" "$ENV_FILE" \
   "$IMAGE_TAG" "$GIT_SHA" "$BRANCH" "$CREATED" "$VERSION" "$PREVIOUS"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: would verify local images and run parkio_compose_up $ENV_FILE (no --build)"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+    echo "DRY-RUN: would point each built service in the image plan at its tag in the target manifest,"
+    echo "  check the pinned images, and run parkio_compose_up $ENV_FILE (--no-build)"
+  else
+    echo "DRY-RUN: would verify local images and run parkio_compose_up $ENV_FILE (no --build)"
+  fi
   echo "Rollback manifest: $OUT_PATH"
   exit 0
 fi
@@ -115,13 +142,40 @@ fi
 
 # Verify images exist locally (live rollback only)
 missing=0
-for svc in "${PARKIO_APP_SERVICES[@]}"; do
-  ref="$(parkio_image_ref "$svc" "$IMAGE_TAG")"
-  if ! docker image inspect "$ref" >/dev/null 2>&1; then
-    echo "ERROR: image not found locally: $ref" >&2
-    missing=1
-  fi
-done
+REPOINT=()
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  # CL-F12: every service the model builds needs the image the target deploy recorded for it. A
+  # target that did not build such a service (it ran a pin then) cannot be rolled back here.
+  while IFS=$'\t' read -r kind svc image platform; do
+    case "$kind" in
+      built)
+        expected="$(parkio_image_ref "$svc" "$IMAGE_TAG")"
+        recorded="$(jq -r --arg svc "$svc" '.images[$svc] // ""' "$MANIFEST")"
+        if [ "$recorded" != "$expected" ]; then
+          echo "ERROR: the target manifest records '${recorded}' for $svc, not $expected: that deploy did not build $svc" >&2
+          missing=1
+        elif ! docker image inspect "$recorded" >/dev/null 2>&1; then
+          echo "ERROR: image not found locally: $recorded" >&2
+          missing=1
+        else
+          REPOINT+=("$recorded" "$image")
+        fi
+        ;;
+      pinned)
+        echo "$svc keeps its pin $image from this checkout (revert its pin file to roll a pin back)"
+        parkio_ensure_pinned_image "$svc" "$image" "$platform" || missing=1
+        ;;
+    esac
+  done <<< "$PARKIO_HOSTED_BETA_IMAGE_PLAN"
+else
+  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+    ref="$(parkio_image_ref "$svc" "$IMAGE_TAG")"
+    if ! docker image inspect "$ref" >/dev/null 2>&1; then
+      echo "ERROR: image not found locally: $ref" >&2
+      missing=1
+    fi
+  done
+fi
 if [ "$missing" -ne 0 ]; then
   echo "ERROR: cannot rollback; build or pull the previous images first." >&2
   exit 2
@@ -147,6 +201,15 @@ if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "invite-production" ]; then
   export PARKIO_COMPOSE_BASE_DIR="$ROLLBACK_RELEASE"
   echo "composeBaseDir=$PARKIO_COMPOSE_BASE_DIR"
   parkio_activate_release "$GIT_SHA"
+fi
+
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+  echo "Pointing the built services at the target's images..."
+  for ((i = 0; i < ${#REPOINT[@]}; i += 2)); do
+    echo "  ${REPOINT[i + 1]} -> ${REPOINT[i]}"
+    docker tag "${REPOINT[i]}" "${REPOINT[i + 1]}"
+  done
+  export PARKIO_COMPOSE_UP_NO_BUILD=1
 fi
 
 echo "Starting previous images (no rebuild)..."

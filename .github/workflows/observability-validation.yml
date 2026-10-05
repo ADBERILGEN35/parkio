@@ -17,6 +17,10 @@ on:
       - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/test-canonical-production-file-set.sh"
       - "scripts/lib/deploy-common.sh"
+      - "scripts/deploy-hosted-beta.sh"
+      - "scripts/rollback-hosted-beta.sh"
+      - "scripts/validate-hosted-beta-compose.sh"
+      - "scripts/test-hosted-beta-image-plan.sh"
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/restore-database.sh"
@@ -62,6 +66,10 @@ on:
       - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/test-canonical-production-file-set.sh"
       - "scripts/lib/deploy-common.sh"
+      - "scripts/deploy-hosted-beta.sh"
+      - "scripts/rollback-hosted-beta.sh"
+      - "scripts/validate-hosted-beta-compose.sh"
+      - "scripts/test-hosted-beta-image-plan.sh"
       - "scripts/backup-*.sh"
       - "scripts/restore-hosted-beta.sh"
       - "scripts/restore-database.sh"
@@ -258,9 +266,11 @@ jobs:
           cp docker/.env.example docker/.env.ci-obs
           docker compose --env-file docker/.env.ci-obs -f docker/docker-compose.yml config --quiet
           docker compose -f docker/docker-compose.alerting-acceptance.yml config --quiet
-          chmod +x scripts/test-civo-alertmanager-canonical.sh scripts/test-canonical-production-file-set.sh
+          chmod +x scripts/test-civo-alertmanager-canonical.sh scripts/test-canonical-production-file-set.sh \
+            scripts/test-hosted-beta-image-plan.sh
           ./scripts/test-civo-alertmanager-canonical.sh
           ./scripts/test-canonical-production-file-set.sh
+          ./scripts/test-hosted-beta-image-plan.sh
 
       - name: Bash syntax checks
         run: |
