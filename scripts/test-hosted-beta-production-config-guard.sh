@@ -10,7 +10,8 @@
 #       - twelve env-file spellings of PARKIO_DOMAIN that Compose resolves to api.parkio.dev: case
 #         and a trailing dot, quotes, whitespace, an inline comment, `export`, an indented key,
 #         spaces around `=`, a quoted value with a comment, and a port;
-#       - a model that cannot be rendered;
+#       - a model that cannot be rendered, and a model whose caddy hostnames cannot be read (a fake
+#         render: no caddy service, a missing or a blank hostname);
 #     accepted: the hosted-beta example, and beta hostnames under parkio.dev;
 #     unchanged: the azure-hosted-beta and invite-production profiles with their examples.
 #   deploy-hosted-beta.sh, rollback-hosted-beta.sh and validate-hosted-beta-compose.sh stop on a
@@ -132,6 +133,47 @@ grep -v '^PARKIO_DOMAIN=' "$beta_env" >"$work/no-domain.env"
 rc=0; configure - "$work/no-domain.env" || rc=$?
 expect_refused "a model that cannot be rendered (no PARKIO_DOMAIN) is refused" "$rc" \
   "cannot render the hosted-beta model to read the hostnames Compose resolves"
+
+echo "--- a model whose caddy hostnames cannot be read (fake render, #288 review N4) ---"
+mkdir -p "$work/fake-render"
+cat >"$work/fake-render/docker" <<'EOF'
+#!/usr/bin/env bash
+# Answers `compose ... config` with the model in $GUARD_TEST_FAKE_MODEL; refuses everything else.
+for a in "$@"; do [ "$a" = "config" ] && { cat "$GUARD_TEST_FAKE_MODEL"; exit 0; }; done
+echo "fake render: refused: docker $*" >&2
+exit 97
+EOF
+chmod +x "$work/fake-render/docker"
+fake_model() { # fake_model NAME CADDY_ENVIRONMENT_JSON|- (- = no caddy service)
+  python3 - "$work/model-$1.json" "$2" <<'PY'
+import json, sys
+services = {"web": {"image": "parkio/web",
+                    "environment": {"PARKIO_WEB_CSP_CONNECT_SRC": "'self' https://api.beta.example.com"}}}
+if sys.argv[2] != "-":
+    services["caddy"] = {"image": "caddy:2", "environment": json.loads(sys.argv[2])}
+json.dump({"name": "parkio", "services": services}, open(sys.argv[1], "w"))
+PY
+}
+fake_configure() { # fake_configure NAME: the default profile against model NAME; exit code in $rc
+  rc=0
+  configure - "$beta_env" PATH="$work/fake-render:$PATH" GUARD_TEST_FAKE_MODEL="$work/model-$1.json" || rc=$?
+}
+fake_model control '{"PARKIO_DOMAIN": "api.beta.example.com", "PARKIO_WEB_DOMAIN": "app.beta.example.com", "PARKIO_MEDIA_DOMAIN": "media.beta.example.com"}'
+fake_configure control
+expect_accepted "control: the fake render with beta hostnames is accepted" "$rc"
+fake_model no-caddy -
+fake_configure no-caddy
+expect_refused "a model without caddy is refused as unreadable" "$rc" \
+  "gives no hostname for caddy PARKIO_DOMAIN, caddy PARKIO_WEB_DOMAIN, caddy PARKIO_MEDIA_DOMAIN"
+fake_model no-web-domain '{"PARKIO_DOMAIN": "api.beta.example.com", "PARKIO_MEDIA_DOMAIN": "media.beta.example.com"}'
+fake_configure no-web-domain
+expect_refused "caddy without PARKIO_WEB_DOMAIN is refused as unreadable" "$rc" "gives no hostname for caddy PARKIO_WEB_DOMAIN;"
+fake_model blank-media '{"PARKIO_DOMAIN": "api.beta.example.com", "PARKIO_WEB_DOMAIN": "app.beta.example.com", "PARKIO_MEDIA_DOMAIN": " . "}'
+fake_configure blank-media
+expect_refused "a blank caddy PARKIO_MEDIA_DOMAIN is refused as unreadable" "$rc" "gives no hostname for caddy PARKIO_MEDIA_DOMAIN;"
+fake_model list-form '["PARKIO_DOMAIN=api.parkio.dev", "PARKIO_WEB_DOMAIN=app.beta.example.com", "PARKIO_MEDIA_DOMAIN=media.beta.example.com"]'
+fake_configure list-form
+expect_refused "a caddy environment in list form is read too (production refused)" "$rc" "caddy PARKIO_DOMAIN=api.parkio.dev $REFUSED_TEXT"
 
 echo "--- entry points (docker shim) ---"
 mkdir -p "$work/shim"
