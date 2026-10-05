@@ -596,6 +596,62 @@ describe('PublicExplorePage', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
+    // Review R2-N2: a failed Retry must not leave a pending focus move for a later, unrelated load.
+    it('does not move focus to the results when data loads for another reason after a failed Retry', async () => {
+      let available = false;
+      getCurrentPosition.mockImplementation((success: PositionCallback) => {
+        success(grantedPosition(38.45, 27.2));
+      });
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+          if (!available) return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+          const located = new URL(request.url).searchParams.get('lat') === '38.45';
+          return HttpResponse.json(discoveryResponse(located ? { facilities: [farFacility] } : {}));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      const retry = within(alert).getByRole('button', { name: 'Try again' });
+      await user.click(retry);
+      await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy'), { timeout: 4000 });
+      expect(retry).toHaveFocus();
+
+      available = true;
+      await user.click(screen.getByTestId('map-floating-locate'));
+
+      expect(await screen.findByText(farFacility.displayName)).toBeInTheDocument();
+      expect(screen.getByTestId('public-explore-discovery-summary')).not.toHaveFocus();
+      expect(screen.getByTestId('public-explore-retry-status').textContent).toBe('');
+    });
+
+    // Review R2-N3: the success of a Retry is announced once, not again after every later load.
+    it('announces loaded data only for the Retry that loaded it', async () => {
+      let available = false;
+      getCurrentPosition.mockImplementation((success: PositionCallback) => {
+        success(grantedPosition(38.45, 27.2));
+      });
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, ({ request }) => {
+          if (!available) return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+          const located = new URL(request.url).searchParams.get('lat') === '38.45';
+          return HttpResponse.json(discoveryResponse(located ? { facilities: [farFacility] } : {}));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      const status = screen.getByTestId('public-explore-retry-status');
+      await waitFor(() => expect(status).toHaveTextContent('Parking data loaded.'));
+
+      await user.click(screen.getByTestId('map-floating-locate'));
+
+      expect(await screen.findByText(farFacility.displayName)).toBeInTheDocument();
+      expect(status.textContent).toBe('');
+    });
+
     it('says no parking was found, without a list, when the map fails and nothing is nearby', async () => {
       server.use(
         http.get(`${API_BASE}/public/explore/facilities`, () =>

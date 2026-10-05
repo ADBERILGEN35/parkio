@@ -87,10 +87,20 @@ export function PublicExplorePage() {
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const listHeadingId = useId();
   const mapUnavailableTitleId = useId();
-  /** CL-F20: the user pressed Retry; its outcome is announced. */
-  const [retryPressed, setRetryPressed] = useState(false);
-  /** CL-F20: after a Retry the user pressed succeeds, focus moves to the results. */
-  const focusResultsAfterRetryRef = useRef(false);
+  /**
+   * CL-F20: the outcome of the last Retry the user pressed, with the update time of the data or error
+   * it produced. It is announced only while the page still shows that outcome, so a later load never
+   * repeats it (review R2-N3).
+   */
+  const [retryOutcome, setRetryOutcome] = useState<{
+    kind: 'succeeded' | 'failed';
+    at: number;
+  } | null>(null);
+  /**
+   * CL-F20: incremented when a Retry the user pressed succeeds; the results then take the focus. A
+   * failed Retry requests nothing, so a later, unrelated load cannot move the focus (review R2-N2).
+   */
+  const [resultsFocusRequest, setResultsFocusRequest] = useState(0);
   const summaryRef = useRef<HTMLDivElement>(null);
   const emptyStatusRef = useRef<HTMLParagraphElement>(null);
   const listFallbackRef = useRef<HTMLElement>(null);
@@ -189,19 +199,29 @@ export function PublicExplorePage() {
   const showListFallback = mapUnavailable && query.isSuccess;
   const listFallbackEmpty = showListFallback && municipalFacilities.length === 0;
   const retryStatus =
-    retryPressed && !query.isFetching
-      ? query.isSuccess
-        ? t('explore:retrySucceeded')
-        : queryFailed
-          ? t('explore:retryFailed')
-          : ''
-      : '';
+    retryOutcome?.kind === 'succeeded' && query.isSuccess && query.dataUpdatedAt === retryOutcome.at
+      ? t('explore:retrySucceeded')
+      : retryOutcome?.kind === 'failed' && queryFailed && query.errorUpdatedAt === retryOutcome.at
+        ? t('explore:retryFailed')
+        : '';
+
+  const retryQuery = () => {
+    if (query.isFetching) return;
+    setRetryOutcome(null);
+    void query.refetch().then((result) => {
+      if (result.isSuccess) {
+        setRetryOutcome({ kind: 'succeeded', at: result.dataUpdatedAt });
+        setResultsFocusRequest((count) => count + 1);
+      } else if (result.isError) {
+        setRetryOutcome({ kind: 'failed', at: result.errorUpdatedAt });
+      }
+    });
+  };
 
   useEffect(() => {
-    if (!focusResultsAfterRetryRef.current || !query.isSuccess || query.isFetching) return;
-    focusResultsAfterRetryRef.current = false;
+    if (resultsFocusRequest === 0) return;
     (listFallbackRef.current ?? summaryRef.current ?? emptyStatusRef.current)?.focus();
-  }, [query.isSuccess, query.isFetching]);
+  }, [resultsFocusRequest]);
 
   const openContributeGate = useCallback(() => {
     if (requireAuth('/upload', 'contribute')) {
@@ -351,12 +371,7 @@ export function PublicExplorePage() {
                   <button
                     type="button"
                     data-testid="public-explore-retry"
-                    onClick={() => {
-                      if (query.isFetching) return;
-                      focusResultsAfterRetryRef.current = true;
-                      setRetryPressed(true);
-                      void query.refetch();
-                    }}
+                    onClick={retryQuery}
                     aria-disabled={query.isFetching || undefined}
                     aria-busy={query.isFetching || undefined}
                     className="mt-sm inline-flex min-h-11 items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 aria-disabled:cursor-progress aria-disabled:opacity-60"
