@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.parkio.parking.application.port.MunicipalDataSourceRepository;
 import com.parkio.parking.application.port.MunicipalSourceSyncRunRepository;
 import com.parkio.parking.application.port.OsmImportSupportRepository;
+import com.parkio.parking.externalsource.MunicipalFeedChange;
 import com.parkio.parking.externalsource.MunicipalParkingSourceAdapter;
 import com.parkio.parking.externalsource.MunicipalSourceFailureCategory;
 import com.parkio.parking.externalsource.MunicipalSourceFailureClassifier;
@@ -81,6 +82,11 @@ public class MunicipalFacilitySyncService {
             List<NormalizedMunicipalFacility> normalized = adapter.normalizeFacilities(payload, fetchedAt);
             Map<String, NormalizedMunicipalOccupancy> occupancy = adapter.normalizeOccupancy(payload, fetchedAt)
                     .stream().collect(Collectors.toMap(NormalizedMunicipalOccupancy::externalId, Function.identity()));
+            // Operator visibility only (CL-F22, owner option C): did a feed without source timestamps
+            // repeat its previous run? The readings keep their fetch time, so public freshness and
+            // counts do not change; the metrics turn a streak into an alertable age.
+            MunicipalFeedChange feedChange =
+                    UnchangedFeed.compare(occupancy, ingestWriter.latestRunObservations(source.id()), fetchedAt);
 
             Set<String> previouslyActive = Set.copyOf(setReconciliation.activeExternalIds(source.id()));
             int inserted = 0, updated = 0, unchanged = 0, occupancyInserted = 0, reactivated = 0;
@@ -205,7 +211,7 @@ public class MunicipalFacilitySyncService {
 
             MunicipalSyncResult result = new MunicipalSyncResult(status, received, accepted, rejected,
                     inserted, updated, unchanged, occupancyInserted, deactivated, reactivated,
-                    activeLinkCount, null, null, incompleteSnapshotSkipped);
+                    activeLinkCount, null, null, incompleteSnapshotSkipped, feedChange);
             if (!runs.complete(runId.get(), clock.instant(), result, fingerprint, null)) {
                 log.warn(
                         "municipal_sync_complete_ignored sourceKey={} runId={} reason=ownership_lost",

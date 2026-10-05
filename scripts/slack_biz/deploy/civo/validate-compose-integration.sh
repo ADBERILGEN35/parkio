@@ -30,16 +30,21 @@ open(sys.argv[2], "w", encoding="utf-8").write(text)
 PY
 }
 files_args() { # root
-  local root="$1" line
+  local root="$1" line list="$1/docker/compose.production.files"
+  [[ -f "$list" ]] || { echo "FAIL: missing compose file list $list" >&2; return 1; }
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     printf -- '-f\n%s\n' "$root/$line"
-  done < "$root/docker/compose.production.files"
+  done < "$list"
 }
 render() { # root envfile out [extra -f args...]
-  local root="$1" envf="$2" out="$3"; shift 3
-  mapfile -t FA < <(files_args "$root")
+  local root="$1" envf="$2" out="$3" files; shift 3
+  # Captured first: a process substitution would lose a files_args failure, and Compose would then
+  # render the extra -f files alone. Any failure here stops the check (U09).
+  files="$(files_args "$root")" || { echo "FAIL: cannot list the production compose files of $root" >&2; exit 1; }
+  [[ -n "$files" ]] || { echo "FAIL: $root lists no production compose files" >&2; exit 1; }
+  mapfile -t FA <<<"$files"
   (cd "$root" && env -i PATH="$PATH" HOME="$HOME" DOCKER_HOST="${DOCKER_HOST:-}" \
       docker compose --env-file "$envf" "${FA[@]}" "$@" config --format json) > "$out"
 }

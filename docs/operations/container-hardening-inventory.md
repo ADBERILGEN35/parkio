@@ -2,7 +2,7 @@
 
 Every service of the production Compose models runs with `security_opt: no-new-privileges:true`
 and `cap_drop: [ALL]`; a service adds back only the capabilities listed below. Since B8 every
-service except web (until B8b) also runs with a read-only root filesystem (`read_only: true`). It
+service, and since B8b web too, also runs with a read-only root filesystem (`read_only: true`). It
 writes only to its volumes and to the mounts listed under "Read-only root filesystem".
 `scripts/assert-compose-hardening.sh` renders the models and fails on any other state
 (`scripts/lib/assert-compose-hardening.mjs`, run by the invite-production PR job).
@@ -60,11 +60,6 @@ root and needs them to prepare a data directory or switch to its service user.
    blackbox-exporter, promtail). Switching them to a non-root user changes the owner their
    existing data volumes need, which is a host-side migration outside this change; with
    `cap_drop: [ALL]` root keeps only the capabilities listed above.
-4. **web keeps a writable root until B8b.** Its read-only root needs a tmpfs over
-   `/etc/nginx/conf.d`. Only the image from B9 (#198) renders that directory at start; the
-   current image ships its server config there, and a tmpfs would hide it. B8b removes this
-   exception once #198 is on `api`, with `/etc/nginx/conf.d`, `/var/cache/nginx`, `/var/run` and
-   `/tmp` as tmpfs.
 
 ## Read-only root filesystem (B8)
 
@@ -84,8 +79,33 @@ restart (`du` inside the container).
 | loki, tempo | `/tmp` (16 MB) | 0 | data in their volumes |
 | grafana | `/tmp` (32 MB) | 0 | data in its volume; headroom for plugin and export temp files |
 | caddy | `/tmp` (8 MB) | 0 | certificates and config in the `caddy-data`/`caddy-config` volumes |
+| web | `/etc/nginx/conf.d` (1 MB, 755), `/run` (1 MB, 755), `/tmp` (8 MB), `/var/cache/nginx` (8 MB, 755) | 4 KB, 4 KB, 0, 0 | The entrypoint renders `/etc/nginx/conf.d/default.conf` from the CSP template at start (B9, #198). nginx writes its pid to `/run` (`/var/run` links there) and creates its temp directories in `/var/cache/nginx`, owned by nginx; it serves static files, so they stay empty. Mode 755 keeps the root-owned config and pid directories closed to the worker user. See "web images from before #198" below. |
 | clamav | `/tmp` (128 MB), `/run/clamav` (1 MB), `/run/lock` (1 MB), `/var/log/clamav` (16 MB) | 0, 0, 0, 8 KB | clamd's socket and the stream of each scan go to `/tmp`; media caps an upload at 12 MB, so ten concurrent scans fit, and a full tmpfs fails the scan, which media treats as unavailable (fail closed). `/var/lock` links to `/run/lock`, where the init script creates its lock link. clamd and freshclam cap each log at 1 MB by default. |
 | prometheus, kafka-exporter, blackbox-exporter, node-exporter, promtail | none | — | write only to their volumes, or nothing |
+
+**web images from before #198.** Earlier images ship their server config in
+`/etc/nginx/conf.d`, so the tmpfs hides it. nginx then starts without a server, the healthcheck
+fails and Caddy answers 502. A local probe of the current Civo pin (`aacf9dc9`, source `3bb89c6c`)
+showed it: under these mounts `/login` was refused before and after a restart.
+
+`scripts/parkio-prod-compose.sh` and `parkio_compose_up` (`scripts/lib/deploy-common.sh`) run
+`scripts/lib/web_conf_d_guard.py` on the rendered model after the web map guard has bound the image:
+- **Gate.** It checks only a model that mounts a tmpfs at `/etc/nginx/conf.d` for web.
+- **Inspection.** It creates the bound image without starting it, copies
+  `/etc/nginx/templates/default.conf.template` out as a tar stream to confirm a non-empty file, and
+  removes the container with its anonymous volumes. Nothing is printed from the file.
+- **Refusal.** An image without the template, or one it cannot inspect, stops the command before
+  anything starts. The message names the fix: move the web pin
+  (`docker/docker-compose.web-release-pin.yml`) to an image built from #198 or later.
+
+The break-glass `PARKIO_SKIP_WEB_MAP_GUARD` skips this check together with the map guard.
+
+**Release step.** The current Civo pin predates #198. Move it before the first deploy that
+includes this change; until then the deploy commands refuse to start web.
+
+**Rollback.** With these compose files, the check also refuses a rollback of web to an image built
+before #198. `docs/beta/rollback-runbook.md` ("Web images built before #198") names the supported
+paths: forward to a #198+ image, or back with the older release's compose files.
 
 **The guard records these mounts.** `scripts/lib/assert-compose-hardening.mjs` fails when:
 - a tmpfs has no size;
@@ -108,6 +128,9 @@ them to the guard.
 `cap_drop ALL`, `no-new-privileges`, the same `cap_add`, `--read-only`, and these mounts with their
 sizes. Each was checked for readiness and one real operation, restarted once (which empties the
 tmpfs), and checked again:
+- web (B8b): the image built from api `aa6aab88`. `/login` answers 200 before and after the
+  restart, the CSP header is rendered, and the mounts show `noexec,nosuid,nodev` with the sizes
+  and modes above.
 - PostgreSQL and PostGIS: a table write survives the restart.
 - Redis: SET plus an AOF rewrite, and the key survives.
 - Kafka: a topic survives the restart, and the running JVM uses the capped GC options.
@@ -117,7 +140,8 @@ tmpfs), and checked again:
   node-exporter.
 
 None of them logged a read-only or permission error. The evidence is in
-`agent-tools/parkio-u18-readonly-rootfs/` (not committed).
+`agent-tools/parkio-u18-readonly-rootfs/`, and for web in `agent-tools/parkio-u18-web-readonly-root/`
+(neither committed).
 
 **CI coverage.**
 - The CI runtime, chaos and performance workflows start the full stack, so they cover the JVM

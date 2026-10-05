@@ -38,6 +38,16 @@ VITE_MAPTILER_KEY=... ./scripts/build-web-from-bake.sh docker/web-hosted-beta.re
 `scripts/build-web-from-bake.sh` already sets `VERIFY_REQUIRE_MUNICIPAL=true` when
 the sourced bake municipal flag is `true`.
 
+## Candidate image evidence (CL-F30, CX-F11)
+
+`.github/workflows/web-candidate-evidence.yml` builds the web image with release.yml's web build
+arguments and bundle gates (synthetic MapTiler key, never pushed), runs the a11y and CX-F11 suites
+against it and uploads `provenance.json`. It runs on api commits that change the web inputs, not on
+`v*` tags. To tie a release tag to evidence, dispatch the workflow on the tag
+(`gh workflow run web-candidate-evidence.yml --ref vX.Y.Z`), or show that `git rev-parse
+vX.Y.Z:<path>` equals each id in an evidence run's `source.web_inputs` (`frontend`, the bake file,
+`.dockerignore` and `.github/workflows/release.yml`).
+
 ## Required bake values (live)
 
 - `VITE_APP_ENV=hosted-beta`
