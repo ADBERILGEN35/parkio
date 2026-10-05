@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 # Hosted-beta isolation (owner decision 2026-10-05, CL-F12 item 4): the default hosted-beta profile
 # refuses the repository's production configuration, and the Civo production wrapper still accepts it.
+# The guard judges the hostnames Compose resolves: it reads them from the rendered model (#288 review B1).
 #
 #   parkio_configure_deployment_profile, hosted-beta:
-#     refused: the production example (docker/.env.azure-hosted-beta.example, without its profile
-#       key), each production hostname alone, in another case, with a trailing dot, quoted, or
-#       exported in the process env;
+#     refused:
+#       - the production example (docker/.env.azure-hosted-beta.example, without its profile key);
+#       - each production hostname alone, or exported in the process env;
+#       - twelve env-file spellings of PARKIO_DOMAIN that Compose resolves to api.parkio.dev: case
+#         and a trailing dot, quotes, whitespace, an inline comment, `export`, an indented key,
+#         spaces around `=`, a quoted value with a comment, and a port;
+#       - a model that cannot be rendered;
 #     accepted: the hosted-beta example, and beta hostnames under parkio.dev;
 #     unchanged: the azure-hosted-beta and invite-production profiles with their examples.
 #   deploy-hosted-beta.sh, rollback-hosted-beta.sh and validate-hosted-beta-compose.sh stop on a
-#     production configuration before any docker call. It is the deploy preflight's valid fixture
-#     moved from beta.parkio.dev to parkio.dev, so the deploy's preflight passes and the guard is
-#     what stops it. scripts/test-canonical-production-file-set.sh runs the same entry points with
-#     the beta fixture, which they accept.
+#     production configuration before any state-changing docker call. Only the read-only `compose
+#     ... config` render runs. The configuration is either:
+#       - the deploy preflight's valid fixture moved to parkio.dev, so the deploy's preflight passes
+#         and the guard is what stops it;
+#       - or the production example with inline comments on its hostnames (the review's end-to-end
+#         case).
+#     scripts/test-canonical-production-file-set.sh runs the same entry points with the beta fixture.
 #   scripts/parkio-prod-compose.sh renders the production example's model.
 #
 # Nothing is built, pulled or started: a docker shim records every call and forwards only
@@ -29,6 +37,7 @@ bad() { echo "FAIL $*"; fail_n=$((fail_n + 1)); }
 work="$(mktemp -d)"
 trap 'rm -rf "${work:?}"' EXIT
 REAL_DOCKER="$(command -v docker || true)"
+[ -n "$REAL_DOCKER" ] || { echo "FAIL docker is required: the guard renders the compose model"; exit 1; }
 REFUSED_TEXT="is a production hostname; the hosted-beta profile refuses production configuration"
 HOSTNAME_KEYS=(PARKIO_DOMAIN PARKIO_WEB_DOMAIN PARKIO_MEDIA_DOMAIN)
 
@@ -39,9 +48,9 @@ grep -v '^PARKIO_DEPLOYMENT_PROFILE=' docker/.env.azure-hosted-beta.example >"$p
 beta_env="$work/beta.env"
 grep -v '^PARKIO_DEPLOYMENT_PROFILE=' docker/.env.hosted-beta.example >"$beta_env"
 
-with_value() { # with_value SOURCE KEY VALUE OUT: SOURCE with KEY set to VALUE
+with_line() { # with_line SOURCE KEY LINE OUT: SOURCE without its KEY= line, plus LINE verbatim
   grep -v "^$2=" "$1" >"$4" || true
-  printf '%s=%s\n' "$2" "$3" >>"$4"
+  printf '%s\n' "$3" >>"$4"
 }
 
 # configure PROFILE|- ENV_FILE [VAR=VALUE...]: parkio_configure_deployment_profile's exit code, with
@@ -57,12 +66,12 @@ configure() {
       parkio_configure_deployment_profile "$1" >/dev/null' _ "$env_file" 2>"$work/err" || rc=$?
   return "$rc"
 }
-expect_refused() { # expect_refused NAME TEXT... (after configure)
+expect_refused() { # expect_refused NAME RC TEXT... (after configure)
   local name="$1" rc="$2" text
   shift 2
-  if [ "$rc" -ne 2 ]; then bad "$name: exit $rc, want 2"; return; fi
+  if [ "$rc" -ne 2 ]; then bad "$name: exit $rc, want 2: $(head -n 2 "$work/err" | tr '\n' ' ')"; return; fi
   for text in "$@"; do
-    grep -qF -- "$text" "$work/err" || { bad "$name: '$text' not in the error"; return; }
+    grep -qF -- "$text" "$work/err" || { bad "$name: '$text' not in the error: $(head -n 2 "$work/err" | tr '\n' ' ')"; return; }
   done
   pass "$name"
 }
@@ -73,25 +82,43 @@ expect_accepted() { # expect_accepted NAME RC
 echo "--- parkio_configure_deployment_profile ---"
 rc=0; configure - "$prod_env" || rc=$?
 expect_refused "default profile: the production example is refused, naming every production hostname" "$rc" \
-  "PARKIO_DOMAIN=api.parkio.dev $REFUSED_TEXT" "PARKIO_WEB_DOMAIN=app.parkio.dev" "PARKIO_MEDIA_DOMAIN=media.parkio.dev" \
+  "caddy PARKIO_DOMAIN=api.parkio.dev $REFUSED_TEXT" "caddy PARKIO_WEB_DOMAIN=app.parkio.dev" \
+  "caddy PARKIO_MEDIA_DOMAIN=media.parkio.dev" "web PARKIO_WEB_CSP_CONNECT_SRC contains https://api.parkio.dev" \
   "Production runs through scripts/parkio-prod-compose.sh"
 rc=0; configure hosted-beta "$prod_env" || rc=$?
 expect_refused "explicit hosted-beta profile: the production example is refused" "$rc" "$REFUSED_TEXT"
 for key in "${HOSTNAME_KEYS[@]}"; do
   case "$key" in PARKIO_DOMAIN) host=api.parkio.dev ;; PARKIO_WEB_DOMAIN) host=app.parkio.dev ;; *) host=media.parkio.dev ;; esac
-  with_value "$beta_env" "$key" "$host" "$work/one.env"
+  with_line "$beta_env" "$key" "$key=$host" "$work/one.env"
   rc=0; configure - "$work/one.env" || rc=$?
-  expect_refused "beta example with only $key=$host is refused" "$rc" "$key=$host $REFUSED_TEXT"
+  expect_refused "beta example with only $key=$host is refused" "$rc" "caddy $key=$host $REFUSED_TEXT"
 done
-with_value "$beta_env" PARKIO_DOMAIN "API.Parkio.DEV." "$work/case.env"
-rc=0; configure - "$work/case.env" || rc=$?
-expect_refused "another case and a trailing dot do not hide a production hostname" "$rc" "PARKIO_DOMAIN=API.Parkio.DEV. $REFUSED_TEXT"
-with_value "$beta_env" PARKIO_WEB_DOMAIN '"app.parkio.dev"' "$work/quoted.env"
-rc=0; configure - "$work/quoted.env" || rc=$?
-expect_refused "a quoted production hostname is refused" "$rc" "PARKIO_WEB_DOMAIN=app.parkio.dev $REFUSED_TEXT"
 rc=0; configure - "$beta_env" PARKIO_MEDIA_DOMAIN=media.parkio.dev || rc=$?
 expect_refused "a production hostname exported in the process env is refused (Compose prefers it)" "$rc" \
-  "PARKIO_MEDIA_DOMAIN=media.parkio.dev $REFUSED_TEXT"
+  "caddy PARKIO_MEDIA_DOMAIN=media.parkio.dev $REFUSED_TEXT"
+
+echo "--- env-file spellings Compose resolves to api.parkio.dev (#288 review B1) ---"
+variants=(
+  'PARKIO_DOMAIN=api.parkio.dev'
+  'PARKIO_DOMAIN=API.Parkio.Dev.'
+  'PARKIO_DOMAIN="api.parkio.dev"'
+  "PARKIO_DOMAIN='api.parkio.dev'"
+  'PARKIO_DOMAIN= api.parkio.dev'
+  'PARKIO_DOMAIN=api.parkio.dev '
+  'PARKIO_DOMAIN=api.parkio.dev # production'
+  'export PARKIO_DOMAIN=api.parkio.dev'
+  '  PARKIO_DOMAIN=api.parkio.dev'
+  'PARKIO_DOMAIN = api.parkio.dev'
+  'PARKIO_DOMAIN="api.parkio.dev" # c'
+  'PARKIO_DOMAIN=api.parkio.dev:443'
+)
+for line in "${variants[@]}"; do
+  with_line "$beta_env" PARKIO_DOMAIN "$line" "$work/variant.env"
+  rc=0; configure - "$work/variant.env" || rc=$?
+  expect_refused "env line [$line] is refused" "$rc" "caddy PARKIO_DOMAIN=" "$REFUSED_TEXT"
+done
+
+echo "--- accepted, unchanged, fail-closed ---"
 rc=0; configure - "$beta_env" || rc=$?
 expect_accepted "the hosted-beta example is accepted" "$rc"
 grep -v '^PARKIO_DEPLOYMENT_PROFILE=' scripts/preflight-fixtures/valid.env >"$work/beta-parkio.env"
@@ -101,6 +128,10 @@ rc=0; configure azure-hosted-beta docker/.env.azure-hosted-beta.example || rc=$?
 expect_accepted "the deprecated azure-hosted-beta profile still accepts the production example (Azure exception)" "$rc"
 rc=0; configure invite-production docker/.env.invite-production.example || rc=$?
 expect_accepted "the invite-production profile still accepts its production example" "$rc"
+grep -v '^PARKIO_DOMAIN=' "$beta_env" >"$work/no-domain.env"
+rc=0; configure - "$work/no-domain.env" || rc=$?
+expect_refused "a model that cannot be rendered (no PARKIO_DOMAIN) is refused" "$rc" \
+  "cannot render the hosted-beta model to read the hostnames Compose resolves"
 
 echo "--- entry points (docker shim) ---"
 mkdir -p "$work/shim"
@@ -122,51 +153,58 @@ printf '{"imageTag":"sha-guardtest","gitSha":"%s","branch":"api","imageVersion":
 prod_entry_env="$work/production-entry.env"
 grep -v '^PARKIO_DEPLOYMENT_PROFILE=' scripts/preflight-fixtures/valid.env | sed 's/beta\.parkio\.dev/parkio.dev/g' >"$prod_entry_env"
 grep -q '^PARKIO_DOMAIN=api.parkio.dev$' "$prod_entry_env" || bad "the production entry env does not use api.parkio.dev"
+# The review's end-to-end case: the production example with inline comments on its hostnames.
+commented_env="$work/production-commented.env"
+sed -E 's/^(PARKIO_(DOMAIN|WEB_DOMAIN|MEDIA_DOMAIN)=.*)$/\1 # production/' "$prod_env" >"$commented_env"
+grep -q '^PARKIO_DOMAIN=api.parkio.dev # production$' "$commented_env" || bad "the commented env lacks the inline comment"
 
-# entry NAME COMMAND...: runs a hosted-beta entry point with that production configuration
+# entry NAME ENV_FILE COMMAND...: runs a hosted-beta entry point with ENV_FILE
 entry() {
-  local name="$1" rc=0
-  shift
+  local name="$1" env_file="$2" rc=0 changing
+  shift 2
   : >"$work/$name.docker"
   env -u PARKIO_DEPLOYMENT_PROFILE -u PARKIO_DOMAIN -u PARKIO_WEB_DOMAIN -u PARKIO_MEDIA_DOMAIN \
     PATH="$work/shim:$PATH" GUARD_TEST_DOCKER_LOG="$work/$name.docker" GUARD_TEST_REAL_DOCKER="$REAL_DOCKER" \
-    PARKIO_ENV_FILE="$prod_entry_env" PARKIO_DEPLOY_ARTIFACT_DIR="$work/artifacts-$name" PARKIO_DEPLOY_OPERATOR=guard-test \
+    PARKIO_ENV_FILE="$env_file" PARKIO_DEPLOY_ARTIFACT_DIR="$work/artifacts-$name" PARKIO_DEPLOY_OPERATOR=guard-test \
     "$@" >"$work/$name.out" 2>"$work/err" || rc=$?
-  if [ "$rc" -ne 0 ] && grep -qF "$REFUSED_TEXT" "$work/err" && [ ! -s "$work/$name.docker" ]; then
-    pass "$name stops on the production configuration before any docker call (exit $rc)"
+  # Every docker call but the read-only `compose ... config` render could change state.
+  changing="$(grep -v -E '^compose( .*)? config( |$)' "$work/$name.docker" || true)"
+  if [ "$rc" -eq 2 ] && grep -qF "$REFUSED_TEXT" "$work/err" && [ -z "$changing" ] \
+    && [ ! -d "$work/artifacts-$name" ]; then
+    pass "$name stops on the production configuration before any state-changing docker call (exit $rc)"
   else
-    bad "$name: exit $rc, docker calls: $(wc -l <"$work/$name.docker"), error: $(head -n 1 "$work/err")"
+    bad "$name: exit $rc, state-changing docker calls: [$changing], error: $(head -n 1 "$work/err")"
   fi
 }
-entry deploy-hosted-beta.sh ./scripts/deploy-hosted-beta.sh --dry-run --allow-dirty
-entry rollback-hosted-beta.sh ./scripts/rollback-hosted-beta.sh --dry-run --manifest "$work/manifest.json"
-entry validate-hosted-beta-compose.sh ./scripts/validate-hosted-beta-compose.sh
+entry deploy-hosted-beta.sh "$prod_entry_env" ./scripts/deploy-hosted-beta.sh --dry-run --allow-dirty
+entry rollback-hosted-beta.sh "$prod_entry_env" ./scripts/rollback-hosted-beta.sh --dry-run --manifest "$work/manifest.json"
+entry validate-hosted-beta-compose.sh "$prod_entry_env" ./scripts/validate-hosted-beta-compose.sh
+entry "rollback-hosted-beta.sh (production example, inline comments)" "$commented_env" \
+  ./scripts/rollback-hosted-beta.sh --dry-run --manifest "$work/manifest.json"
+entry "validate-hosted-beta-compose.sh (production example, inline comments)" "$commented_env" \
+  ./scripts/validate-hosted-beta-compose.sh
 
 echo "--- Civo production wrapper ---"
-if [ -z "$REAL_DOCKER" ]; then
-  bad "docker is required to render the production wrapper's model"
-else
-  # The production example plus non-secret placeholders for what the render requires.
-  wrapper_env="$work/wrapper.env"
-  cp docker/.env.azure-hosted-beta.example "$wrapper_env"
-  rendered=0
-  for _ in $(seq 1 40); do
-    : >"$work/wrapper.docker"
-    if PATH="$work/shim:$PATH" GUARD_TEST_DOCKER_LOG="$work/wrapper.docker" GUARD_TEST_REAL_DOCKER="$REAL_DOCKER" \
-      PARKIO_ENV_FILE="$wrapper_env" bash scripts/parkio-prod-compose.sh config --format json >"$work/wrapper.json" 2>"$work/err"; then
-      rendered=1
-      break
-    fi
-    missing="$(sed -n 's/.*required variable \([A-Z0-9_]*\) is missing.*/\1/p' "$work/err" | head -n 1)"
-    [ -n "$missing" ] || break
-    printf '%s=example.invalid\n' "$missing" >>"$wrapper_env"
-  done
-  domain="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"]["caddy"]["environment"]["PARKIO_DOMAIN"])' "$work/wrapper.json" 2>/dev/null || true)"
-  if [ "$rendered" -eq 1 ] && [ "$domain" = "api.parkio.dev" ]; then
-    pass "scripts/parkio-prod-compose.sh renders the production example (PARKIO_DOMAIN=$domain)"
-  else
-    bad "scripts/parkio-prod-compose.sh did not render the production example: $(head -n 2 "$work/err")"
+# The production example plus non-secret placeholders for what the render requires.
+wrapper_env="$work/wrapper.env"
+cp docker/.env.azure-hosted-beta.example "$wrapper_env"
+rendered=0
+for _ in $(seq 1 40); do
+  : >"$work/wrapper.docker"
+  if PATH="$work/shim:$PATH" GUARD_TEST_DOCKER_LOG="$work/wrapper.docker" GUARD_TEST_REAL_DOCKER="$REAL_DOCKER" \
+    PARKIO_ENV_FILE="$wrapper_env" bash scripts/parkio-prod-compose.sh config --format json >"$work/wrapper.json" 2>"$work/err"; then
+    rendered=1
+    break
   fi
+  missing="$(sed -n 's/.*required variable \([A-Z0-9_]*\) is missing.*/\1/p' "$work/err" | head -n 1)"
+  [ -n "$missing" ] || break
+  printf '%s=example.invalid\n' "$missing" >>"$wrapper_env"
+done
+domain="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"]["caddy"]["environment"]["PARKIO_DOMAIN"])' "$work/wrapper.json" 2>/dev/null || true)"
+if [ "$rendered" -eq 1 ] && [ "$domain" = "api.parkio.dev" ]; then
+  pass "scripts/parkio-prod-compose.sh renders the production example (PARKIO_DOMAIN=$domain)"
+else
+  bad "scripts/parkio-prod-compose.sh did not render the production example: $(head -n 2 "$work/err")"
 fi
 
 echo "=== hosted-beta production-config guard: $pass_n passed, $fail_n failed ==="

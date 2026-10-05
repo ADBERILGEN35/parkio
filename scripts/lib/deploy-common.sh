@@ -103,32 +103,77 @@ parkio_env_value() {
 # too. Production runs through scripts/parkio-prod-compose.sh, which does not use this profile. There
 # is no break-glass.
 PARKIO_PRODUCTION_HOSTNAMES=(api.parkio.dev app.parkio.dev media.parkio.dev)
-PARKIO_EDGE_HOSTNAME_KEYS=(PARKIO_DOMAIN PARKIO_WEB_DOMAIN PARKIO_MEDIA_DOMAIN)
 
-# parkio_refuse_production_hostnames ENV_FILE PROFILE: returns 2, naming each key, when an edge
-# hostname is production's. A value exported in the process env counts first, as it does for
-# Compose; case and a trailing dot do not matter.
+# parkio_refuse_production_hostnames ENV_FILE PROFILE: renders the profile's model (PARKIO_COMPOSE_FILES)
+# with `docker compose config`, which is read-only: nothing is built, pulled or started. It returns 2,
+# naming each value, when a hostname the model gives the edge is production's:
+#   - caddy's PARKIO_DOMAIN, PARKIO_WEB_DOMAIN and PARKIO_MEDIA_DOMAIN;
+#   - the hosts in web's PARKIO_WEB_CSP_CONNECT_SRC.
+# The model holds the values exactly as Compose resolves them from the env file and the process env,
+# whatever the formatting: comments, `export`, whitespace, quotes (#288 review B1). A port, case and a
+# trailing dot are ignored. A model that cannot be rendered, or whose caddy hostnames cannot be read,
+# is refused too.
 parkio_refuse_production_hostnames() {
-  local env_file="$1" profile="$2" key value host production refused=0
-  for key in "${PARKIO_EDGE_HOSTNAME_KEYS[@]}"; do
-    if ! value="$(printenv "$key")"; then
-      value="$(parkio_env_value "$env_file" "$key" || true)"
-    fi
-    host="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
-    host="${host%.}"
-    for production in "${PARKIO_PRODUCTION_HOSTNAMES[@]}"; do
-      if [ "$host" = "$production" ]; then
-        echo "ERROR: $key=$value is a production hostname; the $profile profile refuses production configuration." >&2
-        refused=1
-      fi
-    done
-  done
-  if [ "$refused" -ne 0 ]; then
-    echo "  Production runs through scripts/parkio-prod-compose.sh. A hosted-beta host needs its own hostnames" >&2
-    echo "  (PARKIO_DOMAIN, PARKIO_WEB_DOMAIN, PARKIO_MEDIA_DOMAIN). There is no override." >&2
+  local env_file="$1" profile="$2" dir rc=0
+  dir="$(mktemp -d)"
+  chmod 700 "$dir"
+  # The rendered model holds interpolated env values: a private directory, removed below.
+  if ! parkio_compose "$env_file" config --format json >"$dir/model.json" 2>"$dir/render.err"; then
+    echo "ERROR: cannot render the $profile model to read the hostnames Compose resolves; the $profile profile refuses it." >&2
+    sed -n '1,3p' "$dir/render.err" | sed 's/^/  /' >&2
+    rm -rf -- "${dir:?}"
     return 2
   fi
-  return 0
+  python3 - "$dir/model.json" "$profile" "${PARKIO_PRODUCTION_HOSTNAMES[@]}" <<'PY' || rc=$?
+import json, re, sys
+
+model_path, profile, production = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+services = json.load(open(model_path, encoding="utf-8")).get("services") or {}
+
+
+def env(service):
+    value = (services.get(service) or {}).get("environment") or {}
+    if isinstance(value, list):
+        value = dict(item.split("=", 1) for item in value if "=" in item)
+    return {k: ("" if v is None else str(v)) for k, v in value.items()}
+
+
+def host(value):
+    """The host of a hostname, host:port or URL, lowercased, without a trailing dot."""
+    text = value.strip().lower()
+    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
+    text = re.split(r"[/?#]", text, 1)[0]
+    text = text.rsplit("@", 1)[-1]
+    text = re.sub(r":\d*$", "", text)
+    return text.rstrip(".")
+
+
+caddy = env("caddy")
+found, unreadable = [], []
+for key in ("PARKIO_DOMAIN", "PARKIO_WEB_DOMAIN", "PARKIO_MEDIA_DOMAIN"):
+    value = caddy.get(key, "")
+    if not host(value):
+        unreadable.append(f"caddy {key}")
+    elif host(value) in production:
+        found.append(f"caddy {key}={value}")
+for url in env("web").get("PARKIO_WEB_CSP_CONNECT_SRC", "").split():
+    if "://" in url and host(url) in production:
+        found.append(f"web PARKIO_WEB_CSP_CONNECT_SRC contains {url}")
+if unreadable:
+    print(f"ERROR: the {profile} model gives no hostname for {', '.join(unreadable)}; "
+          f"the {profile} profile refuses a model it cannot check.", file=sys.stderr)
+    sys.exit(2)
+if found:
+    for item in found:
+        print(f"ERROR: {item} is a production hostname; the {profile} profile refuses production configuration.",
+              file=sys.stderr)
+    print("  Production runs through scripts/parkio-prod-compose.sh. A hosted-beta host needs its own hostnames",
+          file=sys.stderr)
+    print("  (PARKIO_DOMAIN, PARKIO_WEB_DOMAIN, PARKIO_MEDIA_DOMAIN). There is no override.", file=sys.stderr)
+    sys.exit(2)
+PY
+  rm -rf -- "${dir:?}"
+  return "$rc"
 }
 
 parkio_configure_deployment_profile() {
@@ -151,8 +196,8 @@ parkio_configure_deployment_profile() {
       # wrapper renders the same list plus its Civo-host-specific Alertmanager overlay, so the two
       # rendered models differ by that overlay. The Azure overlay in the list puts these four
       # services in an inactive profile.
-      parkio_refuse_production_hostnames "$env_file" hosted-beta || return 2
       PARKIO_COMPOSE_FILES="$(parkio_canonical_compose_files)" || return 2
+      parkio_refuse_production_hostnames "$env_file" hosted-beta || return 2
       PARKIO_RUNTIME_SERVICES=()
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       ;;

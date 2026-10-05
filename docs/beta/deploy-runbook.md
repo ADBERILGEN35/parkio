@@ -212,10 +212,15 @@ running `deploy-hosted-beta.sh` by hand.
    - See "Web images built before #198" in [the rollback runbook](./rollback-runbook.md#web-images-built-before-198).
 
 **The hosted-beta profile refuses production configuration** (owner decision 2026-10-05, CL-F12 item 4).
-- `deploy-hosted-beta.sh`, `rollback-hosted-beta.sh` and `validate-hosted-beta-compose.sh` stop before any docker call when `PARKIO_DOMAIN`, `PARKIO_WEB_DOMAIN` or `PARKIO_MEDIA_DOMAIN` is a production hostname (`api.parkio.dev`, `app.parkio.dev` or `media.parkio.dev`, recorded in `scripts/lib/deploy-common.sh`). The message is "…is a production hostname; the hosted-beta profile refuses production configuration".
-- A value exported in the shell counts first, as it does for Compose.
+- **What it checks.** `deploy-hosted-beta.sh`, `rollback-hosted-beta.sh` and `validate-hosted-beta-compose.sh` stop when the rendered model gives the edge a production hostname. The hostnames are `api.parkio.dev`, `app.parkio.dev` and `media.parkio.dev`, recorded in `scripts/lib/deploy-common.sh`.
+  - **Where it looks.** Caddy's `PARKIO_DOMAIN`, `PARKIO_WEB_DOMAIN` and `PARKIO_MEDIA_DOMAIN`, and the hosts in web's `PARKIO_WEB_CSP_CONNECT_SRC`.
+  - **When it runs.** Before anything is built, pulled or started. The only docker call before it is the read-only `docker compose config` render.
+  - **The message.** "…is a production hostname; the hosted-beta profile refuses production configuration".
+- **Values come from the rendered model**, so they are what Compose resolves from the env file and the shell, whatever the formatting: inline comments, `export`, whitespace or quotes. A port, case and a trailing dot are ignored. A model that cannot be rendered is refused too.
+- **The deploy preflight reads the env file with a simpler parser** (`env_get`), so its other checks have the same formatting blind spot. This change does not touch it.
 - `PARKIO_ENVIRONMENT` cannot tell the two apart: the production example sets it to `hosted-beta` too.
 - Production runs through `scripts/parkio-prod-compose.sh`, which this does not affect. The deprecated `azure-hosted-beta` profile is unchanged.
+- **Never pass a production env file with `--no-hosted-beta-overlay` either.** That flag selects the local-dev profile, which skips this check and the preflight, and starts the base stack with whatever env file it is given.
 - There is no override.
 - This checks the env file only. Which host the runner is remains an operational check (below).
 
