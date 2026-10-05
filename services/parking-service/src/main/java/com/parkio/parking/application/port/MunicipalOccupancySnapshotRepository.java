@@ -2,6 +2,7 @@ package com.parkio.parking.application.port;
 
 import com.parkio.parking.externalsource.NormalizedMunicipalOccupancy;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,6 +24,9 @@ public interface MunicipalOccupancySnapshotRepository {
         }
     }
 
+    /** A record of the source's latest run: its raw hash and the run's fetch time. */
+    record PreviousObservation(String rawRecordHash, Instant fetchedAt) {}
+
     boolean insertIfAbsent(UUID facilityId, UUID sourceId, UUID sourceLinkId,
                            UUID syncRunId, NormalizedMunicipalOccupancy occupancy);
     Optional<Snapshot> latestForFacility(UUID facilityId);
@@ -30,6 +34,9 @@ public interface MunicipalOccupancySnapshotRepository {
 
     /** Latest occupancy observation for a municipal source (by {@code fetched_at}). */
     Optional<Snapshot> latestForSource(UUID sourceId);
+
+    /** The snapshots of the source's latest sync run, by link external id. */
+    Map<String, PreviousObservation> latestRunObservations(UUID sourceId);
 
     long count();
 

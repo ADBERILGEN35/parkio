@@ -17,7 +17,15 @@ parkio_configure_deployment_profile docker/.env.azure-hosted-beta.example
 [[ "$PARKIO_COMPOSE_FILES" == *docker-compose.azure-hosted-beta.yml* ]] || fail "Azure overlay missing"
 [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 32 ] || fail "expected 32 runtime services"
 [ "${#PARKIO_DISABLED_SERVICES[@]}" -eq 4 ] || fail "expected four disabled services"
-pass "profile resolves to five deterministic compose files"
+# The canonical production list with docker-compose.images.yml right after the apps overlay (CL-F12).
+expected=()
+while IFS= read -r file; do
+  expected+=(-f "$file")
+  [ "$file" = docker/docker-compose.apps.yml ] && expected+=(-f docker/docker-compose.images.yml)
+done < <(parkio_production_compose_files)
+[ "$PARKIO_COMPOSE_FILES" = "${expected[*]}" ] \
+  || fail "compose files are not compose.production.files plus images.yml: $PARKIO_COMPOSE_FILES"
+pass "profile resolves to docker/compose.production.files plus docker-compose.images.yml ($(( ${#expected[@]} / 2 )) files)"
 pass "runtime service count is 32"
 
 for disabled in alertmanager loki promtail tempo; do
