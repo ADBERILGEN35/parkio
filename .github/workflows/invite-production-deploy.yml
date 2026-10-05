@@ -178,6 +178,7 @@ jobs:
           bash scripts/test-invite-production-backup-installer-staging.sh
           python3 scripts/test_invite_production_dispatch_input.py
           python3 scripts/test_public_explore_deploy_mode.py
+          python3 scripts/test_registration_default_closed.py
           bash scripts/test-invite-dark-acme-isolation.sh
           bash scripts/test-invite-production-public-cutover-deploy.sh
           bash scripts/test-invite-production-edge-mode.sh

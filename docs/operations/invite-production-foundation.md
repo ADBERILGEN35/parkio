@@ -291,7 +291,7 @@ Unknown values fail closed. Validation:
 |------|-------------------------|-----------|
 | `closed` | yes (explicit) | registration denied |
 | `invite` | future cohort | opaque single-use hashed invite required |
-| `open` | hosted-beta only | canonical open registration |
+| `open` | never by default; only with an explicit `PARKIO_REGISTRATION_MODE=open` (hosted-beta) | canonical open registration |
 
 Invite-production edge overlays (`invite-dark`, `invite-public`, inherited by
 `invite-public-staged`) map `PARKIO_REGISTRATION_MODE` with Compose
