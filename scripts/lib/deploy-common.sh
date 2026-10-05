@@ -95,6 +95,42 @@ parkio_env_value() {
     | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
+# Hosted-beta isolation (owner decision 2026-10-05, CL-F12 item 4). The default hosted-beta profile,
+# which deploy-hosted-beta.sh, rollback-hosted-beta.sh and validate-hosted-beta-compose.sh use,
+# refuses the repository's production configuration. Production is recognised by its public
+# hostnames, recorded here as in assert-invite-dark-acme-isolation.sh. PARKIO_ENVIRONMENT cannot tell
+# it apart: the production example (docker/.env.azure-hosted-beta.example) sets it to hosted-beta
+# too. Production runs through scripts/parkio-prod-compose.sh, which does not use this profile. There
+# is no break-glass.
+PARKIO_PRODUCTION_HOSTNAMES=(api.parkio.dev app.parkio.dev media.parkio.dev)
+PARKIO_EDGE_HOSTNAME_KEYS=(PARKIO_DOMAIN PARKIO_WEB_DOMAIN PARKIO_MEDIA_DOMAIN)
+
+# parkio_refuse_production_hostnames ENV_FILE PROFILE: returns 2, naming each key, when an edge
+# hostname is production's. A value exported in the process env counts first, as it does for
+# Compose; case and a trailing dot do not matter.
+parkio_refuse_production_hostnames() {
+  local env_file="$1" profile="$2" key value host production refused=0
+  for key in "${PARKIO_EDGE_HOSTNAME_KEYS[@]}"; do
+    if ! value="$(printenv "$key")"; then
+      value="$(parkio_env_value "$env_file" "$key" || true)"
+    fi
+    host="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    host="${host%.}"
+    for production in "${PARKIO_PRODUCTION_HOSTNAMES[@]}"; do
+      if [ "$host" = "$production" ]; then
+        echo "ERROR: $key=$value is a production hostname; the $profile profile refuses production configuration." >&2
+        refused=1
+      fi
+    done
+  done
+  if [ "$refused" -ne 0 ]; then
+    echo "  Production runs through scripts/parkio-prod-compose.sh. A hosted-beta host needs its own hostnames" >&2
+    echo "  (PARKIO_DOMAIN, PARKIO_WEB_DOMAIN, PARKIO_MEDIA_DOMAIN). There is no override." >&2
+    return 2
+  fi
+  return 0
+}
+
 parkio_configure_deployment_profile() {
   local env_file="$1"
   local requested="${PARKIO_DEPLOYMENT_PROFILE:-}"
@@ -115,6 +151,7 @@ parkio_configure_deployment_profile() {
       # wrapper renders the same list plus its Civo-host-specific Alertmanager overlay, so the two
       # rendered models differ by that overlay. The Azure overlay in the list puts these four
       # services in an inactive profile.
+      parkio_refuse_production_hostnames "$env_file" hosted-beta || return 2
       PARKIO_COMPOSE_FILES="$(parkio_canonical_compose_files)" || return 2
       PARKIO_RUNTIME_SERVICES=()
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)

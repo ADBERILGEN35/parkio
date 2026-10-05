@@ -211,6 +211,14 @@ running `deploy-hosted-beta.sh` by hand.
    - The pinned web image predates #198, so the conf.d check refuses to start it ("web conf.d check failed; nothing was started").
    - See "Web images built before #198" in [the rollback runbook](./rollback-runbook.md#web-images-built-before-198).
 
+**The hosted-beta profile refuses production configuration** (owner decision 2026-10-05, CL-F12 item 4).
+- `deploy-hosted-beta.sh`, `rollback-hosted-beta.sh` and `validate-hosted-beta-compose.sh` stop before any docker call when `PARKIO_DOMAIN`, `PARKIO_WEB_DOMAIN` or `PARKIO_MEDIA_DOMAIN` is a production hostname (`api.parkio.dev`, `app.parkio.dev` or `media.parkio.dev`, recorded in `scripts/lib/deploy-common.sh`). The message is "…is a production hostname; the hosted-beta profile refuses production configuration".
+- A value exported in the shell counts first, as it does for Compose.
+- `PARKIO_ENVIRONMENT` cannot tell the two apart: the production example sets it to `hosted-beta` too.
+- Production runs through `scripts/parkio-prod-compose.sh`, which this does not affect. The deprecated `azure-hosted-beta` profile is unchanged.
+- There is no override.
+- This checks the env file only. Which host the runner is remains an operational check (below).
+
 **Confirm on that host:**
 - **Identity.** Which host it is, and its `docker/.env`.
 - **Docker Compose version.**

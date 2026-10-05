@@ -16,6 +16,7 @@ on:
       - "scripts/parkio-prod-compose.sh"
       - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/test-canonical-production-file-set.sh"
+      - "scripts/test-hosted-beta-production-config-guard.sh"
       - "scripts/lib/deploy-common.sh"
       - "scripts/deploy-hosted-beta.sh"
       - "scripts/rollback-hosted-beta.sh"
@@ -65,6 +66,7 @@ on:
       - "scripts/parkio-prod-compose.sh"
       - "scripts/test-civo-alertmanager-canonical.sh"
       - "scripts/test-canonical-production-file-set.sh"
+      - "scripts/test-hosted-beta-production-config-guard.sh"
       - "scripts/lib/deploy-common.sh"
       - "scripts/deploy-hosted-beta.sh"
       - "scripts/rollback-hosted-beta.sh"
@@ -271,6 +273,7 @@ jobs:
           ./scripts/test-civo-alertmanager-canonical.sh
           ./scripts/test-canonical-production-file-set.sh
           ./scripts/test-hosted-beta-image-plan.sh
+          bash scripts/test-hosted-beta-production-config-guard.sh
 
       - name: Bash syntax checks
         run: |
