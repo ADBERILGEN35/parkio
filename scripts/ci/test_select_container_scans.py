@@ -64,21 +64,26 @@ class SelectionTest(unittest.TestCase):
         for path in ("Makefile", "new-top-level-dir/file.txt", "services/new-service/Dockerfile"):
             self.assertEqual(pick(path), ALL, path)
 
-    def test_a_path_an_image_build_names_selects_that_image(self):
-        refs = [("scripts", {"auth-service"}), ("docker/web/nginx.conf", {"web"})]
-        self.assertEqual(sel.select("pull_request", ["scripts/build/fetch-base.sh"], SERVICES, refs)[0], ["auth-service"])
-        self.assertEqual(sel.select("pull_request", ["docker/web/nginx.conf"], SERVICES, refs)[0], ["web"])
+    def test_a_path_an_image_build_reads_outside_the_image_trees_scans_everything(self):
+        """R2-1: no rule covers such a path, so it fails closed instead of selecting nothing."""
+        refs = [("scripts", {"auth-service"}, False), ("docker/web/nginx.conf", {"web"}, False)]
+        self.assertEqual(sel.select("pull_request", ["scripts/build/fetch-base.sh"], SERVICES, refs)[0], ALL)
+        self.assertEqual(sel.select("pull_request", ["docker/web/nginx.conf"], SERVICES, refs)[0], ALL)
         self.assertEqual(sel.select("pull_request", ["docker/docker-compose.yml"], SERVICES, refs)[0], [])
 
-    def test_a_named_path_must_match_whole_path_segments(self):
-        refs = [("scripts/a.sh", {"auth-service"})]
+    def test_a_read_path_must_match_whole_path_segments(self):
+        refs = [("scripts/a.sh", {"auth-service"}, False)]
         self.assertEqual(sel.select("pull_request", ["scripts/a.sh.bak"], SERVICES, refs)[0], [])
-        self.assertEqual(sel.select("pull_request", ["scripts/a.sh"], SERVICES, refs)[0], ["auth-service"])
+        self.assertEqual(sel.select("pull_request", ["scripts/a.sh"], SERVICES, refs)[0], ALL)
 
-    def test_a_named_path_adds_to_its_own_rule(self):
-        refs = [("docker/web-hosted-beta.release-bake.env", {"auth-service"})]
+    def test_a_read_path_inside_an_image_tree_adds_its_readers(self):
+        refs = [("docker/web-hosted-beta.release-bake.env", {"auth-service"}, True)]
         self.assertEqual(sel.select("pull_request", ["docker/web-hosted-beta.release-bake.env"], SERVICES, refs)[0],
                          ["auth-service", "web"])
+
+    def test_the_whole_build_context_in_an_image_scans_everything(self):
+        refs = [("", {"web"}, False)]
+        self.assertEqual(sel.select("pull_request", ["docs/a.md"], SERVICES, refs)[0], ALL)
 
     def test_a_mix_scans_the_union(self):
         self.assertEqual(pick("docs/a.md", "services/auth-service/x", "frontend/apps/web/a.ts"), ["auth-service", "web"])
@@ -93,59 +98,105 @@ class SelectionTest(unittest.TestCase):
 
 
 class ImageInputRefsTest(unittest.TestCase):
-    """N1 (#266 review): scripts/ and docker/ references in every build input, in every form."""
+    """N1 and R2-1 (#266 review): every path a build input reads, in every form and under any prefix."""
 
-    def refs(self, files):
+    # Top-level names a repository path must start with; the tree also holds the given files.
+    TOP = {"scripts/run.sh": "", "docker/compose.yml": "", "web/index.html": "", ".github/x.yml": "",
+           "benchmarks/data/x": "", ".node-version": "22\n", "gradlew": "", "gradle/libs.versions.toml": "",
+           "frontend/apps/web/x": "", "platform/p/x": "", "tools/t/x": "",
+           "services/a-service/Dockerfile": "FROM x\n", "services/b-service/Dockerfile": "FROM x\n"}
+
+    def tree(self, files):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        tree = {"services/a-service/Dockerfile": "FROM x\n", "services/b-service/Dockerfile": "FROM x\n", **files}
-        for name, text in tree.items():
+        for name, text in {**self.TOP, **files}.items():
             (root / name).parent.mkdir(parents=True, exist_ok=True)
             (root / name).write_text(text)
-        return {prefix: sorted(owners) for prefix, owners in sel.image_input_refs(root)}
+        return root
+
+    def refs(self, files):
+        return {prefix: (sorted(owners), in_tree) for prefix, owners, in_tree in sel.image_input_refs(self.tree(files))}
 
     def test_directory_forms_in_a_dockerfile(self):
         for line in ("COPY scripts/ /opt/scripts/", "COPY scripts /opt/scripts", "ADD ./scripts/ /opt/"):
             with self.subTest(line=line):
                 self.assertEqual(self.refs({"services/a-service/Dockerfile": f"FROM x\n{line}\n"}),
-                                 {"scripts": ["a-service"]})
+                                 {"scripts": (["a-service"], False)})
 
     def test_a_build_stage_path_and_a_run_command(self):
         dockerfile = ("FROM x AS build\nRUN ./scripts/gen/codegen.sh\nFROM y\n"
                       "COPY --from=build /workspace/scripts/entrypoint.sh /app/\n")
         self.assertEqual(self.refs({"services/a-service/Dockerfile": dockerfile}),
-                         {"scripts/entrypoint.sh": ["a-service"], "scripts/gen/codegen.sh": ["a-service"]})
+                         {"scripts/entrypoint.sh": (["a-service"], False), "scripts/gen/codegen.sh": (["a-service"], False)})
+
+    def test_stage_paths_resolve_against_the_stage_workdir(self):
+        dockerfile = ("FROM x AS build\nWORKDIR /workspace\nCOPY . .\nRUN make\nFROM y\n"
+                      "COPY --from=build /workspace/apps/web/dist /srv\nCOPY --from=build /workspace/scripts/run.sh /srv/\n")
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": dockerfile}),
+                         {"scripts/run.sh": (["a-service"], False)})
 
     def test_a_docker_file_in_the_web_dockerfile_and_a_glob(self):
         refs = self.refs({"frontend/apps/web/Dockerfile": "FROM n\nCOPY docker/web/nginx.conf /etc/nginx/\n",
                           "services/b-service/Dockerfile": "FROM x\nCOPY scripts/build/*.sh /tmp/\n"})
-        self.assertEqual(refs, {"docker/web/nginx.conf": ["web"], "scripts/build": ["b-service"]})
+        self.assertEqual(refs, {"docker/web/nginx.conf": (["web"], False), "scripts/build": (["b-service"], False)})
+
+    def test_other_prefixes_outside_the_image_trees(self):
+        """R2-1: web/, .github/, benchmarks/ and top-level files count like scripts/ and docker/."""
+        dockerfile = ("FROM x\nCOPY web/index.html /srv/\nCOPY .node-version /etc/\n"
+                      'COPY [".github/x.yml", "/etc/x.yml"]\n'
+                      "RUN --mount=type=bind,source=benchmarks/data,target=/d cat /d/x\n")
+        refs = self.refs({"services/a-service/Dockerfile": dockerfile,
+                          "build.gradle.kts": 'val f = rootProject.file("${rootDir}/benchmarks/data/x")\n'})
+        self.assertEqual(refs, {
+            ".github/x.yml": (["a-service"], False),
+            ".node-version": (["a-service"], False),
+            "benchmarks/data": (["a-service"], False),
+            "benchmarks/data/x": (["a-service", "b-service"], False),
+            "web/index.html": (["a-service"], False),
+        })
+
+    def test_the_whole_build_context_counts_only_in_the_final_stage(self):
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": "FROM x\nCOPY . /app\n"}),
+                         {"": (["a-service"], False)})
+        self.assertEqual(self.refs({"services/a-service/Dockerfile": "FROM x AS build\nCOPY . .\nFROM y\n"}), {})
+
+    def test_paths_inside_image_trees_are_marked(self):
+        refs = self.refs({"services/a-service/Dockerfile": "FROM x\nRUN ./gradlew build\nCOPY frontend/apps/web/x /x\n"})
+        self.assertEqual(refs, {"frontend/apps/web/x": (["a-service"], True), "gradlew": (["a-service"], True)})
 
     def test_gradle_build_files_of_a_service_and_of_the_shared_build(self):
         refs = self.refs({
             "services/a-service/build.gradle.kts": 'tasks.processResources { from(rootProject.file("scripts/gen/x.txt")) }\n',
             "build.gradle.kts": 'val ca = file("docker/certs/ca.pem")\n',
-            "platform/p/build.gradle.kts": 'exec { commandLine("bash", "scripts/platform.sh") }\n',
-            "tools/t/build.gradle.kts": 'val d = rootProject.file("docker/tools/")\n',
+            "platform/p/build.gradle.kts": 'exec { commandLine("bash", "../../scripts/platform.sh") }\n',
+            "tools/t/build.gradle.kts": 'val d = files("web")\n',
             "buildSrc/src/main/kotlin/c.gradle.kts": 'val s = "scripts/convention.sh"\n',
         })
         self.assertEqual(refs, {
-            "docker/certs/ca.pem": ["a-service", "b-service"],
-            "docker/tools": ["a-service", "b-service"],
-            "scripts/convention.sh": ["a-service", "b-service"],
-            "scripts/gen/x.txt": ["a-service"],
-            "scripts/platform.sh": ["a-service", "b-service"],
+            "docker/certs/ca.pem": (["a-service", "b-service"], False),
+            "scripts/convention.sh": (["a-service", "b-service"], False),
+            "scripts/gen/x.txt": (["a-service"], False),
+            "scripts/platform.sh": (["a-service", "b-service"], False),
+            "web": (["a-service", "b-service"], False),
         })
 
     def test_comments_commands_and_lookalikes_are_not_references(self):
         refs = self.refs({
             "services/a-service/Dockerfile": ("# syntax=docker/dockerfile:1\n# COPY scripts/ /x\nFROM x\n"
-                                              "RUN npm ci --ignore-scripts\nENTRYPOINT [\"/docker-entrypoint.sh\"]\n"),
+                                              "RUN npm ci --ignore-scripts\nRUN node apps/web/scripts/x.mjs\n"
+                                              "ENTRYPOINT [\"/docker-entrypoint.sh\"]\nRUN rm -rf /var/lib/apt/lists/*\n"),
             "services/a-service/build.gradle.kts": "// scraped by docker/prometheus\n/* scripts/old.sh */\n",
-            "build.gradle.kts": 'val process = ProcessBuilder("docker", "info")\n',
+            "build.gradle.kts": 'val process = ProcessBuilder("docker", "info")\nval p = project(":services:a-service")\n',
         })
         self.assertEqual(refs, {})
+
+    def test_a_read_path_outside_the_trees_selects_everything_end_to_end(self):
+        root = self.tree({"services/a-service/Dockerfile": "FROM x\nCOPY web/index.html /srv/\n"})
+        known = sel.services(root)
+        refs = sel.image_input_refs(root, known)
+        self.assertEqual(sel.select("pull_request", ["web/index.html"], known, refs)[0], sorted(known + ["web"]))
+        self.assertEqual(sel.select("pull_request", ["web/other.html"], known, refs)[0], [])
 
 
 class MainTest(unittest.TestCase):
