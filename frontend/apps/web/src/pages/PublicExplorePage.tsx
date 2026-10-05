@@ -62,9 +62,7 @@ interface SelectedDestination {
  * Count invariant: displayed visible count == renderable green marker count.
  *
  * Failures (CL-F20): the map and search stay when the public query fails. An alert explains it and
- * offers a retry. When the map style never loads, the facilities are listed instead, under a notice.
- * That notice is an alert only if no query error was shown in this view. After an error and a
- * successful retry, it is announced politely, so two alerts never compete.
+ * offers a retry. When the map style never loads, the facilities are listed instead, under an alert.
  */
 export function PublicExplorePage() {
   const { publicExploreApi, publicGeocodingApi } = useParkioSdk();
@@ -176,8 +174,6 @@ export function PublicExplorePage() {
   const discoverySettled = !query.isLoading && !query.isFetching;
   const queryFailed = query.isError;
   const showListFallback = mapUnavailable && query.isSuccess;
-  /** A query error already alerted in this view: the map notice is then polite, not a second alert. */
-  const mapNoticeRole = query.errorUpdateCount > 0 ? 'status' : 'alert';
 
   const openContributeGate = useCallback(() => {
     if (requireAuth('/upload', 'contribute')) {
@@ -418,7 +414,7 @@ export function PublicExplorePage() {
                   data-testid="public-explore-list-fallback"
                   className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
                 >
-                  <div role={mapNoticeRole} data-testid="public-explore-map-unavailable">
+                  <div role="alert" data-testid="public-explore-map-unavailable">
                     <p className="m-0 text-label-md font-semibold text-on-surface">
                       {t('explore:mapUnavailableTitle')}
                     </p>

@@ -6,9 +6,27 @@ import { EXPLORE_FACILITY, installMockApi, snap, t, waitForApp } from './support
  * and styles never load: every request off the machine is aborted.
  *
  * The two failure scenarios encode CL-F20's acceptance criteria (Asana 1219002255930420). Since
- * CL-F20 (option A) they pass. They were known defects before it. The keyboard scenarios check that
- * its new controls are reachable and work from the keyboard.
+ * CL-F20 (option A) they pass. They were known defects before it. A query-failure scenario serves a
+ * stub map style, so it tests only the query path. The map-failure scenario keeps the provider
+ * aborted. The keyboard scenarios check that the new controls are reachable and work from the
+ * keyboard.
  */
+
+/**
+ * A minimal map style with no tiles, served by the spec's own route. A query-failure scenario uses it
+ * so that it exercises only the query path: the map loads instead of failing as a provider would.
+ */
+const STUB_MAP_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#eef1f5' } }],
+};
+
+async function serveStubMapStyle(page: Page) {
+  await page.route(/^https:\/\/api\.maptiler\.com\/maps\/[^/]+\/style\.json/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STUB_MAP_STYLE) }),
+  );
+}
 
 /** Press Tab until `target` has focus, as a keyboard user would reach it. */
 async function tabTo(page: Page, target: Locator, limit = 40) {
@@ -33,6 +51,7 @@ for (const locale of ['tr', 'en'] as const) {
 
   test(`a failed Explore query shows an accessible error with a working retry (${locale})`, async ({ page }, testInfo) => {
     const api = await installMockApi(page, locale);
+    await serveStubMapStyle(page);
     api.unavailable.add('GET /public/explore/facilities');
     await page.goto('/explore');
     await waitForApp(page);
@@ -61,6 +80,7 @@ for (const locale of ['tr', 'en'] as const) {
 
   test(`the Explore retry is reached and used from the keyboard (${locale})`, async ({ page }) => {
     const api = await installMockApi(page, locale);
+    await serveStubMapStyle(page);
     api.unavailable.add('GET /public/explore/facilities');
     await page.goto('/explore');
     await waitForApp(page);

@@ -559,7 +559,7 @@ describe('PublicExplorePage', () => {
       expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
     });
 
-    it('announces the map fallback politely after a query error was already alerted', async () => {
+    it('still alerts on a map failure after an earlier query error recovered', async () => {
       let available = false;
       server.use(
         http.get(`${API_BASE}/public/explore/facilities`, () =>
@@ -571,15 +571,14 @@ describe('PublicExplorePage', () => {
       const user = userEvent.setup();
       renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
       await screen.findByRole('alert', undefined, { timeout: 4000 });
-      await user.click(screen.getByTestId('fail-map-style'));
-      expect(screen.queryByTestId('public-explore-list-fallback')).not.toBeInTheDocument();
-
       available = true;
       await user.click(screen.getByRole('button', { name: 'Try again' }));
-
-      const notice = await screen.findByTestId('public-explore-map-unavailable');
-      expect(notice).toHaveAttribute('role', 'status');
+      await screen.findByTestId('municipal-facility-marker');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent("The map couldn't load.");
       expect(screen.getByRole('list')).toHaveTextContent(facility.displayName);
     });
 
