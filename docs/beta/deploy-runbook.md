@@ -204,6 +204,7 @@ running `deploy-hosted-beta.sh` by hand.
    - That image has production's public configuration baked in, including the API base URL `https://api.parkio.dev`.
    - On a host whose `PARKIO_DOMAIN` is not production's, the hosted-beta web app calls production's API. The edge CSP blocks those calls, or, if it allows them, beta users reach production.
    - The preflight and the smoke checks do not catch this: they check the env file and the API, not the pinned bundle.
+   - **The deploy and the rollback now refuse it (H2).** The web API endpoint check compares the bound image's baked `VITE_API_BASE_URL` with the env's, and stops before anything starts ("web API endpoint check failed; nothing was started"). See `docs/operations/container-hardening-inventory.md`.
    - How hosted-beta gets a web image built for its own domain is an owner decision, and a source or pin change outside CL-F12.
 2. **The deploy and the rollback are refused until the web pin moves to an image built from #198 or later.**
    - `docker/docker-compose.hosted-beta.yml` mounts an empty tmpfs at `/etc/nginx/conf.d` (#261).

@@ -87,6 +87,13 @@ the check inspects the image the model names. The check has its own break-glass,
 `PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D`, off by default. Do not use it for this,
 because it starts web without a server config.
 
+## Web images built for another API (H2)
+
+The rollback, the deploy and `scripts/parkio-prod-compose.sh` refuse a web image whose baked `VITE_API_BASE_URL` is not the one the env intends: web's `VITE_API_BASE_URL` build argument, on `PARKIO_DOMAIN` ("web API endpoint check failed; nothing was started").
+- **Why.** A web image built for another environment would send this deploy's users to that environment's API. That includes the production pin on a hosted-beta host.
+- **No break-glass.** The check has none, and the map and conf.d break-glasses do not skip it.
+- **The fix.** Start a web image built for this env's API, or correct the env's `VITE_API_BASE_URL` and `PARKIO_DOMAIN` if they are wrong.
+
 ## If images are missing
 
 ```bash
