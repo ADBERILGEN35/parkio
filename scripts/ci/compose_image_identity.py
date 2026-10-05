@@ -164,13 +164,18 @@ def last_base(dockerfile: Path) -> Optional[str]:
 
 def probe(dockerfile: Path, context: Path, input_file: Path, revision: str, out: Path,
           run: Runner = run_docker) -> int:
-    out.parent.mkdir(parents=True, exist_ok=True)
     base_ref = last_base(dockerfile)
     report = {"dockerfile": str(dockerfile), "input": str(input_file), "base": base_ref, "builds": {}}
+    # Nothing is written until every build is done: the output may lie inside the build context, and a
+    # new file there would change `COPY . .` between the builds.
+    logs = {}
 
     def finish(code: int, message: str) -> int:
         report["result"] = "PASS" if code == 0 else "FAIL"
         report["message"] = message
+        out.parent.mkdir(parents=True, exist_ok=True)
+        for label, text in logs.items():
+            (out.parent / f"probe-build-{label}.log").write_text(text)
         out.write_text(json.dumps(report, indent=2) + "\n")
         print(message, file=sys.stderr if code else sys.stdout)
         return code
@@ -188,7 +193,7 @@ def probe(dockerfile: Path, context: Path, input_file: Path, revision: str, out:
         started = time.monotonic()
         done = run(["build", "--progress=plain", "-f", str(dockerfile), "--build-arg", f"IMAGE_REVISION={revision}",
                     "-t", f"{tag}-{label}", str(context)])
-        (out.parent / f"probe-build-{label}.log").write_text((done.stdout or "") + (done.stderr or ""))
+        logs[label] = (done.stdout or "") + (done.stderr or "")
         image = inspect_image(f"{tag}-{label}", run) if done.returncode == 0 else None
         report["builds"][label] = {"exit": done.returncode, "seconds": round(time.monotonic() - started, 1),
                                    "id": image.get("Id") if image else None,

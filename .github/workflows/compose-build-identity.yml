@@ -53,13 +53,13 @@ jobs:
             --context . \
             --input services/gamification-service/src/main/resources/application.yml \
             --revision "$(git rev-parse HEAD)" \
-            --out compose-build-identity/probe.json
+            --out "$RUNNER_TEMP/compose-build-identity/probe.json"
 
       - name: Upload the probe report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: compose-build-identity-${{ github.sha }}-attempt-${{ github.run_attempt }}
-          path: compose-build-identity/
+          path: ${{ runner.temp }}/compose-build-identity/
           retention-days: 30
           if-no-files-found: error

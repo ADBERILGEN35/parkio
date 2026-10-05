@@ -204,11 +204,15 @@ class ProbeTest(unittest.TestCase):
             source = root / "application.yml"
             source.write_text("spring: {}\n")
             built = {}
+            context_seen = []
 
             def run(args):
                 if args[0] == "pull":
                     return subprocess.CompletedProcess(args, 0, "", "")
                 if args[0] == "build":
+                    # The output lies inside the context here, as in CI: nothing may appear in it before
+                    # the last build, or `COPY . .` would change between the builds.
+                    context_seen.append(sorted(str(f.relative_to(root)) for f in root.rglob("*") if f.is_file()))
                     tag = args[args.index("-t") + 1]
                     jar = "sha256:jar-changed" if "probe: changed input" in source.read_text() else "sha256:jar"
                     built[tag] = image("sha256:" + tag[-7:], layers=("sha256:jre", jar))
@@ -229,6 +233,9 @@ class ProbeTest(unittest.TestCase):
             self.assertEqual(built, {})
             self.assertEqual(report["base"], "jre")
             self.assertEqual(report["changed_layer_indexes"], [1])
+            self.assertEqual(context_seen[0], context_seen[1])
+            self.assertEqual(len(context_seen), 3)
+            self.assertTrue((root / "out" / "probe-build-first.log").is_file())
 
 
 if __name__ == "__main__":
