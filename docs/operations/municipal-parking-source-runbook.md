@@ -132,12 +132,35 @@ quality report counts such readings as not exposed, like the public queries.
 
 - **Closed car park.** An İZUM record with `status` `Closed` (any case) is stored as `UNAVAILABLE`
   and published without spaces. The counts stay in the row.
-  - Only `Closed` is treated as closed: the repository's fixtures show only `Opened`, and the
-    feed's full status vocabulary is not documented.
-  - Any other value keeps the previous behaviour.
+  - Only `Closed` is treated as closed (owner decision, 2026-10-05). No other value is mapped to closed, and no Turkish or other aliases are assumed.
+  - The repository's recorded İZUM fixture (`otoparklar-sample.json`) contains only `Opened`, in 12 of 12 records. That is a recorded sample, not live monitoring. **The provider's status vocabulary is not verified.**
+  - Any other value, or no status, keeps the previous behaviour: the car park stays open. See "Unknown İZUM statuses" below.
 - **No free count.** A record without `occupancy.total.free` has no space count to publish. It is
   stored as `UNAVAILABLE`. A reading stored UNAVAILABLE, or with a null `available_spaces`, is never
   published as LIVE or AGING.
+
+### Unknown İZUM statuses (CL-F22, operator only)
+
+An İZUM status other than `Opened` or `Closed` (any case, trimmed) is **unrecognised**; an absent or
+blank one is **missing**. Both keep the previous behaviour (the car park stays open) and change
+nothing that is published. They are made visible instead:
+
+- **Metric.** `parkio_municipal_izum_unknown_status_total{source_key, kind}`, where `kind` is
+  `unrecognised` or `missing`.
+  - It counts each sync run's valid records with such a status.
+  - It never carries the value, so its cardinality stays fixed. Read it with
+    `increase(parkio_municipal_izum_unknown_status_total[1h]) > 0`.
+- **Log.** The first time a value is seen after a start, the parking service logs one WARN line,
+  `IZUM status "<value>" is not recognised (<n> records in this run)`, or one line for a missing status.
+  - The value is trimmed. These characters become `?`:
+    - ISO control characters (C0, DEL and C1);
+    - the Unicode categories format (Cf, for example bidi overrides and zero-width spaces), line separator (Zl), paragraph separator (Zp), surrogate (Cs), private use (Co) and unassigned (Cn).
+
+    It is then capped at 40 code points, followed by `…`.
+  - At most 32 distinct values are logged per start; later ones are counted only, and one line says so.
+- **What to do.** Report a new value and its count to the owner.
+  - Whether it means closed is a product decision.
+  - Do not add aliases or reinterpret it in configuration.
 
 ### Defaults (non-secret)
 
