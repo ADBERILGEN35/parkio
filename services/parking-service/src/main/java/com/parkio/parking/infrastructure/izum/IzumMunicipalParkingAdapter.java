@@ -26,14 +26,16 @@ public class IzumMunicipalParkingAdapter implements MunicipalParkingSourceAdapte
     private final ObjectMapper objectMapper;
     private final IzumRecordValidator validator;
     private final IzumNormalizer normalizer;
+    private final IzumStatusObserver statusObserver;
 
     public IzumMunicipalParkingAdapter(
             IzumParkingClient client, ObjectMapper objectMapper,
-            IzumRecordValidator validator, IzumNormalizer normalizer) {
+            IzumRecordValidator validator, IzumNormalizer normalizer, IzumStatusObserver statusObserver) {
         this.client = client;
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.normalizer = normalizer;
+        this.statusObserver = statusObserver;
     }
 
     @Override public String sourceKey() { return SOURCE_KEY; }
@@ -73,12 +75,18 @@ public class IzumMunicipalParkingAdapter implements MunicipalParkingSourceAdapte
         return result;
     }
 
+    /** Normalizes one sync run's occupancy, and reports statuses outside the known vocabulary. */
     @Override
     public List<NormalizedMunicipalOccupancy> normalizeOccupancy(JsonNode payload, Instant fetchedAt) {
         List<NormalizedMunicipalOccupancy> result = new ArrayList<>();
+        List<IzumParkingRecordDto> valid = new ArrayList<>();
         for (IzumParkingRecordDto record : records(payload)) {
-            if (validator.validate(record).valid()) result.add(normalizer.occupancy(record, fetchedAt));
+            if (validator.validate(record).valid()) {
+                valid.add(record);
+                result.add(normalizer.occupancy(record, fetchedAt));
+            }
         }
+        statusObserver.observe(valid);
         return result;
     }
 
