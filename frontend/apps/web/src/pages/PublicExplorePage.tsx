@@ -1,7 +1,7 @@
 import { Icon, MapSearchSkeleton } from '@parkio/ui';
 import { haversineMeters, isValidLatLng } from '@parkio/geo';
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
@@ -30,6 +30,8 @@ const NearbySpotsMap = lazy(() =>
 /** Certified R6A anonymous caps — never exceed on the client. */
 const PUBLIC_EXPLORE_LIMIT = 6;
 const PUBLIC_EXPLORE_RADIUS_METERS = 5_000;
+/** CL-F20: one automatic retry after a failed public query; after that the visitor retries. */
+const PUBLIC_EXPLORE_QUERY_RETRIES = 1;
 
 /** Destination framing: enough context for nearby municipal markers without over-zoom. */
 const DESTINATION_ZOOM = DEFAULT_PICKER_ZOOM;
@@ -58,6 +60,11 @@ interface SelectedDestination {
  * when authenticated (public payload is aggregate-only — no anonymous precise pins).
  *
  * Count invariant: displayed visible count == renderable green marker count.
+ *
+ * Failures (CL-F20): the map and search stay when the public query fails. An alert explains it and
+ * offers a retry. When the map style never loads, the facilities are listed instead, under a notice.
+ * That notice is an alert only if no query error was shown in this view. After an error and a
+ * successful retry, it is announced politely, so two alerts never compete.
  */
 export function PublicExplorePage() {
   const { publicExploreApi, publicGeocodingApi } = useParkioSdk();
@@ -78,6 +85,9 @@ export function PublicExplorePage() {
   /** Remount search when locate clears destination so the field resets. */
   const [searchResetKey, setSearchResetKey] = useState(0);
   const [locating, setLocating] = useState(false);
+  /** CL-F20: the map style never loaded, so the facilities are listed instead. */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const listHeadingId = useId();
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
   /** Autocomplete open — hide competing discovery chrome (presentation only). */
   const [searchInteractionActive, setSearchInteractionActive] = useState(false);
@@ -107,7 +117,7 @@ export function PublicExplorePage() {
       }),
     enabled: frontendConfig.features.publicExplore,
     staleTime: 30_000,
-    retry: false,
+    retry: PUBLIC_EXPLORE_QUERY_RETRIES,
   });
 
   /** Only facilities with usable coordinates may count or render as green pins. */
@@ -161,9 +171,13 @@ export function PublicExplorePage() {
   );
 
   const flagOff = !frontendConfig.features.publicExplore;
-  const hardUnavailable = flagOff || query.isError;
-  const showMap = frontendConfig.features.publicExplore && !query.isError;
+  const hardUnavailable = flagOff;
+  const showMap = frontendConfig.features.publicExplore;
   const discoverySettled = !query.isLoading && !query.isFetching;
+  const queryFailed = query.isError;
+  const showListFallback = mapUnavailable && query.isSuccess;
+  /** A query error already alerted in this view: the map notice is then polite, not a second alert. */
+  const mapNoticeRole = query.errorUpdateCount > 0 ? 'status' : 'alert';
 
   const openContributeGate = useCallback(() => {
     if (requireAuth('/upload', 'contribute')) {
@@ -297,6 +311,34 @@ export function PublicExplorePage() {
                 />
               </div>
 
+              {queryFailed ? (
+                <div
+                  role="alert"
+                  data-testid="public-explore-query-error"
+                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
+                >
+                  <h2 className="m-0 text-title-sm font-semibold text-on-surface">
+                    {t('explore:unavailableTitle')}
+                  </h2>
+                  <p className="m-0 mt-xs text-body-sm text-on-surface-variant">
+                    {t('explore:queryErrorBody')}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="public-explore-retry"
+                    onClick={() => {
+                      void query.refetch();
+                    }}
+                    disabled={query.isFetching}
+                    aria-busy={query.isFetching || undefined}
+                    className="mt-sm inline-flex min-h-11 items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:opacity-60"
+                  >
+                    <Icon name="refresh" className="text-[18px] leading-none" />
+                    {t('explore:retry')}
+                  </button>
+                </div>
+              ) : null}
+
               {/* Discovery chrome — suppressed while autocomplete is actively open. */}
               {!searchInteractionActive ? (
                 <>
@@ -361,7 +403,7 @@ export function PublicExplorePage() {
                   {locationFeedback}
                 </p>
               ) : null}
-              {discoverySettled && municipalFacilities.length === 0 ? (
+              {discoverySettled && !queryFailed && municipalFacilities.length === 0 ? (
                 <p
                   role="status"
                   data-testid="public-explore-empty"
@@ -369,6 +411,45 @@ export function PublicExplorePage() {
                 >
                   {t('explore:emptyMunicipal')}
                 </p>
+              ) : null}
+              {showListFallback ? (
+                <section
+                  aria-labelledby={listHeadingId}
+                  data-testid="public-explore-list-fallback"
+                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
+                >
+                  <div role={mapNoticeRole} data-testid="public-explore-map-unavailable">
+                    <p className="m-0 text-label-md font-semibold text-on-surface">
+                      {t('explore:mapUnavailableTitle')}
+                    </p>
+                    <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">
+                      {t('explore:mapUnavailableBody')}
+                    </p>
+                  </div>
+                  <h2 id={listHeadingId} className="m-0 mt-sm text-label-md font-semibold text-on-surface">
+                    {t('explore:listHeading')}
+                  </h2>
+                  <ul role="list" className="m-0 mt-xs flex max-h-[40vh] list-none flex-col gap-1 overflow-y-auto p-0">
+                    {municipalFacilities.map((facility) => (
+                      <li key={facility.id}>
+                        <button
+                          type="button"
+                          data-testid="public-explore-list-item"
+                          aria-pressed={selectedId === facility.id}
+                          onClick={() => setSelectedId(facility.id)}
+                          className="flex min-h-11 w-full items-center gap-xs rounded-xl px-sm py-xs text-left text-label-md text-on-surface transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+                        >
+                          <Icon name="garage" className="shrink-0 text-[18px] leading-none text-secondary" />
+                          <span className="min-w-0 truncate">
+                            {facility.displayName?.trim() ||
+                              facility.addressText?.trim() ||
+                              t('map:municipal.unnamedFacility')}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ) : null}
               {/* Contribution discoverability — AuthGate only; registration stays CLOSED. */}
               <button
@@ -421,6 +502,7 @@ export function PublicExplorePage() {
                 locating={locating}
                 ariaLabel={t('explore:mapAria')}
                 ariaDescription={t('explore:mapDescription')}
+                onStyleUnavailable={() => setMapUnavailable(true)}
               />
             </Suspense>
 

@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "e2e:cxf11": "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/cxf11-report.json playwright test -c playwright.candidate.config.ts --project=cxf11-acceptance --reporter=list,json && node scripts/assert-playwright-report.mjs test-results/cxf11-report.json --project cxf11-acceptance --min 13 --known-defects 4",
+    "e2e:cxf11": "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/cxf11-report.json playwright test -c playwright.candidate.config.ts --project=cxf11-acceptance --reporter=list,json && node scripts/assert-playwright-report.mjs test-results/cxf11-report.json --project cxf11-acceptance --min 21",
     "e2e:real": "playwright test -c playwright.real.config.ts",
     "e2e:ownership": "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/ownership-report.json playwright test e2e/pending-profile-ownership.spec.ts --project=ownership-chromium --workers=1 --retries=0 --reporter=list,json && node scripts/assert-playwright-report.mjs test-results/ownership-report.json --project ownership-chromium --min 8",
     "e2e:link-locale": "PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/link-locale-report.json playwright test e2e/auth-link-locale.spec.ts --project=link-locale-chromium --workers=1 --retries=0 --reporter=list,json && node scripts/assert-playwright-report.mjs test-results/link-locale-report.json --project link-locale-chromium --min 10",

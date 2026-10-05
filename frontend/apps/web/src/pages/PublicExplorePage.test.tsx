@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE, server } from '@/test/server';
@@ -26,6 +26,7 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     locating,
     spots,
     destinationMarker,
+    onStyleUnavailable,
   }: {
     municipalFacilities: Array<{ id: string; displayName: string | null }>;
     onSelectMunicipalFacility?: (id: string | null) => void;
@@ -33,8 +34,13 @@ vi.mock('@/components/map/NearbySpotsMap', () => ({
     locating?: boolean;
     spots: unknown[];
     destinationMarker?: { latitude: number; longitude: number; label: string } | null;
+    onStyleUnavailable?: () => void;
   }) => (
     <div aria-label="Parkio public parking map" data-testid="public-explore-map">
+      {/* Stands in for MapLibre reporting a style that never loaded (CL-F20). */}
+      <button type="button" data-testid="fail-map-style" onClick={() => onStyleUnavailable?.()}>
+        Fail style
+      </button>
       <button
         type="button"
         data-testid="map-floating-locate"
@@ -496,10 +502,102 @@ describe('PublicExplorePage', () => {
 
     renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
 
-    expect(await screen.findByText('Parking data is temporarily unavailable.')).toBeInTheDocument();
+    // One automatic retry (CL-F20) delays the error by about a second.
+    expect(
+      await screen.findByText('Parking data is temporarily unavailable.', undefined, { timeout: 4000 }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(facility.displayName)).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByTestId('selected-municipal-facility-preview')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('failures (CL-F20)', () => {
+    it('keeps the map, alerts on a failed query and retries it', async () => {
+      let available = false;
+      const calls = vi.fn();
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => {
+          calls();
+          return available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+        }),
+      );
+      const user = userEvent.setup();
+
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      expect(alert).toHaveTextContent('Parking data is temporarily unavailable.');
+      expect(calls).toHaveBeenCalledTimes(2); // the first request and one bounded automatic retry
+      expect(screen.getByTestId('public-explore-map')).toBeInTheDocument();
+      expect(screen.getByTestId('public-explore-destination-search')).toBeInTheDocument();
+      expect(screen.queryByTestId('public-explore-empty')).not.toBeInTheDocument();
+
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(await screen.findByTestId('municipal-facility-marker')).toHaveTextContent(facility.displayName);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('alerts and lists the facilities when the map style never loads', async () => {
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => HttpResponse.json(discoveryResponse())),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByTestId('municipal-facility-marker');
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent("The map couldn't load.");
+      const list = screen.getByRole('list');
+      expect(list).toHaveTextContent(facility.displayName);
+      await user.click(within(list).getByRole('button', { name: facility.displayName }));
+      expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
+    });
+
+    it('announces the map fallback politely after a query error was already alerted', async () => {
+      let available = false;
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      await user.click(screen.getByTestId('fail-map-style'));
+      expect(screen.queryByTestId('public-explore-list-fallback')).not.toBeInTheDocument();
+
+      available = true;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      const notice = await screen.findByTestId('public-explore-map-unavailable');
+      expect(notice).toHaveAttribute('role', 'status');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('list')).toHaveTextContent(facility.displayName);
+    });
+
+    it('shows the failure copy in Turkish', async () => {
+      await withLocale('tr');
+      try {
+        server.use(
+          http.get(`${API_BASE}/public/explore/facilities`, () =>
+            HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+          ),
+        );
+        renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+        const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+        expect(alert).toHaveTextContent('Otopark verileri yüklenemedi.');
+        expect(screen.getByRole('button', { name: 'Yeniden dene' })).toBeInTheDocument();
+      } finally {
+        await withLocale('en');
+      }
     });
   });
 

@@ -27,8 +27,8 @@
 #   - Suites, each a gate:
 #       a11y-web          CL-F30: axe-core (WCAG 2.0/2.1/2.2 A and AA) and the keyboard walk on the
 #                         populated pages, in Turkish and English (playwright.a11y.config.ts).
-#       cxf11-acceptance  CX-F11: the exact-candidate scenarios, with the 4 known CL-F20 defects
-#                         declared (playwright.candidate.config.ts).
+#       cxf11-acceptance  CX-F11: the exact-candidate scenarios, all passing; CL-F20 (option A) turned
+#                         its 4 known defects into plain tests (playwright.candidate.config.ts).
 #     The other e2e specs assume the dev server (same-origin API, default flags), so they are not run
 #     against the image; Frontend CI runs them on the dev server.
 #   - Record: OUT/provenance.json holds:
@@ -182,7 +182,7 @@ rm -rf "${WEB:?}/test-results/a11y"
 A11Y_WEB_URL="$URL" suite a11y-web --project a11y-web --min 40 -- \
   -c playwright.a11y.config.ts --project a11y-web
 cp -r "$WEB/test-results/a11y" "$OUT/a11y-pages" 2>/dev/null || true
-CXF11_WEB_URL="$URL" suite cxf11-acceptance --project cxf11-acceptance --min 13 --known-defects 4 -- \
+CXF11_WEB_URL="$URL" suite cxf11-acceptance --project cxf11-acceptance --min 21 -- \
   -c playwright.candidate.config.ts --project cxf11-acceptance
 
 python3 - "$OUT" "$ROOT" "$SHA" "$TAG" "$BAKE" "$DOCKERFILE" "$SYNTHETIC_MAP_KEY" "$STARTED" \
