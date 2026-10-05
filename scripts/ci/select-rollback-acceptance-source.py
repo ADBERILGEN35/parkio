@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Choose the newest qualifying invite-production deploy run for rollback compatibility-guard acceptance.
+"""Choose the newest qualifying invite-production deploy run found in the API listings, for rollback
+compatibility-guard acceptance.
 
 A qualifying deploy run is a successful workflow_dispatch run of invite-production-deploy.yml on api
 whose "Deploy invite-production" job succeeded, and which holds exactly one unexpired manifest
-artifact, invite-production-manifest-<head sha>. Runs are walked by created_at, newest first,
-whatever order the API returns them in (#289 review R2-F1).
+artifact, invite-production-manifest-<head sha>.
+
+The candidates are the union of two complete, paginated listings of the workflow's dispatch runs on
+api: one the API filters to status=success, and one without that filter, kept here when the run
+concluded success. The API sometimes serves a stale page that misses the newest run (#289 review
+R3-F1); the union makes that less likely, and both counts are logged. Two listings that differ are
+not an error. The listings can still lag, so the chosen run is the newest qualifying run they
+showed, not necessarily the most recent deploy. Candidates are deduplicated by id and walked by
+created_at, newest first, whatever order the API returns them in (#289 review R2-F1).
 
 Up to the chosen run, nothing is passed over silently. A newer run whose artifact listing is not
 exactly one unexpired manifest, or whose deploy job cannot be read, fails the selection. A newer
@@ -12,8 +20,9 @@ build-only run (deploy job skipped) with one manifest becomes the build-only ref
 acceptance must see refused.
 
 Reads GITHUB_API_URL, GITHUB_REPOSITORY and GITHUB_TOKEN. Writes these to GITHUB_OUTPUT:
-reference, run_id, artifact, run_head_sha, run_created_at, build_only_reference. It also writes a
-line to GITHUB_STEP_SUMMARY. Exit 0 when a run was chosen; 1 otherwise, with an ::error:: line.
+reference, run_id, artifact, run_head_sha, run_created_at, listed_at, build_only_reference. It
+also writes lines to GITHUB_STEP_SUMMARY. Exit 0 when a run was chosen; 1 otherwise, with an
+::error:: line.
 """
 from __future__ import annotations
 
@@ -26,6 +35,9 @@ import urllib.request
 WORKFLOW = "invite-production-deploy.yml"
 DEPLOY_JOB = "Deploy invite-production"
 KINDS = {"success": "deployed", "skipped": "build_only"}
+DISPATCH_ON_API = "event=workflow_dispatch&branch=api"
+PER_PAGE = 100
+MAX_PAGES = 50
 
 
 class Refused(Exception):
@@ -38,6 +50,36 @@ def manifest_name(run: dict) -> str:
 
 def describe(run: dict) -> str:
     return f"run {run['id']} ({run['head_sha'][:12]}, created {run['created_at']})"
+
+
+def list_runs(get, query: str) -> list:
+    """Every run of one listing, page by page, until a page is not full."""
+    runs = []
+    for page in range(1, MAX_PAGES + 1):
+        batch = get(f"actions/workflows/{WORKFLOW}/runs?{query}&per_page={PER_PAGE}&page={page}")["workflow_runs"]
+        runs.extend(batch)
+        if len(batch) < PER_PAGE:
+            return runs
+    raise Refused(f"the run listing {query} still has runs after {MAX_PAGES} pages of {PER_PAGE}; "
+                  "refusing to choose from an incomplete listing.")
+
+
+def successful(run: dict) -> bool:
+    return (run.get("event") == "workflow_dispatch" and run.get("head_branch") == "api"
+            and run.get("status") == "completed" and run.get("conclusion") == "success")
+
+
+def candidates(get) -> tuple:
+    """(the successful dispatch runs on api in both listings, deduplicated by id, counts for the log)."""
+    filtered = list_runs(get, f"{DISPATCH_ON_API}&status=success")
+    unfiltered = list_runs(get, DISPATCH_ON_API)
+    union = {}
+    for run in filtered + unfiltered:
+        if successful(run):
+            union.setdefault(run["id"], run)
+    counts = {"filtered": len(filtered), "unfiltered": len(unfiltered),
+              "unfiltered_successful": sum(1 for run in unfiltered if successful(run)), "distinct": len(union)}
+    return list(union.values()), counts
 
 
 def select(runs: list, artifacts_of, deploy_conclusions_of) -> dict:
@@ -88,10 +130,16 @@ def main(get=None, now=None) -> int:
             return json.load(resp)
 
     get = get or http_get
-    runs = get(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=api&status=success&per_page=50")
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    listed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
+        runs, counts = candidates(get)
+        listings = (f"API listings at {listed_at}: {counts['filtered']} runs with status=success; "
+                    f"{counts['unfiltered']} runs without that filter, {counts['unfiltered_successful']} of them "
+                    f"successful; {counts['distinct']} distinct successful runs.")
+        print(listings)
         chosen = select(
-            runs["workflow_runs"],
+            runs,
             lambda run, name: get(f"actions/runs/{run['id']}/artifacts?name={name}")["artifacts"],
             lambda run: [j["conclusion"] for j in get(f"actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
                          if j["name"] == DEPLOY_JOB])
@@ -104,19 +152,22 @@ def main(get=None, now=None) -> int:
     if chosen["build_only"] is not None:
         build_only = f"{chosen['build_only'][0]['id']}/{manifest_name(chosen['build_only'][0])}"
         print(f"build-only run: {describe(chosen['build_only'][0])}")
-    print(f"newest qualifying deploy run: {describe(run)}, artifact {manifest_name(run)}")
+    print(f"newest qualifying deploy run found in the API listings at {listed_at}: {describe(run)}, "
+          f"artifact {manifest_name(run)}")
     expires_at = artifact["expires_at"]
     expires = datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-    days_left = (expires - (now or datetime.datetime.now(datetime.timezone.utc))).days
+    days_left = (expires - now).days
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-        summary.write(f"Newest qualifying deploy run: `{run['id']}` (commit `{run['head_sha'][:12]}`, created "
-                      f"{run['created_at']}), manifest `{reference}`, expires {expires_at} ({days_left} days).\n")
+        summary.write(f"Newest qualifying deploy run found in the API listings at {listed_at}: `{run['id']}` (commit "
+                      f"`{run['head_sha'][:12]}`, created {run['created_at']}), manifest `{reference}`, expires "
+                      f"{expires_at} ({days_left} days). The API listings can lag, so this is not guaranteed to be "
+                      f"the most recent deploy. {listings}\n")
     if days_left < 14:
         print(f"::warning::The source deploy manifest {reference} expires on {expires_at}. After that, this "
               "check and a rollback to that deploy fail closed until a new api deploy.")
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"reference={reference}\nrun_id={run['id']}\nartifact={manifest_name(run)}\n"
-                  f"run_head_sha={run['head_sha']}\nrun_created_at={run['created_at']}\n"
+                  f"run_head_sha={run['head_sha']}\nrun_created_at={run['created_at']}\nlisted_at={listed_at}\n"
                   f"build_only_reference={build_only}\n")
     return 0
 

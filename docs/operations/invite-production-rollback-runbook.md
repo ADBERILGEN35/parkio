@@ -99,12 +99,12 @@ checks this guard and performs no rollback. It dry-runs the guard twice:
 
 - **Against a synthetic deploy manifest** that this checkout's writer produced
   with this checkout's list. That dry run must succeed.
-- **Against the manifest of the newest qualifying api deploy run**, with that deploy's edge mode. The run is chosen by creation time: its deploy job succeeded, and it holds exactly one unexpired manifest. A newer run with any other listing fails the check instead of being passed over.
+- **Against the manifest of the newest qualifying api deploy run found in the API listings**, with that deploy's edge mode. The run is chosen by creation time: its deploy job succeeded, and it holds exactly one unexpired manifest. The candidates come from two complete listings, with and without the API's success filter, because the API sometimes serves a stale page. The listings can still lag, so the run is not guaranteed to be the most recent deploy. A newer run with any other artifact listing fails the check instead of being passed over.
   A compatible list must dry-run successfully. An incompatible one passes only
   when the guard itself refuses it, naming the files. The job summary then says
-  "rollback to the newest qualifying deploy run <run id> (commit …, created …)
-  is NOT currently possible: compose file list changed (...); a post-change deploy
-  is required."
+  "rollback to the newest qualifying deploy run found in the API listings at
+  <time> (<run id>, commit …, created …) is NOT currently possible: compose file
+  list changed (...); a post-change deploy is required."
 
 **A green result does not mean that a rollback to the latest deployed release
 currently works.** Operational rollback acceptance remains BLOCKED until an

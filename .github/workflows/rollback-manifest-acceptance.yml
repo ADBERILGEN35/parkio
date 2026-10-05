@@ -9,7 +9,8 @@ name: Rollback manifest acceptance
 # correct refusal"). An invite-production rollback refuses a target whose compose file list differs
 # from the one it would render. The job dry-runs that guard twice:
 #   - against a synthetic deploy manifest with this checkout's list, which must succeed;
-#   - against the manifest of the newest qualifying deploy run (by creation time). A compatible
+#   - against the manifest of the newest qualifying deploy run found in the API listings (by
+#     creation time; the listings can lag, so it may not be the most recent deploy). A compatible
 #     list must dry-run successfully; an incompatible one must be refused by the guard itself,
 #     naming the files, before anything is written. The job then states that a rollback to that
 #     deploy run is NOT currently possible.
@@ -88,9 +89,11 @@ jobs:
       - name: Deploy workflow guards (no operator text as shell source, allowlisted uploads)
         run: python3 scripts/ci/test_deploy_workflow_guards.py
 
-      # The newest qualifying deploy run is the source: a run whose deploy job succeeded and which
-      # holds exactly one unexpired manifest, chosen by created_at (#289 review R2-F1). A newer run
-      # whose listing is anything else fails the step instead of being passed over. A build-only run
+      # The newest qualifying deploy run found in the API listings is the source: a run whose deploy
+      # job succeeded and which holds exactly one unexpired manifest, chosen by created_at (#289
+      # review R2-F1) from the union of two complete listings, with and without status=success,
+      # because the API sometimes serves a stale page (#289 review R3-F1). A newer run whose
+      # artifact listing is anything else fails the step instead of being passed over. A build-only run
       # (deploy skipped) that still holds its manifest, if one exists, must be refused.
       #
       # Manifest artifacts are kept 90 days, the maximum for a public repository. This check, like
@@ -200,9 +203,10 @@ jobs:
           SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
           SOURCE_HEAD_SHA: ${{ steps.source.outputs.run_head_sha }}
           SOURCE_CREATED_AT: ${{ steps.source.outputs.run_created_at }}
+          SOURCE_LISTED_AT: ${{ steps.source.outputs.listed_at }}
         run: |
           set -euo pipefail
-          label="the newest qualifying deploy run $SOURCE_RUN_ID (commit ${SOURCE_HEAD_SHA:0:12}, created $SOURCE_CREATED_AT)"
+          label="the newest qualifying deploy run found in the API listings at $SOURCE_LISTED_AT ($SOURCE_RUN_ID, commit ${SOURCE_HEAD_SHA:0:12}, created $SOURCE_CREATED_AT)"
           bash scripts/ci/rollback-compatibility-guard-acceptance.sh --manifest "$PARKIO_VERIFIED_MANIFEST" \
             --env-template docker/.env.invite-production.example --work-dir "$RUNNER_TEMP/compatibility-guard/newest" \
             --label "$label" --summary "$GITHUB_STEP_SUMMARY"
