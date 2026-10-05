@@ -5,8 +5,8 @@ Developer and CI helper scripts.
 | Script                | Purpose                                             |
 |-----------------------|-----------------------------------------------------|
 | `build-all.sh`        | Build and test every service via the Gradle wrapper.|
-| `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. With `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta`: deprecated as a production path (B7); it warns and runs. Production uses `parkio-prod-compose.sh`. |
-| `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. Same B7 deprecation for the Azure profile. |
+| `deploy-hosted-beta.sh` | Build SHA-tagged images from current commit, deploy, smoke, write manifest. The default hosted-beta profile renders `docker/compose.production.files` exactly: it builds only the services that list does not pin and pulls the digest pins (CL-F12). With `PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta`: deprecated as a production path (B7); it warns and runs. Production uses `parkio-prod-compose.sh`. |
+| `rollback-hosted-beta.sh` | Restore a previous SHA-tagged image set from a deploy manifest. With the default hosted-beta profile it points the services `docker/compose.production.files` builds back at their recorded tags and keeps the digest pins (CL-F12). Same B7 deprecation for the Azure profile. |
 | `smoke-hosted-beta.sh` | Gateway/auth/parking/notifications/gamification smoke (no fakes). |
 | `smoke-parking-session-hosted-beta.sh` | ParkingSession lifecycle API smoke (PS-HB-01..26); requires disposable-account safety env vars. |
 | `lib/deploy-common.sh` | Shared helpers for deploy/rollback (sourced, not run directly). |

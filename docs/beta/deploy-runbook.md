@@ -5,16 +5,28 @@
 > prints a warning. The supported production path is `scripts/parkio-prod-compose.sh` with
 > `docker/compose.production.files`. See `docs/azure/AZURE-DEPLOYMENT-PROFILE.md`.
 
+> **Default profile (CL-F12, owner decision 1b, 2026-10-05).**
+> - **Status.** `hosted-beta` is the profile an env file selects when it names none. It is a supported deployment path while `.github/workflows/hosted-beta-deploy.yml` uses it.
+> - **File set.** Its deploy, rollback and DR render `docker/compose.production.files` exactly, so they run the production model with its digest pins and auth registration settings.
+> - **Difference from Civo.** The model differs from the Civo wrapper's only by the Civo-host-specific Alertmanager overlay, so the two are not identical.
+> - **Before the next deploy,** follow the [release step](#release-step-before-the-next-hosted-beta-deploy-cl-f12).
+
 Safe, repeatable deployment of Parkio application images for **hosted-beta**.
 Images are always built from the **current git commit** and tagged so rollback
 can restore a previous SHA without rebuilding.
 
 ## Image tagging
 
-| Tag | Meaning |
-|-----|---------|
-| `parkio/<service>:sha-<fullGitSha>` | Immutable tag for this commit |
+With the default hosted-beta profile:
+
+| Image | Meaning |
+|-------|---------|
+| `parkio-<service>` | The name the model gives a service it builds (user, gamification, notification, moderation, ai-validation, analytics). Deploy builds it and `up` runs it. |
+| `parkio/<service>:sha-<fullGitSha>` | Immutable tag of that build, recorded in the manifest's `images` for rollback |
 | `parkio/<service>:beta-latest` | Mutable pointer to the last successful deploy |
+| `ghcr.io/…/<service>@sha256:…` | Digest pins from the pin files for gateway, auth, parking, media and web, recorded in `pinnedImages`. Deploy pulls them; it never builds them. |
+
+The other profiles build every app service as `parkio/<service>:sha-<fullGitSha>`.
 
 Optional: when `HEAD` is an exact semver tag (`v1.2.3`), the OCI `version` label
 uses that tag (`PARKIO_IMAGE_VERSION`).
@@ -28,18 +40,25 @@ OCI labels (set at build time via Dockerfile `ARG`s):
 
 ## Compose files
 
-Always use:
+The default hosted-beta profile renders `docker/compose.production.files`, in its order, and
+nothing else (CL-F12):
 
 ```text
 docker/docker-compose.yml
 docker/docker-compose.apps.yml
-docker/docker-compose.images.yml
-docker/docker-compose.hosted-beta.yml   # on the VPS (port lockdown + TLS)
+docker/docker-compose.hosted-beta.yml       # port lockdown + TLS
+docker/docker-compose.azure-hosted-beta.yml
+docker/docker-compose.gmp-release-pins.yml
+docker/docker-compose.auth-registration-env.yml
+docker/docker-compose.auth-release-pin.yml
+docker/docker-compose.web-release-pin.yml
 ```
 
-`docker-compose.images.yml` **requires** `PARKIO_IMAGE_TAG` (e.g. `sha-<gitsha>`).
-Never run `up -d` without it when this overlay is included — Compose will refuse
-to start rather than silently using an untagged/stale image name.
+- **The four observability services are off.** The Azure overlay puts `alertmanager`, `loki`, `promtail` and `tempo` in an inactive profile.
+- **The Civo wrapper adds one more file.** `scripts/parkio-prod-compose.sh` renders the same list plus the Civo-host-specific `docker-compose.civo-alertmanager.yml`.
+- **Local runs (`--no-hosted-beta-overlay`)** use `docker-compose.yml`, `docker-compose.apps.yml` and `docker-compose.images.yml`.
+  - `docker-compose.images.yml` **requires** `PARKIO_IMAGE_TAG` (e.g. `sha-<gitsha>`).
+  - Never run `up -d` without it when this overlay is included. Compose will refuse to start rather than silently use an untagged or stale image name.
 
 ## Prerequisites
 
@@ -141,9 +160,16 @@ What the script does:
    domains or unsafe toggles (skipped only with `--no-hosted-beta-overlay`)
 1. Refuses a dirty working tree (unless `--allow-dirty`)
 2. Sets `PARKIO_IMAGE_TAG=sha-$(git rev-parse HEAD)`
-3. Builds **all** app images from current source (`docker compose build`)
-4. Tags each image `beta-latest`
-5. `docker compose up -d` (Flyway migrates on startup)
+3. With the default hosted-beta profile:
+   - **Pins first.** It checks the digest-pinned images and pulls any that are missing. A pull failure stops the deploy before any build.
+   - **Builds.** It builds only the services the list does not pin, with the OCI build-args, under their model names.
+   - **Tags.** It tags each build `sha-<gitsha>` and `beta-latest`.
+
+   Other profiles build **all** app images (`docker compose build`) and tag each `beta-latest`.
+4. Writes the plan into the manifest:
+   - `images`: the built services and their `sha-` tags;
+   - `pinnedImages`: the digest pins.
+5. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
 6. Waits for readiness healthchecks
 7. Runs `scripts/smoke-hosted-beta.sh`
 8. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
@@ -162,6 +188,31 @@ docker inspect parkio-gateway-service-1 \
 ```
 
 These must match `git rev-parse HEAD` after a successful deploy.
+
+## Release step: before the next hosted-beta deploy (CL-F12)
+
+**The `parkio-beta` runner host is not known today** (owner answer, 2026-10-05: "document only").
+Confirm it before the next deploy through `.github/workflows/hosted-beta-deploy.yml`, or before
+running `deploy-hosted-beta.sh` by hand.
+
+**Confirm on that host:**
+- **Identity.** Which host it is, and its `docker/.env`.
+- **Docker Compose version.**
+- **Platform.** It is `linux/amd64`, because the production model sets `platform: linux/amd64`.
+- **Registry access.** It can read the GHCR digest pins: gateway, auth, parking, media and web, as it already does for the MinIO images. Packages that are not public need a `docker login ghcr.io` with read access. Without it, the deploy stops at the pull, before any build.
+
+**What changes on that host at the next deploy:**
+- **Observability services.** The deploy no longer starts `alertmanager`, `loki`, `promtail` and `tempo`.
+  - Containers an earlier deploy started keep running, no longer updated. Compose 5.5.1, in a local probe, leaves a service that moved into an inactive profile running.
+  - Stopping them is an operator decision. That includes promtail with its Docker socket mount: see "What remains exposed" in `docs/architecture/docker-socket-proxy-design.md`.
+- **Registration settings.** `auth-service` now receives `PARKIO_REGISTRATION_*` from the env file.
+  - The old model passed none, so auth ran with its defaults (mode `closed`).
+  - Check the registration values in the env file first: `docker/.env.hosted-beta.example` sets `PARKIO_REGISTRATION_MODE=open`.
+- **Production settings.** Tracing off, memory limits, Kafka heap, the production Prometheus command, and parking-service's municipal and ranking settings with their production defaults.
+- **Service and image names.**
+  - The unpinned services run as `parkio-<service>`.
+  - A rollback to a deploy made before this change points those back at the recorded `sha-` tags, and keeps the current pins for the five pinned services.
+- **Env file.** It needs no new variable. `PARKIO_IMAGE_TAG` is no longer read by this profile.
 
 ## Avoiding stale images
 
