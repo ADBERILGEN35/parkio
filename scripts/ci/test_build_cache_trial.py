@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -40,9 +41,20 @@ def zipped(entries: dict, when=(1980, 2, 1, 0, 0, 0)) -> bytes:
     return data.getvalue()
 
 
-def jar(resource: str, extra: bool = False, platform_time=(1980, 2, 1, 0, 0, 0), platform_class: bytes = b"A") -> bytes:
-    """A bootJar with application.yml and a nested platform jar, like the services' (its class times vary)."""
-    entries = {trial.JAR_RESOURCE: resource,
+def sbom(serial="urn:uuid:1", timestamp="2026-10-05T10:00:00Z", reverse=False, version="1.0") -> str:
+    """A CycloneDX SBOM like the one the services embed: a serial number and timestamp per build, varying order."""
+    components = [{"bom-ref": "pkg:maven/a/a@1.0", "version": "1.0"}, {"bom-ref": "pkg:maven/b/b@" + version, "version": version}]
+    if reverse:
+        components.reverse()
+    return json.dumps({"bomFormat": "CycloneDX", "serialNumber": serial,
+                       "metadata": {"timestamp": timestamp, "tools": [{"name": "cyclonedx-gradle-plugin"}]},
+                       "components": components})
+
+
+def jar(resource: str, extra: bool = False, platform_time=(1980, 2, 1, 0, 0, 0), platform_class: bytes = b"A",
+        bom: str = "") -> bytes:
+    """A bootJar with application.yml, an SBOM and a nested platform jar, like the services' (whose parts vary per build)."""
+    entries = {trial.JAR_RESOURCE: resource, trial.SBOM: bom or sbom(),
                "BOOT-INF/lib/parkio-platform.jar": zipped({"com/parkio/A.class": platform_class}, platform_time)}
     if extra:
         entries["BOOT-INF/extra"] = "x"
@@ -137,6 +149,18 @@ class EvaluateTest(unittest.TestCase):
         problems = trial.evaluate(self.jars(**{"cache-cold": changed}), self.MARKER)
         self.assertIn("the cold builds give jars with different contents for the same source: "
                       "BOOT-INF/lib/parkio-platform.jar!com/parkio/A.class", problems)
+
+    def test_the_sbom_serial_number_timestamp_and_order_do_not_count_but_its_components_do(self):
+        rebuilt = jar("spring: {}\n", bom=sbom(serial="urn:uuid:2", timestamp="2026-10-05T11:00:00Z", reverse=True))
+        self.assertEqual(trial.evaluate(self.jars(**{"cache-cold": rebuilt}), self.MARKER), [])
+
+        upgraded = jar("spring: {}\n", bom=sbom(version="2.0"))
+        problems = trial.evaluate(self.jars(**{"cache-cold": upgraded}), self.MARKER)
+        self.assertIn("the cold builds give jars with different contents for the same source: " + trial.SBOM, problems)
+
+    def test_an_sbom_that_is_not_json_is_compared_by_its_bytes(self):
+        self.assertEqual(trial.sbom_digest(b"not json"), trial.sbom_digest(b"not json"))
+        self.assertNotEqual(trial.sbom_digest(b"not json"), trial.sbom_digest(b"not json either"))
 
     def test_another_entry_changing_with_the_input_fails(self):
         problems = trial.evaluate(self.jars(**{

@@ -19,9 +19,13 @@ pair, everything but the cache mount is the same. The base images are pulled bef
 build pays for a pull. The script requires:
   * the same source gives a bootJar with the same contents with and without the cache (1 = 2 and
     3 = 4): the same entries with the same CRC-32, and for each nested jar the same inner entries.
-    Contents, not bytes: the bootJar is a reproducible archive, but the nested platform jar keeps its
-    class files' timestamps, so its bytes change between any two builds. Whether the bytes match
-    is reported too;
+    Contents, not bytes, because two builds of the same source differ anyway, cache or not:
+      - the bootJar is a reproducible archive, but the nested platform jar keeps its class files'
+        timestamps;
+      - the embedded SBOM (META-INF/sbom/bom.json) gets a new serialNumber and metadata.timestamp
+        on every build, and lists its components and dependencies in a varying order. It is
+        compared without those two fields, in a canonical order.
+    Whether the bytes match is reported too;
   * the changed input is in the jar of both warm builds and not in the cold ones, and between the
     cold and the warm cached build only that entry differs: the cache never hides a change, and
     nothing else moves;
@@ -55,6 +59,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 PREFIX = "build-cache-trial"
+SBOM = "META-INF/sbom/bom.json"
 CACHE_MOUNT = re.compile(r"--mount=type=cache,\S+")
 RESOURCE = "src/main/resources/application.yml"
 JAR_RESOURCE = "BOOT-INF/classes/application.yml"
@@ -113,10 +118,32 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _canonical(value):
+    if isinstance(value, dict):
+        return {key: _canonical(item) for key, item in sorted(value.items())}
+    if isinstance(value, list):
+        return sorted((_canonical(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+    return value
+
+
+def sbom_digest(data: bytes) -> str:
+    """A digest of a CycloneDX SBOM without its per-build fields, in a canonical order; of the bytes if not JSON."""
+    try:
+        bom = json.loads(data)
+    except ValueError:
+        return "bytes:" + sha256(data)
+    if isinstance(bom, dict):
+        bom.pop("serialNumber", None)
+        if isinstance(bom.get("metadata"), dict):
+            bom["metadata"].pop("timestamp", None)
+    return "sbom:" + sha256(json.dumps(_canonical(bom), sort_keys=True).encode())
+
+
 def jar_contents(jar: bytes) -> Optional[dict]:
     """{entry: CRC-32} of a jar, with each nested jar's entries as {"<jar>!<entry>": CRC-32}; None if unreadable.
 
-    Timestamps are left out on purpose: the nested platform jar keeps its class files' times.
+    Timestamps are left out on purpose: the nested platform jar keeps its class files' times. The
+    embedded SBOM is represented by sbom_digest, without its per-build fields.
     """
     try:
         contents = {}
@@ -129,6 +156,8 @@ def jar_contents(jar: bytes) -> Optional[dict]:
                         for inner in nested.infolist():
                             if not inner.is_dir():
                                 contents[f"{info.filename}!{inner.filename}"] = inner.CRC
+                elif info.filename == SBOM:
+                    contents[info.filename] = sbom_digest(archive.read(info))
                 else:
                     contents[info.filename] = info.CRC
         return contents
