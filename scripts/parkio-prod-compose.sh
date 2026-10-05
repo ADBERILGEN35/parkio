@@ -59,6 +59,11 @@ cd "$ROOT"
 source "$ROOT/scripts/lib/web-map-guard.sh"
 # shellcheck source=lib/web-conf-d-guard.sh
 source "$ROOT/scripts/lib/web-conf-d-guard.sh"
+# H2 (owner decision 2026-10-05): the same model then goes to the API endpoint check. The web image
+# must call the API the env intends (web's VITE_API_BASE_URL build argument, on PARKIO_DOMAIN). It
+# has no break-glass, so it runs even when both checks above are skipped.
+# shellcheck source=lib/web-api-endpoint-guard.sh
+source "$ROOT/scripts/lib/web-api-endpoint-guard.sh"
 parkio_web_guard_split_args "$@"
 parkio_web_guard_decide
 if [ "$PWG_DECISION" = "refuse" ]; then
@@ -72,28 +77,29 @@ if [ "$PWG_DECISION" = "run" ]; then
   parkio_web_conf_d_skip_requested || conf_d_rc=$?
   if [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; then
     exit 1
-  elif [ "$map_rc" -ne 0 ] || [ "$conf_d_rc" -ne 0 ]; then
-    guard_dir="$(mktemp -d)"
-    chmod 700 "$guard_dir"
-    trap 'rm -rf "$guard_dir"' EXIT
-    # The rendered model contains interpolated env values: private dir, removed on exit.
-    docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" config --format json >"$guard_dir/model.json" \
-      || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
-    if [ "$map_rc" -ne 0 ]; then
-      parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
-        || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
-    fi
-    if [ "$conf_d_rc" -ne 0 ]; then
-      parkio_web_conf_d_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
-        || { echo "ERROR: web conf.d check failed; nothing was started" >&2; exit 1; }
-    fi
-    rm -f "$guard_dir/model.json"
-    if [ -f "$guard_dir/web-binding.yml" ]; then
-      rc=0
-      docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" -f "$guard_dir/web-binding.yml" \
-        "$PWG_SUBCMD" "${PWG_SUBARGS[@]}" || rc=$?
-      exit "$rc"
-    fi
+  fi
+  guard_dir="$(mktemp -d)"
+  chmod 700 "$guard_dir"
+  trap 'rm -rf "$guard_dir"' EXIT
+  # The rendered model contains interpolated env values: private dir, removed on exit.
+  docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" config --format json >"$guard_dir/model.json" \
+    || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
+  if [ "$map_rc" -ne 0 ]; then
+    parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
+      || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
+  fi
+  if [ "$conf_d_rc" -ne 0 ]; then
+    parkio_web_conf_d_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
+      || { echo "ERROR: web conf.d check failed; nothing was started" >&2; exit 1; }
+  fi
+  parkio_web_api_endpoint_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
+    || { echo "ERROR: web API endpoint check failed; nothing was started" >&2; exit 1; }
+  rm -f "$guard_dir/model.json"
+  if [ -f "$guard_dir/web-binding.yml" ]; then
+    rc=0
+    docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" -f "$guard_dir/web-binding.yml" \
+      "$PWG_SUBCMD" "${PWG_SUBARGS[@]}" || rc=$?
+    exit "$rc"
   fi
 fi
 exec docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "$@"

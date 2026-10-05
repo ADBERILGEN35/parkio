@@ -113,6 +113,18 @@ The check has its own break-glass, `PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHEC
 default. The map guard's break-glass `PARKIO_SKIP_WEB_MAP_GUARD` does not skip it: without a binding,
 the check inspects the image the model names (owner decision 4, 2026-10-05).
 
+**Web API endpoint check (H2, owner decision 2026-10-05).** Hosted-beta must not silently use
+production's API.
+- **Where it runs.** After the two checks above, on the same rendered model: `scripts/parkio-prod-compose.sh` for every command that can start web, and `parkio_compose_up` for the hosted-beta profile (deploy and rollback). It is `scripts/lib/web_api_endpoint_guard.py`.
+- **Intended endpoint.** Web's `VITE_API_BASE_URL` build argument in the model, which comes from the env file. When the model sets `PARKIO_DOMAIN` (Caddy), the endpoint's host must be that domain.
+- **Inspection.** It creates the bound image, or the model's image when the map guard's break-glass left no binding, with `--pull never --network none`, without starting it. It copies `/usr/share/nginx/html` out and reads the `VITE_API_BASE_URL` that Vite inlined, without executing anything.
+- **Comparison.** Scheme, host, port and path must be equal. The case of the scheme and host, a default port and a trailing slash are ignored.
+- **Refusal.** A different endpoint, a model without one, an endpoint off `PARKIO_DOMAIN`, an unreadable bundle, or a missing or ambiguous baked URL stops the command before anything starts.
+- **No break-glass.** Neither `PARKIO_SKIP_WEB_MAP_GUARD` nor `PARKIO_SKIP_WEB_CONF_D_CHECK` skips it.
+- **Limit.** When the map guard's break-glass leaves no binding, Compose can still pull or build another web image during `up`. The conf.d check has the same limit.
+- **Scope.** Invite-production and the deprecated Azure profile are not covered.
+- **Tests.** `scripts/test_web_api_endpoint_guard.py` (the guard), `scripts/test_web_api_endpoint_models.py` (the real hosted-beta and Civo models with their example env files) and `scripts/test-guard-web-synthetic-map-deploy.sh` (the wrapper and `parkio_compose_up`, including a real Docker case).
+
 **Release step.** The current Civo pin predates #198. Move it before the first deploy that
 includes this change; until then the deploy commands refuse to start web.
 

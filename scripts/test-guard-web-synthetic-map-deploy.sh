@@ -146,6 +146,8 @@ bundle() {
   local env_pre='const e={BASE_URL:"/",DEV:!1,MODE:"production",PROD:!0,SSR:!1,VITE_API_BASE_URL:"https://api.parkio.dev/api/v1",VITE_APP_ENV:"hosted-beta",'
   case "$kind" in
     good) echo "${env_pre}VITE_MAPTILER_KEY:\"${GOOD_KEY}\",VITE_MAPTILER_STYLE:\"streets-v2\"};export{e};" >"$html/assets/index-a1.js" ;;
+    # H2: the same valid bundle, built for the beta API.
+    good-beta-api) echo "${env_pre//api.parkio.dev/api.beta.example.com}VITE_MAPTILER_KEY:\"${GOOD_KEY}\",VITE_MAPTILER_STYLE:\"streets-v2\"};export{e};" >"$html/assets/index-a1.js" ;;
     synthetic) echo "${env_pre}VITE_MAPTILER_KEY:\"ci-web-build-security-synthetic\"};" >"$html/assets/index-a1.js" ;;
     synthetic-suffixed) echo "${env_pre}VITE_MAPTILER_KEY:\"ci-web-build-security-synthetic-run42\"};" >"$html/assets/index-a1.js" ;;
     sentinel) echo "${env_pre}VITE_MAPTILER_KEY:\"SECRET_SENTINEL_MAPTILER_PUBLIC_KEY\"};" >"$html/assets/index-a1.js" ;;
@@ -207,16 +209,21 @@ PY
 cfg_id() { printf 'sha256:%064d' "$1"; }
 dig() { printf 'sha256:%s' "$(printf '%s' "$1" | sha256sum | cut -c1-64)"; }
 
+# Rendered models carry web's VITE_API_BASE_URL build argument from the env, as the real ones do
+# (hosted-beta.yml requires it). The fixture bundles bake this one (H2 API endpoint check).
+PROD_API="https://api.parkio.dev/api/v1"
+BETA_API="https://api.beta.example.com/api/v1"
+
 # compose_model_conf_d IMAGE: a web service with a tmpfs at /etc/nginx/conf.d (B8b)
 compose_model_conf_d() {
-  printf '{"services":{"gateway-service":{"image":"gw:1"},"web":{"image":"%s","tmpfs":["/etc/nginx/conf.d:size=1m,mode=755"]}}}\n' "$1" >"$FAKE/compose-config.json"
+  printf '{"services":{"gateway-service":{"image":"gw:1"},"web":{"image":"%s","build":{"args":{"VITE_API_BASE_URL":"%s"}},"tmpfs":["/etc/nginx/conf.d:size=1m,mode=755"]}}}\n' "$1" "$PROD_API" >"$FAKE/compose-config.json"
 }
 
 compose_model() { # compose_model IMAGE|-  (- = no web service)
   if [ "$1" = "-" ]; then
     echo '{"services":{"gateway-service":{"image":"gw:1"}}}' >"$FAKE/compose-config.json"
   else
-    printf '{"services":{"gateway-service":{"image":"gw:1"},"web":{"image":"%s"}}}\n' "$1" >"$FAKE/compose-config.json"
+    printf '{"services":{"gateway-service":{"image":"gw:1"},"web":{"image":"%s","build":{"args":{"VITE_API_BASE_URL":"%s"}}}}}\n' "$1" "$PROD_API" >"$FAKE/compose-config.json"
   fi
 }
 
@@ -688,6 +695,82 @@ done
 # ---------------------------------------------------------------------------
 # Part B: real docker daemon with tiny fixture images
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# H2 (owner decision 2026-10-05): the web image must call the API the env intends
+# ---------------------------------------------------------------------------
+echo "--- web API endpoint check (scripts/lib/web_api_endpoint_guard.py) ---"
+fake_image "$REPO:beta-api" "$(cfg_id 90)" linux/amd64 "" good-beta-api
+# compose_model_api IMAGE [INTENDED_URL|-] [DOMAIN]: web with that VITE_API_BASE_URL build argument
+# (- = none), plus Caddy with PARKIO_DOMAIN when a domain is given.
+compose_model_api() {
+  python3 - "$FAKE/compose-config.json" "$1" "${2:-$PROD_API}" "${3:-}" <<'PY'
+import json, sys
+out, image, intended, domain = sys.argv[1:5]
+web = {"image": image}
+if intended != "-":
+    web["build"] = {"args": {"VITE_API_BASE_URL": intended}}
+services = {"gateway-service": {"image": "gw:1"}, "web": web}
+if domain:
+    services["caddy"] = {"image": "caddy:2", "environment": {"PARKIO_DOMAIN": domain}}
+json.dump({"services": services}, open(out, "w"))
+PY
+}
+api_reason() { # api_reason NAME FIXED_TEXT
+  if grep -qF -- "$2" "$TMP/err"; then pass "$1: names the reason"; else bad "$1: '$2' not in the error output"; fi
+}
+SKIP_MAP=I_ACCEPT_UNVERIFIED_WEB_IMAGE
+SKIP_CONF_D=I_ACCEPT_UNCHECKED_WEB_CONF_D
+
+# The Civo production wrapper: every call that can start web is checked.
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+wrapper 1 no "wrapper: production web image with a beta env is refused before compose up" up -d --no-build --no-deps web
+api_reason "wrapper: production image, beta env" "built to call $PROD_API, but this deploy's env intends $BETA_API"
+fake_reset; compose_model_api "$REPO:beta-api" "$PROD_API" api.parkio.dev
+wrapper 1 no "wrapper: beta web image with the production env is refused before compose up" up -d --no-build --no-deps web
+api_reason "wrapper: beta image, production env" "built to call $BETA_API, but this deploy's env intends $PROD_API"
+fake_reset; compose_model_api "$REPO:good-tag" "$PROD_API" api.parkio.dev
+wrapper 0 yes "wrapper: a web image built for the env's API starts" up -d --no-build --no-deps web
+if grep -qF "web-api-endpoint-guard: PASS" "$TMP/out"; then pass "wrapper: the match is reported"; else bad "wrapper: the match is reported"; fi
+fake_reset; compose_model_api "$REPO:good-tag" "HTTPS://API.parkio.dev:443/api/v1/" API.PARKIO.DEV
+wrapper 0 yes "wrapper: scheme and host case, the default port and a trailing slash do not matter" up -d --no-build --no-deps web
+fake_reset; compose_model_api "$REPO:good-tag" -
+wrapper 1 no "wrapper: a model without VITE_API_BASE_URL (env omitted) is refused" up -d --no-build --no-deps web
+api_reason "wrapper: env omitted" "sets no VITE_API_BASE_URL"
+fake_reset; compose_model_api "$REPO:good-tag" "$PROD_API" api.beta.example.com
+wrapper 1 no "wrapper: VITE_API_BASE_URL on another host than PARKIO_DOMAIN is refused" up -d --no-build --no-deps web
+api_reason "wrapper: endpoint off PARKIO_DOMAIN" "does not point at its PARKIO_DOMAIN"
+fake_reset; compose_model_api "$REPO:no-html" "$PROD_API"
+PARKIO_SKIP_WEB_MAP_GUARD="$SKIP_MAP" wrapper 1 no "wrapper: an unreadable bundle is refused, also with the map guard skipped" up -d --no-build --no-deps web
+api_reason "wrapper: unreadable bundle" "cannot copy /usr/share/nginx/html out of"
+fake_reset; compose_model_api "$REPO:no-env" "$PROD_API"
+PARKIO_SKIP_WEB_MAP_GUARD="$SKIP_MAP" wrapper 1 no "wrapper: a bundle without an inlined API base URL is refused" up -d --no-build --no-deps web
+api_reason "wrapper: no inlined API base URL" "inlines no VITE_API_BASE_URL"
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+PARKIO_SKIP_WEB_MAP_GUARD="$SKIP_MAP" PARKIO_SKIP_WEB_CONF_D_CHECK="$SKIP_CONF_D" \
+  wrapper 1 no "wrapper: with both break-glasses set, the API endpoint check still refuses" up -d --no-build --no-deps web
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+wrapper 0 yes "wrapper: a call that cannot start web is not checked" up -d --no-build --no-deps gateway-service
+
+# The hosted-beta deploy and rollback start containers only through parkio_compose_up (checked
+# above); for the hosted-beta profile it runs the same check.
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta compose_up 1 no "hosted-beta deploy/rollback: production web image with a beta env is refused" web
+fake_reset; compose_model_api "$REPO:beta-api" "$PROD_API" api.parkio.dev
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta compose_up 1 no "hosted-beta deploy/rollback: beta web image with the production env is refused" web
+fake_reset; compose_model_api "$REPO:beta-api" "$BETA_API" api.beta.example.com
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta compose_up 0 yes "hosted-beta deploy/rollback: a web image built for the env's API starts" web
+fake_reset; compose_model_api "$REPO:good-tag" -
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta compose_up 1 no "hosted-beta deploy/rollback: a model without VITE_API_BASE_URL is refused" web
+fake_reset; compose_model_api "$REPO:no-html" "$PROD_API"
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta PARKIO_SKIP_WEB_MAP_GUARD="$SKIP_MAP" \
+  compose_up 1 no "hosted-beta deploy/rollback: an unreadable bundle is refused, also with the map guard skipped" web
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+PARKIO_DEPLOYMENT_PROFILE=hosted-beta PARKIO_SKIP_WEB_MAP_GUARD="$SKIP_MAP" PARKIO_SKIP_WEB_CONF_D_CHECK="$SKIP_CONF_D" \
+  compose_up 1 no "hosted-beta deploy/rollback: with both break-glasses set, the API endpoint check still refuses" web
+# Outside H2's scope: other profiles keep their existing checks only.
+fake_reset; compose_model_api "$REPO:good-tag" "$BETA_API" api.beta.example.com
+PARKIO_DEPLOYMENT_PROFILE=invite-production compose_up 0 yes "invite-production: the API endpoint check is not applied (H2 covers hosted-beta)" web
+
 echo "=== Part B: real docker fixtures ==="
 if docker version >/dev/null 2>&1 && [ "${PARKIO_GUARD_TEST_REAL_DOCKER:-1}" != "0" ]; then
   TAG="parkio-web-map-guard-test"
@@ -787,6 +870,8 @@ services:
     network_mode: none
     build:
       context: $C/bad
+      args:
+        VITE_API_BASE_URL: $PROD_API
 YML
   }
   rel_base="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$C/base.yml" "$ROOT")"
@@ -871,6 +956,13 @@ YML
   reset_c
   DOCKER_DEFAULT_PLATFORM=linux/arm64 wrap_c up -d --no-build --no-deps web
   blocked_before_compose "DOCKER_DEFAULT_PLATFORM differing from the verified image is blocked by the guard before Compose" "DOCKER_DEFAULT_PLATFORM=linux/arm64 differs"
+
+  # H2: an operator overlay intends the beta API; the verified production image is refused, through
+  # the real docker create/cp of the bundle.
+  reset_c; printf 'services:\n  web:\n    build:\n      args:\n        VITE_API_BASE_URL: %s\n' "$BETA_API" >"$C/ov-api.yml"
+  wrap_c -f "$C/ov-api.yml" up -d --no-build --no-deps web
+  blocked_before_compose "a web image built for another API than the env intends is refused before Compose (H2)" \
+    "built to call $PROD_API, but this deploy's env intends $BETA_API"
 
   # C6 synthetic image selected: nothing is created.
   reset_c; base_model "pwg.invalid/web:bad-$PROJ"

@@ -410,13 +410,17 @@ parkio_validate_azure_disabled_services() {
 # rendered model then goes to the conf.d check (B8b, scripts/lib/web_conf_d_guard.py).
 # Each check has its own default-off break-glass: PARKIO_SKIP_WEB_MAP_GUARD skips the map guard and
 # the binding (the conf.d check then inspects the model's web image); PARKIO_SKIP_WEB_CONF_D_CHECK
-# skips only the conf.d check.
+# skips only the conf.d check. For the hosted-beta profile, the API endpoint check (H2,
+# scripts/lib/web_api_endpoint_guard.py) then requires the web image to call the API its env
+# intends. It has no break-glass, so the model is rendered even when both checks above are skipped.
 parkio_web_guard_before_up() {
-  local env_file="$1" binding_out="$2" map_rc=0 conf_d_rc=0 guard_dir rc=0
+  local env_file="$1" binding_out="$2" map_rc=0 conf_d_rc=0 guard_dir rc=0 api_check=0
   # shellcheck source=web-map-guard.sh
   source "$(parkio_repo_root)/scripts/lib/web-map-guard.sh"
   # shellcheck source=web-conf-d-guard.sh
   source "$(parkio_repo_root)/scripts/lib/web-conf-d-guard.sh"
+  # shellcheck source=web-api-endpoint-guard.sh
+  source "$(parkio_repo_root)/scripts/lib/web-api-endpoint-guard.sh"
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
     parkio_web_guard_split_args up -d "${PARKIO_RUNTIME_SERVICES[@]}"
   else
@@ -427,7 +431,8 @@ parkio_web_guard_before_up() {
   parkio_web_guard_skip_requested || map_rc=$?
   parkio_web_conf_d_skip_requested || conf_d_rc=$?
   { [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; } && return 1
-  [ "$map_rc" -eq 0 ] && [ "$conf_d_rc" -eq 0 ] && return 0
+  [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "hosted-beta" ] && api_check=1
+  [ "$map_rc" -eq 0 ] && [ "$conf_d_rc" -eq 0 ] && [ "$api_check" -eq 0 ] && return 0
   guard_dir="$(mktemp -d)"
   chmod 700 "$guard_dir"
   if ! parkio_compose "$env_file" config --format json >"$guard_dir/model.json"; then
@@ -447,6 +452,12 @@ parkio_web_guard_before_up() {
   if [ "$conf_d_rc" -ne 0 ] && ! parkio_web_conf_d_check "$guard_dir/model.json" "$binding_out"; then
     rm -rf "$guard_dir"
     echo "ERROR: web conf.d check failed; nothing was started" >&2
+    return 1
+  fi
+  # H2: a web image built for another API than this env intends is refused (no break-glass).
+  if [ "$api_check" -eq 1 ] && ! parkio_web_api_endpoint_check "$guard_dir/model.json" "$binding_out"; then
+    rm -rf "$guard_dir"
+    echo "ERROR: web API endpoint check failed; nothing was started" >&2
     return 1
   fi
   rm -rf "$guard_dir"
