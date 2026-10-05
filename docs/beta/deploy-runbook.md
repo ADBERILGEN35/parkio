@@ -222,7 +222,7 @@ running `deploy-hosted-beta.sh` by hand.
   - Stopping them is an operator decision. That includes promtail with its Docker socket mount: see "What remains exposed" in `docs/architecture/docker-socket-proxy-design.md`.
 - **Registration settings.** `auth-service` now receives `PARKIO_REGISTRATION_*` from the env file.
   - The old model passed none, so auth ran with its defaults (mode `closed`).
-  - Check the registration values in the env file first: `docker/.env.hosted-beta.example` sets `PARKIO_REGISTRATION_MODE=open`.
+  - Check the registration values in the host's env file first. The examples keep registration closed (owner decision, 2026-10-05); it opens only with an explicit `PARKIO_REGISTRATION_MODE=open`.
 - **Production settings.** Tracing off, memory limits, Kafka heap, the production Prometheus command, and parking-service's municipal and ranking settings with their production defaults.
 - **Service and image names.**
   - The unpinned services run as `parkio-<service>`.
