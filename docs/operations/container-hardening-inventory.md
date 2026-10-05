@@ -54,6 +54,15 @@ root and needs them to prepare a data directory or switch to its service user.
    proxy needs a new pinned image (image publication is outside this change), and file-based
    collection from `/var/lib/docker/containers` changes the Loki labels that dashboards and
    alerts use. Until then the guard allows the socket for promtail only.
+   - **`Config.Env` exposure (owner decision 5, 2026-10-05).** Through the Docker API, promtail can
+     read every container's environment, secrets included. A socket proxy cannot filter that
+     (`../architecture/docker-socket-proxy-design.md`, "What remains exposed").
+   - The exposure is accepted only for the current non-production promtail setup: the default
+     development stack and CI.
+   - The hosted-beta deploy profile is not covered. It is a supported deployment path (CL-F12,
+     decision 1b), and it starts promtail with the socket today, so its exposure stays open.
+   - Production enablement stays blocked until a secrets-exposure solution has been reviewed.
+   - This records the state. It changes no live configuration and closes no operational criterion.
 2. **node-exporter shares the host PID namespace** and mounts `/`, `/proc` and `/sys` read-only
    for host metrics; it runs as nobody with no capabilities.
 3. **Root-start images stay root-start** (PostgreSQL, Redis, ClamAV, nginx, Caddy, MinIO, mc,
