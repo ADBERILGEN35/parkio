@@ -287,6 +287,7 @@ class Trial:
             jars[label] = jar
             build["jar_sha256"] = sha256(jar)
             build["jar_entries"] = len(jar_contents(jar) or {})
+            self.keep_sbom(service, label, jar)
         report["byte_identical_cold"] = jars["baseline-cold"] == jars["cache-cold"]
         report["byte_identical_warm"] = jars["cache-warm"] == jars["baseline-warm"]
         report["problems"].extend(evaluate(jars, marker))
@@ -294,6 +295,14 @@ class Trial:
         report["seconds_saved_cold"] = round(times["baseline-cold"] - times["cache-cold"], 1)
         report["seconds_saved_warm"] = round(times["baseline-warm"] - times["cache-warm"], 1)
         return report
+
+    def keep_sbom(self, service: str, label: str, jar: bytes) -> None:
+        """Keeps each build's embedded SBOM next to the report, so a difference can be read."""
+        try:
+            with zipfile.ZipFile(io.BytesIO(jar)) as archive:
+                (self.out / f"{service}-{label}.bom.json").write_bytes(archive.read(SBOM))
+        except (KeyError, zipfile.BadZipFile):
+            pass
 
     def cleanup(self) -> None:
         for tag in self.tags:
