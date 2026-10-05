@@ -12,8 +12,9 @@
 #       * IMAGE_VERSION, IMAGE_REVISION and IMAGE_CREATED.
 #     The remaining differences from a release build, also listed in provenance.json:
 #       * VITE_MAPTILER_KEY is synthetic, so no secret is needed and nothing real is baked. Only its
-#         12-hex SHA-256 fingerprint is recorded. The map style and tiles never load (the suites
-#         abort third-party hosts anyway), so the MapLibre attribution is not measured here.
+#         12-hex SHA-256 fingerprint is recorded. The MapTiler style and tiles never load (the suites
+#         abort third-party hosts anyway), so the style's credits (MapTiler, OpenStreetMap) are not
+#         shown or measured here. The attribution control and MapLibre's credit are.
 #       * IMAGE_VERSION is candidate-<sha12> instead of the v* tag, and IMAGE_CREATED is this
 #         build's time.
 #       * The build calls `docker buildx build` itself; release calls it through
@@ -248,7 +249,8 @@ for line in (out / "suites.tsv").read_text().splitlines():
 
 differences = [
     "VITE_MAPTILER_KEY is synthetic (fingerprint in build.maptiler_key); release bakes the WEB_MAPTILER_KEY "
-    "secret. The map style and tiles do not load, so the MapLibre attribution is not measured.",
+    "secret. The MapTiler style and tiles do not load, so the style's credits (MapTiler, OpenStreetMap) are "
+    "not measured; the attribution control and MapLibre's credit are.",
     f"IMAGE_VERSION is {image_version}; release uses the v* tag. IMAGE_CREATED is this build's time.",
     "Built by `docker buildx build` directly; release runs it through docker/build-push-action with the same "
     "builder setup (docker/setup-buildx-action in CI).",
