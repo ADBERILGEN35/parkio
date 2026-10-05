@@ -107,9 +107,17 @@ parkio_configure_deployment_profile() {
 
   case "$requested" in
     hosted-beta)
-      PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml"
+      # CL-F12, owner decision 1b: a supported deployment path while hosted-beta-deploy.yml uses it.
+      # Deploy, rollback and DR render docker/compose.production.files exactly, so the model keeps
+      # the digest pins and the auth registration settings production carries. Deploy builds only
+      # the services the list does not pin, and rollback re-points those to their recorded tags
+      # (parkio_hosted_beta_image_plan); a pin is rolled back by reverting its pin file. The Civo
+      # wrapper renders the same list plus its Civo-host-specific Alertmanager overlay, so the two
+      # rendered models differ by that overlay. The Azure overlay in the list puts these four
+      # services in an inactive profile.
+      PARKIO_COMPOSE_FILES="$(parkio_canonical_compose_files)" || return 2
       PARKIO_RUNTIME_SERVICES=()
-      PARKIO_DISABLED_SERVICES=()
+      PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       ;;
     azure-hosted-beta)
       # The file set comes from docker/compose.production.files, the list
@@ -211,6 +219,83 @@ parkio_production_compose_files() {
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     printf '%s\n' "$line"
   done < "$list"
+}
+
+# The canonical production list as Compose -f arguments, exactly as docker/compose.production.files
+# names it. The hosted-beta profile renders it for deploy, rollback and DR (CL-F12 decision 1b).
+parkio_canonical_compose_files() {
+  local files="" file production_files
+  production_files="$(parkio_production_compose_files)" || return 2
+  while IFS= read -r file; do
+    files="${files} -f ${file}"
+  done <<< "$production_files"
+  printf '%s\n' "${files# }"
+}
+
+# For the hosted-beta profile: how the rendered model gets each app service's image. Prints one
+# line per app service, in PARKIO_APP_SERVICES order, tab-separated:
+#   built  <service> <image> <platform>  the model builds it with no digest pin. <image> is the
+#                                        model's image name, or <project>-<service> as Compose
+#                                        names a build-only service.
+#   pinned <service> <image> <platform>  the model runs this digest-pinned image.
+# <platform> is the model's platform, or "-". Fails when an app service is missing from the model,
+# or runs an image it neither builds nor pins by digest.
+parkio_hosted_beta_image_plan() {
+  local env_file="$1" model rc=0
+  model="$(mktemp)"
+  chmod 600 "$model"
+  # The rendered model holds interpolated env values: private file, removed below.
+  if ! parkio_compose "$env_file" config --format json >"$model"; then
+    rm -f "$model"
+    echo "ERROR: cannot render the compose model to plan the hosted-beta images" >&2
+    return 1
+  fi
+  python3 - "$model" "${PARKIO_APP_SERVICES[@]}" <<'PY' || rc=$?
+import json, sys
+model = json.load(open(sys.argv[1]))
+project = model.get("name")
+services = model.get("services") or {}
+lines, problems = [], []
+for name in sys.argv[2:]:
+    service = services.get(name)
+    if not isinstance(service, dict):
+        problems.append(f"{name} is not in the model")
+        continue
+    image = service.get("image") or ""
+    platform = service.get("platform") or "-"
+    if "@sha256:" in image:
+        lines.append(f"pinned\t{name}\t{image}\t{platform}")
+    elif service.get("build") and (image or project):
+        lines.append(f"built\t{name}\t{image or project + '-' + name}\t{platform}")
+    else:
+        problems.append(f"{name} runs {image or 'no image'} that the model neither builds nor pins by digest")
+if problems:
+    print("ERROR: hosted-beta image plan: " + "; ".join(problems), file=sys.stderr)
+    sys.exit(1)
+print("\n".join(lines))
+PY
+  rm -f "$model"
+  return "$rc"
+}
+
+# A digest-pinned image must be present before `up --no-build` and the web map guard, which never
+# pulls. Pulls it when it is missing, and fails when it is still missing.
+parkio_ensure_pinned_image() {
+  local svc="$1" image="$2" platform="${3:--}"
+  if docker image inspect "$image" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Pulling the pinned $svc image $image..."
+  local pull_args=(pull)
+  [ "$platform" != "-" ] && pull_args+=(--platform "$platform")
+  if ! docker "${pull_args[@]}" "$image"; then
+    echo "ERROR: cannot pull the pinned $svc image $image. The host needs read access to its registry." >&2
+    return 1
+  fi
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "ERROR: the pinned $svc image $image is not present after the pull" >&2
+    return 1
+  fi
 }
 
 # The azure-hosted-beta (production) deploy/rollback file set as -f arguments: the
@@ -380,10 +465,13 @@ parkio_compose_up() {
   if [ -f "$binding_dir/web-binding.yml" ]; then
     PARKIO_COMPOSE_FILES="$PARKIO_COMPOSE_FILES -f $binding_dir/web-binding.yml"
   fi
+  # PARKIO_COMPOSE_UP_NO_BUILD=1 (hosted-beta deploy and rollback) forbids Compose from building anything.
+  local up_args=(up -d)
+  [ "${PARKIO_COMPOSE_UP_NO_BUILD:-0}" = "1" ] && up_args+=(--no-build)
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -gt 0 ]; then
-    parkio_compose "$env_file" up -d "${PARKIO_RUNTIME_SERVICES[@]}" || rc=$?
+    parkio_compose "$env_file" "${up_args[@]}" "${PARKIO_RUNTIME_SERVICES[@]}" || rc=$?
   else
-    parkio_compose "$env_file" up -d || rc=$?
+    parkio_compose "$env_file" "${up_args[@]}" || rc=$?
   fi
   rm -rf "$binding_dir"
   return "$rc"
@@ -429,7 +517,11 @@ parkio_disabled_services_json() {
 
 parkio_image_digests_json() {
   local image_tag="$1" out="{" first=1 svc ref digest
-  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+  shift
+  # Optional service names: the hosted-beta profile records only the services it builds.
+  local services=("${PARKIO_APP_SERVICES[@]}")
+  [ "$#" -gt 0 ] && services=("$@")
+  for svc in "${services[@]}"; do
     ref="$(parkio_image_ref "$svc" "$image_tag")"
     digest="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)"
     if [ "$first" -eq 1 ]; then first=0; else out+=","; fi
@@ -578,7 +670,9 @@ parkio_write_manifest() {
   local version="$9"
   local previous_manifest="${10:-}"
   local compose_structure_path="${11:-}"
-  local compose_files_json compose_structure_json images_json image_digests_json migrations_json runtime_services_json disabled_services_json feature_flags_json effective_feature_configuration_json svc first rollback_target
+  local compose_files_json compose_structure_json images_json image_digests_json pinned_images_json migrations_json runtime_services_json disabled_services_json feature_flags_json effective_feature_configuration_json svc first rollback_target
+  local plan kind image platform
+  local image_services=("${PARKIO_APP_SERVICES[@]}")
   local requested_dark_gateway_input raw_dark_gateway_input_blank effective_dark_gateway_url dark_gateway_input_source
 
   requested_dark_gateway_input="${PARKIO_REQUESTED_DARK_GATEWAY_URL_INPUT_EVIDENCE:-}"
@@ -600,7 +694,32 @@ parkio_write_manifest() {
   migrations_json="$(parkio_migration_versions_json)"
   runtime_services_json="$(parkio_runtime_services_json)"
   disabled_services_json="$(parkio_disabled_services_json)"
-  image_digests_json="$(parkio_image_digests_json "$image_tag")"
+  # hosted-beta (CL-F12): `images` lists only the services the model builds, under the tags this
+  # deploy gives them and a rollback re-points to; `pinnedImages` lists the digest pins it runs.
+  pinned_images_json="null"
+  if [ "$PARKIO_DEPLOYMENT_PROFILE" = "hosted-beta" ]; then
+    plan="${PARKIO_HOSTED_BETA_IMAGE_PLAN:-}"
+    if [ -z "$plan" ]; then
+      plan="$(parkio_hosted_beta_image_plan "$env_file")" || return 2
+    fi
+    image_services=()
+    pinned_images_json="{"
+    first=1
+    while IFS=$'\t' read -r kind svc image platform; do
+      case "$kind" in
+        built) image_services+=("$svc") ;;
+        pinned)
+          if [ "$first" -eq 1 ]; then first=0; else pinned_images_json+=","; fi
+          pinned_images_json+="\"${svc}\":\"${image}\""
+          ;;
+      esac
+    done <<< "$plan"
+    pinned_images_json+="}"
+  fi
+  image_digests_json="{}"
+  if [ "${#image_services[@]}" -gt 0 ]; then
+    image_digests_json="$(parkio_image_digests_json "$image_tag" "${image_services[@]}")"
+  fi
   feature_flags_json="$(parkio_feature_flags_json "$env_file")"
   effective_feature_configuration_json="null"
   if [ "$PARKIO_DEPLOYMENT_PROFILE" = "invite-production" ]; then
@@ -622,7 +741,7 @@ parkio_write_manifest() {
   fi
   images_json="{"
   first=1
-  for svc in "${PARKIO_APP_SERVICES[@]}"; do
+  for svc in "${image_services[@]}"; do
     if [ "$first" -eq 1 ]; then first=0; else images_json+=","; fi
     images_json+="\"${svc}\":\"$(parkio_image_ref "$svc" "$image_tag")\""
   done
@@ -661,6 +780,7 @@ parkio_write_manifest() {
     --argjson composeStructure "$compose_structure_json" \
     --argjson images "$images_json" \
     --argjson imageDigests "$image_digests_json" \
+    --argjson pinnedImages "$pinned_images_json" \
     --argjson migrationVersions "$migrations_json" \
     --argjson featureFlags "$feature_flags_json" \
     --argjson effectiveFeatureConfiguration "$effective_feature_configuration_json" \
@@ -690,7 +810,8 @@ parkio_write_manifest() {
       disabledServices: $disabledServices,
       migrationNote: "Flyway runs automatically on service startup (readiness requires successful migrate). migrationVersions lists scripts present in source at deploy time.",
       rollbackCommand: ("PARKIO_DEPLOYMENT_PROFILE=" + $deploymentProfile + " PARKIO_ENV_FILE=" + $envProfile + " " + $rollbackScript + " --manifest " + $rollbackTarget)
-    } + (if $requestedDarkGatewayUrlInput == "" then {} else {
+    } + (if $pinnedImages == null then {} else { pinnedImages: $pinnedImages } end)
+      + (if $requestedDarkGatewayUrlInput == "" then {} else {
       requestedDarkGatewayUrlInput: $requestedDarkGatewayUrlInput,
       rawDarkGatewayInputBlank: ($rawDarkGatewayInputBlank == "true"),
       effectiveDarkGatewayUrl: $effectiveDarkGatewayUrl,
