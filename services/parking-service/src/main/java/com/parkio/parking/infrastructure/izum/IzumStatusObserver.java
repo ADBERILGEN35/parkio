@@ -14,16 +14,18 @@ import org.springframework.stereotype.Component;
 
 /**
  * Makes IZUM statuses outside the known vocabulary visible to operators (CL-F22, owner decision
- * 2026-10-05). Only {@code Closed} (any case) closes a car park ({@link IzumNormalizer#isClosed}),
- * and {@code Opened} is the only other value the feed has shown. The provider's full vocabulary is
- * not verified, so any other value, or none, keeps today's behaviour: the car park stays open. No
- * aliases are assumed. This class observes and never changes what is published:
+ * 2026-10-05). Only {@code Closed} (any case) closes a car park ({@link IzumNormalizer#isClosed}).
+ * The repository's recorded IZUM fixture holds only {@code Opened} (12 of 12 records): a sample,
+ * not live monitoring. The provider's vocabulary is not verified, so any other value, or none, keeps
+ * today's behaviour: the car park stays open. No aliases are assumed. This class observes and never
+ * changes what is published:
  * <ul>
  *   <li>{@value #METRIC} counts each sync run's valid records whose status is unrecognised or
  *       missing. Its labels are {@code source_key} and {@code kind} only, never the value.</li>
- *   <li>The first time a value is seen after start, one WARN line names it, sanitised: control,
- *       format and separator characters become {@code ?}, and it is capped at
- *       {@value #MAX_LOGGED_LENGTH} characters. At most {@value #MAX_REMEMBERED_VALUES} values are
+ *   <li>The first time a value is seen after start, one WARN line names it, sanitised: ISO control
+ *       characters and the Unicode categories format (Cf), line and paragraph separator (Zl, Zp),
+ *       surrogate (Cs), private use (Co) and unassigned (Cn) become {@code ?}, and it is capped at
+ *       {@value #MAX_LOGGED_LENGTH} code points. At most {@value #MAX_REMEMBERED_VALUES} values are
  *       remembered; later new values are counted, and one line says they are no longer logged.</li>
  * </ul>
  */

@@ -43,8 +43,9 @@ public class IzumNormalizer {
      * A car park reported closed, or one without a free-space count, has no occupancy to publish: the
      * reading is stored as UNAVAILABLE (CL-F22), keeping its counts and capacity for the record.
      * Only an explicit {@code Closed} status (any case) closes it (owner decision 2026-10-05, no
-     * aliases). The feed has shown only {@code Opened} otherwise; its full status vocabulary is not
-     * verified, so any other value keeps today's behaviour, and {@link IzumStatusObserver} reports it.
+     * aliases). The repository's recorded fixture holds only {@code Opened} (12 of 12 records, a sample,
+     * not live monitoring); the provider's status vocabulary is not verified, so any other value keeps
+     * today's behaviour, and {@link IzumStatusObserver} reports it.
      */
     public NormalizedMunicipalOccupancy occupancy(IzumParkingRecordDto record, Instant fetchedAt) {
         IzumParkingRecordDto.Total total = record.occupancy().total();
