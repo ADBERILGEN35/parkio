@@ -92,20 +92,44 @@ class ContainerScanStepsTest(unittest.TestCase):
                 self.assertNotEqual(leave([name for name in names if name != missing]), 0)
         self.assertNotEqual(leave(names, empty={"trivy-image-x-library.sarif"}), 0)
 
-    def test_library_findings_with_a_fix_fail_after_both_reports_are_written(self):
-        # A fake docker plays Trivy with findings: it writes the report and exits with --exit-code.
+    def run_library_pass(self):
+        # A fake docker plays Trivy with findings: it records its arguments, writes the report and exits
+        # with --exit-code.
         bin_dir = self.dir / "bin"
         bin_dir.mkdir()
         fake = bin_dir / "docker"
-        fake.write_text('#!/usr/bin/env bash\nout=""; code=0\n'
+        fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" >>calls.log\necho "--end--" >>calls.log\n'
+                        'out=""; code=0\n'
                         'while [ $# -gt 0 ]; do case "$1" in --output) out="$2"; shift;; --exit-code) code="$2"; shift;; esac; shift; done\n'
                         'echo "HIGH finding with a fix" >"$out"\nexit "$code"\n')
         fake.chmod(0o755)
+        code = self.run_step(LIBRARY, bin_dir)
+        calls = [call.strip("\n").split("\n") for call in (self.dir / "calls.log").read_text().split("--end--\n") if call.strip()]
+        return code, calls
 
-        self.assertNotEqual(self.run_step(LIBRARY, bin_dir), 0)
+    def test_library_findings_with_a_fix_fail_after_both_reports_are_written(self):
+        code, _ = self.run_library_pass()
+
+        self.assertNotEqual(code, 0)
         self.assertTrue((self.dir / "trivy-image-x-library.txt").is_file())
         self.assertTrue((self.dir / "trivy-image-x-library.sarif").is_file())
 
+    def test_the_library_pass_keeps_the_s1_policy(self):
+        """R2-2: library packages only, HIGH and CRITICAL with a fix, the ignore file, and SARIF blocks."""
+        _, calls = self.run_library_pass()
+
+        def value(call, flag):
+            return call[call.index(flag) + 1] if flag in call else None
+
+        self.assertEqual([value(call, "--format") for call in calls], ["table", "sarif"])
+        for call in calls:
+            with self.subTest(format=value(call, "--format")):
+                self.assertEqual(value(call, "--pkg-types"), "library")
+                self.assertEqual(value(call, "--severity"), "HIGH,CRITICAL")
+                self.assertIn("--ignore-unfixed", call)
+                self.assertEqual(value(call, "--ignorefile"), ".trivyignore.yaml")
+                self.assertEqual(value(call, "--scanners"), "vuln")
+        self.assertEqual([value(call, "--exit-code") for call in calls], ["0", "1"])
 
 if __name__ == "__main__":
     unittest.main()
