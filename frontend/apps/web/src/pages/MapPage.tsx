@@ -17,7 +17,7 @@ import {
   MapSearchSkeleton,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -127,6 +127,37 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/** Gap in px between the phone top overlay and the expanded sheet. */
+const SHEET_TOP_GAP = 8;
+
+/**
+ * The space the phone bottom sheet leaves free at the top of the page for `overlay`: the overlay's
+ * bottom edge plus a small gap, kept current as the overlay or the page resizes. It never takes the
+ * sheet's always-visible peek, however tall the overlay grows (e.g. an open destination search).
+ */
+function useSheetTopInset(overlay: HTMLElement | null): number {
+  const [inset, setInset] = useState(0);
+  useLayoutEffect(() => {
+    if (!overlay) {
+      setInset(0);
+      return;
+    }
+    const page = overlay.offsetParent as HTMLElement | null;
+    const measure = () => {
+      const bottom = overlay.offsetTop + overlay.offsetHeight + SHEET_TOP_GAP;
+      const limit = page ? page.clientHeight - COLLAPSED_PEEK : bottom;
+      setInset(Math.max(0, Math.min(bottom, limit)));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(overlay);
+    if (page) observer.observe(page);
+    return () => observer.disconnect();
+  }, [overlay]);
+  return inset;
+}
+
 /**
  * Map Experience V4 (`/map`): a map-first product. Full-bleed map canvas with a
  * floating glass search overlay, floating map controls, and a discovery surface
@@ -220,6 +251,13 @@ export function MapPage({
     persistedMapUiState.municipalLayerVisible,
   );
   const [sheetState, setSheetState] = useState<SheetState>('collapsed');
+  // The sidebar and the sheet cover every corner of the map canvas, so the map's attribution is shown in
+  // them instead: in the sidebar's footer, or in the sheet's always-visible peek (Asana 1219145771874977).
+  const [attributionTarget, setAttributionTarget] = useState<HTMLElement | null>(null);
+  // On phones the expanded sheet stops below the page's own top overlay (search, quick actions, alerts),
+  // so the overlay cannot cover the sheet's handle or the attribution in its peek.
+  const [phoneTopOverlay, setPhoneTopOverlay] = useState<HTMLElement | null>(null);
+  const sheetTopInset = useSheetTopInset(phoneTopOverlay);
   /** Visual emphasis for the parked-car marker (card stays non-dismissible). */
   const [parkedCarSelected, setParkedCarSelected] = useState(false);
   const [parkedCarFocusRequest, setParkedCarFocusRequest] =
@@ -998,6 +1036,7 @@ export function MapPage({
             }
             parkedCar={parkedCarCoords}
             parkedCarSelected={parkedCarSelected}
+            attributionTarget={attributionTarget}
             onSelectParkedCar={() => {
               setSelectionOrigin('map');
               focusParkedCar();
@@ -1130,7 +1169,7 @@ export function MapPage({
           </div>
         </div>
       ) : (
-        <div className="pointer-events-none absolute inset-x-0 top-sm z-[1100] px-sm">
+        <div ref={setPhoneTopOverlay} className="pointer-events-none absolute inset-x-0 top-sm z-[1100] px-sm">
           <div className="pointer-events-auto mx-auto flex max-w-[430px] flex-col gap-xs">
             <div className="flex items-center gap-xs rounded-full border border-outline-variant/30 bg-surface/90 p-xs shadow-deep backdrop-blur-xl">
               {smartParkingAssistantEnabled && !assistant.destination && !assistant.searchOpen ? (
@@ -1383,8 +1422,9 @@ export function MapPage({
           aria-label={t('sheet.searchResultsAria')}
           className="pointer-events-none absolute bottom-0 right-0 top-0 z-[1050] flex w-[400px] flex-col"
         >
-          <div className="pointer-events-auto flex h-full min-h-0 flex-col gap-sm overflow-y-auto glass-panel p-md shadow-sheet-left animate-slide-in-right rounded-l-[2rem] hide-scrollbar">
-            {discovery}
+          <div className="pointer-events-auto flex h-full min-h-0 flex-col glass-panel shadow-sheet-left animate-slide-in-right rounded-l-[2rem]">
+            <div className="flex min-h-0 flex-1 flex-col gap-sm overflow-y-auto p-md hide-scrollbar">{discovery}</div>
+            <div ref={setAttributionTarget} data-testid="map-attribution" className="shrink-0 px-md pb-sm" />
           </div>
         </aside>
       ) : (
@@ -1393,6 +1433,8 @@ export function MapPage({
           onStateChange={setSheetState}
           ariaLabel={t('sheet.searchResultsAria')}
           handleAriaLabel={t('sheet.handleAria', { state: t(`sheet.state.${sheetState}`) })}
+          peekFooter={<div ref={setAttributionTarget} data-testid="map-attribution" />}
+          topInset={sheetTopInset}
           summary={
             <span
               className="block truncate text-label-md font-semibold text-on-surface"
