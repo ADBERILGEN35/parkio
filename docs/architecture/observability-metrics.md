@@ -104,6 +104,8 @@ Micrometer component: `MunicipalSourceMetrics`. Labels bounded to `source_key`,
 | `parkio.municipal.sync.retries_exhausted` | counter | Final FAILED runs after client retries (bounded `error_category`). |
 | `parkio.municipal.sync.reconciliation_skipped` | counter | Runs whose feed was smaller than the active set and was not reconciled: the incomplete-snapshot guard skipped it, or invalid rows made it untrustworthy (`reason=incomplete_snapshot`, İZUM; CL-F22). |
 | `parkio.municipal.sync.consecutive_incomplete_snapshots` | gauge | Such runs in a row, reset by a completed run without one; in memory, 0 after a restart. Alert `MunicipalIzumIncompleteSnapshotsRepeated` at 3. |
+| `parkio.municipal.sync.unchanged_feed_seconds` | gauge | İZUM and İSPARK: seconds the feed has repeated its previous run unchanged, as of the last completed run; 0 after a change. In memory, so after a restart it counts from the previous run. Operator only: public freshness does not use it (CL-F22, owner option C). |
+| `parkio.municipal.sync.unchanged_feed_threshold_seconds` | gauge | The configured `unchanged-feed-alert-after` per source (default 4h; 0 disables). Alert `MunicipalFeedUnchangedTooLong` fires when the age reaches it. |
 | `parkio.municipal.source.consecutive_failures` | gauge | Trailing FAILED streak; labels `source_key`, `source_mode` (İZUM + OSM). |
 | `parkio.municipal.source.seconds_since_success` | gauge | Seconds since last SUCCESS/PARTIAL_SUCCESS (`-1` if never); observational for OPERATOR_IMPORTED when mode-aware SLA is on. |
 | `parkio.municipal.source.last_success_unixtime` | gauge | Last success unix epoch (`-1` if never). |
