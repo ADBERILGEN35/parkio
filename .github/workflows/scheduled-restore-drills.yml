@@ -16,7 +16,7 @@ on:
   schedule:
     - cron: "23 4 * * 1"
     - cron: "17 3 * * *"
-    - cron: "23 3 * * 1"
+    - cron: "23 3 * * *"
     - cron: "41 4 * * 1"
     - cron: "41 5 * * 1"
     - cron: "47 5 * * 3"
@@ -129,7 +129,7 @@ jobs:
             dispatch_one backend-integration.yml
           fi
           # Weekly security / supply-chain / runtime / staging / chaos / k6.
-          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * 1" ]; then
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * *" ]; then
             dispatch_one security-ci.yml
           fi
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 4 * * 1" ]; then
