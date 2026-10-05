@@ -141,18 +141,26 @@ else
   bad "caddy service definition was removed; PROD-DEPLOY-01B has no public edge"
 fi
 
-# The hosted-beta (non-dark) profile must still run Caddy.
+# The hosted-beta (non-dark) profile must still run Caddy. It is set up with the beta example: the
+# profile renders its model and refuses one it cannot render (#288), so the setup must succeed, and
+# a refusal cannot pass for "no caddy".
+caddy_rc=0
 (
   parkio_configure_deployment_profile /dev/null >/dev/null 2>&1 || true
   PARKIO_DEPLOYMENT_PROFILE=hosted-beta
-  parkio_configure_deployment_profile /dev/null >/dev/null 2>&1 || true
+  parkio_configure_deployment_profile docker/.env.hosted-beta.example >/dev/null 2>&1 || exit 2
   # hosted-beta uses an empty runtime list, i.e. "start everything", so Caddy
   # runs there exactly as before.
   if [ "${#PARKIO_RUNTIME_SERVICES[@]}" -eq 0 ]; then
     exit 0
   fi
   [[ " ${PARKIO_RUNTIME_SERVICES[*]} " == *" caddy "* ]]
-) && ok "non-dark profile still starts caddy" || bad "non-dark profile no longer starts caddy"
+) || caddy_rc=$?
+case "$caddy_rc" in
+  0) ok "non-dark profile still starts caddy" ;;
+  2) bad "the hosted-beta profile could not be set up with docker/.env.hosted-beta.example" ;;
+  *) bad "non-dark profile no longer starts caddy" ;;
+esac
 
 # Re-resolve the dark profile for the remaining checks.
 PARKIO_DEPLOYMENT_PROFILE=invite-production
