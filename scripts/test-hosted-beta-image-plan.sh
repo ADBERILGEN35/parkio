@@ -10,7 +10,7 @@
 #     keeps this checkout's pins, and starts with `up --no-build`, also for a manifest written
 #     before CL-F12 that recorded all eleven services;
 #   - rollback refuses, before it re-points or starts anything, a target that did not build a
-#     service the model builds, and a recorded image that is not present.
+#     service the model builds, a recorded image that is not present, and a pin it cannot pull.
 #
 # The scripts under test run from a temporary tree. The fake docker answers from a canned compose
 # model and records every call. The preflight, the smoke test and the web guards have their own
@@ -304,6 +304,10 @@ refused partial "a target that did not build analytics-service" "$partial" \
 rollback_state
 rm -f "$state/images/$(image_key "parkio/moderation-service:$TAG")"
 refused missing "a recorded image that is not present" "$manifest_a" "image not found locally: parkio/moderation-service:$TAG"
+rollback_state
+rm -f "$state/images/$(image_key "ghcr.io/example/parkio/web@$(digest 5)")"
+echo "ghcr.io/example/parkio/web@$(digest 5)" > "$state/pull-fails"
+refused pin "a pin that cannot be pulled" "$manifest_a" "cannot pull the pinned web image"
 
 if [ "$failures" -ne 0 ]; then
   echo "=== hosted-beta image plan: $failures FAILED ===" >&2
