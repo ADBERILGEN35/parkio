@@ -1,0 +1,106 @@
+# Candidate web image evidence (CL-F30, CX-F11; owner decision 2026-10-05, option C).
+#
+# Builds the web image as .github/workflows/release.yml builds it: frontend/apps/web/Dockerfile with
+# release's web build arguments from docker/web-hosted-beta.release-bake.env, including the bundle
+# gates VERIFY_REQUIRE_PUBLIC_EXPLORE and VERIFY_REQUIRE_MUNICIPAL, on a builder from the same pinned
+# setup-buildx-action. The remaining differences are a synthetic MapTiler key, the version label
+# (candidate-<sha12>), a direct `docker buildx build` instead of build-push-action, and no push;
+# scripts/web-candidate-evidence.sh lists them. The job runs that image on the runner's loopback and
+# runs the a11y-web and CX-F11 acceptance suites against it. It uploads the reports with
+# provenance.json (source, build inputs, builder and tools, image id, serving container, suite
+# results, run) and a SHA256SUMS. Nothing is pushed or published.
+#
+# It runs for every api commit that changes the web image's inputs, on demand, and on pull requests
+# that change the evidence job itself. Feature pull requests already run the same suites on the dev
+# server in Frontend CI. A release tag gets its evidence from a dispatch on the tag, or by matching
+# provenance.json's source.web_inputs (docs/releases/HOSTED-BETA-WEB-BAKE.md).
+
+name: Web candidate image evidence
+
+on:
+  push:
+    branches: [api]
+    paths:
+      - "frontend/**"
+      - "docker/web-hosted-beta.release-bake.env"
+      - ".dockerignore"
+      - ".github/workflows/release.yml"
+      - "scripts/web-candidate-evidence.sh"
+      - ".github/workflows/web-candidate-evidence.yml"
+  pull_request:
+    branches: [api]
+    paths:
+      - "scripts/web-candidate-evidence.sh"
+      - ".github/workflows/web-candidate-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-candidate-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    name: Candidate image evidence (a11y, CX-F11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Third-party npm code and Playwright run in this job; keep the token out of .git/config.
+          persist-credentials: false
+
+      # Installs the pnpm version pinned in frontend/package.json ("packageManager").
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install focused browser
+        run: pnpm --dir frontend --filter @parkio/web exec playwright install --with-deps chromium
+
+      # The builder release.yml's image job uses: the same pinned action, docker-container driver.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build the candidate image and run the suites against it
+        env:
+          # The same repository variables and defaults as release.yml's web bake check.
+          WEB_APP_ENV: ${{ vars.WEB_APP_ENV || 'hosted-beta' }}
+          WEB_API_BASE_URL: ${{ vars.WEB_API_BASE_URL || 'https://api.parkio.dev/api/v1' }}
+          # Recorded in provenance.json; empty outside pull requests.
+          PARKIO_EVIDENCE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PARKIO_EVIDENCE_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/web-candidate-evidence.sh web-candidate-evidence
+
+      - name: Evidence summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f web-candidate-evidence/SUMMARY.md ]; then
+            cat web-candidate-evidence/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No evidence summary: the candidate image did not build or start." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload candidate evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-candidate-evidence-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: web-candidate-evidence/
+          retention-days: 90
+          if-no-files-found: error

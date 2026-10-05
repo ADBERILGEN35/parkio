@@ -159,14 +159,30 @@ const PAGES: WebPage[] = [
 ];
 
 /**
+ * Pages whose MapTiler style request was aborted. A built image bakes a MapTiler key, so its map style comes
+ * from api.maptiler.com, which these tests never reach. The dev server has no key and uses the inline
+ * OpenStreetMap fallback style instead.
+ */
+const mapTilerStyleAborted = new WeakSet<Page>();
+
+/**
  * /explore keeps MapLibre's own attribution control on its canvas, with the style's OpenStreetMap credit
  * and MapLibre's credit (#258 review B1: /map's detached credits must not remove it here). This server
  * runs with public explore on, so /explore shows its map; the default e2e server does not.
+ * The OpenStreetMap credit comes from the style. Against a built image (A11Y_WEB_URL) the MapTiler style is
+ * aborted, so its credits never load there: only the control and MapLibre's credit are checked, and the style
+ * must have been the aborted MapTiler one. Against the dev server it must be the fallback, with all three.
  */
 async function expectMapAttributionOnCanvas(page: Page) {
+  const builtImage = Boolean(process.env.A11Y_WEB_URL);
+  await expect
+    .poll(() => mapTilerStyleAborted.has(page), { message: 'explore: map style source (MapTiler only in a built image)' })
+    .toBe(builtImage);
   const attribution = page.locator('.maplibregl-canvas-container ~ .maplibregl-control-container .maplibregl-ctrl-attrib');
   await expect(attribution, 'explore: one attribution control on the map canvas').toHaveCount(1);
-  await expect(attribution.locator('a[href*="openstreetmap.org/copyright"]'), 'explore: OpenStreetMap credit').toHaveCount(1);
+  if (!builtImage) {
+    await expect(attribution.locator('a[href*="openstreetmap.org/copyright"]'), 'explore: OpenStreetMap credit').toHaveCount(1);
+  }
   await expect(attribution.locator('a[href^="https://maplibre.org"]'), 'explore: MapLibre credit').toHaveCount(1);
 }
 
@@ -178,7 +194,10 @@ async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmoc
     (url) => url.hostname !== 'localhost' && url.hostname !== '127.0.0.1',
     (route) => route.abort(),
   );
-  await page.route(/openstreetmap\.org|api\.maptiler\.com|fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
+  await page.route(/openstreetmap\.org|api\.maptiler\.com|fonts\.(googleapis|gstatic)\.com/, (route) => {
+    if (/^https:\/\/api\.maptiler\.com\/maps\/[^/]+\/style\.json/.test(route.request().url())) mapTilerStyleAborted.add(page);
+    return route.abort();
+  });
   await page.route('**/api/v1/**', async (route: Route) => {
     const request = route.request();
     const method = request.method();
