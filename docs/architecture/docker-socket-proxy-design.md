@@ -107,12 +107,17 @@ no port.
 
 **Owner decision (2026-10-05, decision 5): limited acceptance.** The `Config.Env` exposure below is
 accepted as a documented limitation only for the current non-production promtail setup: the default
-stack and the CI stacks that start promtail.
-- Production enablement of promtail with Docker API access stays blocked until a secrets-exposure
-  solution has been reviewed. Today no production model starts promtail: invite-production disables
-  it, and the Civo model has none.
+development stack and the CI stacks that start promtail.
+- **hosted-beta is not covered.**
+  - The hosted-beta deploy profile is a supported deployment path (CL-F12, owner decision 1b).
+  - A hosted-beta deploy starts promtail with the Docker socket today: `scripts/lib/deploy-common.sh`
+    disables no service for that profile, and `docker/docker-compose.hosted-beta.yml` keeps promtail.
+  - Its exposure stays open under the next rule.
+- **Production enablement of promtail stays blocked** until a secrets-exposure solution has been
+  reviewed. The invite-production models disable promtail, and the Civo and Azure models have none.
 - The candidate solutions are a filtering proxy that drops `Config.Env`, or file-based collection.
-- This acceptance closes no operational criterion. CL-F29.3 keeps its open items.
+- This text records the state. It changes no live configuration and closes no operational criterion;
+  CL-F29.3 keeps its open items.
 
 - **Container metadata, including secrets.** `GET /containers/{id}/json` returns every
   container's `Config.Env`, which holds secrets. A path allowlist cannot filter a response body.
