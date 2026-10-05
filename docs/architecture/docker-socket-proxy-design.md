@@ -105,8 +105,14 @@ no port.
 
 ## What remains exposed
 
-**Owner decision needed:** whether the `Config.Env` exposure below is acceptable for the stacks that
-run promtail, or which mitigation to take: a filtering proxy, or file-based collection.
+**Owner decision (2026-10-05, decision 5): limited acceptance.** The `Config.Env` exposure below is
+accepted as a documented limitation only for the current non-production promtail setup: the default
+stack and the CI stacks that start promtail.
+- Production enablement of promtail with Docker API access stays blocked until a secrets-exposure
+  solution has been reviewed. Today no production model starts promtail: invite-production disables
+  it, and the Civo model has none.
+- The candidate solutions are a filtering proxy that drops `Config.Env`, or file-based collection.
+- This acceptance closes no operational criterion. CL-F29.3 keeps its open items.
 
 - **Container metadata, including secrets.** `GET /containers/{id}/json` returns every
   container's `Config.Env`, which holds secrets. A path allowlist cannot filter a response body.
