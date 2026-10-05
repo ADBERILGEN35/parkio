@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.metrics;
 
 import com.parkio.parking.application.MunicipalSourceHealthService;
+import com.parkio.parking.externalsource.MunicipalFeedChange;
 import com.parkio.parking.externalsource.MunicipalOccupancyFreshness;
 import com.parkio.parking.externalsource.MunicipalSourceFailureCategory;
 import com.parkio.parking.externalsource.MunicipalSourceIdentity;
@@ -16,9 +17,13 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -28,6 +33,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class MunicipalSourceMetrics {
+    private static final Logger log = LoggerFactory.getLogger(MunicipalSourceMetrics.class);
     private static final String IZUM = IzumMunicipalParkingAdapter.SOURCE_KEY;
     private static final String ISPARK = IsparkMunicipalParkingAdapter.SOURCE_KEY;
     private static final String OSM = MunicipalSourceIdentity.OSM;
@@ -54,6 +60,10 @@ public class MunicipalSourceMetrics {
         registerSourceGauges(IZUM, MunicipalSourceOperatingMode.SCHEDULED, izum);
         registerSourceGauges(ISPARK, MunicipalSourceOperatingMode.SCHEDULED, ispark);
         registerSourceGauges(OSM, MunicipalSourceOperatingMode.OPERATOR_IMPORTED, osm);
+        registerUnchangedFeedGauges(IZUM, MunicipalSourceOperatingMode.SCHEDULED, izum,
+                properties == null ? null : properties.getIzum().getUnchangedFeedAlertAfter());
+        registerUnchangedFeedGauges(ISPARK, MunicipalSourceOperatingMode.SCHEDULED, ispark,
+                properties == null ? null : properties.getIspark().getUnchangedFeedAlertAfter());
         refreshFromHistory();
     }
 
@@ -110,6 +120,49 @@ public class MunicipalSourceMetrics {
                     .tag("source_mode", mode)
                     .tag("state", freshness.name())
                     .register(registry);
+        }
+    }
+
+    /**
+     * CL-F22 (owner option C), operator-only: how long a feed without source timestamps has repeated its
+     * previous run unchanged, and the configured alert threshold. Public freshness never depends on them.
+     */
+    private void registerUnchangedFeedGauges(
+            String sourceKey, MunicipalSourceOperatingMode defaultMode, SourceGaugeState state, Duration threshold) {
+        String mode = resolveModeLabel(sourceKey, defaultMode);
+        state.unchangedFeedThresholdSeconds.set(threshold == null ? 0 : Math.max(0, threshold.toSeconds()));
+        Gauge.builder("parkio.municipal.sync.unchanged_feed_seconds", state.unchangedFeedSeconds, AtomicLong::get)
+                .tag("source_key", sourceKey)
+                .tag("source_mode", mode)
+                .register(registry);
+        Gauge.builder("parkio.municipal.sync.unchanged_feed_threshold_seconds",
+                        state.unchangedFeedThresholdSeconds, AtomicLong::get)
+                .tag("source_key", sourceKey)
+                .tag("source_mode", mode)
+                .register(registry);
+    }
+
+    /**
+     * Turns the run's feed comparison into the unchanged-feed age. The age counts from the fetch time of
+     * the run the streak started after; kept in memory, so after a restart it restarts from the previous
+     * run. A changed feed resets it, and a run without a comparison (failed, or no occupancy) leaves it.
+     */
+    private void recordFeedChange(String sourceKey, SourceGaugeState state, MunicipalFeedChange change) {
+        if (!change.unchanged()) {
+            state.unchangedSince.set(null);
+            state.unchangedFeedSeconds.set(0);
+            state.unchangedThresholdLogged.set(false);
+            return;
+        }
+        Instant since = state.unchangedSince.updateAndGet(
+                current -> current != null ? current : change.previousRunFetchedAt());
+        long seconds = Math.max(0, Duration.between(since, change.fetchedAt()).toSeconds());
+        state.unchangedFeedSeconds.set(seconds);
+        long threshold = state.unchangedFeedThresholdSeconds.get();
+        if (threshold > 0 && seconds >= threshold && state.unchangedThresholdLogged.compareAndSet(false, true)) {
+            log.warn("municipal_sync_feed_unchanged_threshold sourceKey={} unchangedSince={} unchangedSeconds={} "
+                            + "thresholdSeconds={}",
+                    sourceKey, since, seconds, threshold);
         }
     }
 
@@ -178,6 +231,9 @@ public class MunicipalSourceMetrics {
                         || result.status() == MunicipalSyncRunStatus.PARTIAL_SUCCESS)) {
             // A completed run that did not skip ends the streak; a failed or skipped run says nothing.
             syncState.consecutiveIncompleteSnapshots.set(0);
+        }
+        if (syncState != null && result.feedChange() != null) {
+            recordFeedChange(sourceKey, syncState, result.feedChange());
         }
         if (result.status() == MunicipalSyncRunStatus.FAILED
                 && MunicipalSourceFailureCategory.isSchemaMismatchWire(error)) {
@@ -323,6 +379,10 @@ public class MunicipalSourceMetrics {
         private final AtomicInteger failuresInWindow = new AtomicInteger();
         private final AtomicInteger lastActiveLinkCount = new AtomicInteger();
         private final AtomicInteger consecutiveIncompleteSnapshots = new AtomicInteger();
+        private final AtomicReference<Instant> unchangedSince = new AtomicReference<>();
+        private final AtomicLong unchangedFeedSeconds = new AtomicLong();
+        private final AtomicLong unchangedFeedThresholdSeconds = new AtomicLong();
+        private final AtomicBoolean unchangedThresholdLogged = new AtomicBoolean();
         private final AtomicReference<MunicipalSourceOperationalState> operationalState =
                 new AtomicReference<>(MunicipalSourceOperationalState.UNKNOWN);
         private final AtomicReference<MunicipalOccupancyFreshness> occupancyFreshness =

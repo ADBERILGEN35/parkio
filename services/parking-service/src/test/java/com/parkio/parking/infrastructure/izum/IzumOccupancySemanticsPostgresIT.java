@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.izum;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -14,7 +15,9 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
@@ -31,8 +34,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * CL-F22 (d) on PostGIS, through the real İZUM sync: a car park reported closed or without a free count
- * is stored UNAVAILABLE, published without spaces, and not counted as exposed in the quality report.
+ * CL-F22 on PostGIS, through the real İZUM sync:
+ * <ul>
+ *   <li>(c), owner option C: a feed that repeats its previous run is reported to operators, while its
+ *       readings keep their fetch time, so public freshness and the quality report are as before;</li>
+ *   <li>(d): a car park reported closed or without a free count is stored UNAVAILABLE, published without
+ *       spaces, and not counted as exposed in the quality report.</li>
+ * </ul>
  * The İZUM endpoint is a local stub serving the repository's synthetic fixture; nothing leaves the
  * machine.
  */
@@ -91,16 +99,35 @@ class IzumOccupancySemanticsPostgresIT {
     }
 
     @Test
-    void closedOrCountLessCarParksAreStoredUnavailableAndNeverPublished() throws Exception {
+    void unchangedFeedsAreReportedWithoutAgingAndClosedOrCountLessCarParksAreUnavailable() throws Exception {
         byte[] sample = fixture("/fixtures/municipal/izum/otoparklar-sample.json");
         RESPONSE_BODY.set(sample);
 
         sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        Instant firstRun = latestFetchedAt();
         long readings = count("SELECT count(*) " + LATEST_RUN);
         assertThat(readings).isPositive();
         assertThat(count("SELECT count(*) " + LATEST_RUN + " AND occupancy_status = 'LIVE'")).isEqualTo(readings);
+        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at IS NULL")).isEqualTo(readings);
 
-        // One record closes, another loses its free count: those two are stored UNAVAILABLE.
+        // Same records, same raw hashes: the run reports the repeat for the operator metric, and every
+        // reading still carries only its own fetch time (owner option C: no static-equals-stale).
+        var repeated = sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        Instant secondRun = latestFetchedAt();
+        assertThat(secondRun).isAfter(firstRun);
+        assertThat(repeated.feedChange().unchanged()).isTrue();
+        assertThat(repeated.feedChange().previousRunFetchedAt()).isEqualTo(firstRun);
+        // The run's own fetch time is the in-memory clock value; the stored one is rounded to microseconds.
+        assertThat(repeated.feedChange().fetchedAt()).isCloseTo(secondRun, within(1, ChronoUnit.MILLIS));
+        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at IS NULL")).isEqualTo(readings);
+        // Public freshness and the quality report are as on api: with the aging threshold exactly at the
+        // second run's fetch, the readings are LIVE.
+        var unchanged = qualityReport.countIzumFreshnessBuckets(10, 900, secondRun.plusSeconds(10));
+        assertThat(unchanged.live()).isEqualTo(readings);
+        assertThat(unchanged.aging()).isZero();
+
+        // One record closes, another loses its free count: the feed moved, and those two are stored
+        // UNAVAILABLE.
         ArrayNode changed = (ArrayNode) mapper.readTree(sample);
         ObjectNode closedRecord = (ObjectNode) changed.get(0);
         ObjectNode countLessRecord = (ObjectNode) changed.get(1);
@@ -109,6 +136,7 @@ class IzumOccupancySemanticsPostgresIT {
         RESPONSE_BODY.set(mapper.writeValueAsBytes(changed));
 
         sync.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);
+        assertThat(count("SELECT count(*) " + LATEST_RUN + " AND source_observed_at IS NULL")).isEqualTo(readings);
         String closedUfid = closedRecord.get("ufid").asText();
         String countLessUfid = countLessRecord.get("ufid").asText();
         assertThat(statusOf(closedUfid)).isEqualTo("UNAVAILABLE");
@@ -136,6 +164,11 @@ class IzumOccupancySemanticsPostgresIT {
                 .satisfies(p -> assertThat(p.izumAvailabilityExposed()).isFalse());
         assertThat(projections).filteredOn(p -> p.facilityId().equals(openId)).singleElement()
                 .satisfies(p -> assertThat(p.izumAvailabilityExposed()).isTrue());
+    }
+
+    private Instant latestFetchedAt() {
+        return jdbc.queryForObject("SELECT max(fetched_at) FROM municipal_occupancy_snapshots", Timestamp.class)
+                .toInstant();
     }
 
     private long count(String sql, Object... args) {

@@ -182,7 +182,7 @@ parkio_configure_deployment_profile() {
 
 # Owner decision B7 (2026-10-03): the canonical wrapper, scripts/parkio-prod-compose.sh with
 # docker/compose.production.files, is the supported production path. The azure-hosted-beta
-# deploy/rollback path keeps working for existing environments but is deprecated; this only
+# deploy/rollback path is left unchanged for existing environments but is deprecated; this only
 # warns, so nothing that runs today changes behaviour.
 parkio_warn_deprecated_production_path() {
   if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "azure-hosted-beta" ]; then

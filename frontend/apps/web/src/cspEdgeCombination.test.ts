@@ -12,11 +12,12 @@ import { describe, expect, it } from 'vitest';
  * - without the edge, the image's policy applies;
  * - an edge that passes both makes browsers enforce both.
  *
- * The image renders connect-src at start from the same inputs as Caddy
- * (docker/15-parkio-web-csp.envsh). This test renders both policies from the repository files
- * for one deployment and checks three things: the image is equal to or stricter than Caddy in
- * every directive, connect-src is identical, and every case lets the SPA reach its origins and
- * nothing else. Runtime validation checks the live headers.
+ * The image renders connect-src at start from the same inputs as Caddy, and img-src from
+ * connect-src (docker/15-parkio-web-csp.envsh). This test renders both policies from the
+ * repository files for one deployment and checks four things: the image is equal to or stricter
+ * than Caddy in every directive, connect-src is identical, every case lets the SPA reach its
+ * origins and nothing else, and the image shows its own, uploaded, media and map images but no
+ * third-party image (CL-F39.2). Runtime validation checks the live headers.
  */
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(appDir, '../../..');
@@ -32,8 +33,8 @@ const APP_ORIGIN = 'https://app.parkio.test';
 
 type Policy = Map<string, string[]>;
 
-function runEnvsh(env: Record<string, string>) {
-  return spawnSync('sh', ['-c', '. "$0"; printf "%s" "$PARKIO_WEB_CSP_CONNECT_SRC"', envsh], {
+function runEnvsh(env: Record<string, string>, variable = 'PARKIO_WEB_CSP_CONNECT_SRC') {
+  return spawnSync('sh', ['-c', `. "$0"; printf "%s" "$${variable}"`, envsh], {
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
     encoding: 'utf8',
   });
@@ -43,9 +44,13 @@ function imagePolicy(env: Record<string, string>): Policy {
   const template = readFileSync(resolve(appDir, 'nginx.conf'), 'utf8');
   const raw = /add_header Content-Security-Policy "([^"]+)" always;/.exec(template)?.[1];
   if (!raw) throw new Error('no Content-Security-Policy in nginx.conf');
-  const rendered = runEnvsh(env);
-  if (rendered.status !== 0) throw new Error(`envsh failed: ${rendered.stderr}`);
-  return parse(raw.replaceAll('${PARKIO_WEB_CSP_CONNECT_SRC}', rendered.stdout));
+  let policy = raw;
+  for (const variable of ['PARKIO_WEB_CSP_CONNECT_SRC', 'PARKIO_WEB_CSP_IMG_SRC']) {
+    const rendered = runEnvsh(env, variable);
+    if (rendered.status !== 0) throw new Error(`envsh failed: ${rendered.stderr}`);
+    policy = policy.replaceAll(`\${${variable}}`, rendered.stdout);
+  }
+  return parse(policy);
 }
 
 function caddyPolicy(env: Record<string, string>): Policy {
@@ -129,6 +134,19 @@ describe.skipIf(!hasSh)('web image CSP against the Caddy edge CSP (B9)', () => {
     expect(image.get('connect-src')).toEqual(caddy.get('connect-src'));
   });
 
+  it('renders the image img-src from connect-src without an https: wildcard (CL-F39.2)', () => {
+    const image = imagePolicy(DEPLOYMENT);
+
+    expect(image.get('img-src')).toEqual([
+      "'self'",
+      'data:',
+      'blob:',
+      'https://api.parkio.test',
+      'https://media.parkio.test',
+      'https://api.maptiler.com',
+    ]);
+  });
+
   it('is equal to or stricter than Caddy in every directive', () => {
     const image = imagePolicy(DEPLOYMENT);
     const caddy = caddyPolicy(DEPLOYMENT);
@@ -174,6 +192,33 @@ describe.skipIf(!hasSh)('web image CSP against the Caddy edge CSP (B9)', () => {
     // The image keeps worker-src stricter than Caddy ('self' without blob:).
     expect(effective(image, 'worker-src')).toEqual(["'self'"]);
   });
+
+  it('shows the SPA its own, uploaded, media and map images and no third-party image under the image policy', () => {
+    const image = imagePolicy(DEPLOYMENT);
+    const caddy = caddyPolicy(DEPLOYMENT);
+    // Caddy's img-src lives in docker/, which a frontend change does not touch; its narrowing is
+    // checked by Runtime validation at the edge. The image is equal or stricter (test above).
+    const cases: Record<string, Policy[]> = { image: [image], both: [image, caddy] };
+
+    for (const [name, policies] of Object.entries(cases)) {
+      for (const url of [
+        `${APP_ORIGIN}/brand/parkio-mark.svg`,
+        'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E',
+        `blob:${APP_ORIGIN}/6f9619ff-8b86-4d01-b42d-00cf4fc964ff`,
+        'https://media.parkio.test/parkio-media/spot-photo.jpg?X-Amz-Signature=synthetic',
+        'https://api.maptiler.com/maps/streets-v2/sprite.png',
+      ]) {
+        expect(allowedBy(policies, 'img-src', url), `${name}: ${url}`).toBe(true);
+      }
+      for (const url of [
+        'https://images.unsplash.com/photo-1547463981-8edaded9702b',
+        'https://evil.example/pixel.gif',
+        'http://media.parkio.test/parkio-media/spot-photo.jpg',
+      ]) {
+        expect(allowedBy(policies, 'img-src', url), `${name}: ${url}`).toBe(false);
+      }
+    }
+  });
 });
 
 describe.skipIf(!hasSh)('15-parkio-web-csp.envsh', () => {
@@ -182,6 +227,9 @@ describe.skipIf(!hasSh)('15-parkio-web-csp.envsh', () => {
 
     expect(run.status).toBe(0);
     expect(run.stdout).toBe("'self' https://api.parkio.test https://media.parkio.test https://api.maptiler.com");
+    expect(runEnvsh({ PARKIO_DOMAIN: 'api.parkio.test', PARKIO_MEDIA_DOMAIN: 'media.parkio.test' }, 'PARKIO_WEB_CSP_IMG_SRC').stdout).toBe(
+      "'self' data: blob: https://api.parkio.test https://media.parkio.test https://api.maptiler.com",
+    );
   });
 
   it('uses an explicit connect-src as given for a run without the edge', () => {
@@ -189,6 +237,19 @@ describe.skipIf(!hasSh)('15-parkio-web-csp.envsh', () => {
 
     expect(run.status).toBe(0);
     expect(run.stdout).toBe("'self' http://localhost:8080");
+    expect(runEnvsh({ PARKIO_WEB_CSP_CONNECT_SRC: "'self' http://localhost:8080" }, 'PARKIO_WEB_CSP_IMG_SRC').stdout).toBe(
+      "'self' data: blob: http://localhost:8080",
+    );
+  });
+
+  it('always derives img-src from connect-src, so a value passed in cannot widen it', () => {
+    const run = runEnvsh(
+      { PARKIO_WEB_CSP_CONNECT_SRC: "'self' https://api.parkio.test", PARKIO_WEB_CSP_IMG_SRC: 'https:' },
+      'PARKIO_WEB_CSP_IMG_SRC',
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe("'self' data: blob: https://api.parkio.test");
   });
 
   it.each([

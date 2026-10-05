@@ -6,11 +6,17 @@ import { makeMunicipalFacility } from '@/test/municipalFixtures';
 import { renderWithProviders } from '@/test/utils';
 import { NearbySpotsMap } from './NearbySpotsMap';
 
+// The props each render passed to the stubbed map, for the attribution checks.
+const mapProps = vi.hoisted(() => [] as Record<string, unknown>[]);
+
 // MapLibre/WebGL cannot run in jsdom. Stub react-map-gl with lightweight DOM so
 // the React-driven markers can be asserted without a real GL canvas.
 vi.mock('react-map-gl/maplibre', () => ({
   __esModule: true,
-  default: ({ children }: { children?: React.ReactNode }) => <div data-testid="map">{children}</div>,
+  default: ({ children, ...props }: { children?: React.ReactNode } & Record<string, unknown>) => {
+    mapProps.push(props);
+    return <div data-testid="map">{children}</div>;
+  },
   Marker: ({
     children,
     longitude,
@@ -70,6 +76,26 @@ describe('NearbySpotsMap', () => {
     ).toHaveAccessibleDescription('Use Tab to move to map markers. Selected community spot: First Spot');
     expect(screen.getByRole('status')).toHaveTextContent('Selected community spot: First Spot');
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('keeps the map its own attribution control unless the credits have a target (#258 review B1)', () => {
+    mapProps.length = 0;
+    renderWithProviders(
+      <NearbySpotsMap center={{ lat: 41, lng: 29 }} spots={spots} onPickCenter={() => undefined} />,
+    );
+    // No key at all: an explicit undefined would replace MapLibre's default control.
+    expect(mapProps.at(-1)).not.toHaveProperty('attributionControl');
+
+    mapProps.length = 0;
+    renderWithProviders(
+      <NearbySpotsMap
+        center={{ lat: 41, lng: 29 }}
+        spots={spots}
+        onPickCenter={() => undefined}
+        attributionTarget={document.createElement('div')}
+      />,
+    );
+    expect(mapProps.at(-1)).toHaveProperty('attributionControl', false);
   });
 
   it('renders a marker for each spot plus the search-center indicator', () => {

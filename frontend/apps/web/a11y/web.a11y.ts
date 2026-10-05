@@ -158,6 +158,18 @@ const PAGES: WebPage[] = [
   { name: 'reports', path: '/reports', signedIn: true, shows: 'The photo shows a different street.' },
 ];
 
+/**
+ * /explore keeps MapLibre's own attribution control on its canvas, with the style's OpenStreetMap credit
+ * and MapLibre's credit (#258 review B1: /map's detached credits must not remove it here). This server
+ * runs with public explore on, so /explore shows its map; the default e2e server does not.
+ */
+async function expectMapAttributionOnCanvas(page: Page) {
+  const attribution = page.locator('.maplibregl-canvas-container ~ .maplibregl-control-container .maplibregl-ctrl-attrib');
+  await expect(attribution, 'explore: one attribution control on the map canvas').toHaveCount(1);
+  await expect(attribution.locator('a[href*="openstreetmap.org/copyright"]'), 'explore: OpenStreetMap credit').toHaveCount(1);
+  await expect(attribution.locator('a[href^="https://maplibre.org"]'), 'explore: MapLibre credit').toHaveCount(1);
+}
+
 async function installMocks(page: Page, locale: Locale, signedIn: boolean, unmocked: string[]) {
   await page.addInitScript((value) => localStorage.setItem('parkio.locale', value), locale);
   // Nothing leaves the machine: every other host is aborted. Later routes take precedence, so the API
@@ -232,6 +244,7 @@ for (const locale of ['tr', 'en'] as const) {
         if (unmocked.length) testInfo.annotations.push({ type: 'unmocked', description: unmocked.join(', ') });
         // Verifying the address shows a success toast: measure all four rich toast colours first.
         if (target.name === 'verify-email') await measureToastPalette(page, testInfo, locale);
+        if (target.name === 'explore') await expectMapAttributionOnCanvas(page);
         await measurePage(page, testInfo, target.name, locale);
         await keyboardWalk(page, testInfo, target.name, locale, 150);
         // A 404 from an unmocked call would put the page in an empty or error state: the measurement

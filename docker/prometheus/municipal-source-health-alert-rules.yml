@@ -123,6 +123,28 @@ groups:
           operator_action: Runbook’u açın; senkron loglarında municipal_sync_skip_reconcile_incomplete_snapshot satırlarını ve aktif bağlantı sayısını kontrol edin.
           runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
 
+      # --- Unchanged feed (CL-F22, owner option C), operator only: a feed without source timestamps
+      # (İZUM, İSPARK) has repeated its previous run unchanged for at least the source's configured
+      # threshold (parkio.municipal.<source>.unchanged-feed-alert-after, default 4h; 0 disables it).
+      # Public freshness and counts are not affected. The age is kept in memory, so after a restart it
+      # counts from the previous run again.
+      - alert: MunicipalFeedUnchangedTooLong
+        expr: |
+          max by (source_key) (parkio_municipal_sync_unchanged_feed_seconds)
+            >= on(source_key) max by (source_key) (parkio_municipal_sync_unchanged_feed_threshold_seconds)
+          and on(source_key) max by (source_key) (parkio_municipal_sync_unchanged_feed_threshold_seconds) > 0
+          and on(source_key) max by (source_key) (parkio_municipal_source_operational_state{state="DISABLED"}) == 0
+        for: 1m
+        labels:
+          severity: warning
+          owner: parking
+          source_mode: SCHEDULED
+        annotations:
+          summary: '{{ $labels.source_key }} beslemesi uzun süredir değişmedi'
+          description: '{{ $labels.source_key }} beslemesi {{ $value | humanizeDuration }} süredir bir önceki çalıştırmayla birebir aynı kayıtları döndürüyor. Kamuya açık tazelik ve sayılar etkilenmez; kaynak tarafında donmuş bir önbellek olabilir.'
+          operator_action: Runbook’u açın; municipal_sync_feed_unchanged_threshold log satırını ve kaynağın kendi API yanıtını kontrol edin.
+          runbook_url: https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/municipal-parking-source-runbook.md
+
       # --- SCHEDULED source (İSPARK): same SLA windows as İZUM (2-minute fixedDelay) ---
       # Warning age 600s ≈ 5 missed cycles; critical 1800s ≈ 15 missed cycles.
       # for: 5m avoids paging on a single transient upstream blip.
