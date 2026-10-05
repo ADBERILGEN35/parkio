@@ -30,4 +30,14 @@ describe('MunicipalFacilityMarker', () => {
     );
     expect(screen.getByTestId('municipal-facility-marker')).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it("lets the pointer through the selected marker's halo only when asked (fanned-out markers)", () => {
+    const { rerender } = renderWithProviders(
+      <MunicipalFacilityMarker facility={makeMunicipalFacility()} selected inertHalo onSelect={() => undefined} />,
+    );
+    expect(screen.getByTestId('municipal-facility-marker-halo')).toHaveClass('pointer-events-none');
+
+    rerender(<MunicipalFacilityMarker facility={makeMunicipalFacility()} selected onSelect={() => undefined} />);
+    expect(screen.getByTestId('municipal-facility-marker-halo')).not.toHaveClass('pointer-events-none');
+  });
 });

@@ -104,6 +104,8 @@ export function PublicExplorePage() {
   const summaryRef = useRef<HTMLDivElement>(null);
   const emptyStatusRef = useRef<HTMLParagraphElement>(null);
   const listFallbackRef = useRef<HTMLElement>(null);
+  /** The search and discovery stack over the top of the map: framing and fanned markers stay below it. */
+  const topOverlayRef = useRef<HTMLDivElement>(null);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
   /** Autocomplete open — hide competing discovery chrome (presentation only). */
   const [searchInteractionActive, setSearchInteractionActive] = useState(false);
@@ -334,7 +336,10 @@ export function PublicExplorePage() {
 
         {showMap ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm px-md pt-md md:max-w-[440px] md:items-start">
+            <div
+              ref={topOverlayRef}
+              className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-stretch gap-sm px-md pt-md md:max-w-[440px] md:items-start"
+            >
               <div
                 data-testid="public-explore-destination-search"
                 className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-sm shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
@@ -562,6 +567,8 @@ export function PublicExplorePage() {
                 ariaLabel={t('explore:mapAria')}
                 ariaDescription={t('explore:mapDescription')}
                 onStyleUnavailable={() => setMapUnavailable(true)}
+                fanOutMunicipalMarkers
+                topOverlayRef={topOverlayRef}
               />
             </Suspense>
 

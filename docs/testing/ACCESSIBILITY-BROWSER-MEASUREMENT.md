@@ -42,7 +42,7 @@ Later commits change only the measurement harness and this document, not the web
 | `/verify-email?token=…` | no | pass | pass | The success toast is measured with all four toast palettes. Focus cycles while the toast is open (see Observations). |
 | `/terms` | no | pass | pass | Reached by in-app navigation. A direct request is redirected by nginx to the marketing site, measured below. |
 | `/privacy` | no | pass | pass | As `/terms`. |
-| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. The two synthetic car parks lie within the query's 5 km of the default origin, as the API returns them. One known `target-size` entry, the release image's attribution text link (see Known issues). No `main` landmark (best practice; see Observations). |
+| `/explore` | no | pass | pass | Measured with the public-explore flag on (map and two synthetic car parks) since the #229 follow-up, as in the release images. The two synthetic car parks lie within the query's 5 km of the default origin, as the API returns them. Dense, coincident and top-edge car parks are measured separately at 1280x720 and 360x800 (Asana 1219147334320125, below). One known `target-size` entry, the release image's attribution text link (see Known issues). No `main` landmark (best practice; see Observations). |
 | `/map` | yes | pass | pass | No `h1` (best practice). |
 | `/upload` | yes | pass | pass | |
 | `/profile` | yes | pass | pass | |
@@ -127,16 +127,29 @@ Per-page JSON results land in `frontend/apps/web/test-results/a11y/`; `e2e:a11y`
 |---|---|---|---|
 | `/explore` (release image) | `target-size` | `a[href$="maplibre.org/"]` | With the release bake and a MapTiler key, the attribution line can show a 14 px high "MapLibre" text link. WCAG 2.5.8 exempts targets inline in a line of text, and the line carries the map data credits MapTiler and OpenStreetMap require, but axe measures the link. The dev server, which has no MapTiler key, does not report it. |
 
-### Asana 1219147334320125: one fixed, one open
+### Asana 1219147334320125: target size on /explore
 
-Two further `target-size` issues showed up on `/explore` once it was measured with the public-explore flag on.
+Two further `target-size` issues showed up on `/explore` once it was measured with the public-explore flag on. Both are fixed; the MapLibre text link stays documented in the table above.
 
 - **Attribution toggle under the zoom rail: fixed.** At desktop width, MapLibre's attribution toggle sat under the floating zoom rail's zoom-out button, so only 24x6 px of it could be clicked.
   - On `/explore` at desktop width the rail now sits 3rem up (`md:bottom-12`).
   - `/map` keeps its rail beside the results sidebar, and phones are unchanged.
   - The failure returns if the change is reverted.
-- **Overlapping markers: open, needs an owner decision.** The failure this suite measured came from its mocks. The synthetic car parks were in Istanbul, 330 km from the explore query's İzmir origin, so the map framed both cities and the two markers covered each other. The mocks are now within the query's 5 km, about 3 km apart, the shape the API returns.
-  - The product still has the overlap. The 12 real İzmir car parks of the İZUM test fixture, near the default origin, overlap after framing.
-  - Some are only 120–212 m apart, for example "04 Ziya Gökalp" and its neighbours. Markers are 40x40 px and the frame sits at about zoom 13–15, so markers that close cover each other.
-  - axe reports `partiallyObscured` markers at 1280x720, 360x800 and 390x844, but none at 1440x900 or 1920x1080 (#248 review B1).
-  - Clustering or collision handling is the open owner decision. This suite, with its mocks 3 km apart, does not see the overlap.
+- **Overlapping markers: fixed (owner decision 2026-10-05: fan-out on `/explore` only).** The failure this suite first measured came from its mocks: Istanbul car parks 330 km from the İzmir origin. The product had the overlap too. Real İzmir car parks of the İZUM test fixture, some 120–212 m apart, covered each other after framing at 1280x720, 360x800 and 390x844 (#248 review B1). Car parks at one point covered each other at every zoom.
+  - **Fan-out.** Markers whose 40×40 px boxes would come within 6 px of each other, or share a point, are drawn on a small ring around their group's centre, in the API's order.
+    - A decorative dot and line tie each moved marker to its true location.
+    - Only the drawn marker moves, by a pixel offset. Coordinates, accessible names, selection, the Tab order and navigation are unchanged.
+    - The focused or selected marker is drawn on top, and its pulsing halo lets the pointer through to its neighbours.
+    - Markers that touch nothing stay where they are. `/map` is unchanged.
+  - **The controls over the map.** The search and discovery stack reaches 152 px into the map, past the frame's 140 px top padding, so a car park framed at the top edge sat under "Report a parking spot". Measured at 360x800 (a north–south pair) and 1280x720 (a north-western car park). The frame and the rings now stay below the stack's measured bottom.
+  - **Measured by this suite.** `explore: dense and coincident car parks` mocks six car parks at 1280x720 and 360x800: four at İZUM fixture coordinates, 80–230 m apart, and two at one point. It checks:
+    - axe 2.5.8;
+    - a 9×9 hit-test grid over each marker (axe does not report a fully covered marker);
+    - the Tab order;
+    - that every focused marker is on top.
+
+    It also frames a car park at the top edge at both widths. A zoom test checks that the fan-out follows the zoom while focus and selection stay.
+  - **Before the change, these tests fail.**
+    - Markers 1–3 are covered, and coincident marker 5 is fully covered.
+    - axe flags target-size on markers 1 and 2 at 1280x720, and on 1, 2 and 3 at 360x800.
+    - The car parks framed at the top edge sit under the button.
