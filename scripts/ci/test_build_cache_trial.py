@@ -32,14 +32,21 @@ TRIAL = BASELINE.replace(
     "    ./gradlew :services:user-service:bootJar --no-daemon\n")
 
 
-def jar(resource: str, extra: bool = False) -> bytes:
+def zipped(entries: dict, when=(1980, 2, 1, 0, 0, 0)) -> bytes:
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
-        info = zipfile.ZipInfo(trial.JAR_RESOURCE, date_time=(1980, 2, 1, 0, 0, 0))
-        archive.writestr(info, resource)
-        if extra:
-            archive.writestr(zipfile.ZipInfo("BOOT-INF/extra", date_time=(1980, 2, 1, 0, 0, 0)), "x")
+        for name, content in entries.items():
+            archive.writestr(zipfile.ZipInfo(name, date_time=when), content)
     return data.getvalue()
+
+
+def jar(resource: str, extra: bool = False, platform_time=(1980, 2, 1, 0, 0, 0), platform_class: bytes = b"A") -> bytes:
+    """A bootJar with application.yml and a nested platform jar, like the services' (its class times vary)."""
+    entries = {trial.JAR_RESOURCE: resource,
+               "BOOT-INF/lib/parkio-platform.jar": zipped({"com/parkio/A.class": platform_class}, platform_time)}
+    if extra:
+        entries["BOOT-INF/extra"] = "x"
+    return zipped(entries)
 
 
 class FakeDocker:
@@ -112,17 +119,36 @@ class EvaluateTest(unittest.TestCase):
     def test_a_cached_build_that_hides_the_change_fails(self):
         problems = trial.evaluate(self.jars(**{"cache-warm": jar("spring: {}\n")}), self.MARKER)
         self.assertIn("the changed input is not in the cache-warm jar: the cache hid the change", problems)
-        self.assertIn("the warm builds give different jars for the same source", problems)
-        self.assertIn("changing the input did not change the jar", problems)
+        self.assertIn("the warm builds give jars with different contents for the same source: "
+                      + trial.JAR_RESOURCE, problems)
+        self.assertIn("between the cold and the warm cached build, no entry changed, not only "
+                      + trial.JAR_RESOURCE, problems)
 
-    def test_different_jars_for_the_same_source_fail(self):
+    def test_different_contents_for_the_same_source_fail(self):
         problems = trial.evaluate(self.jars(**{"cache-cold": jar("spring: {}\n", extra=True)}), self.MARKER)
-        self.assertEqual(problems, ["the cold builds give different jars for the same source"])
+        self.assertIn("the cold builds give jars with different contents for the same source: BOOT-INF/extra", problems)
+
+    def test_nested_jar_timestamps_do_not_count_but_their_contents_do(self):
+        later = jar("spring: {}\n", platform_time=(2026, 10, 5, 12, 0, 0))
+        self.assertNotEqual(later, jar("spring: {}\n"))
+        self.assertEqual(trial.evaluate(self.jars(**{"cache-cold": later}), self.MARKER), [])
+
+        changed = jar("spring: {}\n", platform_class=b"B")
+        problems = trial.evaluate(self.jars(**{"cache-cold": changed}), self.MARKER)
+        self.assertIn("the cold builds give jars with different contents for the same source: "
+                      "BOOT-INF/lib/parkio-platform.jar!com/parkio/A.class", problems)
+
+    def test_another_entry_changing_with_the_input_fails(self):
+        problems = trial.evaluate(self.jars(**{
+            "cache-warm": jar(f"spring: {{}}\n{self.MARKER}\n", platform_class=b"B"),
+            "baseline-warm": jar(f"spring: {{}}\n{self.MARKER}\n", platform_class=b"B")}), self.MARKER)
+        self.assertEqual(problems, ["between the cold and the warm cached build, ['BOOT-INF/classes/application.yml', "
+                                    "'BOOT-INF/lib/parkio-platform.jar!com/parkio/A.class'] changed, not only "
+                                    + trial.JAR_RESOURCE])
 
     def test_an_unreadable_jar_fails(self):
         problems = trial.evaluate(self.jars(**{"baseline-cold": b"not a jar"}), self.MARKER)
-        self.assertIn("the baseline-cold jar holds the change it was built before, or has no readable application.yml",
-                      problems)
+        self.assertEqual(problems, ["the baseline-cold jar is not readable"])
 
 
 class TrialTest(unittest.TestCase):
@@ -161,7 +187,8 @@ class TrialTest(unittest.TestCase):
     def test_a_cache_that_changes_the_jar_is_caught(self):
         report, _, _ = self.run_trial(extra_with_cache=True)
 
-        self.assertIn("the cold builds give different jars for the same source", report["problems"])
+        self.assertIn("the cold builds give jars with different contents for the same source: BOOT-INF/extra",
+                      report["problems"])
 
     def test_a_dockerfile_with_other_changes_is_refused_before_any_build(self):
         report, docker, _ = self.run_trial(dockerfile=TRIAL.replace("COPY . .", "COPY services services"))

@@ -17,10 +17,14 @@ For each service, on one daemon, this script builds four images and compares the
 Builds 1 and 2 are the equivalent cold builds, and builds 3 and 4 the equivalent warm ones: in each
 pair, everything but the cache mount is the same. The base images are pulled before build 1, so no
 build pays for a pull. The script requires:
-  * the same source gives a byte-identical bootJar with and without the cache (1 = 2 and 3 = 4; the
-    service builds use reproducible archives);
-  * the changed input is in the jar of both warm builds and not in the cold ones, and it changes the
-    jar: the cache never hides a change;
+  * the same source gives a bootJar with the same contents with and without the cache (1 = 2 and
+    3 = 4): the same entries with the same CRC-32, and for each nested jar the same inner entries.
+    Contents, not bytes: the bootJar is a reproducible archive, but the nested platform jar keeps its
+    class files' timestamps, so its bytes change between any two builds. Whether the bytes match
+    is reported too;
+  * the changed input is in the jar of both warm builds and not in the cold ones, and between the
+    cold and the warm cached build only that entry differs: the cache never hides a change, and
+    nothing else moves;
   * with --baseline-ref, the trial Dockerfile without its cache mount has the same instructions as
     that revision's Dockerfile, so the mount is the only change.
 It reports the four build times and does not judge them: whether to expand the cache beyond two
@@ -109,6 +113,33 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def jar_contents(jar: bytes) -> Optional[dict]:
+    """{entry: CRC-32} of a jar, with each nested jar's entries as {"<jar>!<entry>": CRC-32}; None if unreadable.
+
+    Timestamps are left out on purpose: the nested platform jar keeps its class files' times.
+    """
+    try:
+        contents = {}
+        with zipfile.ZipFile(io.BytesIO(jar)) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                if info.filename.endswith(".jar"):
+                    with zipfile.ZipFile(io.BytesIO(archive.read(info))) as nested:
+                        for inner in nested.infolist():
+                            if not inner.is_dir():
+                                contents[f"{info.filename}!{inner.filename}"] = inner.CRC
+                else:
+                    contents[info.filename] = info.CRC
+        return contents
+    except zipfile.BadZipFile:
+        return None
+
+
+def differing_entries(first: dict, second: dict) -> list:
+    return sorted(name for name in set(first) | set(second) if first.get(name) != second.get(name))
+
+
 def jar_has_marker(jar: bytes, marker: str) -> Optional[bool]:
     """Whether the jar's application.yml holds the marker; None when the jar or the entry is unreadable."""
     try:
@@ -121,19 +152,25 @@ def jar_has_marker(jar: bytes, marker: str) -> Optional[bool]:
 def evaluate(jars: dict, marker: str) -> list:
     """Problems with one service's four jars ({build: bytes}); empty when the cache changes nothing."""
     problems = []
-    digests = {build: sha256(jar) for build, jar in jars.items()}
-    if digests["baseline-cold"] != digests["cache-cold"]:
-        problems.append("the cold builds give different jars for the same source")
-    if digests["cache-warm"] != digests["baseline-warm"]:
-        problems.append("the warm builds give different jars for the same source")
+    contents = {build: jar_contents(jar) for build, jar in jars.items()}
+    unreadable = [build for build, content in contents.items() if content is None]
+    if unreadable:
+        return [f"the {build} jar is not readable" for build in unreadable]
+    if contents["baseline-cold"] != contents["cache-cold"]:
+        problems.append("the cold builds give jars with different contents for the same source: "
+                        + ", ".join(differing_entries(contents["baseline-cold"], contents["cache-cold"])[:5]))
+    if contents["cache-warm"] != contents["baseline-warm"]:
+        problems.append("the warm builds give jars with different contents for the same source: "
+                        + ", ".join(differing_entries(contents["cache-warm"], contents["baseline-warm"])[:5]))
     for build in ("cache-warm", "baseline-warm"):
         if jar_has_marker(jars[build], marker) is not True:
             problems.append(f"the changed input is not in the {build} jar: the cache hid the change")
     for build in ("baseline-cold", "cache-cold"):
         if jar_has_marker(jars[build], marker) is not False:
             problems.append(f"the {build} jar holds the change it was built before, or has no readable application.yml")
-    if digests["cache-warm"] == digests["cache-cold"]:
-        problems.append("changing the input did not change the jar")
+    changed = differing_entries(contents["cache-cold"], contents["cache-warm"])
+    if changed != [JAR_RESOURCE]:
+        problems.append(f"between the cold and the warm cached build, {changed or 'no entry'} changed, not only {JAR_RESOURCE}")
     return problems
 
 
@@ -220,6 +257,9 @@ class Trial:
                 return report
             jars[label] = jar
             build["jar_sha256"] = sha256(jar)
+            build["jar_entries"] = len(jar_contents(jar) or {})
+        report["byte_identical_cold"] = jars["baseline-cold"] == jars["cache-cold"]
+        report["byte_identical_warm"] = jars["cache-warm"] == jars["baseline-warm"]
         report["problems"].extend(evaluate(jars, marker))
         times = {label: build["seconds"] for label, build in report["builds"].items()}
         report["seconds_saved_cold"] = round(times["baseline-cold"] - times["cache-cold"], 1)
@@ -232,7 +272,7 @@ class Trial:
 
 
 def summary(reports: list) -> str:
-    lines = ["| Service | Baseline cold | Cache cold | Cache warm | Baseline warm | Jars equal, change reached | Result |",
+    lines = ["| Service | Baseline cold | Cache cold | Cache warm | Baseline warm | Same contents, change reached | Result |",
              "|---|---|---|---|---|---|---|"]
     for report in reports:
         builds = report.get("builds", {})
