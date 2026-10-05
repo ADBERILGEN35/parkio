@@ -9,7 +9,8 @@
 #   and invite-public-staged). The edge overlay maps PARKIO_REGISTRATION_MODE with `:?`, so there
 #   a missing mode still refuses the render.
 # Every setting is off by default, and an explicit value in the host env file reaches
-# auth-service (scripts/test_registration_default_closed.py renders every model).
+# auth-service (scripts/test_registration_default_closed.py renders every model). The invite-only
+# PRIV-001 synthetic bypass is passed by the invite edge overlays, not here (#287 review N1).
 # Duplicate-mount: this file declares no volumes, so it cannot remount
 # auth-service or collide with waitlist-ops-inbox.yml (gateway-only).
 # Token is interpolated from the host env file; never commit a literal.
@@ -22,6 +23,3 @@ services:
       PARKIO_REGISTRATION_INVITE_CREATION_ENABLED: ${PARKIO_REGISTRATION_INVITE_CREATION_ENABLED:-false}
       PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN: ${PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN:-}
       PARKIO_REGISTRATION_INVITE_TTL: ${PARKIO_REGISTRATION_INVITE_TTL:-P7D}
-      # PRIV-001 synthetic harness (operator-only acceptance tooling): allows only
-      # priv001a-*@priv001a.parkio.invalid while registration is closed, and only when set.
-      PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS: ${PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS:-false}

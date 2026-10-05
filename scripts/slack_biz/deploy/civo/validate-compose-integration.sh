@@ -111,7 +111,6 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED",
     "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN",
     "PARKIO_REGISTRATION_INVITE_TTL",
-    "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS",
 }
 
 # Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh, which records
@@ -222,8 +221,6 @@ if "web" in dis["services"]:
               value == expected_web_csp(model), value or "unset")
 check("auth invite creation false by example/default", aenv.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") == "false")
 check("auth invite ttl mapped", aenv.get("PARKIO_REGISTRATION_INVITE_TTL") == "P7D")
-check("auth PRIV-001 synthetic bypass false by default",
-      aenv.get("PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS") == "false")
 check(
     "auth invite token is interpolated synthetic value",
     aenv.get("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN") == "SYNTH_PLACEHOLDER_value_0123456789abcdef",

@@ -312,16 +312,24 @@ rely on persisted browser language for invite cohort registration.
 PRIV-001 synthetic harness: `PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS`
 allows `priv001a-*@priv001a.parkio.invalid` only when explicitly enabled.
 
+With `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true`, auth-service refuses to
+start unless `PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN` is a real secret.
+- **Refused:** an empty token, an example-env placeholder (the examples' value, or
+  any `REPLACE_ME_…` value), or one shorter than 32 characters
+  (`InviteOperatorTokenStartupCheck`, #287 review I3).
+- **The message** names the setting and the reason, never the value.
+
 All three invite-production models (dark, public-staged, public) include
 `docker/docker-compose.auth-registration-env.yml` after the managed-DB overlay
 and before the edge overlay (F-INV-1, owner decision 2026-10-05). It passes
-auth-service every registration setting, each off by default:
+auth-service the invite settings, each off by default:
 - `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED` (`false`);
 - `PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN` (empty);
-- `PARKIO_REGISTRATION_INVITE_TTL` (`P7D`);
-- `PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS` (`false`).
-An explicit value in the env file reaches auth-service; before this, these four never did and
-auth always used its defaults. The edge overlay's `:?` mapping still makes
+- `PARKIO_REGISTRATION_INVITE_TTL` (`P7D`).
+The invite edge overlays pass `PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS`
+(`false`); the canonical models do not pass it. An explicit value in the env
+file reaches auth-service; before this, these four never did and auth always
+used its defaults. The edge overlay's `:?` mapping still makes
 `PARKIO_REGISTRATION_MODE` required. `scripts/test_registration_default_closed.py` renders
 every model, with the defaults and with an explicit opt-in. The staged release
 must carry the overlay (`scripts/stage-invite-production-release.sh`).

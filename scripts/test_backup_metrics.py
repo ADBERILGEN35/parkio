@@ -126,9 +126,10 @@ class BackupMetricsTest(unittest.TestCase):
         self.assertIsNotNone(docker, "Docker Compose config is required; no daemon is used")
         for overlay, project in [("invite-public", "."), ("invite-public", "frontend"),
                                  ("invite-dark", ".")]:
+            # The invite-production model's order (scripts/lib/deploy-common.sh).
             files = ["docker-compose.yml", "docker-compose.apps.yml", "docker-compose.images.yml",
                      "docker-compose.hosted-beta.yml", "docker-compose.managed-db.yml",
-                     f"docker-compose.{overlay}.yml"]
+                     "docker-compose.auth-registration-env.yml", f"docker-compose.{overlay}.yml"]
             values = {"PARKIO_IMAGE_TAG": "sha-backup-path-test", "PARKIO_GIT_SHA": "0" * 40,
                       "PARKIO_IMAGE_CREATED": "2026-09-05T00:00:00Z"}
             env = {**os.environ, **values}

@@ -16,10 +16,19 @@ where the model can build web, web's VITE_REGISTRATION_MODE build argument. It r
     false), or for invite-production, whose edge overlays require the mode, a refused render;
   * with only PARKIO_REGISTRATION_MODE=closed left: auth gets the other four defaults;
   * with explicit values for all five: auth gets exactly those, so opting in works when asked for.
-Every model but local must pass auth all five settings. Local passes none, so auth's own defaults
-apply there, and its explicit case is not checked. Other variables that a render requires get
-non-secret placeholders; the registration settings never do. Nothing is started, and no token value
-is printed.
+Which models pass which settings:
+  - invite-production: all five;
+  - the canonical models (hosted-beta, the Civo wrapper, Azure): the four in the shared overlay. They
+    must not pass the invite-only PRIV-001 synthetic bypass, even when the env sets it (#287 review
+    N1), so auth keeps its default there;
+  - local: none, so auth's own defaults apply, and its explicit case is not checked.
+Other variables that a render requires get non-secret placeholders; the registration settings never
+do. Nothing is started, and no token value is printed.
+
+It also renders each example with only PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true added (#287
+review I3). Auth then gets exactly the operator token the example ships, which is an example-env
+placeholder (REPLACE_ME_...) or empty. auth-service refuses to start with either:
+InviteOperatorTokenStartupCheckTest reads the same example values and shows the refusal.
 """
 from __future__ import annotations
 
@@ -41,7 +50,8 @@ SETTINGS = {  # auth-service's registration settings and their off values (its a
     "PARKIO_REGISTRATION_INVITE_TTL": "P7D",
     "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS": "false",
 }
-SWITCHES = ("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED", "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS")
+BYPASS = "PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS"
+SWITCHES = ("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED", BYPASS)
 OPT_IN = {  # synthetic, non-secret values that differ from every default
     KEY: "open",
     "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED": "true",
@@ -156,6 +166,15 @@ def without(text: str, keys) -> str:
     return "\n".join(line for line in text.splitlines() if not pattern.match(line))
 
 
+def passed(model: str) -> set:
+    """The registration settings this model must pass to auth-service."""
+    if model == "local":
+        return set()
+    if model.startswith("invite-"):
+        return set(SETTINGS)
+    return set(SETTINGS) - {BYPASS}  # canonical models: the shared overlay only
+
+
 def check(model: str, case: str, result: object, expected: str) -> list:
     """Problems for one render. `expected` is "shipped", "defaults" or "opt-in"."""
     if result == REFUSED:
@@ -168,8 +187,10 @@ def check(model: str, case: str, result: object, expected: str) -> list:
     for key in SETTINGS:
         got = values["auth"][key]
         if got is None:
-            if model != "local":  # local passes auth no registration setting; its defaults apply
+            if key in passed(model):
                 problems.append(f"{model} / {case}: auth-service gets no {key}")
+        elif model != "local" and key not in passed(model):
+            problems.append(f"{model} / {case}: auth-service gets {key}, which only the invite models pass")
         elif key in want and got != want[key]:
             problems.append(f"{model} / {case}: auth-service {key}={shown(key, got)}, expected {shown(key, want[key])}")
     # web: a build argument, where the model has one, must follow the registration mode.
@@ -185,6 +206,32 @@ def summary(result: object) -> str:
     values = registration(result)
     auth = ", ".join(f"{k.removeprefix('PARKIO_REGISTRATION_')}={shown(k, v)}" for k, v in values["auth"].items())
     return f"auth {{{auth}}}, web-build {values['web-build']!r}"
+
+
+def example_token(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith(f"{TOKEN}="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def creation_enabled_check(model: str, text: str, files: list, extra: dict) -> tuple:
+    """The example with invite creation enabled: auth must get the example's own token, a placeholder or empty."""
+    result = render(files, text + "\nPARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true", extra)
+    case = "example with invite creation enabled"
+    if result == REFUSED:
+        return [f"{model} / {case}: the render was refused"], f"{model} / {case} -> refused"
+    auth = registration(result)["auth"]
+    token, shipped = auth[TOKEN], example_token(text)
+    problems = []
+    if auth["PARKIO_REGISTRATION_INVITE_CREATION_ENABLED"] != "true":
+        problems.append(f"{model} / {case}: invite creation does not reach auth")
+    if token != shipped:
+        problems.append(f"{model} / {case}: auth gets another operator token than the example ships")
+    elif token and not token.lower().startswith("replace_me_"):
+        problems.append(f"{model} / {case}: the example ships a token that is not a REPLACE_ME_ placeholder")
+    kind = "an example-env placeholder" if token else "empty"
+    return problems, f"{model} / {case} -> auth gets the example's operator token, {kind}; auth refuses it at startup"
 
 
 def main() -> int:
@@ -205,6 +252,10 @@ def main() -> int:
             found = check(model, case, result, expected)
             problems += found
             lines.append(f"{'FAIL' if found else 'PASS'}: {model} / {case} -> {summary(result)}")
+        if model != "local":
+            found, line = creation_enabled_check(model, text, files, extra)
+            problems += found
+            lines.append(f"{'FAIL' if found else 'PASS'}: {line}")
     print("\n".join(lines))
     if problems:
         print("FAIL: registration settings are not off by default, or do not reach auth, everywhere:", file=sys.stderr)
