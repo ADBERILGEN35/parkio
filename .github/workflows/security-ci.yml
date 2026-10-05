@@ -1,12 +1,14 @@
 # Practical security gates for Parkio. The policy is deliberately high-signal:
 # secrets always fail, dependency scans fail on HIGH/CRITICAL, and container images
-# fail on CRITICAL OS findings and on HIGH/CRITICAL application-library findings
-# that have a fix (S1). The images are the ten services and the web image (S2).
+# fail on CRITICAL findings with a fix in OS and library packages and, through S1,
+# on HIGH/CRITICAL application-library findings with a fix. The images are the ten
+# services and the web image (S2).
 #
 # Container scan selection (U08, owner decision 2026-10-05):
 # - A pull request scans the images its changed files can affect
 #   (scripts/ci/select_container_scans.py). Unclassified paths, scan inputs and an
-#   unknown file list select every image.
+#   unknown file list select every image. A path under scripts/ or docker/ selects
+#   the images whose Dockerfile or Gradle build names it.
 # - Every other event scans everything: a push to api or master, and a
 #   workflow_dispatch, which includes master's scheduled dispatch onto api.
 # - The summary fails when the selection fails, a selected scan fails or leaves no

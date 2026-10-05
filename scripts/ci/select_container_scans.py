@@ -10,13 +10,18 @@ For a pull request each changed path is classified by the first matching rule:
   2. services/<service>/**                                                  -> that service
   3. shared backend build inputs: root Gradle files, gradlew, gradle/**,
      buildSrc/**, platform/**, tools/** (all in the Gradle build)           -> every service
-  4. the shared Docker build context filter (.dockerignore), and a scripts/
-     path that an image Dockerfile or the Gradle build names              -> every image
+  4. the shared Docker build context filter (.dockerignore)                 -> every image
   5. the web image: frontend/** (sources, lockfile, Dockerfile, nginx and
      CSP templates) and the release bake profiles                           -> web
   6. paths that no image contains or builds from (docs, other workflows,
      scripts, Compose and observability configuration, ...)                -> none
   7. anything else                                                          -> every image (fail closed)
+On top of these rules, a path under scripts/ or docker/ that an image's build names also selects
+that image: a reference in a service's Dockerfile or in its own Gradle build file selects that
+service, one in the web Dockerfile selects web, and one in the shared Gradle build (root files,
+gradle/, buildSrc/, platform/, tools/) selects every service. References are found in any form: a file
+or a directory, with or without a trailing slash, with a glob (its directory counts), relative to the
+build context or under a build stage's path (/workspace/scripts/...). Comments do not count.
 
 Selection fails closed: when the changed files cannot be listed (no merge commit, a git error) every
 image is scanned.
@@ -35,6 +40,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = "web"
@@ -57,21 +63,59 @@ NO_IMAGE = (
     ".node-version", "untitled.pen", "parkio-hostinger-landing.zip",
 )
 
+# A scripts/ or docker/ reference. In a Dockerfile it may be a bare directory (`COPY scripts /opt/`); in
+# Gradle code it needs a path, because "docker" there is also a command (ProcessBuilder("docker", "info")).
+DOCKERFILE_REF = re.compile(r"(?<![A-Za-z0-9_.-])(scripts|docker)(?:/([^\s\"',;\]]*))?(?![A-Za-z0-9_.-])")
+GRADLE_REF = re.compile(r"(?<![A-Za-z0-9_.-])(scripts|docker)/([^\s\"',;)\]]+)")
+GLOB = re.compile(r"[*?\[{]")
+
 
 def services(root: Path = ROOT) -> list[str]:
     """Every backend service with a Dockerfile, which is what the container scan builds."""
     return sorted(p.parent.name for p in (root / "services").glob("*/Dockerfile"))
 
 
-def build_scripts(root: Path = ROOT) -> set[str]:
-    """scripts/ paths an image build reads: named in an image Dockerfile or in the Gradle build."""
-    sources = [*root.glob("services/*/Dockerfile"), root / "frontend" / "apps" / "web" / "Dockerfile",
-               *root.glob("*.gradle.kts"), *root.glob("buildSrc/**/*.kt*"), *root.glob("gradle/*.toml")]
-    found: set[str] = set()
-    for source in sources:
-        if source.is_file():
-            found |= set(re.findall(r"(?<![A-Za-z0-9_./-])scripts/[A-Za-z0-9_./-]+", source.read_text(errors="replace")))
-    return {name.rstrip("/.") for name in found}
+def _dockerfile_code(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def _gradle_code(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(^|\s)(//|#).*$", r"\1", text, flags=re.M)
+
+
+def _prefix(directory: str, rest: Optional[str]) -> str:
+    """The repository path a reference covers: the path itself, or the directory before a glob."""
+    path = f"{directory}/{rest}" if rest else directory
+    glob = GLOB.search(path)
+    if glob:
+        path = path[:glob.start()]
+        path = path.rsplit("/", 1)[0] if "/" in path else directory
+    while path.endswith("/.") or path.endswith("/"):
+        path = path[:-2] if path.endswith("/.") else path[:-1]
+    return path or directory
+
+
+def image_input_refs(root: Path = ROOT, known_services: Optional[list] = None) -> list:
+    """[(path under scripts/ or docker/, images whose build names it)], sorted by path."""
+    names = services(root) if known_services is None else list(known_services)
+    every_service = set(names)
+    sources = []
+    for name in names:
+        sources.append((root / "services" / name / "Dockerfile", {name}, DOCKERFILE_REF, _dockerfile_code))
+        for build_file in sorted((root / "services" / name).glob("**/*.gradle.kts")):
+            sources.append((build_file, {name}, GRADLE_REF, _gradle_code))
+    sources.append((root / "frontend" / "apps" / "web" / "Dockerfile", {WEB}, DOCKERFILE_REF, _dockerfile_code))
+    shared = [*root.glob("*.gradle.kts"), *root.glob("gradle/*.toml"), *root.glob("buildSrc/**/*.kt*"),
+              *root.glob("platform/**/*.gradle.kts"), *root.glob("tools/**/*.gradle.kts")]
+    for build_file in sorted(shared):
+        sources.append((build_file, every_service, GRADLE_REF, _gradle_code))
+    refs: dict = {}
+    for path, images, pattern, code in sources:
+        if path.is_file():
+            for directory, rest in pattern.findall(code(path.read_text(errors="replace"))):
+                refs.setdefault(_prefix(directory, rest), set()).update(images)
+    return sorted(refs.items())
 
 
 def matches(path: str, patterns: tuple[str, ...]) -> bool:
@@ -87,9 +131,7 @@ def matches(path: str, patterns: tuple[str, ...]) -> bool:
     return False
 
 
-def classify(path: str, known_services: list[str], scripts: set[str] = frozenset()) -> tuple[set[str], str]:
-    """The images one changed path can affect, and why. `scripts` are the build-read scripts/ paths."""
-    every_service = set(known_services)
+def _classify_rules(path: str, every_service: set) -> tuple[set[str], str]:
     if matches(path, SCAN_INPUTS):
         return every_service | {WEB}, "scan input"
     if path.startswith("services/"):
@@ -98,11 +140,9 @@ def classify(path: str, known_services: list[str], scripts: set[str] = frozenset
             return {name}, f"service {name}"
         return every_service | {WEB}, "unknown service path (fail closed)"
     if matches(path, BACKEND_SHARED):
-        return every_service, "shared backend build input"
+        return set(every_service), "shared backend build input"
     if path == ".dockerignore":
         return every_service | {WEB}, "shared Docker build context filter"
-    if any(path == name or path.startswith(name + "/") for name in scripts):
-        return every_service | {WEB}, "script an image build reads"
     if matches(path, WEB_INPUTS):
         return {WEB}, "web image input"
     if matches(path, NO_IMAGE):
@@ -110,8 +150,20 @@ def classify(path: str, known_services: list[str], scripts: set[str] = frozenset
     return every_service | {WEB}, "unclassified path (fail closed)"
 
 
+def classify(path: str, known_services: list[str], refs=()) -> tuple[set[str], str]:
+    """The images one changed path can affect, and why. `refs` come from image_input_refs()."""
+    images, why = _classify_rules(path, set(known_services))
+    named = set()
+    for prefix, owners in refs:
+        if path == prefix or path.startswith(prefix + "/"):
+            named |= owners
+    if named - images:
+        return images | named, f"{why}; named by the build of {', '.join(sorted(named))}"
+    return images, why
+
+
 def select(event: str, changed: list[str] | None, known_services: list[str],
-           scripts: set[str] = frozenset()) -> tuple[list[str], list[str]]:
+           refs=()) -> tuple[list[str], list[str]]:
     """(images to scan, reasons). Anything but a pull request, or an unknown file list, scans all."""
     everything = sorted(set(known_services) | {WEB})
     if event != "pull_request":
@@ -121,16 +173,20 @@ def select(event: str, changed: list[str] | None, known_services: list[str],
     chosen: set[str] = set()
     reasons = []
     for path in changed:
-        images, why = classify(path, known_services, scripts)
+        images, why = classify(path, known_services, refs)
         chosen |= images
         reasons.append(f"{path}: {why} -> {', '.join(sorted(images)) or 'none'}")
     return sorted(chosen), reasons
 
 
-def pull_request_changes(root: Path = ROOT) -> list[str] | None:
-    """Files the pull request's merge commit changes against its base (first parent)."""
+GitRunner = Callable[[list], subprocess.CompletedProcess]
+
+
+def pull_request_changes(root: Path = ROOT, run: Optional[GitRunner] = None) -> list[str] | None:
+    """Files the pull request's merge commit changes against its base (first parent); None if unknown."""
     def git(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        command = ["git", "-C", str(root), *args]
+        return run(command) if run else subprocess.run(command, capture_output=True, text=True)
     parents = git("rev-list", "--parents", "-n", "1", "HEAD")
     if parents.returncode != 0 or len(parents.stdout.split()) != 3:
         return None  # not a two-parent merge commit: the base is unknown
@@ -151,10 +207,10 @@ def main(argv: list[str]) -> int:
         print("FAIL: no services/*/Dockerfile found", file=sys.stderr)
         return 1
     changed = pull_request_changes() if args.event == "pull_request" else None
-    scripts = build_scripts()
-    if scripts:
-        print(f"scripts read by image builds: {', '.join(sorted(scripts))}")
-    images, reasons = select(args.event, changed, known, scripts)
+    refs = image_input_refs(ROOT, known)
+    for prefix, owners in refs:
+        print(f"named by an image build: {prefix} -> {', '.join(sorted(owners))}")
+    images, reasons = select(args.event, changed, known, refs)
     for reason in reasons:
         print(reason)
     print(f"selected ({len(images)}): {', '.join(images) or 'none'}")

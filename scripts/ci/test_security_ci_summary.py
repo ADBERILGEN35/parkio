@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Security CI's summary gate fails closed (U08): it runs the gate step from security-ci.yml itself."""
+"""Security CI's gates fail closed (U08). The tests run the steps from security-ci.yml itself: the summary
+gate, the container job's report requirement, and the library pass's blocking exit code."""
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -47,6 +49,62 @@ class SummaryGateTest(unittest.TestCase):
         self.assertNotEqual(run_gate(SECRETS_RESULT="failure"), 0)
         self.assertNotEqual(run_gate(DEPENDENCIES_RESULT="failure"), 0)
         self.assertNotEqual(run_gate(CODEQL_RESULT="failure"), 0)
+
+
+REPORTS = "Require every scan report"
+LIBRARY = "Block on high and critical library findings with a fix"
+
+
+def container_step(name):
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["container-images"]["steps"]
+    return next(step["run"] for step in steps if step.get("name") == name)
+
+
+class ContainerScanStepsTest(unittest.TestCase):
+    """#266 review N2: a missing report and S1's library findings must fail the container job."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def run_step(self, name, path_prefix=None):
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "SERVICE": "x", "TRIVY_IMAGE": "trivy:test",
+               "TRIVY_CACHE_DIR": str(self.dir), "GITHUB_WORKSPACE": str(self.dir)}
+        if path_prefix:
+            env["PATH"] = f"{path_prefix}:{env['PATH']}"
+        return subprocess.run(["bash", "-c", container_step(name)], cwd=self.dir, env=env,
+                              capture_output=True, text=True).returncode
+
+    def test_every_report_present_passes_and_a_missing_or_empty_one_fails(self):
+        names = ["trivy-image-x.txt", "trivy-image-x.sarif", "trivy-image-x-library.txt", "trivy-image-x-library.sarif"]
+
+        def leave(present, empty=()):
+            for old in self.dir.glob("trivy-image-*"):
+                old.unlink()
+            for name in present:
+                (self.dir / name).write_text("" if name in empty else "report\n")
+            return self.run_step(REPORTS)
+
+        self.assertEqual(leave(names), 0)
+        for missing in names:
+            with self.subTest(missing=missing):
+                self.assertNotEqual(leave([name for name in names if name != missing]), 0)
+        self.assertNotEqual(leave(names, empty={"trivy-image-x-library.sarif"}), 0)
+
+    def test_library_findings_with_a_fix_fail_after_both_reports_are_written(self):
+        # A fake docker plays Trivy with findings: it writes the report and exits with --exit-code.
+        bin_dir = self.dir / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "docker"
+        fake.write_text('#!/usr/bin/env bash\nout=""; code=0\n'
+                        'while [ $# -gt 0 ]; do case "$1" in --output) out="$2"; shift;; --exit-code) code="$2"; shift;; esac; shift; done\n'
+                        'echo "HIGH finding with a fix" >"$out"\nexit "$code"\n')
+        fake.chmod(0o755)
+
+        self.assertNotEqual(self.run_step(LIBRARY, bin_dir), 0)
+        self.assertTrue((self.dir / "trivy-image-x-library.txt").is_file())
+        self.assertTrue((self.dir / "trivy-image-x-library.sarif").is_file())
 
 
 if __name__ == "__main__":
