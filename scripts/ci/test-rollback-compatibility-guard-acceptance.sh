@@ -103,6 +103,13 @@ manifest="$2"; mkdir -p "$PARKIO_DEPLOY_ARTIFACT_DIR"
 jq '.action = "rollback"' "$manifest" >"$PARKIO_DEPLOY_ARTIFACT_DIR/rollback-to-stub.json"
 echo "DRY-RUN: would roll back"
 EOF
+cat >"$work/stubs/skips-the-guard" <<'EOF'
+#!/usr/bin/env bash
+# Succeeds and targets the deploy, but never runs the compose file-list guard (#289 review N1).
+manifest="$2"; mkdir -p "$PARKIO_DEPLOY_ARTIFACT_DIR"
+jq '.action = "rollback"' "$manifest" >"$PARKIO_DEPLOY_ARTIFACT_DIR/rollback-to-stub.json"
+echo "DRY-RUN: would roll back"
+EOF
 cat >"$work/stubs/other-refusal" <<'EOF'
 #!/usr/bin/env bash
 echo "ERROR: something else went wrong" >&2
@@ -123,6 +130,12 @@ for stub in accepts-anything other-refusal refuses-but-writes; do
   if [ "$rc" -eq 1 ]; then pass "a rollback that $stub on an incompatible list fails the check"
   else bad "stub $stub: exit $rc: $(tail -n 2 "$work/$stub.log")"; fi
 done
+rc=0
+PARKIO_ACCEPTANCE_ROLLBACK="$work/stubs/skips-the-guard" bash "$ACCEPTANCE" --manifest "$work/staged.json" \
+  --env-template "$TEMPLATE" --work-dir "$work/run-skips-the-guard" --label skips-the-guard >"$work/skips-the-guard.log" 2>&1 || rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "without running the compose file-list guard" "$work/skips-the-guard.log"; then
+  pass "a compatible dry run that never ran the guard fails the check (#289 review N1)"
+else bad "a compatible dry run without the guard: exit $rc"; fi
 rc=0
 PARKIO_ACCEPTANCE_ROLLBACK="$work/stubs/other-refusal" bash "$ACCEPTANCE" --manifest "$work/staged.json" \
   --env-template "$TEMPLATE" --work-dir "$work/run-compatible-fails" --label compatible-fails >"$work/compatible-fails.log" 2>&1 || rc=$?

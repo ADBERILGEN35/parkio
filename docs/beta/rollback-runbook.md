@@ -36,7 +36,7 @@ Flags:
 |------|---------|
 | `--dry-run` | Write rollback manifest only |
 | `--skip-smoke` | Skip smoke after rollback |
-| `--no-hosted-beta-overlay` | Match the original deploy topology |
+| `--no-hosted-beta-overlay` | Local-dev only: roll back a deploy made with this flag (the three base compose files). Refused, exit 3, for an invite-production manifest and by `rollback-invite-production.sh` (F-INV-2) |
 
 What the script does:
 

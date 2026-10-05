@@ -66,6 +66,13 @@ if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
   exit 2
 fi
 
+if [ "$USE_HOSTED_BETA" -eq 0 ] && [ "$MANIFEST_PROFILE" = "invite-production" ]; then
+  # F-INV-2 (#289 review B1): the local-dev model is the three base files, so it would silently leave
+  # out what an invite-production deploy rendered. The flag is no way around the file-list guard.
+  echo "ERROR: --no-hosted-beta-overlay renders the local-dev model, so it cannot roll back an" >&2
+  echo "       invite-production manifest: the files that deploy rendered would be left out (F-INV-2)." >&2
+  exit 3
+fi
 if [ "$USE_HOSTED_BETA" -eq 1 ]; then
   parkio_configure_deployment_profile "$ENV_FILE"
   parkio_warn_deprecated_production_path

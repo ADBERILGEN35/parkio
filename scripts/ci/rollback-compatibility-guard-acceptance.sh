@@ -115,6 +115,8 @@ detail() { printf 'exit %s; stderr: %s' "$rc" "$(head -n 3 "$WORK/rollback.err" 
 
 if [ "$compatible" = "yes" ]; then
   [ "$rc" -eq 0 ] || fail "$LABEL has a compatible compose file list, but the rollback dry run failed ($(detail))"
+  grep -qF "rollback compose files: exactly the target deploy's list" "$WORK/rollback.out" \
+    || fail "the rollback dry run succeeded without running the compose file-list guard"
   [ "${#written[@]}" -eq 1 ] || fail "the compatible rollback dry run wrote ${#written[@]} rollback manifests, not 1"
   python3 - "$MANIFEST" "${written[0]}" <<'PY' || fail "the rollback dry run does not target $LABEL"
 import json, sys

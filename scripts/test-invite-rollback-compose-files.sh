@@ -6,6 +6,8 @@
 # (scripts/ci/write-synthetic-invite-deploy-manifest.sh), then edited per case.
 #   dry runs: match (accepted); list changed by an added file, a removed file, or the order; and
 #     composeFiles absent or malformed (each refused with exit 3, no rollback manifest written).
+#   --no-hosted-beta-overlay, which renders the local-dev model, is refused with exit 3 for an
+#     invite-production manifest, both by rollback-invite-production.sh and by rollback-hosted-beta.sh.
 #   live rollback against a staged runtime release (PARKIO_RUNTIME_ROOT in a temp dir, and a docker
 #     shim that answers `image inspect`, renders `compose ... config` with the real docker and refuses
 #     everything else): a release without one of the listed files is refused with exit 3 before it
@@ -80,6 +82,18 @@ for broken in '"docker/docker-compose.yml"' '[]' '["docker/docker-compose.yml", 
   dry "malformed-$i" "$work/malformed-$i.json"
   refused "malformed-$i" "the target manifest's composeFiles is malformed"
 done
+
+echo "--- no way around the guard through --no-hosted-beta-overlay (#289 review B1) ---"
+rc=0
+env -u PARKIO_DEPLOYMENT_PROFILE PARKIO_ENV_FILE="$ENV_FILE" PARKIO_DEPLOY_ARTIFACT_DIR="$work/artifacts-flag-wrapper" \
+  ./scripts/rollback-invite-production.sh --manifest "$work/added.json" --dry-run --no-hosted-beta-overlay \
+  >"$work/flag-wrapper.out" 2>"$work/flag-wrapper.err" || rc=$?
+refused flag-wrapper "rollback-invite-production.sh refuses --no-hosted-beta-overlay"
+rc=0
+env -u PARKIO_DEPLOYMENT_PROFILE PARKIO_ENV_FILE="$ENV_FILE" PARKIO_DEPLOY_ARTIFACT_DIR="$work/artifacts-flag-direct" \
+  ./scripts/rollback-hosted-beta.sh --manifest "$work/added.json" --dry-run --no-hosted-beta-overlay \
+  >"$work/flag-direct.out" 2>"$work/flag-direct.err" || rc=$?
+refused flag-direct "--no-hosted-beta-overlay renders the local-dev model, so it cannot roll back an"
 
 echo "--- live rollback against a staged release ---"
 # A minimal git checkout holding what a release stages: tracked docker/ files and the extra paths.
