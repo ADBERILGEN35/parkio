@@ -95,6 +95,87 @@ parkio_env_value() {
     | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
+# Hosted-beta isolation (owner decision 2026-10-05, CL-F12 item 4). The default hosted-beta profile,
+# which deploy-hosted-beta.sh, rollback-hosted-beta.sh and validate-hosted-beta-compose.sh use,
+# refuses the repository's production configuration. Production is recognised by its public
+# hostnames, recorded here as in assert-invite-dark-acme-isolation.sh. PARKIO_ENVIRONMENT cannot tell
+# it apart: the production example (docker/.env.azure-hosted-beta.example) sets it to hosted-beta
+# too. Production runs through scripts/parkio-prod-compose.sh, which does not use this profile. There
+# is no break-glass.
+PARKIO_PRODUCTION_HOSTNAMES=(api.parkio.dev app.parkio.dev media.parkio.dev)
+
+# parkio_refuse_production_hostnames ENV_FILE PROFILE: renders the profile's model (PARKIO_COMPOSE_FILES)
+# with `docker compose config`, which is read-only: nothing is built, pulled or started. It returns 2,
+# naming each value, when a hostname the model gives the edge is production's:
+#   - caddy's PARKIO_DOMAIN, PARKIO_WEB_DOMAIN and PARKIO_MEDIA_DOMAIN;
+#   - the hosts in web's PARKIO_WEB_CSP_CONNECT_SRC.
+# The model holds the values exactly as Compose resolves them from the env file and the process env,
+# whatever the formatting: comments, `export`, whitespace, quotes (#288 review B1). A port, case and a
+# trailing dot are ignored. A model that cannot be rendered, or whose caddy hostnames cannot be read,
+# is refused too.
+parkio_refuse_production_hostnames() {
+  local env_file="$1" profile="$2" dir rc=0
+  dir="$(mktemp -d)"
+  chmod 700 "$dir"
+  # The rendered model holds interpolated env values: a private directory, removed below.
+  if ! parkio_compose "$env_file" config --format json >"$dir/model.json" 2>"$dir/render.err"; then
+    echo "ERROR: cannot render the $profile model to read the hostnames Compose resolves; the $profile profile refuses it." >&2
+    sed -n '1,3p' "$dir/render.err" | sed 's/^/  /' >&2
+    rm -rf -- "${dir:?}"
+    return 2
+  fi
+  python3 - "$dir/model.json" "$profile" "${PARKIO_PRODUCTION_HOSTNAMES[@]}" <<'PY' || rc=$?
+import json, re, sys
+
+model_path, profile, production = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+services = json.load(open(model_path, encoding="utf-8")).get("services") or {}
+
+
+def env(service):
+    value = (services.get(service) or {}).get("environment") or {}
+    if isinstance(value, list):
+        value = dict(item.split("=", 1) for item in value if "=" in item)
+    return {k: ("" if v is None else str(v)) for k, v in value.items()}
+
+
+def host(value):
+    """The host of a hostname, host:port or URL, lowercased, without a trailing dot."""
+    text = value.strip().lower()
+    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
+    text = re.split(r"[/?#]", text, 1)[0]
+    text = text.rsplit("@", 1)[-1]
+    text = re.sub(r":\d*$", "", text)
+    return text.rstrip(".")
+
+
+caddy = env("caddy")
+found, unreadable = [], []
+for key in ("PARKIO_DOMAIN", "PARKIO_WEB_DOMAIN", "PARKIO_MEDIA_DOMAIN"):
+    value = caddy.get(key, "")
+    if not host(value):
+        unreadable.append(f"caddy {key}")
+    elif host(value) in production:
+        found.append(f"caddy {key}={value}")
+for url in env("web").get("PARKIO_WEB_CSP_CONNECT_SRC", "").split():
+    if "://" in url and host(url) in production:
+        found.append(f"web PARKIO_WEB_CSP_CONNECT_SRC contains {url}")
+if unreadable:
+    print(f"ERROR: the {profile} model gives no hostname for {', '.join(unreadable)}; "
+          f"the {profile} profile refuses a model it cannot check.", file=sys.stderr)
+    sys.exit(2)
+if found:
+    for item in found:
+        print(f"ERROR: {item} is a production hostname; the {profile} profile refuses production configuration.",
+              file=sys.stderr)
+    print("  Production runs through scripts/parkio-prod-compose.sh. A hosted-beta host needs its own hostnames",
+          file=sys.stderr)
+    print("  (PARKIO_DOMAIN, PARKIO_WEB_DOMAIN, PARKIO_MEDIA_DOMAIN). There is no override.", file=sys.stderr)
+    sys.exit(2)
+PY
+  rm -rf -- "${dir:?}"
+  return "$rc"
+}
+
 parkio_configure_deployment_profile() {
   local env_file="$1"
   local requested="${PARKIO_DEPLOYMENT_PROFILE:-}"
@@ -116,6 +197,7 @@ parkio_configure_deployment_profile() {
       # rendered models differ by that overlay. The Azure overlay in the list puts these four
       # services in an inactive profile.
       PARKIO_COMPOSE_FILES="$(parkio_canonical_compose_files)" || return 2
+      parkio_refuse_production_hostnames "$env_file" hosted-beta || return 2
       PARKIO_RUNTIME_SERVICES=()
       PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
       ;;
@@ -136,7 +218,10 @@ parkio_configure_deployment_profile() {
       edge_mode="$(parkio_invite_edge_mode_from_env "$env_file")" || return 2
       acme_authorized="$(parkio_invite_acme_authorized_from_env "$env_file")" || return 2
 
-      local invite_base="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml"
+      # The auth registration overlay passes every PARKIO_REGISTRATION_* setting, each off by default
+      # (F-INV-1, owner decision 2026-10-05). It comes before the edge overlay, whose `:?` mapping of
+      # PARKIO_REGISTRATION_MODE still refuses a render without the mode.
+      local invite_base="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml -f docker/docker-compose.hosted-beta.yml -f docker/docker-compose.managed-db.yml -f docker/docker-compose.auth-registration-env.yml"
       local disabled_common=(
         postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
         postgres-gamification postgres-notification postgres-moderation postgres-analytics
@@ -702,6 +787,59 @@ parkio_compose_files_json() {
   done
   out+="]"
   echo "$out"
+}
+
+# F-INV-2 (owner decision 2026-10-05): an invite-production rollback renders this checkout's compose
+# file list against the target's staged release, so the list must be exactly the one the target
+# deploy recorded in its manifest's composeFiles, in the same order. parkio_assert_rollback_compose_files
+# TARGET_MANIFEST returns 0 when it is, and 3, before anything is written or started, when composeFiles
+# is absent, malformed or different. A difference is reported as "compose file list changed (...)"
+# with every added and removed file. Nothing is left out silently, and there is no override.
+parkio_assert_rollback_compose_files() {
+  local manifest="$1"
+  python3 - "$manifest" "$(parkio_compose_files_json)" <<'PY'
+import json
+import re
+import sys
+
+manifest_path, current = sys.argv[1], json.loads(sys.argv[2])
+COMPOSE_FILE = re.compile(r"docker/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml")
+
+
+def refuse(message, *advice):
+    print(f"ERROR: {message}", file=sys.stderr)
+    for line in advice:
+        print(f"       {line}", file=sys.stderr)
+    sys.exit(3)
+
+
+NO_EVIDENCE = ("Without the target deploy's compose file list, the rollback cannot show that it renders the",
+               "files that deploy ran, so it is refused (F-INV-2). There is no override.")
+try:
+    with open(manifest_path, encoding="utf-8") as fh:
+        manifest = json.load(fh)
+except (OSError, ValueError) as error:
+    refuse(f"cannot read the target manifest's compose file list: {error}", *NO_EVIDENCE)
+if not isinstance(manifest, dict) or "composeFiles" not in manifest:
+    refuse("the target manifest records no composeFiles.", *NO_EVIDENCE)
+target = manifest["composeFiles"]
+if (not isinstance(target, list) or not target
+        or not all(isinstance(f, str) and COMPOSE_FILE.fullmatch(f) for f in target)
+        or len(set(target)) != len(target)):
+    refuse(f"the target manifest's composeFiles is malformed: {json.dumps(target)[:400]}", *NO_EVIDENCE)
+if target == current:
+    print(f"rollback compose files: exactly the target deploy's list ({len(target)} files)")
+    sys.exit(0)
+added = [f for f in current if f not in target]
+removed = [f for f in target if f not in current]
+changes = [f"added {f}" for f in added] + [f"removed {f}" for f in removed] or ["same files, another order"]
+refuse(f"compose file list changed ({'; '.join(changes)}).",
+       f"The target deploy rendered: {json.dumps(target)}",
+       f"This rollback would render: {json.dumps(current)}",
+       "A rollback across a compose file-list change is refused (F-INV-2): no file is left out, and there",
+       "is no override. Run it from a checkout whose list matches the target deploy's, or deploy a",
+       "compatible release.")
+PY
 }
 
 parkio_migration_versions_json() {

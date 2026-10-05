@@ -40,7 +40,8 @@
 #   * the Caddy public boundary is untouched
 #   * parking-service receives the explicit controlled-invite feature policy;
 #     none of these values are inherited from the Azure hosted-beta overlay
-#   * auth-service receives explicit PARKIO_REGISTRATION_MODE (fail-closed)
+#   * auth-service receives explicit PARKIO_REGISTRATION_MODE (fail-closed) and the invite-only
+#     PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS (default false)
 name: parkio
 
 services:
@@ -87,6 +88,10 @@ services:
     environment:
       # Explicit CLOSED registration for invite-production dark (01B-03B).
       PARKIO_REGISTRATION_MODE: ${PARKIO_REGISTRATION_MODE:?invite-production requires PARKIO_REGISTRATION_MODE}
+      # PRIV-001 synthetic harness (operator-only acceptance tooling), invite-production only
+      # (#287 review N1): allows only priv001a-*@priv001a.parkio.invalid while registration is
+      # closed, and only when explicitly set. The canonical models do not pass it.
+      PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS: ${PARKIO_REGISTRATION_PRIV001A_SYNTHETIC_BYPASS:-false}
 
   parking-service:
     environment:

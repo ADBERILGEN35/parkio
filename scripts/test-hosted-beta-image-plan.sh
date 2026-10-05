@@ -59,7 +59,10 @@ write_model() { # write_model [SERVICE=JSON ...] overrides one service's model e
   python3 - "$state/model.json" "${PINNED[*]}" "${BUILT[*]}" "$@" <<'PY'
 import json, sys
 out, pinned, built = sys.argv[1], sys.argv[2].split(), sys.argv[3].split()
-services = {"postgres-auth": {"image": "postgis/postgis:16-3.4"}}
+services = {"postgres-auth": {"image": "postgis/postgis:16-3.4"},
+            # The edge, with beta hostnames: the hosted-beta profile reads them from the model (G4).
+            "caddy": {"image": "caddy:2", "environment": {"PARKIO_DOMAIN": "api.beta.example.com",
+                      "PARKIO_WEB_DOMAIN": "app.beta.example.com", "PARKIO_MEDIA_DOMAIN": "media.beta.example.com"}}}
 for i, name in enumerate(pinned, 1):
     services[name] = {"image": f"ghcr.io/example/parkio/{name}@sha256:{i:064d}",
                       "build": {"context": ".."}, "platform": "linux/amd64"}

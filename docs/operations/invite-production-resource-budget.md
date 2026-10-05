@@ -12,7 +12,8 @@ The production file order is owned by `scripts/lib/deploy-common.sh`:
 3. `docker-compose.images.yml`
 4. `docker-compose.hosted-beta.yml`
 5. `docker-compose.managed-db.yml`
-6. `docker-compose.invite-dark.yml`
+6. `docker-compose.auth-registration-env.yml` (auth-service registration settings only, F-INV-1)
+7. `docker-compose.invite-dark.yml`
 
 `assert-invite-production-resource-budget.sh` resolves that exact chain. The
 shared Node helper consumes the resolved JSON directly, so overridden values

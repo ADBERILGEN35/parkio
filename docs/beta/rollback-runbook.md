@@ -36,7 +36,7 @@ Flags:
 |------|---------|
 | `--dry-run` | Write rollback manifest only |
 | `--skip-smoke` | Skip smoke after rollback |
-| `--no-hosted-beta-overlay` | Match the original deploy topology |
+| `--no-hosted-beta-overlay` | Local-dev only: roll back a deploy made with this flag (the three base compose files). Refused, exit 3, for an invite-production manifest and by `rollback-invite-production.sh` (F-INV-2) |
 
 What the script does:
 
@@ -53,7 +53,9 @@ With the default hosted-beta profile (CL-F12), the model is `docker/compose.prod
 - **Pinned services.** The digest-pinned services keep this checkout's pins; a missing pin is pulled. A live rollback refuses (exit 3) before it changes anything when those pins differ from the deployed release's recorded `pinnedImages`, or when the record has none: a pinned image's migrations are recorded nowhere. To roll a pin back, revert its pin file (for example `docker/docker-compose.web-release-pin.yml`) and deploy. After a pin change merges, deploy before you roll back.
 - **Start.** `up -d --no-build`.
 - **Older manifests.** A manifest written before CL-F12 recorded every app service. Its images for the five pinned services are not used.
-- **A different file set.** When the target deploy rendered other compose files, the script prints a NOTE with both lists.
+- **A different file set.** When the target deploy rendered other compose files, the script prints a NOTE with both lists. That holds for the hosted-beta profile only.
+  - With the invite-production profile, the rollback refuses a target whose `composeFiles` differs from its own list (F-INV-2), before it writes or starts anything.
+  - See "Compose file list" in `docs/operations/invite-production-rollback-runbook.md`.
 - **Schema gate (F-INV-3, owner decision 2026-10-05).**
   - **Live runs only.** Before it re-points or starts anything, a live rollback compares the deployed release's recorded `migrationVersions` with the target's, per re-pointed service and by script name. It refuses with exit 3 when the live schema has a script the target lacks ("the live schema is ahead of the rollback target"). Image rollback is not a database restore.
   - **The deployed release's record** is written by every deploy and rollback before it starts a release, outside the checkout, in one directory per host (`/var/lib/parkio/hosted-beta/deployed-manifest.json`; see the DR runbook). `deploy-artifacts/current.json` is not used.
@@ -95,6 +97,14 @@ The rollback, the deploy and `scripts/parkio-prod-compose.sh` refuse a web image
 - **Why.** A web image built for another environment would send this deploy's users to that environment's API. That includes the production pin on a hosted-beta host.
 - **No break-glass.** The check has none, and the map and conf.d break-glasses do not skip it.
 - **The fix.** Start a web image built for this env's API, or correct the env's `VITE_API_BASE_URL` and `PARKIO_DOMAIN` if they are wrong.
+
+## Production configuration on the hosted-beta profile
+
+The rollback, like the deploy, refuses a configuration whose rendered model gives the edge a production hostname (`api.parkio.dev`, `app.parkio.dev` or `media.parkio.dev`).
+- **Where it looks.** Caddy's `PARKIO_DOMAIN`, `PARKIO_WEB_DOMAIN` and `PARKIO_MEDIA_DOMAIN`, and web's CSP hosts, as Compose resolves them from the env file.
+- **When it stops.** After the read-only `docker compose config` render, before anything changes ("…is a production hostname; the hosted-beta profile refuses production configuration").
+- **Production.** Production runs through `scripts/parkio-prod-compose.sh`, which this check does not affect.
+- **No override.** There is none (owner decision 2026-10-05).
 
 ## If images are missing
 
