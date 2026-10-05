@@ -542,6 +542,81 @@ describe('PublicExplorePage', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
+    it('keeps the alert and the focused Retry button while a retry runs and fails', async () => {
+      const calls = vi.fn();
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () => {
+          calls();
+          return HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      const alert = await screen.findByRole('alert', undefined, { timeout: 4000 });
+      const retry = within(alert).getByRole('button', { name: 'Try again' });
+
+      await user.click(retry);
+      await user.click(retry); // ignored while the retry runs
+
+      expect(retry).toHaveFocus();
+      expect(retry).toHaveAttribute('aria-busy', 'true');
+      expect(retry).toHaveAttribute('aria-disabled', 'true');
+      expect(retry).not.toBeDisabled();
+      expect(screen.getByRole('alert')).toBe(alert);
+      await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy'), { timeout: 4000 });
+      expect(calls).toHaveBeenCalledTimes(4); // two per attempt: the request and one automatic retry
+      expect(retry).toBeInTheDocument();
+      expect(retry).toHaveFocus();
+      expect(screen.getByRole('alert')).toBe(alert);
+      expect(screen.getByTestId('public-explore-retry-status')).toHaveTextContent(
+        "Parking data still couldn't be loaded.",
+      );
+    });
+
+    it('moves focus to the results and announces them when a retry succeeds', async () => {
+      let available = false;
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          available
+            ? HttpResponse.json(discoveryResponse())
+            : HttpResponse.json({ code: 'UNAVAILABLE' }, { status: 503 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByRole('alert', undefined, { timeout: 4000 });
+      available = true;
+
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      const summary = await screen.findByTestId('public-explore-discovery-summary');
+      await waitFor(() => expect(summary).toHaveFocus());
+      expect(summary).toHaveTextContent('1 parking facilities');
+      expect(screen.getByTestId('public-explore-retry-status')).toHaveTextContent('Parking data loaded.');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('says no parking was found, without a list, when the map fails and nothing is nearby', async () => {
+      server.use(
+        http.get(`${API_BASE}/public/explore/facilities`, () =>
+          HttpResponse.json(discoveryResponse({ facilities: [], municipalTotalInScope: 0 })),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PublicExplorePage />, { initialEntries: ['/explore'] });
+      await screen.findByTestId('public-explore-empty');
+
+      await user.click(screen.getByTestId('fail-map-style'));
+
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent("The map couldn't load.");
+      expect(alert).toHaveTextContent('No municipal parking nearby.');
+      expect(alert).not.toHaveTextContent('listed below');
+      expect(screen.queryByRole('list')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('public-explore-empty')).not.toBeInTheDocument();
+      expect(screen.getByRole('region', { name: "The map couldn't load." })).toBeInTheDocument();
+    });
+
     it('alerts and lists the facilities when the map style never loads', async () => {
       server.use(
         http.get(`${API_BASE}/public/explore/facilities`, () => HttpResponse.json(discoveryResponse())),

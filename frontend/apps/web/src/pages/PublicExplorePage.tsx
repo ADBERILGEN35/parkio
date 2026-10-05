@@ -1,7 +1,7 @@
 import { Icon, MapSearchSkeleton } from '@parkio/ui';
 import { haversineMeters, isValidLatLng } from '@parkio/geo';
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense, useCallback, useId, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { useParkioSdk } from '@/app/AppRuntimeContext';
@@ -86,6 +86,14 @@ export function PublicExplorePage() {
   /** CL-F20: the map style never loaded, so the facilities are listed instead. */
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const listHeadingId = useId();
+  const mapUnavailableTitleId = useId();
+  /** CL-F20: the user pressed Retry; its outcome is announced. */
+  const [retryPressed, setRetryPressed] = useState(false);
+  /** CL-F20: after a Retry the user pressed succeeds, focus moves to the results. */
+  const focusResultsAfterRetryRef = useRef(false);
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const emptyStatusRef = useRef<HTMLParagraphElement>(null);
+  const listFallbackRef = useRef<HTMLElement>(null);
   const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
   /** Autocomplete open — hide competing discovery chrome (presentation only). */
   const [searchInteractionActive, setSearchInteractionActive] = useState(false);
@@ -172,8 +180,28 @@ export function PublicExplorePage() {
   const hardUnavailable = flagOff;
   const showMap = frontendConfig.features.publicExplore;
   const discoverySettled = !query.isLoading && !query.isFetching;
-  const queryFailed = query.isError;
+  /**
+   * CL-F20: from the first failure until the query succeeds. In TanStack Query v5 a refetch of a
+   * query without data resets it to pending, so isError alone would unmount the alert, and the
+   * focused Retry button with it, for as long as the retry runs.
+   */
+  const queryFailed = query.errorUpdatedAt > query.dataUpdatedAt;
   const showListFallback = mapUnavailable && query.isSuccess;
+  const listFallbackEmpty = showListFallback && municipalFacilities.length === 0;
+  const retryStatus =
+    retryPressed && !query.isFetching
+      ? query.isSuccess
+        ? t('explore:retrySucceeded')
+        : queryFailed
+          ? t('explore:retryFailed')
+          : ''
+      : '';
+
+  useEffect(() => {
+    if (!focusResultsAfterRetryRef.current || !query.isSuccess || query.isFetching) return;
+    focusResultsAfterRetryRef.current = false;
+    (listFallbackRef.current ?? summaryRef.current ?? emptyStatusRef.current)?.focus();
+  }, [query.isSuccess, query.isFetching]);
 
   const openContributeGate = useCallback(() => {
     if (requireAuth('/upload', 'contribute')) {
@@ -319,21 +347,31 @@ export function PublicExplorePage() {
                   <p className="m-0 mt-xs text-body-sm text-on-surface-variant">
                     {t('explore:queryErrorBody')}
                   </p>
+                  {/* aria-disabled, not disabled: a disabled button would drop the keyboard focus. */}
                   <button
                     type="button"
                     data-testid="public-explore-retry"
                     onClick={() => {
+                      if (query.isFetching) return;
+                      focusResultsAfterRetryRef.current = true;
+                      setRetryPressed(true);
                       void query.refetch();
                     }}
-                    disabled={query.isFetching}
+                    aria-disabled={query.isFetching || undefined}
                     aria-busy={query.isFetching || undefined}
-                    className="mt-sm inline-flex min-h-11 items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:opacity-60"
+                    className="mt-sm inline-flex min-h-11 items-center gap-xs rounded-full bg-primary px-md py-sm text-label-md font-semibold text-on-primary transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 aria-disabled:cursor-progress aria-disabled:opacity-60"
                   >
-                    <Icon name="refresh" className="text-[18px] leading-none" />
+                    <Icon
+                      name="refresh"
+                      className={`text-[18px] leading-none${query.isFetching ? ' motion-safe:animate-spin' : ''}`}
+                    />
                     {t('explore:retry')}
                   </button>
                 </div>
               ) : null}
+              <p role="status" data-testid="public-explore-retry-status" className="sr-only">
+                {retryStatus}
+              </p>
 
               {/* Discovery chrome — suppressed while autocomplete is actively open. */}
               {!searchInteractionActive ? (
@@ -341,8 +379,10 @@ export function PublicExplorePage() {
               {/* Coherent discovery stack — visible count + optional membership teasers. */}
               {discoverySettled && municipalFacilities.length > 0 ? (
                 <div
+                  ref={summaryRef}
+                  tabIndex={-1}
                   data-testid="public-explore-discovery-summary"
-                  className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5"
+                  className="pointer-events-auto inline-flex max-w-full flex-col gap-1.5 rounded-2xl focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
                 >
                   <div className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-md text-on-surface shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm">
                     <Icon
@@ -399,52 +439,60 @@ export function PublicExplorePage() {
                   {locationFeedback}
                 </p>
               ) : null}
-              {discoverySettled && !queryFailed && municipalFacilities.length === 0 ? (
+              {discoverySettled && !queryFailed && municipalFacilities.length === 0 && !showListFallback ? (
                 <p
+                  ref={emptyStatusRef}
+                  tabIndex={-1}
                   role="status"
                   data-testid="public-explore-empty"
-                  className="pointer-events-none m-0 max-w-md rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-sm text-on-surface-variant shadow-sm"
+                  className="pointer-events-none m-0 max-w-md rounded-2xl bg-surface-container-lowest/95 px-md py-sm text-label-sm text-on-surface-variant shadow-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
                 >
                   {t('explore:emptyMunicipal')}
                 </p>
               ) : null}
               {showListFallback ? (
                 <section
-                  aria-labelledby={listHeadingId}
+                  ref={listFallbackRef}
+                  tabIndex={-1}
+                  aria-labelledby={listFallbackEmpty ? mapUnavailableTitleId : listHeadingId}
                   data-testid="public-explore-list-fallback"
-                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm md:w-[400px]"
+                  className="pointer-events-auto w-full max-w-full rounded-2xl bg-surface-container-lowest/95 p-md shadow-sm ring-1 ring-outline-variant/25 backdrop-blur-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 md:w-[400px]"
                 >
                   <div role="alert" data-testid="public-explore-map-unavailable">
-                    <p className="m-0 text-label-md font-semibold text-on-surface">
+                    <p id={mapUnavailableTitleId} className="m-0 text-label-md font-semibold text-on-surface">
                       {t('explore:mapUnavailableTitle')}
                     </p>
                     <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">
-                      {t('explore:mapUnavailableBody')}
+                      {listFallbackEmpty ? t('explore:emptyMunicipal') : t('explore:mapUnavailableBody')}
                     </p>
                   </div>
-                  <h2 id={listHeadingId} className="m-0 mt-sm text-label-md font-semibold text-on-surface">
-                    {t('explore:listHeading')}
-                  </h2>
-                  <ul role="list" className="m-0 mt-xs flex max-h-[40vh] list-none flex-col gap-1 overflow-y-auto p-0">
-                    {municipalFacilities.map((facility) => (
-                      <li key={facility.id}>
-                        <button
-                          type="button"
-                          data-testid="public-explore-list-item"
-                          aria-pressed={selectedId === facility.id}
-                          onClick={() => setSelectedId(facility.id)}
-                          className="flex min-h-11 w-full items-center gap-xs rounded-xl px-sm py-xs text-left text-label-md text-on-surface transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
-                        >
-                          <Icon name="garage" className="shrink-0 text-[18px] leading-none text-secondary" />
-                          <span className="min-w-0 truncate">
-                            {facility.displayName?.trim() ||
-                              facility.addressText?.trim() ||
-                              t('map:municipal.unnamedFacility')}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  {listFallbackEmpty ? null : (
+                    <>
+                      <h2 id={listHeadingId} className="m-0 mt-sm text-label-md font-semibold text-on-surface">
+                        {t('explore:listHeading')}
+                      </h2>
+                      <ul role="list" className="m-0 mt-xs flex max-h-[40vh] list-none flex-col gap-1 overflow-y-auto p-0">
+                        {municipalFacilities.map((facility) => (
+                          <li key={facility.id}>
+                            <button
+                              type="button"
+                              data-testid="public-explore-list-item"
+                              aria-pressed={selectedId === facility.id}
+                              onClick={() => setSelectedId(facility.id)}
+                              className="flex min-h-11 w-full items-center gap-xs rounded-xl px-sm py-xs text-left text-label-md text-on-surface transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-secondary/30"
+                            >
+                              <Icon name="garage" className="shrink-0 text-[18px] leading-none text-secondary" />
+                              <span className="min-w-0 truncate">
+                                {facility.displayName?.trim() ||
+                                  facility.addressText?.trim() ||
+                                  t('map:municipal.unnamedFacility')}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </section>
               ) : null}
               {/* Contribution discoverability — AuthGate only; registration stays CLOSED. */}

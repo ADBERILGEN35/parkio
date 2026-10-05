@@ -29,6 +29,8 @@
   "destinationSearchClear": "Hedefi temizle",
   "queryErrorBody": "Otopark verileri yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
   "retry": "Yeniden dene",
+  "retrySucceeded": "Otopark verileri yüklendi.",
+  "retryFailed": "Otopark verileri hâlâ yüklenemedi.",
   "mapUnavailableTitle": "Harita yüklenemedi.",
   "mapUnavailableBody": "Yakındaki otoparklar bunun yerine aşağıda listeleniyor.",
   "listHeading": "Yakındaki otoparklar"
