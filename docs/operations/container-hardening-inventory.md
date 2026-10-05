@@ -54,6 +54,15 @@ root and needs them to prepare a data directory or switch to its service user.
    proxy needs a new pinned image (image publication is outside this change), and file-based
    collection from `/var/lib/docker/containers` changes the Loki labels that dashboards and
    alerts use. Until then the guard allows the socket for promtail only.
+   - **`Config.Env` exposure (owner decision 5, 2026-10-05).** Through the Docker API, promtail can
+     read every container's environment, secrets included. A socket proxy cannot filter that
+     (`../architecture/docker-socket-proxy-design.md`, "What remains exposed").
+   - The exposure is accepted only for the current non-production promtail setup: the default
+     development stack and CI.
+   - The hosted-beta deploy profile is not covered. It is a supported deployment path (CL-F12,
+     decision 1b), and it starts promtail with the socket today, so its exposure stays open.
+   - Production enablement stays blocked until a secrets-exposure solution has been reviewed.
+   - This records the state. It changes no live configuration and closes no operational criterion.
 2. **node-exporter shares the host PID namespace** and mounts `/`, `/proc` and `/sys` read-only
    for host metrics; it runs as nobody with no capabilities.
 3. **Root-start images stay root-start** (PostgreSQL, Redis, ClamAV, nginx, Caddy, MinIO, mc,
@@ -98,7 +107,9 @@ showed it: under these mounts `/login` was refused before and after a restart.
   anything starts. The message names the fix: move the web pin
   (`docker/docker-compose.web-release-pin.yml`) to an image built from #198 or later.
 
-The break-glass `PARKIO_SKIP_WEB_MAP_GUARD` skips this check together with the map guard.
+The check has its own break-glass, `PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D`, off by
+default. The map guard's break-glass `PARKIO_SKIP_WEB_MAP_GUARD` does not skip it: without a binding,
+the check inspects the image the model names (owner decision 4, 2026-10-05).
 
 **Release step.** The current Civo pin predates #198. Move it before the first deploy that
 includes this change; until then the deploy commands refuse to start web.

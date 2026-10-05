@@ -115,6 +115,8 @@ override as the last `-f`:
 
 `PARKIO_SKIP_WEB_MAP_GUARD=1` is refused. Break-glass is only
 `I_ACCEPT_UNVERIFIED_WEB_IMAGE` and disables both verification and binding.
+It does not skip the conf.d check (B8b), which has its own break-glass,
+`PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D`. Both are off by default.
 
 ### Image identity bound to the executed Compose command
 

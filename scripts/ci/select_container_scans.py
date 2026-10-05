@@ -16,12 +16,20 @@ For a pull request each changed path is classified by the first matching rule:
   6. paths that no image contains or builds from (docs, other workflows,
      scripts, Compose and observability configuration, ...)                -> none
   7. anything else                                                          -> every image (fail closed)
-On top of these rules, a path under scripts/ or docker/ that an image's build names also selects
-that image: a reference in a service's Dockerfile or in its own Gradle build file selects that
-service, one in the web Dockerfile selects web, and one in the shared Gradle build (root files,
-gradle/, buildSrc/, platform/, tools/) selects every service. References are found in any form: a file
-or a directory, with or without a trailing slash, with a glob (its directory counts), relative to the
-build context or under a build stage's path (/workspace/scripts/...). Comments do not count.
+On top of these rules, the paths an image's build reads are collected from two sources:
+  - the scanned images' Dockerfiles: COPY and ADD sources, RUN --mount sources, paths in RUN commands
+    (heredoc bodies included), and build-stage paths resolved against the stage's WORKDIR. ARG defaults
+    and ENV values are substituted first; a source or RUN path that still holds a variable cannot be
+    classified and selects every image;
+  - every backend Gradle build file: string paths, and names given to file()/files()/fileTree()/from().
+A path counts in any form: a file or a directory, with or without a trailing slash, or with a glob (its
+directory counts). Comments do not count. `COPY . .` in a build stage is the Gradle build's context,
+which rules 2 and 3 already model.
+A changed path under such a reference is handled in one of two ways (R2-1, owner decision 3):
+  - if the reference lies outside the image trees of rules 1-5 (for example scripts/, docker/, web/,
+    .github/, benchmarks/ or a top-level file), every image is selected. The selector has no rule for
+    that path, so it fails closed instead of selecting nothing;
+  - if the reference lies inside an image tree, the referencing images are added to that tree's rule.
 
 Selection fails closed: when the changed files cannot be listed (no merge commit, a git error) every
 image is scanned.
@@ -36,7 +44,9 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import posixpath
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -63,11 +73,15 @@ NO_IMAGE = (
     ".node-version", "untitled.pen", "parkio-hostinger-landing.zip",
 )
 
-# A scripts/ or docker/ reference. In a Dockerfile it may be a bare directory (`COPY scripts /opt/`); in
-# Gradle code it needs a path, because "docker" there is also a command (ProcessBuilder("docker", "info")).
-DOCKERFILE_REF = re.compile(r"(?<![A-Za-z0-9_.-])(scripts|docker)(?:/([^\s\"',;\]]*))?(?![A-Za-z0-9_.-])")
-GRADLE_REF = re.compile(r"(?<![A-Za-z0-9_.-])(scripts|docker)/([^\s\"',;)\]]+)")
 GLOB = re.compile(r"[*?\[{]")
+# Words of a RUN command or a Gradle string that may be paths.
+WORD_SPLIT = re.compile(r"[\s;,|&()<>\"'`=]+")
+GRADLE_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+# In these Gradle calls a bare name is a path even without a slash: file("scripts").
+GRADLE_FILE_CALL = re.compile(r'\b(?:file|files|fileTree|from)\(\s*"([^"/\s]+)"')
+# Dockerfile heredocs (RUN <<EOT ... EOT) and variable references ($NAME, ${NAME}, ${NAME:-default}).
+HEREDOC = re.compile(r"<<(-?)\s*([\"']?)([A-Za-z_][A-Za-z0-9_]*)\2")
+VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-+])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def services(root: Path = ROOT) -> list[str]:
@@ -75,8 +89,9 @@ def services(root: Path = ROOT) -> list[str]:
     return sorted(p.parent.name for p in (root / "services").glob("*/Dockerfile"))
 
 
-def _dockerfile_code(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+def top_level(root: Path = ROOT) -> set:
+    """The repository's top-level names. A build-input path is a repository path only if it starts with one."""
+    return {p.name for p in root.iterdir() if p.name != ".git"}
 
 
 def _gradle_code(text: str) -> str:
@@ -84,38 +99,265 @@ def _gradle_code(text: str) -> str:
     return re.sub(r"(^|\s)(//|#).*$", r"\1", text, flags=re.M)
 
 
-def _prefix(directory: str, rest: Optional[str]) -> str:
-    """The repository path a reference covers: the path itself, or the directory before a glob."""
-    path = f"{directory}/{rest}" if rest else directory
-    glob = GLOB.search(path)
+def _dockerfile_instructions(text: str) -> list:
+    """[(INSTRUCTION, arguments)], with comment lines removed and continuation lines joined.
+
+    A heredoc's body (RUN <<EOT ... EOT) belongs to its instruction: a RUN gets it appended to its
+    arguments, other instructions (COPY <<EOF writes a file) only consume it."""
+    instructions, current = [], ""
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            current += line[:-1] + " "
+            continue
+        word, _, rest = (current + line).strip().partition(" ")
+        current = ""
+        body = []
+        for _dash, _quote, delimiter in HEREDOC.findall(rest):
+            while index < len(lines):
+                body_line = lines[index]
+                index += 1
+                if body_line.strip() == delimiter:
+                    break
+                body.append(body_line)
+        if word.upper() == "RUN" and body:
+            rest = f"{rest} {' '.join(body)}"
+        instructions.append((word.upper(), rest.strip()))
+    if current.strip():
+        word, _, rest = current.strip().partition(" ")
+        instructions.append((word.upper(), rest.strip()))
+    return instructions
+
+
+def _expand(token: str, variables: dict) -> Optional[str]:
+    """`token` with the Dockerfile's ARG and ENV values substituted; None if a reference stays unresolved."""
+    unresolved = False
+
+    def value_of(match):
+        nonlocal unresolved
+        name = match.group(1) or match.group(4)
+        operator, alternative = match.group(2), match.group(3)
+        value = variables.get(name)
+        if operator in (":-", "-"):
+            if value is None or (operator == ":-" and value == ""):
+                return alternative or ""
+            return value
+        if operator in (":+", "+"):
+            if value is None:
+                unresolved = True
+                return match.group(0)
+            return (alternative or "") if (value or operator == "+") else ""
+        if value is None:
+            unresolved = True
+            return match.group(0)
+        return value
+
+    expanded = VARIABLE.sub(value_of, token)
+    return None if unresolved or "$" in expanded else expanded
+
+
+def _declare(word: str, args: str, variables: dict) -> None:
+    """Record an ARG default or ENV value. An ARG without a default is unknown: a build may pass anything."""
+    try:
+        items = shlex.split(args)
+    except ValueError:
+        items = args.split()
+    if word == "ENV" and items and "=" not in items[0]:
+        items = [f"{items[0]}={' '.join(items[1:])}"]  # legacy `ENV NAME value`
+    for item in items:
+        name, has_value, value = item.partition("=")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            continue
+        if has_value:
+            expanded = _expand(value, variables)
+            if expanded is None:
+                variables.pop(name, None)
+            else:
+                variables[name] = expanded
+        elif word == "ARG":
+            variables.pop(name, None)
+
+
+def _repo_path(token: str, top: set, base: str = "", workdir: str = "", strip_vars: bool = False) -> Optional[str]:
+    """The repository path a build-input token names, "" for the whole build context, or None.
+
+    `strip_vars` drops a leading ${rootDir}/-style prefix, for Gradle strings. Dockerfile tokens are
+    expanded with _expand() before they get here."""
+    token = token.strip().strip("\"'")
+    if strip_vars:
+        token = re.sub(r"^\$\{[^}]*\}/|^\$[A-Za-z_][A-Za-z0-9_]*/", "", token)
+    if not token or "://" in token or token.startswith("-") or token.startswith("<<"):
+        return None
+    glob = GLOB.search(token)
     if glob:
-        path = path[:glob.start()]
-        path = path.rsplit("/", 1)[0] if "/" in path else directory
-    while path.endswith("/.") or path.endswith("/"):
-        path = path[:-2] if path.endswith("/.") else path[:-1]
-    return path or directory
+        token = token[:glob.start()]
+        token = token.rsplit("/", 1)[0] if "/" in token else "."
+        token = token or "/"
+    if token.startswith("/"):
+        stage_root = workdir.rstrip("/")
+        if stage_root and (token == stage_root or token.startswith(stage_root + "/")):
+            token = token[len(stage_root):].lstrip("/") or "."
+        else:
+            parts = [part for part in token.split("/") if part]
+            for index, part in enumerate(parts):
+                if part in top:
+                    return "/".join(parts[index:])
+            return None
+    if base and token.startswith("../"):
+        token = posixpath.join(base, token)
+    token = posixpath.normpath(token)
+    if token == ".":
+        return ""
+    if token.startswith(".."):
+        return None
+    return token if token.split("/")[0] in top else None
+
+
+def _copy_sources(args: str) -> tuple[dict, list]:
+    """(flags, sources) of a COPY or ADD instruction, in shell or JSON form."""
+    words = args.split()
+    flags = {}
+    while words and words[0].startswith("--"):
+        name, _, value = words.pop(0)[2:].partition("=")
+        flags[name.lower()] = value
+    rest = " ".join(words)
+    if rest.startswith("["):
+        try:
+            items = [str(item) for item in json.loads(rest)]
+        except ValueError:
+            items = rest.strip("[]").replace('"', " ").replace(",", " ").split()
+    else:
+        try:
+            items = shlex.split(rest)
+        except ValueError:
+            items = rest.split()
+    return flags, items[:-1]
+
+
+def _dockerfile_refs(text: str, top: set, top_files: set) -> set:
+    """Repository paths a Dockerfile's build reads; "" stands for the whole build context.
+
+    A source or a path in a RUN command that still holds a variable after the ARG and ENV values are
+    substituted cannot be classified, so it is recorded as "": every image (R2-1, owner decision 3)."""
+    instructions = _dockerfile_instructions(text)
+    final = max((index for index, (word, _) in enumerate(instructions) if word == "FROM"), default=0)
+    refs: set = set()
+    variables: dict = {}
+    workdir, stage, stage_workdirs = "", "", {}
+
+    def source_path(raw: str, stage_workdir: str = "") -> Optional[str]:
+        expanded = _expand(raw, variables)
+        if expanded is None:
+            return ""  # unresolved variable: the source could be anything in the context
+        return _repo_path(expanded, top, workdir=stage_workdir)
+
+    for index, (word, args) in enumerate(instructions):
+        if word in ("ARG", "ENV"):
+            _declare(word, args, variables)
+        elif word == "FROM":
+            named = re.search(r"\s[Aa][Ss]\s+(\S+)\s*$", args)
+            stage, workdir = (named.group(1).lower() if named else ""), ""
+        elif word == "WORKDIR":
+            path = (_expand(args.strip().strip("\"'"), variables) or "")
+            workdir = path if path.startswith("/") else posixpath.join(workdir or "/", path)
+            if stage:
+                stage_workdirs[stage] = workdir
+        elif word in ("COPY", "ADD"):
+            flags, sources = _copy_sources(args)
+            source_stage = flags.get("from")
+            for source in sources:
+                if source_stage is None:
+                    path = source_path(source)
+                    if path == "" and index < final and "$" not in source:
+                        continue  # COPY . . in a build stage: the Gradle build's context (rules 2 and 3)
+                else:
+                    path = source_path(source, stage_workdirs.get(source_stage.lower(), ""))
+                if path is not None:
+                    refs.add(path)
+        elif word == "RUN":
+            for mount in re.findall(r"--mount=(\S+)", args):
+                options = dict(item.partition("=")[::2] for item in mount.split(","))
+                source = options.get("source") or options.get("src")
+                if options.get("type", "bind") == "bind" and source and "from" not in options:
+                    path = source_path(source)
+                    if path is not None:
+                        refs.add(path)
+            for token in WORD_SPLIT.split(re.sub(r"--mount=\S+", " ", args)):
+                expanded = _expand(token, variables)
+                if expanded is None:
+                    if "/" in token:
+                        refs.add("")  # a path built from an unresolved variable
+                    continue  # a shell variable such as ${args}, not a path
+                if "/" in expanded or expanded in top_files:
+                    path = _repo_path(expanded, top, workdir=workdir)
+                    if path:
+                        refs.add(path)
+    return refs
+
+
+def _gradle_refs(text: str, top: set, base: str) -> set:
+    """Repository paths a Gradle build file names in its strings."""
+    code = _gradle_code(text)
+    refs: set = set()
+    for literal in GRADLE_STRING.findall(code):
+        for token in literal.split():
+            if "/" in token:
+                path = _repo_path(token, top, base=base, strip_vars=True)
+                if path:
+                    refs.add(path)
+    for name in GRADLE_FILE_CALL.findall(code):
+        if name in top:
+            refs.add(name)
+    return refs
+
+
+def _in_image_tree(path: str, every_service: set, root: Path) -> bool:
+    """Whether rules 1-5 already map changes at and under `path` to images."""
+    if not path:
+        return False
+    probes = [path, f"{path}/x"] if (root / path).is_dir() else [path]
+    for probe in probes:
+        images, why = _classify_rules(probe, every_service)
+        if not images or "fail closed" in why:
+            return False
+    return True
 
 
 def image_input_refs(root: Path = ROOT, known_services: Optional[list] = None) -> list:
-    """[(path under scripts/ or docker/, images whose build names it)], sorted by path."""
+    """[(path, images whose build reads it, whether the path lies in an image tree)], sorted by path.
+
+    "" stands for the whole build context."""
     names = services(root) if known_services is None else list(known_services)
     every_service = set(names)
-    sources = []
+    top = top_level(root)
+    top_files = {name for name in top if (root / name).is_file()}
+    found: dict = {}
+
+    def add(paths, images):
+        for path in paths:
+            found.setdefault(path, set()).update(images)
+
     for name in names:
-        sources.append((root / "services" / name / "Dockerfile", {name}, DOCKERFILE_REF, _dockerfile_code))
+        dockerfile = root / "services" / name / "Dockerfile"
+        if dockerfile.is_file():
+            add(_dockerfile_refs(dockerfile.read_text(errors="replace"), top, top_files), {name})
         for build_file in sorted((root / "services" / name).glob("**/*.gradle.kts")):
-            sources.append((build_file, {name}, GRADLE_REF, _gradle_code))
-    sources.append((root / "frontend" / "apps" / "web" / "Dockerfile", {WEB}, DOCKERFILE_REF, _dockerfile_code))
+            add(_gradle_refs(build_file.read_text(errors="replace"), top,
+                             build_file.parent.relative_to(root).as_posix()), {name})
+    web_dockerfile = root / "frontend" / "apps" / "web" / "Dockerfile"
+    if web_dockerfile.is_file():
+        add(_dockerfile_refs(web_dockerfile.read_text(errors="replace"), top, top_files), {WEB})
     shared = [*root.glob("*.gradle.kts"), *root.glob("gradle/*.toml"), *root.glob("buildSrc/**/*.kt*"),
               *root.glob("platform/**/*.gradle.kts"), *root.glob("tools/**/*.gradle.kts")]
     for build_file in sorted(shared):
-        sources.append((build_file, every_service, GRADLE_REF, _gradle_code))
-    refs: dict = {}
-    for path, images, pattern, code in sources:
-        if path.is_file():
-            for directory, rest in pattern.findall(code(path.read_text(errors="replace"))):
-                refs.setdefault(_prefix(directory, rest), set()).update(images)
-    return sorted(refs.items())
+        add(_gradle_refs(build_file.read_text(errors="replace"), top,
+                         build_file.parent.relative_to(root).as_posix()), every_service)
+    return [(path, owners, _in_image_tree(path, every_service, root)) for path, owners in sorted(found.items())]
 
 
 def matches(path: str, patterns: tuple[str, ...]) -> bool:
@@ -152,11 +394,18 @@ def _classify_rules(path: str, every_service: set) -> tuple[set[str], str]:
 
 def classify(path: str, known_services: list[str], refs=()) -> tuple[set[str], str]:
     """The images one changed path can affect, and why. `refs` come from image_input_refs()."""
-    images, why = _classify_rules(path, set(known_services))
-    named = set()
-    for prefix, owners in refs:
-        if path == prefix or path.startswith(prefix + "/"):
-            named |= owners
+    every_service = set(known_services)
+    images, why = _classify_rules(path, every_service)
+    named, outside = set(), []
+    for prefix, owners, in_tree in refs:
+        if prefix == "" or path == prefix or path.startswith(prefix + "/"):
+            if in_tree:
+                named |= owners
+            else:
+                outside.append(prefix or ".")
+    if outside:
+        return every_service | {WEB}, (f"{why}; read by an image build outside the image trees "
+                                       f"({', '.join(sorted(outside))}): every image (fail closed)")
     if named - images:
         return images | named, f"{why}; named by the build of {', '.join(sorted(named))}"
     return images, why
@@ -208,8 +457,9 @@ def main(argv: list[str]) -> int:
         return 1
     changed = pull_request_changes() if args.event == "pull_request" else None
     refs = image_input_refs(ROOT, known)
-    for prefix, owners in refs:
-        print(f"named by an image build: {prefix} -> {', '.join(sorted(owners))}")
+    for prefix, owners, in_tree in refs:
+        scope = "in an image tree" if in_tree else "outside the image trees: every image"
+        print(f"read by an image build: {prefix or '.'} -> {', '.join(sorted(owners))} ({scope})")
     images, reasons = select(args.event, changed, known, refs)
     for reason in reasons:
         print(reason)
