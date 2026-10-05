@@ -65,6 +65,51 @@ manifest expires.
 `hosted-beta-deploy.yml` (deprecated path) works the same way, with the
 `deploy-manifest-live-<sha>` artifact of its `Deploy (self-hosted beta)` job.
 
+### Compose file list (F-INV-2, owner decision 2026-10-05)
+
+The rollback renders this checkout's compose file list against the target's
+staged release (`PARKIO_COMPOSE_BASE_DIR`). It therefore refuses, with exit 3,
+before it writes, activates or starts anything (dry runs included), when the
+target manifest's `composeFiles` is:
+
+- absent or malformed;
+- different from the list it would render, including the same files in another order.
+
+The message starts with `compose file list changed (...)` and names every added
+and removed file. Its causes:
+
+- **The list changed in the source**, for example when F-INV-1 added
+  `docker-compose.auth-registration-env.yml`.
+- **The env selects another edge mode or ACME setting** than the target deploy
+  ran with: the dispatch inputs `invite_edge_mode` and `invite_acme_authorized`.
+
+No file is left out silently, and there is no override.
+
+To return to such a release, either:
+
+- run the rollback from a checkout whose list matches, with the matching edge
+  inputs; or
+- deploy a compatible release.
+
+A live rollback also refuses, before it activates the target release, when a
+listed file is missing from that release.
+
+**Rollback compatibility-guard acceptance.** `rollback-manifest-acceptance.yml`
+checks this guard and performs no rollback. It dry-runs the guard twice:
+
+- **Against a synthetic deploy manifest** that this checkout's writer produced
+  with this checkout's list. That dry run must succeed.
+- **Against the manifest of the newest qualifying api deploy run found in the API listings**, with that deploy's edge mode. The run is chosen by creation time: its deploy job succeeded, and it holds exactly one unexpired manifest. The candidates come from two complete listings, with and without the API's success filter, because the API sometimes serves a stale page. The listings can still lag, so the run is not guaranteed to be the most recent deploy. A newer run with any other artifact listing fails the check instead of being passed over.
+  A compatible list must dry-run successfully. An incompatible one passes only
+  when the guard itself refuses it, naming the files. The job summary then says
+  "rollback to the newest qualifying deploy run found in the API listings at
+  <time> (<run id>, commit …, created …) is NOT currently possible: compose file
+  list changed (...); a post-change deploy is required."
+
+**A green result does not mean that a rollback to the latest deployed release
+currently works.** Operational rollback acceptance remains BLOCKED until an
+authorized compatible release exists.
+
 ## Dark acceptance endpoint and backup scheduler (PROD-DEPLOY-01A-R3)
 
 Two rollbacks are independent of image/config rollback and of each other.

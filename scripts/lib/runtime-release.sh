@@ -367,6 +367,29 @@ parkio_assert_release_readable() {
   echo "Release $sha is readable by non-root container UIDs."
 }
 
+# F-INV-2: every file of the rollback's compose list (PARKIO_COMPOSE_FILES, which
+# parkio_assert_rollback_compose_files matched to the target manifest) must be in the target's
+# staged release. Checked before the release is activated; returns 3 and names each missing file.
+parkio_assert_release_has_compose_files() {
+  local release="$1" word expect_file=0 missing=0
+  for word in $PARKIO_COMPOSE_FILES; do
+    if [ "$expect_file" -eq 1 ]; then
+      expect_file=0
+      if [ ! -f "$release/$word" ]; then
+        echo "ERROR: compose file missing from the target release $release: $word" >&2
+        missing=1
+      fi
+    elif [ "$word" = "-f" ]; then
+      expect_file=1
+    fi
+  done
+  if [ "$missing" -ne 0 ]; then
+    echo "       Refusing the rollback before it activates that release (F-INV-2)." >&2
+    return 3
+  fi
+  return 0
+}
+
 # Canonicalize a path, failing if it does not exist.
 parkio_realpath() {
   if command -v realpath >/dev/null 2>&1; then

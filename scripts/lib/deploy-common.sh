@@ -727,6 +727,59 @@ parkio_compose_files_json() {
   echo "$out"
 }
 
+# F-INV-2 (owner decision 2026-10-05): an invite-production rollback renders this checkout's compose
+# file list against the target's staged release, so the list must be exactly the one the target
+# deploy recorded in its manifest's composeFiles, in the same order. parkio_assert_rollback_compose_files
+# TARGET_MANIFEST returns 0 when it is, and 3, before anything is written or started, when composeFiles
+# is absent, malformed or different. A difference is reported as "compose file list changed (...)"
+# with every added and removed file. Nothing is left out silently, and there is no override.
+parkio_assert_rollback_compose_files() {
+  local manifest="$1"
+  python3 - "$manifest" "$(parkio_compose_files_json)" <<'PY'
+import json
+import re
+import sys
+
+manifest_path, current = sys.argv[1], json.loads(sys.argv[2])
+COMPOSE_FILE = re.compile(r"docker/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml")
+
+
+def refuse(message, *advice):
+    print(f"ERROR: {message}", file=sys.stderr)
+    for line in advice:
+        print(f"       {line}", file=sys.stderr)
+    sys.exit(3)
+
+
+NO_EVIDENCE = ("Without the target deploy's compose file list, the rollback cannot show that it renders the",
+               "files that deploy ran, so it is refused (F-INV-2). There is no override.")
+try:
+    with open(manifest_path, encoding="utf-8") as fh:
+        manifest = json.load(fh)
+except (OSError, ValueError) as error:
+    refuse(f"cannot read the target manifest's compose file list: {error}", *NO_EVIDENCE)
+if not isinstance(manifest, dict) or "composeFiles" not in manifest:
+    refuse("the target manifest records no composeFiles.", *NO_EVIDENCE)
+target = manifest["composeFiles"]
+if (not isinstance(target, list) or not target
+        or not all(isinstance(f, str) and COMPOSE_FILE.fullmatch(f) for f in target)
+        or len(set(target)) != len(target)):
+    refuse(f"the target manifest's composeFiles is malformed: {json.dumps(target)[:400]}", *NO_EVIDENCE)
+if target == current:
+    print(f"rollback compose files: exactly the target deploy's list ({len(target)} files)")
+    sys.exit(0)
+added = [f for f in current if f not in target]
+removed = [f for f in target if f not in current]
+changes = [f"added {f}" for f in added] + [f"removed {f}" for f in removed] or ["same files, another order"]
+refuse(f"compose file list changed ({'; '.join(changes)}).",
+       f"The target deploy rendered: {json.dumps(target)}",
+       f"This rollback would render: {json.dumps(current)}",
+       "A rollback across a compose file-list change is refused (F-INV-2): no file is left out, and there",
+       "is no override. Run it from a checkout whose list matches the target deploy's, or deploy a",
+       "compatible release.")
+PY
+}
+
 parkio_migration_versions_json() {
   # Source-tree Flyway scripts present at deploy time (not live DB state).
   local root svc dir f out first mig_first

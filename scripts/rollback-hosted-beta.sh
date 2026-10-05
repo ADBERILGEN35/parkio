@@ -66,6 +66,13 @@ if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
   exit 2
 fi
 
+if [ "$USE_HOSTED_BETA" -eq 0 ] && [ "$MANIFEST_PROFILE" = "invite-production" ]; then
+  # F-INV-2 (#289 review B1): the local-dev model is the three base files, so it would silently leave
+  # out what an invite-production deploy rendered. The flag is no way around the file-list guard.
+  echo "ERROR: --no-hosted-beta-overlay renders the local-dev model, so it cannot roll back an" >&2
+  echo "       invite-production manifest: the files that deploy rendered would be left out (F-INV-2)." >&2
+  exit 3
+fi
 if [ "$USE_HOSTED_BETA" -eq 1 ]; then
   parkio_configure_deployment_profile "$ENV_FILE"
   parkio_warn_deprecated_production_path
@@ -77,6 +84,11 @@ else
   PARKIO_DEPLOYMENT_PROFILE="local-dev"
   PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml"
   export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
+fi
+if [ "$PARKIO_DEPLOYMENT_PROFILE" = "invite-production" ]; then
+  # F-INV-2: render exactly the compose files the target deploy recorded, or refuse here, before
+  # anything is written, activated or started (dry runs included).
+  parkio_assert_rollback_compose_files "$MANIFEST" || exit 3
 fi
 export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
@@ -198,6 +210,7 @@ if [ "${PARKIO_DEPLOYMENT_PROFILE:-}" = "invite-production" ]; then
   fi
   parkio_assert_release_is_stable "$ROLLBACK_RELEASE" || exit 3
   parkio_assert_release_readable "$GIT_SHA" >/dev/null || exit 3
+  parkio_assert_release_has_compose_files "$ROLLBACK_RELEASE" || exit 3
   export PARKIO_COMPOSE_BASE_DIR="$ROLLBACK_RELEASE"
   echo "composeBaseDir=$PARKIO_COMPOSE_BASE_DIR"
   parkio_activate_release "$GIT_SHA"
