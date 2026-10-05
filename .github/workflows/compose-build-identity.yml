@@ -1,0 +1,65 @@
+# Compose build identity (CI audit 2026-10-04, item 3; batch item W10b).
+#
+# Runtime validation, chaos validation and performance smoke start their stacks only from the images
+# they built: scripts/ci/compose_image_identity.py records the built image ids before `up`, forbids
+# pulls for the built services, and checks every container after `up`. This workflow tests that script
+# and probes that the image build cache is keyed by its inputs, on one service:
+#   - a repeat build with the same inputs gives identical RootFS layers;
+#   - a one-line change to the service's source keeps the base image's layers and changes a later one,
+#     so a cache hit cannot hide a changed input.
+# It does not claim byte-identical clean rebuilds: jars carry build timestamps and the runtime stage
+# installs packages from apt. No build cache is shared between jobs or workflows (see the PR that
+# added this for the measurements).
+
+name: Compose build identity
+
+on:
+  pull_request:
+    branches: [api]
+    paths:
+      - "scripts/ci/compose_image_identity.py"
+      - "scripts/ci/test_compose_image_identity.py"
+      - ".github/workflows/compose-build-identity.yml"
+      - "services/gamification-service/Dockerfile"
+      - ".dockerignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compose-build-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity:
+    name: Image identity tests and input-change probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Unit tests
+        run: python3 scripts/ci/test_compose_image_identity.py
+
+      - name: Probe that a changed input changes the image
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/compose_image_identity.py probe \
+            --dockerfile services/gamification-service/Dockerfile \
+            --context . \
+            --input services/gamification-service/src/main/resources/application.yml \
+            --revision "$(git rev-parse HEAD)" \
+            --out compose-build-identity/probe.json
+
+      - name: Upload the probe report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-build-identity-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: compose-build-identity/
+          retention-days: 30
+          if-no-files-found: error
