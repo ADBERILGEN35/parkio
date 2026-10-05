@@ -9,6 +9,7 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/performance-smoke.yml"
+      - "scripts/ci/compose_image_identity.py"
       - "benchmarks/scripts/**"
 permissions:
   contents: read
@@ -119,8 +120,20 @@ jobs:
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config > benchmarks/reports/performance-compose-config.yml
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
 
+      # Build, then start exactly the images built here: their ids are recorded, the built services may not
+      # be pulled, and every container is checked after up (scripts/ci/compose_image_identity.py). The CLI
+      # build-arg gives every image the commit under test as its revision label.
       - name: Build and start stack
-        run: docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --build
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --build-arg "IMAGE_REVISION=$revision"
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json >"$RUNNER_TEMP/compose-model.json"
+          python3 scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
+            --expect-revision "$revision" --out benchmarks/reports/image-identity.json \
+            --override "$RUNNER_TEMP/compose-pull-never.json"
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES -f "$RUNNER_TEMP/compose-pull-never.json" up -d --no-build
+          python3 scripts/ci/compose_image_identity.py verify benchmarks/reports/image-identity.json
 
       - name: Wait for healthchecks
         run: |

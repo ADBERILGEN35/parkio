@@ -8,6 +8,7 @@ on:
       - "services/**/Dockerfile"
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/runtime-validation.yml"
+      - "scripts/ci/compose_image_identity.py"
       - "benchmarks/scripts/wait-http-ready.mjs"
       - "benchmarks/scripts/wait-tempo-ready.mjs"
       - "benchmarks/scripts/ci-result-integrity.test.mjs"
@@ -194,6 +195,10 @@ jobs:
           diag_pid=$!
           trap 'kill "$diag_pid" 2>/dev/null || true' EXIT
 
+          # Every image carries the commit under test as its revision label (a CLI build-arg overrides
+          # the compose files' IMAGE_REVISION), so the identity record below can tell it apart.
+          revision="$(git rev-parse HEAD)"
+
           gradle_image_services=(
             gateway-service
             auth-service
@@ -213,7 +218,8 @@ jobs:
           while [ "$i" -lt "$n" ]; do
             batch=("${gradle_image_services[@]:i:2}")
             echo "compose build batch: ${batch[*]}"
-            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain "${batch[@]}"
+            docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain \
+              --build-arg "IMAGE_REVISION=$revision" "${batch[@]}"
             runner_diag | tee -a runtime-validation-artifacts/runner-diag.txt
             i=$((i + 2))
           done
@@ -243,13 +249,21 @@ jobs:
             while [ "$i" -lt "$n" ]; do
               batch=("${remaining_services[@]:i:2}")
               echo "compose build batch: ${batch[*]}"
-              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain "${batch[@]}"
+              docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES build --progress=plain \
+              --build-arg "IMAGE_REVISION=$revision" "${batch[@]}"
               runner_diag | tee -a runtime-validation-artifacts/runner-diag.txt
               i=$((i + 2))
             done
           fi
 
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES up -d --no-build
+          # Start exactly the images built above: record their ids, forbid pulls for the built services,
+          # and check after up that every container runs a recorded image (scripts/ci/compose_image_identity.py).
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json >"$RUNNER_TEMP/compose-model.json"
+          python3 scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
+            --expect-revision "$revision" --out runtime-validation-artifacts/image-identity.json \
+            --override "$RUNNER_TEMP/compose-pull-never.json"
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES -f "$RUNNER_TEMP/compose-pull-never.json" up -d --no-build
+          python3 scripts/ci/compose_image_identity.py verify runtime-validation-artifacts/image-identity.json
 
       - name: Wait for required healthchecks
         run: |
