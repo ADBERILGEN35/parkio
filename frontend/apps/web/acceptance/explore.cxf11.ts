@@ -9,7 +9,8 @@ import { EXPLORE_FACILITY, installMockApi, snap, t, waitForApp } from './support
  * CL-F20 (option A) they pass. They were known defects before it. A query-failure scenario serves a
  * stub map style, so it tests only the query path. The map-failure scenario keeps the provider
  * aborted. The keyboard scenarios check that the new controls are reachable and work from the
- * keyboard.
+ * keyboard, and that Retry keeps the focus while it fails and hands it to the results when it
+ * succeeds, at the desktop size and at 360 px.
  */
 
 /**
@@ -27,6 +28,12 @@ async function serveStubMapStyle(page: Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STUB_MAP_STYLE) }),
   );
 }
+
+/** The focus scenarios run at the desktop size and at the 360-px width of the mobile e2e project. */
+const VIEWPORTS = [
+  { name: 'desktop', size: { width: 1280, height: 720 } },
+  { name: '360', size: { width: 360, height: 800 } },
+] as const;
 
 /** Press Tab until `target` has focus, as a keyboard user would reach it. */
 async function tabTo(page: Page, target: Locator, limit = 40) {
@@ -93,6 +100,37 @@ for (const locale of ['tr', 'en'] as const) {
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.getByRole('button', { name: EXPLORE_FACILITY.displayName }).first()).toBeVisible();
   });
+
+  for (const viewport of VIEWPORTS) {
+    test(`Retry keeps the focus while it fails and moves it to the results when it succeeds (${locale}, ${viewport.name})`, async ({ page }) => {
+      await page.setViewportSize(viewport.size);
+      const api = await installMockApi(page, locale);
+      await serveStubMapStyle(page);
+      api.unavailable.add('GET /public/explore/facilities');
+      await page.goto('/explore');
+      await waitForApp(page);
+      const alert = page.getByRole('alert');
+      const retry = alert.getByRole('button');
+      await expect(retry).toBeVisible({ timeout: 5_000 });
+      await tabTo(page, retry);
+      const before = api.count('GET /public/explore/facilities');
+
+      await page.keyboard.press('Enter');
+      await expect(retry).toHaveAttribute('aria-busy', 'true');
+      await expect(retry).toBeFocused();
+      await expect.poll(() => api.count('GET /public/explore/facilities')).toBe(before + 2);
+      await expect(retry).not.toHaveAttribute('aria-busy', 'true');
+      await expect(retry).toBeFocused();
+      await expect(alert).toHaveCount(1);
+      await expect(page.getByTestId('public-explore-retry-status')).toHaveText(t(locale, 'explore', 'retryFailed'));
+
+      api.unavailable.delete('GET /public/explore/facilities');
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('public-explore-discovery-summary')).toBeFocused();
+      await expect(page.getByTestId('public-explore-retry-status')).toHaveText(t(locale, 'explore', 'retrySucceeded'));
+      await expect(alert).toHaveCount(0);
+    });
+  }
 
   test(`the list fallback is reached and used from the keyboard (${locale})`, async ({ page }) => {
     await installMockApi(page, locale);
