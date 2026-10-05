@@ -26,5 +26,12 @@
   "mapDescription": "Pan and zoom the map. Select a municipal parking marker for a preview. Full details require signing in.",
   "destinationSearchLabel": "Search destination",
   "destinationSearchPlaceholder": "Where are you going?",
-  "destinationSearchClear": "Clear destination"
+  "destinationSearchClear": "Clear destination",
+  "queryErrorBody": "We couldn't load parking data. Check your connection and try again.",
+  "retry": "Try again",
+  "retrySucceeded": "Parking data loaded.",
+  "retryFailed": "Parking data still couldn't be loaded.",
+  "mapUnavailableTitle": "The map couldn't load.",
+  "mapUnavailableBody": "Parking nearby is listed below instead.",
+  "listHeading": "Parking nearby"
 }

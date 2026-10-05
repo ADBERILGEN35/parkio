@@ -1,7 +1,7 @@
 import './maplibreSetup';
 import type { MunicipalFacility, PublicSpot } from '@parkio/types';
 import { cn, getSpotStatusVisual, getTrustFreshnessVisual } from '@parkio/ui';
-import { memo, useCallback, useId, useMemo } from 'react';
+import { memo, useCallback, useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Map, { Marker } from 'react-map-gl/maplibre';
 import { freshnessLabel, spotStatusLabel } from '@/lib/localized-status';
@@ -74,6 +74,12 @@ export interface NearbySpotsMapProps {
    * the canvas has no attribution of its own; `null` until the element mounts.
    */
   attributionTarget?: HTMLElement | null;
+  /**
+   * Called once when the map style never loads (CL-F20): an error before any style data, from no tile
+   * or source. The map stays empty then, so the page can offer another view. Tile and source errors
+   * after the style loaded are not detected.
+   */
+  onStyleUnavailable?: () => void;
 }
 
 /** Premium, status-aware marker shown for each real spot. */
@@ -164,8 +170,11 @@ export function NearbySpotsMap({
   recommendedRefIds,
   discoveryFrame,
   attributionTarget,
+  onStyleUnavailable,
 }: NearbySpotsMapProps) {
   const { t } = useTranslation('map');
+  const styleReadyRef = useRef(false);
+  const styleFailureReportedRef = useRef(false);
   const descriptionId = useId();
   const selectionId = useId();
   // Stable selection handler: passed by reference to every marker so the memoized
@@ -247,10 +256,19 @@ export function NearbySpotsMap({
         dragRotate={false}
         pitchWithRotate={false}
         onLoad={() => {
+          styleReadyRef.current = true;
           trackProductEvent('map_ready');
         }}
-        onError={() => {
+        onStyleData={() => {
+          styleReadyRef.current = true;
+        }}
+        onError={(event) => {
           trackProductEvent('map_init_failed', { mapErrorCode: 'load_failed' });
+          const fromTileOrSource = 'sourceId' in event || 'tile' in event;
+          if (!styleReadyRef.current && !fromTileOrSource && !styleFailureReportedRef.current) {
+            styleFailureReportedRef.current = true;
+            onStyleUnavailable?.();
+          }
         }}
         onClick={(event) => {
           onSelectSpot?.(null);

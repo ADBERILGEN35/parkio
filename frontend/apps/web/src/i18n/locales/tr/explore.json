@@ -26,5 +26,12 @@
   "mapDescription": "Haritayı kaydırın ve yakınlaştırın. Önizleme için bir belediye otopark işaretini seçin. Tam ayrıntılar için giriş yapmanız gerekir.",
   "destinationSearchLabel": "Hedef ara",
   "destinationSearchPlaceholder": "Nereye gideceksiniz?",
-  "destinationSearchClear": "Hedefi temizle"
+  "destinationSearchClear": "Hedefi temizle",
+  "queryErrorBody": "Otopark verileri yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
+  "retry": "Yeniden dene",
+  "retrySucceeded": "Otopark verileri yüklendi.",
+  "retryFailed": "Otopark verileri hâlâ yüklenemedi.",
+  "mapUnavailableTitle": "Harita yüklenemedi.",
+  "mapUnavailableBody": "Yakındaki otoparklar bunun yerine aşağıda listeleniyor.",
+  "listHeading": "Yakındaki otoparklar"
 }
