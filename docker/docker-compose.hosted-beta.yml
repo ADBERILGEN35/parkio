@@ -74,6 +74,17 @@ services:
     cap_drop:
       - ALL
     cap_add: [CHOWN, NET_BIND_SERVICE, SETGID, SETUID]
+    # Read-only root (B8b). The entrypoint renders /etc/nginx/conf.d from the CSP template at start
+    # (B9, #198); nginx keeps its temp directories in /var/cache/nginx and its pid in /run. Images
+    # built before #198 ship their server config in /etc/nginx/conf.d, which this tmpfs would hide,
+    # so scripts/parkio-prod-compose.sh and scripts/lib/deploy-common.sh refuse to start one
+    # (scripts/lib/web_conf_d_guard.py). Move the web pin to a #198-or-later image first.
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:size=1m,mode=755
+      - /run:size=1m,mode=755
+      - /tmp:size=8m
+      - /var/cache/nginx:size=8m,mode=755
     networks: [parkio-backend]
     logging:
       driver: json-file
