@@ -69,8 +69,10 @@ Supported paths:
 - **Back:** run the rollback from a checkout of the older release, before #261. Its compose files
   have no tmpfs at `/etc/nginx/conf.d`, so the older image starts with the config it ships.
 
-Do not use the break-glass `PARKIO_SKIP_WEB_MAP_GUARD` for this. It skips the conf.d check as well
-and starts web without a server config.
+The map guard's break-glass `PARKIO_SKIP_WEB_MAP_GUARD` does not skip this check: without a binding,
+the check inspects the image the model names. The check has its own break-glass,
+`PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D`, off by default. Do not use it for this,
+because it starts web without a server config.
 
 ## If images are missing
 

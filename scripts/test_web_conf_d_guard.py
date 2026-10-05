@@ -188,6 +188,36 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unreadable", err)
 
+    def test_the_model_image_is_inspected_when_there_is_no_binding(self):
+        """F4: with the map guard skipped by its own break-glass, the image the model names is checked."""
+        model = self.write("model.json", TMPFS_MODEL)
+        docker = FakeDocker(cp_rc=1, cp_stderr=MISSING)
+
+        code, _, err = self.run_main(["--config-json", model, "--model-image"], docker)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.calls[0][-1], "web:old")
+        self.assertIn("built before #198", err)
+
+    def test_the_model_image_mode_skips_a_model_without_the_tmpfs_or_web(self):
+        for value in (PLAIN_MODEL, {"services": {"gateway-service": {"image": "gw:1"}}}):
+            with self.subTest(model=value):
+                docker = FakeDocker()
+                code, out, _ = self.run_main(["--config-json", self.write("model.json", value), "--model-image"], docker)
+                self.assertEqual(code, 0)
+                self.assertIn("SKIP", out)
+                self.assertEqual(docker.calls, [])
+
+    def test_the_model_image_mode_refuses_a_web_service_without_an_image(self):
+        model = self.write("model.json", {"services": {"web": {"build": ".", "tmpfs": ["/etc/nginx/conf.d"]}}})
+        docker = FakeDocker()
+
+        code, _, err = self.run_main(["--config-json", model, "--model-image"], docker)
+
+        self.assertEqual(code, 1)
+        self.assertIn("no web image to inspect", err)
+        self.assertEqual(docker.calls, [])
+
     def test_usage_errors_exit_2(self):
         with redirect_stderr(io.StringIO()):
             self.assertEqual(guard.main(["--config-json", "m.json"], FakeDocker()), 2)

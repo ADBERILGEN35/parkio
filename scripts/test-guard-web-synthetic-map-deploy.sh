@@ -246,6 +246,11 @@ B9_ID="$(cfg_id 77)"; B9_DIG="$(dig b9)"
 fake_image "$REPO@$B9_DIG" "$B9_ID" linux/amd64 "$REPO@$B9_DIG" good
 mkdir -p "$FAKE/roots/${B9_ID#sha256:}/etc/nginx/templates"
 echo 'server { listen 80; }' >"$FAKE/roots/${B9_ID#sha256:}/etc/nginx/templates/default.conf.template"
+# F4: a synthetic-key bundle (the map guard refuses it) in an image that renders conf.d (#198 on).
+SYN_B9_ID="$(cfg_id 78)"
+fake_image "$REPO:synthetic-b9" "$SYN_B9_ID" linux/amd64 "" synthetic
+mkdir -p "$FAKE/roots/${SYN_B9_ID#sha256:}/etc/nginx/templates"
+echo 'server { listen 80; }' >"$FAKE/roots/${SYN_B9_ID#sha256:}/etc/nginx/templates/default.conf.template"
 fake_image "$REPO:good-tag" "$GOOD_ID" linux/amd64 "$REPO@$GOOD_DIG" good
 fake_image "$REPO:bad-config-alias" "$BAD_CONFIG" linux/amd64 "" synthetic
 fake_image "$REPO:bad-manifest-alias" "$(cfg_id 2)" linux/amd64 "$REPO@$BAD_MANIFEST" good
@@ -526,6 +531,26 @@ fake_reset; compose_model_conf_d "$REPO@$B9_DIG"; touch "$FAKE/cp-template-error
 wrapper 1 no "conf.d inspection failure: refused, nothing started" up -d --no-deps web
 grep -q 'cannot inspect' "$TMP/err" && pass "inspection failure is named" || bad "inspection failure is named"
 
+echo "--- separate break-glass flags (F4, real wrapper) ---"
+MAP_TOKEN=I_ACCEPT_UNVERIFIED_WEB_IMAGE
+CONF_D_TOKEN=I_ACCEPT_UNCHECKED_WEB_CONF_D
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_MAP_GUARD=$MAP_TOKEN wrapper 1 no "map break-glass keeps the conf.d check: an image built before #198 is refused" up -d --no-deps web
+grep -q 'built before #198' "$TMP/err" && pass "the conf.d check named the model's image" || bad "the conf.d check named the model's image"
+fake_reset; compose_model_conf_d "$REPO:synthetic-b9"
+PARKIO_SKIP_WEB_MAP_GUARD=$MAP_TOKEN wrapper 0 yes "map break-glass alone: a synthetic image with a rendered conf.d starts" up -d --no-deps web
+grep -q 'web-conf-d-guard: PASS' "$TMP/out" && grep -q 'PARKIO_SKIP_WEB_MAP_GUARD break-glass' "$TMP/err" && pass "conf.d passed under the map break-glass, with its warning" || bad "conf.d passed under the map break-glass, with its warning"
+fake_reset; compose_model_conf_d "$REPO:synthetic-b9"
+PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 1 no "conf.d break-glass keeps the map guard: a synthetic image is refused" up -d --no-deps web
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 0 yes "conf.d break-glass alone: a verified image built before #198 starts, bound" up -d --no-deps web
+grep -q 'PARKIO_SKIP_WEB_CONF_D_CHECK break-glass' "$TMP/err" && grep -Eq '^MUTATION .* -f [^ ]*web-binding\.yml up -d --no-deps web$' "$FAKE/mutations.log" && pass "conf.d break-glass warned and the map guard still bound web" || bad "conf.d break-glass warned and the map guard still bound web"
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_CONF_D_CHECK=1 wrapper 1 no "conf.d break-glass with any other value is refused" up -d --no-deps web
+fake_reset; compose_model_conf_d "$REPO:synthetic"
+PARKIO_SKIP_WEB_MAP_GUARD=$MAP_TOKEN PARKIO_SKIP_WEB_CONF_D_CHECK=$CONF_D_TOKEN wrapper 0 yes "both break-glasses set: both checks skipped, with both warnings" up -d --no-deps web
+grep -q 'PARKIO_SKIP_WEB_MAP_GUARD break-glass' "$TMP/err" && grep -q 'PARKIO_SKIP_WEB_CONF_D_CHECK break-glass' "$TMP/err" && pass "both warnings printed" || bad "both warnings printed"
+
 echo "--- compose argument parsing (real wrapper) ---"
 fake_reset; compose_model "$REPO:synthetic"
 wrapper 1 no "run --no-deps --use-aliases web <cmd>: --use-aliases is a flag, web is gated" run --no-deps --use-aliases web echo hi
@@ -635,6 +660,14 @@ fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
 compose_up 1 no "deploy/rollback with the conf.d tmpfs and an image built before #198 is refused" gateway-service web
 fake_reset; compose_model_conf_d "$REPO@$B9_DIG"
 compose_up 0 yes "deploy/rollback with the conf.d tmpfs and an image from #198 on proceeds" gateway-service web
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE compose_up 1 no "deploy/rollback: map break-glass keeps the conf.d check" gateway-service web
+fake_reset; compose_model_conf_d "$REPO:synthetic-b9"
+PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D compose_up 1 no "deploy/rollback: conf.d break-glass keeps the map guard" gateway-service web
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D compose_up 0 yes "deploy/rollback: conf.d break-glass alone proceeds with the bound image" gateway-service web
+fake_reset; compose_model_conf_d "$REPO@$GOOD_DIG"
+PARKIO_SKIP_WEB_CONF_D_CHECK=yes compose_up 1 no "deploy/rollback: conf.d break-glass with any other value is refused" gateway-service web
 
 for f in scripts/deploy-hosted-beta.sh scripts/deploy-invite-production.sh scripts/rollback-hosted-beta.sh; do
   if grep -Eq '^[^#]*(docker compose|parkio_compose)[^#]*[[:space:]]up([[:space:]]|$)' "$ROOT/$f"; then

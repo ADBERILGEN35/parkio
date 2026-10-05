@@ -321,8 +321,11 @@ parkio_validate_azure_disabled_services() {
 # services.web to the verified immutable reference with pull_policy: never.
 # Covers deploy-hosted-beta, deploy-invite-production and both rollbacks. The same
 # rendered model then goes to the conf.d check (B8b, scripts/lib/web_conf_d_guard.py).
+# Each check has its own default-off break-glass: PARKIO_SKIP_WEB_MAP_GUARD skips the map guard and
+# the binding (the conf.d check then inspects the model's web image); PARKIO_SKIP_WEB_CONF_D_CHECK
+# skips only the conf.d check.
 parkio_web_guard_before_up() {
-  local env_file="$1" binding_out="$2" skip_rc=0 guard_dir rc=0
+  local env_file="$1" binding_out="$2" map_rc=0 conf_d_rc=0 guard_dir rc=0
   # shellcheck source=web-map-guard.sh
   source "$(parkio_repo_root)/scripts/lib/web-map-guard.sh"
   # shellcheck source=web-conf-d-guard.sh
@@ -334,9 +337,10 @@ parkio_web_guard_before_up() {
   fi
   parkio_web_guard_decide
   [ "$PWG_DECISION" = "run" ] || return 0
-  parkio_web_guard_skip_requested || skip_rc=$?
-  [ "$skip_rc" -eq 0 ] && return 0
-  [ "$skip_rc" -eq 2 ] && return 1
+  parkio_web_guard_skip_requested || map_rc=$?
+  parkio_web_conf_d_skip_requested || conf_d_rc=$?
+  { [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; } && return 1
+  [ "$map_rc" -eq 0 ] && [ "$conf_d_rc" -eq 0 ] && return 0
   guard_dir="$(mktemp -d)"
   chmod 700 "$guard_dir"
   if ! parkio_compose "$env_file" config --format json >"$guard_dir/model.json"; then
@@ -344,14 +348,16 @@ parkio_web_guard_before_up() {
     echo "ERROR: web map deploy guard: cannot render the compose model" >&2
     return 1
   fi
-  parkio_web_guard_bind "$guard_dir/model.json" "$binding_out" --env-file "$env_file" || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    rm -rf "$guard_dir"
-    echo "ERROR: web map deploy guard failed; nothing was started" >&2
-    return 1
+  if [ "$map_rc" -ne 0 ]; then
+    parkio_web_guard_bind "$guard_dir/model.json" "$binding_out" --env-file "$env_file" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      rm -rf "$guard_dir"
+      echo "ERROR: web map deploy guard failed; nothing was started" >&2
+      return 1
+    fi
   fi
   # B8b: a tmpfs at /etc/nginx/conf.d needs a web image that renders it at start (#198 or later).
-  if [ -f "$binding_out" ] && ! parkio_web_conf_d_check "$guard_dir/model.json" "$binding_out"; then
+  if [ "$conf_d_rc" -ne 0 ] && ! parkio_web_conf_d_check "$guard_dir/model.json" "$binding_out"; then
     rm -rf "$guard_dir"
     echo "ERROR: web conf.d check failed; nothing was started" >&2
     return 1

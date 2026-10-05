@@ -98,7 +98,9 @@ showed it: under these mounts `/login` was refused before and after a restart.
   anything starts. The message names the fix: move the web pin
   (`docker/docker-compose.web-release-pin.yml`) to an image built from #198 or later.
 
-The break-glass `PARKIO_SKIP_WEB_MAP_GUARD` skips this check together with the map guard.
+The check has its own break-glass, `PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D`, off by
+default. The map guard's break-glass `PARKIO_SKIP_WEB_MAP_GUARD` does not skip it: without a binding,
+the check inspects the image the model names (owner decision 4, 2026-10-05).
 
 **Release step.** The current Civo pin predates #198. Move it before the first deploy that
 includes this change; until then the deploy commands refuse to start web.
