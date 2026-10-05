@@ -26,6 +26,9 @@ stamp or restoring outside the scripts).
 - The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. A pin is rolled back by reverting its pin file, then deploying.
 - Start the stack only through those scripts, never with a hand-written `-f` list.
 - `scripts/test-canonical-production-file-set.sh` checks the file set.
+- **The rollback schema gate in the "Bad deploy" row never compares migrations today (F-INV-3, reported).** It reads a `migrations` key that manifests do not write.
+  - A local rollback with `deploy-artifacts/current.json` present is refused with exit 3.
+  - A workflow rollback, which runs on a clean checkout, skips the gate.
 
 The refusals live in `scripts/lib/restore-safe-preflight.sh` and are explained in
 [restore-safe-preflight.md](restore-safe-preflight.md). The only restores the scripts allow

@@ -182,18 +182,33 @@ What the script does:
 # From manifest
 jq -r .gitSha deploy-artifacts/current.json
 
-# From a running container label
-docker inspect parkio-gateway-service-1 \
+# From a running container label: a service the deploy builds
+docker inspect parkio-user-service-1 \
   --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
 ```
 
 These must match `git rev-parse HEAD` after a successful deploy.
+
+With the default hosted-beta profile, only the services the deploy builds carry this commit: user, gamification, notification, moderation, ai-validation and analytics. The digest-pinned services (gateway, auth, parking, media and web) carry their pin's source commit. Check those against `pinnedImages` in the manifest, for example `docker inspect parkio-gateway-service-1 --format '{{.Image}}'` against the pin.
 
 ## Release step: before the next hosted-beta deploy (CL-F12)
 
 **The `parkio-beta` runner host is not known today** (owner answer, 2026-10-05: "document only").
 Confirm it before the next deploy through `.github/workflows/hosted-beta-deploy.yml`, or before
 running `deploy-hosted-beta.sh` by hand.
+
+**Two facts block or break the next deploy until the owner decides about the web image:**
+
+1. **Web runs the production web image.**
+   - The profile no longer builds web on the host. It runs the digest pin from `docker/docker-compose.web-release-pin.yml` (`ghcr.io/…/web@sha256:aacf9dc9…`, from PR #91).
+   - That image has production's public configuration baked in, including the API base URL `https://api.parkio.dev`.
+   - On a host whose `PARKIO_DOMAIN` is not production's, the hosted-beta web app calls production's API. The edge CSP blocks those calls, or, if it allows them, beta users reach production.
+   - The preflight and the smoke checks do not catch this: they check the env file and the API, not the pinned bundle.
+   - How hosted-beta gets a web image built for its own domain is an owner decision, and a source or pin change outside CL-F12.
+2. **The deploy and the rollback are refused until the web pin moves to an image built from #198 or later.**
+   - `docker/docker-compose.hosted-beta.yml` mounts an empty tmpfs at `/etc/nginx/conf.d` (#261).
+   - The pinned web image predates #198, so the conf.d check refuses to start it ("web conf.d check failed; nothing was started").
+   - See "Web images built before #198" in [the rollback runbook](./rollback-runbook.md#web-images-built-before-198).
 
 **Confirm on that host:**
 - **Identity.** Which host it is, and its `docker/.env`.
