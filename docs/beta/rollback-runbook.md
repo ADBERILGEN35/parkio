@@ -47,6 +47,31 @@ What the script does:
 5. Runs smoke checks
 6. Writes `deploy-artifacts/rollback-to-<sha>-<time>.json` and updates `current.json`
 
+## Web images built before #198
+
+From #261 on, the compose files give web a read-only root and an empty tmpfs at
+`/etc/nginx/conf.d`. Images built from #198 on render their server config there at start. Older
+images ship it in that directory, so the tmpfs would hide it and Caddy would answer 502. The conf.d
+check (`scripts/lib/web_conf_d_guard.py`) therefore refuses such an image before anything starts
+(`web conf.d check failed; nothing was started`):
+
+- `scripts/parkio-prod-compose.sh` and `scripts/rollback-hosted-beta.sh` read the compose files of
+  the checkout they run from. From a checkout that includes #261, a rollback of web to an image
+  built before #198 is refused. That includes the "Rollback for this corrected pin" digest in
+  `docker/docker-compose.web-release-pin.yml` while it predates #198.
+- `scripts/rollback-invite-production.sh` renders the compose files staged in the target commit's
+  runtime release. A release staged before #261 has no tmpfs there, so the check does not apply.
+
+Supported paths:
+
+- **Forward:** move web to an image built from #198 or later (the pin in
+  `docker/docker-compose.web-release-pin.yml`, a release and pin action) and deploy it.
+- **Back:** run the rollback from a checkout of the older release, before #261. Its compose files
+  have no tmpfs at `/etc/nginx/conf.d`, so the older image starts with the config it ships.
+
+Do not use the break-glass `PARKIO_SKIP_WEB_MAP_GUARD` for this. It skips the conf.d check as well
+and starts web without a server config.
+
 ## If images are missing
 
 ```bash
