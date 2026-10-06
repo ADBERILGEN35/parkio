@@ -495,6 +495,37 @@ gamification event in it (`PointsEarned`, `PointsDeducted`, `UserLevelChanged`,
 `TrustScoreUpdated`), not only `TrustScoreUpdated`. The topic is shared with user-service's other
 consumers.
 
+**Backup and restore ordering (U12, owner decision 2026-10-06).** This is an operational limitation,
+not an implemented restore guard.
+
+- **Invariant.** For every user, the row versions in gamification's restored `user_level_progress`
+  and `trust_scores` must be at least the versions user-service's restored `user_trust_profiles`
+  holds (`points_version`, `level_version`, `trust_version`). When they are lower, later events whose
+  versions are not above the stored ones are dropped silently, and the projection stays stale for
+  that user.
+- **Today's backup order.** `scripts/backup-databases.sh` dumps the databases one at a time, in the
+  order of its `SERVICES` list: `user` before `gamification`. Gamification's row versions only grow,
+  and user-service holds only versions that gamification had already committed. A user dump taken
+  before the gamification dump therefore keeps the invariant between the two dumps. The order comes
+  from the list alone: nothing enforces it, and no test checks it. Each `pg_dump` is its own
+  snapshot; there is no snapshot across databases.
+- **Not proven.** No backup or restore test checks the invariant. A restore from one backup set is
+  not claimed to give a consistent projection:
+  - changes committed between the two dumps are in the gamification dump but not in the user dump;
+  - the gamification outbox state, the Kafka topics and the DLT decide which events reach
+    user-service after a restore, and the topics and the DLT are not in the backup.
+
+  Such a projection can stay behind gamification until each affected user's next event.
+- **Unsupported.** Restoring or rolling back gamification on its own, or to an older state than
+  user-service, breaks the invariant. It is unsupported until a reviewed procedure exists to
+  reconcile or reset user-service's projection versions.
+- **Not U12 guards.** The existing restore refusals are about erasure coverage:
+  - a production restore is blocked (`parkio_restore_refuse_unverified_production`);
+  - a standalone single-database restore is refused in production because it does not replay
+    erasures (`parkio_restore_refuse_standalone_database`).
+
+  An isolated fixture can still restore one database.
+
 ## PointsEarnedEvent
 
 - **Producer:** `gamification-service`

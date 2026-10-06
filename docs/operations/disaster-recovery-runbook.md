@@ -126,6 +126,18 @@ whenever the schema gate does not pass (see the rollback schema gate above).
 or apply on production (`parkio_restore_refuse_standalone_database`,
 `parkio_restore_refuse_unverified_production`). Follow the incident response above.
 
+**Gamification and user-service (U12): an operational limitation, not a guard.**
+- **Invariant.** user-service's gamification projection keeps a per-value version. It needs
+  gamification's restored row versions to be at least the ones user-service holds.
+- **Backup order.** `scripts/backup-databases.sh` dumps `user` before `gamification`, which keeps
+  that invariant between the two dumps. The order comes from its `SERVICES` list; it is not
+  enforced or tested.
+- **Unsupported.** Never restore or roll back the gamification database alone, or to an older backup
+  set than the user database, until a reviewed procedure exists to reconcile or reset user-service's
+  projection versions.
+- **No consistency claim.** A restore from one backup set is not claimed to give a consistent
+  projection. See "Backup and restore ordering (U12)" in `docs/architecture/event-contracts.md`.
+
 ### Full stack restore (same or new VPS) — BLOCKED for data
 
 Only the stamp preflight runs:
