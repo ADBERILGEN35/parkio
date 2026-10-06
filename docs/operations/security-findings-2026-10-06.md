@@ -82,7 +82,6 @@ directly or indirectly. The evidence below is for api `520acbfd`.
   - `TransformerFactory` or `javax.xml.transform`.
 - **Files and configuration.** Service source and resources contain no `.xsl`/`.xslt` file.
   - In the shipped images, the only `.xsl` is `org/springframework/security/config/spring-security.xsl`, inside auth-service's third-party `spring-security-config-6.5.11.jar`. Nothing uses it as a view.
-  - The `.trivyignore.yaml` statement's "ships no … .xsl/.xslt file" means service source and resources, in that sense.
   - There are no `spring.mvc.view.*`, template-engine or static-path properties in any `application*.yml`; the only `template:` keys are `spring.kafka.template`.
 - **Controllers.** Every controller is a `@RestController`; there is no `@Controller` class. Handler
   return values go through message converters, not view resolution.

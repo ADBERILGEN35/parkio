@@ -30,11 +30,14 @@ vulnerabilities:
       It needs XsltView, a "/**" mapping that renders views, and no explicit view name. At
       api 520acbfd no service source references XsltView, XsltViewResolver, a ViewResolver,
       configureViewResolvers, ModelAndView or TransformerFactory. No service ships a template
-      engine or an .xsl/.xslt file, and every controller is a @RestController. In each shipped
-      app.jar, only spring-webmvc itself references the XsltView classes. Spring Boot does not
+      engine, no service's source or resources contain an .xsl/.xslt file, and every controller
+      is a @RestController. The only shipped .xsl (spring-security.xsl in auth-service's
+      spring-security-config jar) is not used as a view. In each shipped app.jar, only
+      spring-webmvc itself references the XsltView classes. Spring Boot does not
       auto-configure XsltView. There is no OSS 6.2.x fix: 6.2.20 is Enterprise Support only,
       and the OSS fix, 7.0.9, needs Spring Framework 7 / Spring Boot 4.
       The path pins version 6.2.19, so any other spring-webmvc version reports again.
       Owner: Parkio release engineering. Remediation: the Spring Framework 7 migration (a
-      separate decision), or an OSS 6.2.x fix if one ships.
+      separate decision), or an OSS 6.2.x fix if one ships (none expected: 6.2.x OSS support
+      ended 2026-06-30).
     expired_at: 2026-11-05
