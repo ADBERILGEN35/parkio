@@ -2,7 +2,8 @@
 # and an `expired_at` so the suppression cannot outlive its justification: once the
 # date passes, Trivy reports the finding again and Security CI fails.
 #
-# Full disposition: docs/operations/security-findings-2026-07-25.md
+# Full disposition: docs/operations/security-findings-2026-07-25.md (CVE-2026-14257) and
+# docs/operations/security-findings-2026-10-06.md (CVE-2026-47884).
 vulnerabilities:
   - id: CVE-2026-14257
     paths:
@@ -18,3 +19,22 @@ vulnerabilities:
       there is no untrusted input path. Owner: Parkio release engineering. Remediation:
       drop when eslint's transitive minimatch reaches >= 10, or when a 1.x backport ships.
     expired_at: 2026-10-31
+  - id: CVE-2026-47884
+    paths:
+      - "app/app.jar/BOOT-INF/lib/spring-webmvc-6.2.19.jar"
+    statement: >-
+      spring-webmvc 6.2.19 (GHSA-pc63-qcmh-9cmg, "Improper Path Limitation in XsltView") in the
+      app.jar of the nine servlet services: auth, user, parking, media, moderation, gamification,
+      notification, analytics and ai-validation. Spring rates it MEDIUM
+      (https://spring.io/security/cve-2026-47884); GHSA and Trivy rate it CRITICAL (CVSS 9.8).
+      It needs XsltView, a "/**" mapping that renders views, and no explicit view name. At
+      api 520acbfd no service source references XsltView, XsltViewResolver, a ViewResolver,
+      configureViewResolvers, ModelAndView or TransformerFactory. No service ships a template
+      engine or an .xsl/.xslt file, and every controller is a @RestController. In each shipped
+      app.jar, only spring-webmvc itself references the XsltView classes. Spring Boot does not
+      auto-configure XsltView. There is no OSS 6.2.x fix: 6.2.20 is Enterprise Support only,
+      and the OSS fix, 7.0.9, needs Spring Framework 7 / Spring Boot 4.
+      The path pins version 6.2.19, so any other spring-webmvc version reports again.
+      Owner: Parkio release engineering. Remediation: the Spring Framework 7 migration (a
+      separate decision), or an OSS 6.2.x fix if one ships.
+    expired_at: 2026-11-05

@@ -53,6 +53,8 @@ class SummaryGateTest(unittest.TestCase):
 
 REPORTS = "Require every scan report"
 LIBRARY = "Block on high and critical library findings with a fix"
+CRITICAL = "Block on critical image findings"
+REPORT = "Scan image for high and critical findings"
 
 
 def container_step(name):
@@ -130,6 +132,49 @@ class ContainerScanStepsTest(unittest.TestCase):
                 self.assertEqual(value(call, "--ignorefile"), ".trivyignore.yaml")
                 self.assertEqual(value(call, "--scanners"), "vuln")
         self.assertEqual([value(call, "--exit-code") for call in calls], ["0", "1"])
+
+    def image_scan_calls(self, name):
+        """Run an image step with ${{ matrix.service }} set to x and a fake docker; return its Trivy image calls."""
+        bin_dir = self.dir / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "docker"
+        fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" >>calls.log\necho "--end--" >>calls.log\n'
+                        'out=""; code=0\n'
+                        'while [ $# -gt 0 ]; do case "$1" in --output) out="$2"; shift;; --exit-code) code="$2"; shift;; esac; shift; done\n'
+                        'if [ -n "$out" ]; then echo "CRITICAL finding with a fix" >"$out"; exit "$code"; fi\n')
+        fake.chmod(0o755)
+        script = container_step(name).replace("${{ matrix.service }}", "x")
+        env = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}", "TRIVY_IMAGE": "trivy:test",
+               "TRIVY_CACHE_DIR": str(self.dir), "GITHUB_WORKSPACE": str(self.dir)}
+        code = subprocess.run(["bash", "-c", script], cwd=self.dir, env=env, capture_output=True, text=True).returncode
+        calls = [call.strip("\n").split("\n") for call in (self.dir / "calls.log").read_text().split("--end--\n") if call.strip()]
+        return code, [call for call in calls if "image" in call]
+
+    def test_the_critical_image_gate_applies_only_the_reviewed_ignore_file(self):
+        """CVE-2026-47884 (owner decision 2026-10-06): the gate reads .trivyignore.yaml; its threshold is unchanged."""
+        code, calls = self.image_scan_calls(CRITICAL)
+
+        def value(call, flag):
+            return call[call.index(flag) + 1] if flag in call else None
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        call = calls[0]
+        self.assertEqual(value(call, "--scanners"), "vuln")
+        self.assertEqual(value(call, "--severity"), "CRITICAL")
+        self.assertIn("--ignore-unfixed", call)
+        self.assertEqual(value(call, "--ignorefile"), ".trivyignore.yaml")
+        self.assertEqual(value(call, "--exit-code"), "1")
+
+    def test_the_image_report_stays_unfiltered(self):
+        """The uploaded report still lists every HIGH and CRITICAL finding, including suppressed ones."""
+        code, calls = self.image_scan_calls(REPORT)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("--ignorefile", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--severity") + 1], "HIGH,CRITICAL")
+        self.assertEqual(calls[0][calls[0].index("--exit-code") + 1], "0")
 
 if __name__ == "__main__":
     unittest.main()
