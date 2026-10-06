@@ -97,6 +97,9 @@ def write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+STUB_SYSTEM_IDENTIFIER = "7000000000000000099"
+
+
 def payload(stamp: str, postgres_name=None, pg_id=None, include_minio=True, services=None):
     postgres_name = postgres_name or f"{PROJECT}-pg"
     pg_id = pg_id or PG_ID
@@ -190,6 +193,14 @@ def main(argv=None) -> int:
     if mode == "ok":
         write_inspect(inspect_dir)
         body = payload(stamp)
+    elif mode in ("ok-recovery", "identity-drift"):
+        # U02 stage 4: the ticket pins each target's identity; the stub docker answers
+        # pg_control_system() with STUB_SYSTEM_IDENTIFIER.
+        write_inspect(inspect_dir)
+        body = payload(stamp)
+        cluster = STUB_SYSTEM_IDENTIFIER if mode == "ok-recovery" else "7000000000000000777"
+        for dest in body["postgres"].values():
+            dest["databaseIdentity"] = f"postgresql:{cluster}:{dest['database']}"
     elif mode == "production-name":
         write_inspect(inspect_dir, pg_name="parkio-postgres-auth")
         body = payload(stamp, postgres_name="parkio-postgres-auth")

@@ -10,6 +10,12 @@
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --dry-run
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 #
+# Stage-4 isolated recovery (U02) adds, with the isolated ticket:
+#   --erasure-evidence BUNDLE --erasure-trust TRUST --recovery-attempt UUID --recovery-dir DIR
+# The off-host evidence bundle is verified before anything is decrypted: missing, corrupt or
+# gap evidence exits 3 with nothing applied. On trust it writes DIR/trusted-erasure-set.json for
+# the recovery-replay command and a CLOSED expose gate (scripts/recovery-expose.sh opens it only
+# on a COMPLETE replay verdict). Coverage is reported only as the verified sequence.
 # Production path is BLOCKED before decrypt or apply: a manifest timestamp
 # is not verified coverage. --isolated-fixture plus a destination-bound
 # ticket from restore-isolated-fixture.sh is the only supported synthetic
@@ -33,6 +39,10 @@ ASSUME_YES="no"
 ONLY=""
 STAMP_OVERRIDE=""
 LEDGER_STAMPS=()
+ERASURE_EVIDENCE=""
+ERASURE_TRUST=""
+RECOVERY_ATTEMPT=""
+RECOVERY_DIR=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -48,7 +58,11 @@ while [ "$#" -gt 0 ]; do
     --supplemental-covered-through) PARKIO_RESTORE_SUPPLEMENTAL_THROUGH="${2:-}"; shift 2 ;;
     --isolated-fixture) PARKIO_RESTORE_ISOLATED_FIXTURE=1; shift ;;
     --isolated-ticket) PARKIO_RESTORE_ISOLATED_TICKET="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --erasure-evidence) ERASURE_EVIDENCE="${2:-}"; shift 2 ;;
+    --erasure-trust) ERASURE_TRUST="${2:-}"; shift 2 ;;
+    --recovery-attempt) RECOVERY_ATTEMPT="${2:-}"; shift 2 ;;
+    --recovery-dir) RECOVERY_DIR="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -77,6 +91,53 @@ if [ "${PARKIO_DEPLOYMENT_PROFILE}" != "${MANIFEST_PROFILE}" ]; then
   echo "ERROR: restore profile '${PARKIO_DEPLOYMENT_PROFILE}' does not match manifest profile '${MANIFEST_PROFILE}'." >&2
   exit 2
 fi
+
+STAGE4_RECOVERY=0
+if [ -n "${ERASURE_EVIDENCE}${ERASURE_TRUST}${RECOVERY_ATTEMPT}${RECOVERY_DIR}" ]; then
+  STAGE4_RECOVERY=1
+fi
+
+# U02 stage 4: verify the off-host erasure evidence before anything is decrypted or applied.
+# Isolated only; the production path below stays refused whatever these options say.
+verify_erasure_evidence() {
+  if [ -z "${ERASURE_EVIDENCE}" ] || [ -z "${ERASURE_TRUST}" ] || [ -z "${RECOVERY_ATTEMPT}" ] \
+      || [ -z "${RECOVERY_DIR}" ]; then
+    echo "ERROR: stage-4 recovery needs --erasure-evidence, --erasure-trust, --recovery-attempt and --recovery-dir together." >&2
+    return 2
+  fi
+  if [ "${ONLY}" = "minio" ]; then
+    echo "ERROR: stage-4 recovery restores the databases; --only minio cannot carry it." >&2
+    return 2
+  fi
+  if ! parkio_restore_isolated_fixture_ok; then
+    echo "ERROR: stage-4 recovery is isolated-only (--isolated-fixture with a destination-bound ticket); production restore stays refused." >&2
+    return 3
+  fi
+  if [ ! -d "${RECOVERY_DIR}" ]; then
+    echo "ERROR: --recovery-dir must be an existing directory." >&2
+    return 2
+  fi
+  local target
+  target="$(parkio_restore_isolated_postgres_json auth | python3 -c 'import json,sys; print(json.load(sys.stdin).get("databaseIdentity", ""))')" || target=""
+  if [ -z "${target}" ]; then
+    echo "ERROR: the isolated ticket pins no auth databaseIdentity; issue a new one with scripts/restore-isolated-fixture.sh." >&2
+    return 2
+  fi
+  echo "=== erasure evidence (before decrypt) ==="
+  local rc=0
+  python3 "${ROOT}/scripts/lib/recovery-evidence.py" verify \
+    --bundle "${ERASURE_EVIDENCE}" --trust "${ERASURE_TRUST}" \
+    --attempt "${RECOVERY_ATTEMPT}" --dataset "${STAMP}" --target-identity "${target}" \
+    --out "${RECOVERY_DIR}/trusted-erasure-set.json" || rc=$?
+  if [ "${rc}" -eq 3 ]; then
+    echo "ERROR: erasure evidence BLOCKED; nothing was decrypted or restored, and the copy stays unexposed." >&2
+    return 3
+  elif [ "${rc}" -ne 0 ]; then
+    echo "ERROR: erasure evidence could not be checked; nothing was decrypted or restored." >&2
+    return 2
+  fi
+  python3 "${ROOT}/scripts/lib/recovery-expose-gate.py" init --recovery-dir "${RECOVERY_DIR}"
+}
 
 SCOPE="full"
 case "${ONLY}" in
@@ -107,6 +168,13 @@ elif [ -f "${DEST_DIR}/COMPLETE" ]; then
   if ! parkio_restore_run_stamp_preflight "${DEST_DIR}" "${SCOPE}"; then
     echo "ERROR: stamp preflight failed; nothing was decrypted or restored." >&2
     exit 1
+  fi
+  if [ "${STAGE4_RECOVERY}" -eq 1 ]; then
+    evidence_rc=0
+    verify_erasure_evidence || evidence_rc=$?
+    if [ "${evidence_rc}" -ne 0 ]; then
+      exit "${evidence_rc}"
+    fi
   fi
   if [ "$DRY_RUN" -ne 1 ]; then
     parkio_restore_require_cutoff_unless_exempt || exit 2
@@ -310,3 +378,7 @@ esac
 echo "Restore completed."
 echo "Applications, publishers, schedulers, Slack and Fluent Bit were not started."
 echo "A successful data restore is not authorization to expose applications."
+if [ "${STAGE4_RECOVERY}" -eq 1 ]; then
+  echo "Expose gate CLOSED in ${RECOVERY_DIR}: run the recovery-replay command (scripts/recovery-replay.sh);"
+  echo "scripts/recovery-expose.sh records OPEN only on its COMPLETE verdict."
+fi
