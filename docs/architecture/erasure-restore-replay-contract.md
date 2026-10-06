@@ -13,8 +13,10 @@ an outbox row written in the transaction that replays the erase, so it is never 
 did not commit. Live acknowledgements (`erasure_service_acks`) stay request-scoped and never count
 for a restore. Restore ACKs never count for a live request either.
 
-Default-off on both sides; nothing in production starts a replay. `verifiedCoverage` stays false,
-and exposing a restored copy is decided by stage 4 (restore consumption), not here.
+Default-off on both sides. The only starter is the recovery-replay command
+([below](#recovery-replay-command-owner-decision-p6)), which the isolated restore path runs; nothing
+in a running service starts a replay. `verifiedCoverage` stays false, and exposing a restored copy
+is decided by stage 4 (restore consumption), not here.
 
 ## Identifiers
 
@@ -26,7 +28,9 @@ and exposing a restored copy is decided by stage 4 (restore consumption), not he
 
 The trusted erasure set comes from durable evidence: the latest trusted checkpoint plus the
 pending records above it. It never comes from the restored auth database, which may predate the
-erasures. Computing that set is stage 4; here the set is an input.
+erasures. `TrustedErasureSet` (Java) and `trusted_erasure_set` (Python,
+`scripts/lib/recovery_evidence_bundle.py`) compute it from an evidence bundle; the shared fixtures
+in `durable-erasure-evidence/v2/bundles` pin both.
 
 ## Coordinator (auth)
 
@@ -131,6 +135,87 @@ exactly one binding per job), and the worker queues `UserErasureRestoreAcknowled
 job id as event id, in the transaction that deletes the job once every stored object of the user
 is confirmed gone. A redelivery reopens the same job; another attempt opens its own.
 
+## Recovery-replay command (owner decision P6)
+
+The one entry point that starts a replay. It is a one-shot command, run only by the isolated
+restore path, with no network endpoint (`com.parkio.auth.infrastructure.recovery`).
+
+**When it runs.** Auth-service runs it only with the `recovery-replay` profile **and**
+`parkio.privacy.account-erasure.restore-replay.enabled=true`.
+- With the profile, `main` starts the service without a web server (`WebApplicationType.NONE`, no
+  HTTP listener), runs the command once and exits with its code.
+- Recovery options without the profile are refused before Spring starts.
+- An ordinary start, with neither the profile nor the options, is unchanged.
+
+```
+java -jar auth-service.jar --spring.profiles.active=recovery-replay \
+  --evidence=<trusted-set file> --trust=<trust document> \
+  --attempt=<uuid> --dataset=<restored dataset id> \
+  --target-identity=<isolated target identity from the ticket> \
+  --verdict-out=<verdict.json> [--timeout-seconds=900]
+```
+
+Only these options are accepted, each once, as `--name=value`. There is **no cutoff and no receipt
+option** (see Coverage below).
+
+**Checks, in order.** Each one stops the command before the next:
+
+1. **Durable-store writers.** If durable recording, its retry worker, the object-lock store or the
+   checkpoint producer is enabled, the command refuses. A restored copy must never write into the
+   real evidence store.
+2. **Evidence.** The trusted-set file (`parkio-trusted-erasure-set`, written by the isolated restore)
+   embeds the evidence bundle. The command loads its own trust document, re-derives the trusted set
+   from the bundle, and refuses any difference from the coverage and set the file states. It
+   refuses UNKNOWN (no frontier), BLOCKED (a gap) and any invalid object.
+3. **Attempt and dataset.** They must equal the file's.
+4. **Connected database identity.** It is read from the connection
+   (`pg_control_system()`: `postgresql:<system_identifier>:<datname>`), not from configuration. The
+   command refuses when:
+   - the identity is unreadable or blank;
+   - it equals the production identity pinned in the trust document;
+   - it differs from `--target-identity`, which is taken from the #121 isolation ticket and is
+     mandatory.
+
+   A PITR or physical clone keeps the production `system_identifier`, so it is refused.
+5. **Backup anchor.** Every user the restored auth database's `erasure_requests` marks
+   `durable_recording_status = 'DURABLY_RECORDED'` must be in the trusted set. Otherwise the evidence
+   is older than the backup, and the command refuses. The anchor needs the restored auth database,
+   so the isolated restore applies it to the isolated target first. The copy stays **unexposed**
+   (expose gate CLOSED, no published ports) until the verdict is COMPLETE.
+6. **Attempt reuse.** An attempt id already started for another dataset or set is refused.
+7. **Replay.** `startRestoreReplay`, then the command polls `verdict` until COMPLETE, a FAILED
+   acknowledgement, or the bounded timeout (default 15 min, at most 60). The wait uses a monotonic
+   clock.
+
+**Exit codes.** Only COMPLETE exits with 0:
+
+| Code | Status | Meaning |
+|---|---|---|
+| 0 | `COMPLETE` | every participant the attempt requires, auth included, acknowledged every user |
+| 20 | `REFUSED` | disabled (profile without the flag, or options without the profile), a durable writer enabled, or invalid arguments |
+| 21 | `INVALID_EVIDENCE` | the evidence, the trusted-set file, the trust document or the backup anchor does not verify |
+| 22 | `TARGET_REFUSED` | production identity, unreadable identity, or not the ticket's target |
+| 23 | `ATTEMPT_MISMATCH` | attempt or dataset other than the file's, or an attempt already started for another dataset or set |
+| 24 | `BLOCKED` | a participant reported FAILED |
+| 25 | `TIMEOUT` | the bounded wait ended with acknowledgements missing |
+| 26 | `INTERNAL` | an unexpected failure, a startup failure, or a verdict file that could not be written |
+
+**The verdict file** (`parkio-recovery-replay-verdict`) records:
+- status, exit code, reason, attempt, dataset and digest;
+- the number of users;
+- for each required participant, `success`, `failed` and `missing` counts;
+- **auth's counts separately** (`auth`).
+
+The expose gate (stage 4) opens only on a COMPLETE verdict for the same attempt, dataset and digest.
+
+**Coverage.** v2 evidence signs no time, and no offline-verifiable receipt exists today. The
+store's `DurableErasureReceipt` is unsigned metadata that is only logged. So:
+- coverage is reported only as "erasure coverage verified through sequence N (frontier version V)";
+- the report never makes a time-based coverage claim, and never claims that no later erasure exists;
+- erasures after the last durable frontier cannot be proven absent;
+- the existing time-based ledger check in the restore scripts, and the production restore refusal,
+  are unchanged.
+
 ## Rollout
 
 | Participant | Slice | Source on `api` |
@@ -139,7 +224,8 @@ is confirmed gone. A redelivery reopens the same job; another attempt opens its 
 | gamification (pilot) | 1 | #184 |
 | user, parking, moderation, notification, analytics, ai-validation | 2 | #185 |
 | media (objects) | 3 | #186 |
-| coordinator: required participant set fixed per attempt, auth's own share (V27) | 4 | this PR |
+| coordinator: required participant set fixed per attempt, auth's own share (V27) | 4 | #187 |
+| entry point: recovery-replay command, trusted erasure set from evidence bundles | 5 | this PR |
 
 In slice 2 the participants queue the restore ACK through `ErasureAckOutbox.appendRestoreAck`, next
 to the live `append`, and their U05 ACK-outbox ITs cover the replay on real PostgreSQL and Kafka.

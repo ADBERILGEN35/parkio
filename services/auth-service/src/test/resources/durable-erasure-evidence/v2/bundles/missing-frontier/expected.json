@@ -1,0 +1,19 @@
+{
+  "description": "No frontier version: UNKNOWN, no set, however many records are listed.",
+  "result": {
+    "error": "UNKNOWN: independently durable expected boundary is missing; recovery BLOCKED"
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

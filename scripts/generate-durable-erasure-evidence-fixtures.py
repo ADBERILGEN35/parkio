@@ -30,6 +30,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/lib"))
 
 from recovery_evidence_contract import ContractError, PersistFailed, canonical_bytes, sign  # noqa: E402
+from recovery_evidence_bundle import (  # noqa: E402
+    bundle_from_store,
+    encode_bundle,
+    trusted_erasure_set,
+    trusted_set_document,
+    BundleStore,
+)
 from recovery_persist_protocol import (  # noqa: E402
     CHECKPOINT_RESERVATION_ID,
     FRONTIER_KEY,
@@ -89,6 +96,17 @@ INPUTS = (
         "erasedAt": "2026-09-29T08:17:45.120Z",
     },
 )
+
+# A user erased after the checkpoint (bundle cases only; the store cases use INPUTS).
+TAIL_INPUT = {
+    "erasureRequestId": "a1b2c3d4-0000-4000-8000-000000000004",
+    "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a4",
+    "erasedAt": "2026-09-29T08:19:05.500Z",
+}
+# Recovery identifiers of the trusted-set document fixture (synthetic).
+RECOVERY_ATTEMPT_ID = "5e5e5e5e-0000-4000-8000-00000000a771"
+RESTORED_DATASET_ID = "backup-stamp-2026-09-29T08-00-00Z"
+TARGET_IDENTITY = "postgresql:7000000000000000099:parkio_auth"
 
 # Canonical JSON parity: Java must serialise each value to exactly these bytes.
 CANONICAL_JSON_CASES = (
@@ -376,6 +394,130 @@ def build_cases(tmp: Path):
     return cases
 
 
+def store_objects(store):
+    """Every object of a model store except the frontier, keyed like the store."""
+    return {key: store.get(key) for key in store.list_prefix("") if key != FRONTIER_KEY}
+
+
+def signed_frontier(expected_through, highest_reserved, key_id=KEY_ID):
+    body = {
+        "schemaVersion": SCHEMA_VERSION,
+        "kind": KIND_FRONTIER,
+        "expectedThrough": expected_through,
+        "highestReserved": highest_reserved,
+        "databaseIdentity": DATABASE_IDENTITY,
+        "producerId": KEYS[key_id]["producerId"],
+        "keyId": key_id,
+        "frontierDigest": frontier_digest(expected_through, highest_reserved),
+    }
+    return canonical_bytes(resign(body, SIGNED_FRONTIER, key_id=key_id))
+
+
+def checkpoint_tail_store(tmp: Path, name: str, tail=TAIL_INPUT, ledger_users=INPUTS):
+    """Records 1 and 2, a checkpoint at 3 over ``ledger_users``, then ``tail`` as record 4."""
+    store = fresh_store(tmp, name)
+    coord = coordinator(store)
+    for item in INPUTS[:2]:
+        coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
+    sequence = SequenceAllocator(store).allocate(CHECKPOINT_RESERVATION_ID)
+    entries = sorted(
+        ({"authUserId": item["authUserId"], "erasedAt": item["erasedAt"]} for item in ledger_users),
+        key=lambda entry: entry["authUserId"],
+    )
+    coord.publish_checkpoint(sequence, entries)
+    coord.advance_frontier(expected_through=sequence, highest_reserved=sequence)
+    coord.request_deletion(tail["authUserId"], tail["erasureRequestId"], tail["erasedAt"])
+    return store
+
+
+def build_bundle_cases(tmp: Path):
+    """Return (name, description, bundle) for the trusted-erasure-set fixtures."""
+    cases = []
+
+    def add(name, description, bundle):
+        cases.append((name, description, bundle))
+
+    store = valid_store(tmp, "bundle-valid")
+    add("valid", "Three records and their frontier, no checkpoint: the set is the three "
+        "records, verified through sequence 3.", bundle_from_store(store))
+
+    store = checkpoint_tail_store(tmp, "bundle-checkpoint-tail")
+    add("checkpoint-tail", "Records 1 and 2, a checkpoint at 3 holding three tombstones, then "
+        "record 4: the set is the checkpoint's three entries plus record 4.",
+        bundle_from_store(store))
+
+    conflict = dict(TAIL_INPUT, authUserId=INPUTS[0]["authUserId"])
+    store = checkpoint_tail_store(tmp, "bundle-tail-conflict", tail=conflict)
+    add("tail-conflict", "Record 4 above the checkpoint names a user the checkpoint already "
+        "holds with another erasure time: refused.", bundle_from_store(store))
+
+    store = checkpoint_tail_store(tmp, "bundle-below-checkpoint", ledger_users=INPUTS[:1])
+    add("below-checkpoint-missing", "Record 2 is below the checkpoint but its user is not in "
+        "the checkpoint ledger: refused.", bundle_from_store(store))
+
+    store = valid_store(tmp, "bundle-versions")
+    objects = store_objects(store)
+    older, newer = signed_frontier(2, 2), signed_frontier(3, 3)
+    add("frontier-versions-oldest-first", "Two signed frontier versions listed oldest first: "
+        "the highest verified version (3) wins.",
+        encode_bundle(objects, [("v-0001", older), ("v-0002", newer)], "fixture"))
+    add("frontier-versions-newest-first", "The same versions listed newest first (a store "
+        "clock step): the highest verified version still wins.",
+        encode_bundle(objects, [("v-0002", newer), ("v-0001", older)], "fixture"))
+
+    tampered = json.loads(newer.decode("utf-8"))
+    tampered["highestReserved"] = 4
+    add("frontier-newest-tampered", "The newest frontier version fails verification and is "
+        "ignored: the older version (2) bounds the set, record 3 is not in it.",
+        encode_bundle(objects, [("v-0001", older), ("v-0002", canonical_bytes(tampered))], "fixture"))
+
+    broken = json.loads(older.decode("utf-8"))
+    broken["expectedThrough"] = 1
+    add("frontier-all-tampered", "No frontier version verifies: the first failure is raised.",
+        encode_bundle(objects, [("v-0001", canonical_bytes(broken)),
+                                ("v-0002", canonical_bytes(tampered))], "fixture"))
+
+    store = valid_store(tmp, "bundle-gap")
+    (store.root / record_key(1)).unlink()
+    add("gap", "Record 2 is missing below the frontier: BLOCKED, no set.", bundle_from_store(store))
+
+    store = valid_store(tmp, "bundle-missing-frontier")
+    (store.root / FRONTIER_KEY).unlink()
+    add("missing-frontier", "No frontier version: UNKNOWN, no set, however many records are "
+        "listed.", bundle_from_store(store))
+
+    store = valid_store(tmp, "bundle-listed-above-frontier")
+    add("listed-above-frontier", "Record 3 is listed but the only frontier version stops at 2: "
+        "the set stops at sequence 2 and leaves record 3 out.",
+        encode_bundle(store_objects(store), [("v-0001", signed_frontier(2, 2))], "fixture"))
+
+    add("empty", "A signed frontier at 0 and no objects: an empty set, verified through "
+        "sequence 0.", encode_bundle({}, [("v-0001", signed_frontier(0, 0))], "fixture"))
+
+    store = fresh_store(tmp, "bundle-non-canonical-erased-at")
+    coord = coordinator(store)
+    coord.request_deletion(INPUTS[0]["authUserId"], INPUTS[0]["erasureRequestId"], "2026-09-29T08:15:30.000Z")
+    add("non-canonical-erased-at", "A correctly signed record whose erasedAt auth-service would not "
+        "write back identically (.000 for a whole second): refused, so both languages digest the "
+        "same text.", bundle_from_store(store))
+
+    store = valid_store(tmp, "bundle-digest")
+    bundle = bundle_from_store(store)
+    key = sorted(bundle["objects"])[0]
+    bundle["objects"][key] = bundle["objects"][key][:-4] + "AAA="
+    add("bundle-digest-mismatch", "An object was changed after export; the bundle digest no "
+        "longer matches.", bundle)
+    return cases
+
+
+def evaluate_bundle(bundle):
+    try:
+        result = trusted_erasure_set(BundleStore(bundle), STANDARD_TRUST, at=VERIFIED_AT)
+    except ContractError as error:
+        return {"error": str(error)}
+    return result
+
+
 def trust_document_cases():
     """Trust documents and the reference loader outcome: the error message, or null."""
     def document(**key_fields):
@@ -450,6 +592,21 @@ def generate(out: Path) -> None:
                 "verifiedAt": verified_at,
                 "checks": checks,
             }))
+        bundle_names = []
+        for name, description, bundle in build_bundle_cases(tmp):
+            bundle_names.append(name)
+            write(out / "bundles" / name / "bundle.json", pretty(bundle))
+            write(out / "bundles" / name / "expected.json", pretty({
+                "description": description,
+                "trust": trust_json(STANDARD_TRUST),
+                "verifiedAt": VERIFIED_AT,
+                "result": evaluate_bundle(bundle),
+            }))
+        write(out / "bundles.json", pretty(bundle_names))
+        tail_bundle = bundle_from_store(checkpoint_tail_store(tmp, "trusted-set-document"))
+        write(out / "trusted-set.json", pretty(trusted_set_document(
+            tail_bundle, STANDARD_TRUST, RECOVERY_ATTEMPT_ID, RESTORED_DATASET_ID, TARGET_IDENTITY,
+            at=VERIFIED_AT)))
     write(out / "cases.json", pretty(names))
 
 

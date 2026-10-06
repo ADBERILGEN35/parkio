@@ -454,7 +454,13 @@ operator decision, so there is no schedule. The Python guard
 - **Erasure set** for recovery: the latest trusted checkpoint's entries plus
   the trusted pending records with a higher sequence. Tombstones without a
   record (for example from before durable recording) are covered by checkpoints
-  only.
+  only. `TrustedErasureSet` (Java) and `trusted_erasure_set`
+  (`scripts/lib/recovery_evidence_bundle.py`) compute it from an evidence bundle,
+  and only from an ACCEPT_ISOLATED recovery.
+  - A pending record below the checkpoint must be in its ledger with the same
+    `erasedAt`.
+  - One user with two erasure times is refused.
+  - Both languages read the frontier as its highest verified version.
 - A checkpoint reservation left without its checkpoint (a store failure or
   crash after the marker) becomes a gap, and `BLOCKED`, once a later record
   raises the frontier past it. The next checkpoint fills that sequence. The rule
@@ -535,6 +541,23 @@ use `sequence`.
 4. Restore-hosted-beta consumes the latest trusted checkpoint + pending
    tail; expose stays refused when the tail is unknown.
    `verifiedCoverage` stays false until a later, separate certification.
+   - **Implemented: evidence consumption and the replay entry point.**
+     - Evidence bundles: a read-only store export with every frontier version.
+     - The trusted erasure set, with Java/Python parity.
+     - The one-shot recovery-replay command (owner decision P6), described in
+       `docs/architecture/erasure-restore-replay-contract.md`, Recovery-replay command.
+   - **Next: the restore-script integration** (verify before decrypt in isolated
+     mode), the expose gate and the disposable full-recovery drill.
+   - **Coverage semantics (owner decision D1, 2026-10-06).** Recovery proceeds only when:
+     - the frontier is the highest verified version, gap-free and ACCEPT_ISOLATED;
+     - every erasure the restored auth database marks `DURABLY_RECORDED` is in the
+       trusted set (the backup anchor).
+   - **Coverage is reported only** as "erasure coverage verified through sequence N
+     (frontier version V)". v2 evidence signs no time, so no time-based claim is
+     made, and erasures after the last durable frontier cannot be proven absent.
+   - **No receipt option.** No offline-verifiable receipt exists:
+     `DurableErasureReceipt` is unsigned store metadata that is only logged. So there
+     is no required-through or receipt option.
 
 ### Smallest next slice — acceptance criteria
 

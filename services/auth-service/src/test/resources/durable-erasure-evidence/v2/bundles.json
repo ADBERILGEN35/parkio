@@ -1,0 +1,16 @@
+[
+  "valid",
+  "checkpoint-tail",
+  "tail-conflict",
+  "below-checkpoint-missing",
+  "frontier-versions-oldest-first",
+  "frontier-versions-newest-first",
+  "frontier-newest-tampered",
+  "frontier-all-tampered",
+  "gap",
+  "missing-frontier",
+  "listed-above-frontier",
+  "empty",
+  "non-canonical-erased-at",
+  "bundle-digest-mismatch"
+]
