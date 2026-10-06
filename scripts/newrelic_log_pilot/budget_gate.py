@@ -18,6 +18,7 @@ import os
 import sqlite3
 import ssl
 import signal
+import stat
 import threading
 import urllib.error
 import urllib.request
@@ -39,6 +40,10 @@ UPSTREAM_TIMEOUT_SECONDS = float(os.environ.get("PARKIO_NR_GATE_UPSTREAM_TIMEOUT
 TLS_VERIFY = os.environ.get("PARKIO_NR_UPSTREAM_TLS_VERIFY", "on").lower() == "on"
 TEST_CONTROL = os.environ.get("PARKIO_NR_GATE_TEST_CONTROL", "off").lower() == "on"
 INTERNAL_KEY = os.environ.get("PARKIO_NR_GATE_INTERNAL_KEY", "gate-internal-not-a-secret")
+RECOVERY_MODE_SETTING = os.environ.get("PARKIO_NR_BUDGET_RECOVERY_MODE", "off").strip().lower()
+if RECOVERY_MODE_SETTING not in {"on", "off"}:
+    raise RuntimeError("PARKIO_NR_BUDGET_RECOVERY_MODE must be on or off")
+RECOVERY_MODE = RECOVERY_MODE_SETTING == "on"
 
 _lock = threading.Lock()
 _test_now: datetime | None = None
@@ -66,6 +71,10 @@ def _record_count(payload: object) -> int:
     return count
 
 
+class RecoveryLedgerError(RuntimeError):
+    """The opt-in recovery ledger cannot safely authorize forwarding."""
+
+
 class Budget:
     columns = (
         "max_bytes", "spent_bytes", "attempts", "retry_attempts",
@@ -79,13 +88,28 @@ class Budget:
         "monthly_limit", "monthly_window", "monthly_spent", "monthly_exhausted",
     )
 
-    def __init__(self, path: Path, maximum: int, daily: int = 0, monthly: int = 0) -> None:
+    def __init__(self, path: Path, maximum: int, daily: int = 0, monthly: int = 0,
+                 *, require_existing: bool = False) -> None:
         if min(maximum, daily, monthly) < 0 or not any((maximum, daily, monthly)):
             raise ValueError("at least one byte budget must be positive and none may be negative")
         if daily and monthly and daily > monthly:
             raise ValueError("daily budget must not exceed monthly budget")
-        path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.require_existing = require_existing
+        self._recovery_identity: tuple[int, int] | None = None
+        if require_existing:
+            self._recovery_identity = self._existing_identity()
+            try:
+                with self._connect() as db:
+                    self._validate_recovery_ledger(db, maximum, daily, monthly)
+                    # Opening mode=rw alone does not prove that accounting can be
+                    # committed on this mount. Fail before binding the HTTP port.
+                    db.execute("BEGIN IMMEDIATE")
+                    db.rollback()
+            except sqlite3.Error as exc:
+                raise RecoveryLedgerError("recovery ledger is unreadable or corrupt") from exc
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute("PRAGMA journal_mode=TRUNCATE")
             db.execute("PRAGMA synchronous=FULL")
@@ -148,7 +172,61 @@ class Budget:
                 )
             self._roll_windows(db, utc_now())
 
+    def _existing_identity(self) -> tuple[int, int]:
+        try:
+            details = self.path.lstat()
+        except OSError as exc:
+            raise RecoveryLedgerError("recovery ledger is missing or unreadable") from exc
+        if (not stat.S_ISREG(details.st_mode) or not details.st_mode & 0o444
+                or not details.st_mode & 0o222):
+            raise RecoveryLedgerError("recovery ledger must be a readable writable regular file")
+        return details.st_dev, details.st_ino
+
+    def assert_recovery_ledger_present(self) -> None:
+        if self.require_existing and self._existing_identity() != self._recovery_identity:
+            raise RecoveryLedgerError("recovery ledger changed while running")
+
+    def _validate_recovery_ledger(self, db: sqlite3.Connection, maximum: int,
+                                  daily: int, monthly: int) -> None:
+        if db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise RecoveryLedgerError("recovery ledger integrity check failed")
+        expected = {"id", *self.columns, *self.window_columns}
+        present = {str(row[1]) for row in db.execute("PRAGMA table_info(budget)")}
+        if not expected <= present:
+            raise RecoveryLedgerError("recovery ledger schema is incompatible")
+        rows = db.execute(f"SELECT {','.join(self.columns + self.window_columns)} FROM budget").fetchall()
+        if len(rows) != 1 or db.execute("SELECT id FROM budget").fetchone() != (1,):
+            raise RecoveryLedgerError("recovery ledger must contain one accounting row")
+        values = dict(zip(self.columns + self.window_columns, rows[0]))
+        if (values["max_bytes"], values["daily_limit"], values["monthly_limit"]) != (maximum, daily, monthly):
+            raise RecoveryLedgerError("recovery ledger limits do not match configuration")
+        for key in set(self.columns + self.window_columns) - {"last_digest", "daily_window", "monthly_window"}:
+            value = values[key]
+            if type(value) is not int or value < 0:
+                raise RecoveryLedgerError("recovery ledger accounting is invalid")
+        if values["exhausted"] != 1 or values["daily_exhausted"] not in (0, 1) or values["monthly_exhausted"] not in (0, 1):
+            raise RecoveryLedgerError("recovery ledger must be persistently exhausted")
+        if any(type(values[key]) is not str for key in ("last_digest", "daily_window", "monthly_window")):
+            raise RecoveryLedgerError("recovery ledger text state is invalid")
+
     def _connect(self) -> sqlite3.Connection:
+        if self.require_existing:
+            self.assert_recovery_ledger_present()
+            db: sqlite3.Connection | None = None
+            try:
+                db = sqlite3.connect(self.path.absolute().as_uri() + "?mode=rw",
+                                     uri=True, timeout=5, isolation_level=None)
+                db.execute("PRAGMA synchronous=FULL")
+            except sqlite3.Error as exc:
+                if db is not None:
+                    db.close()
+                raise RecoveryLedgerError("recovery ledger cannot be opened") from exc
+            try:
+                self.assert_recovery_ledger_present()
+            except RecoveryLedgerError:
+                db.close()
+                raise
+            return db
         return sqlite3.connect(self.path, timeout=5, isolation_level=None)
 
     @staticmethod
@@ -161,6 +239,8 @@ class Budget:
         row = db.execute(
             "SELECT daily_window, monthly_window FROM budget WHERE id = 1"
         ).fetchone()
+        if row is None and self.require_existing:
+            raise RecoveryLedgerError("recovery ledger accounting row disappeared")
         assert row is not None
         if str(row[0]) != daily_key:
             db.execute(
@@ -180,7 +260,10 @@ class Budget:
             row = db.execute(
                 f"SELECT {','.join(self.columns + self.window_columns)} FROM budget WHERE id = 1"
             ).fetchone()
+            if self.require_existing and (row is None or row[self.columns.index("exhausted")] != 1):
+                raise RecoveryLedgerError("recovery ledger restriction was removed")
             db.commit()
+            self.assert_recovery_ledger_present()
         assert row is not None
         result: dict[str, int | str | bool] = dict(zip(self.columns + self.window_columns, row))
         result["exhausted"] = bool(result["exhausted"])
@@ -210,8 +293,13 @@ class Budget:
                 "daily_limit, daily_spent, daily_exhausted, monthly_limit, monthly_spent, monthly_exhausted "
                 "FROM budget WHERE id = 1"
             ).fetchone()
-            assert row is not None
+            if row is None:
+                if self.require_existing:
+                    raise RecoveryLedgerError("recovery ledger accounting row disappeared")
+                raise RuntimeError("budget row missing")
             maximum, spent, exhausted, last_digest = int(row[0]), int(row[1]), bool(row[2]), str(row[3])
+            if self.require_existing and not exhausted:
+                raise RecoveryLedgerError("recovery ledger restriction was removed")
             daily, daily_spent, daily_exhausted = int(row[4]), int(row[5]), bool(row[6])
             monthly, monthly_spent, monthly_exhausted = int(row[7]), int(row[8]), bool(row[9])
             retry = 1 if digest == last_digest and last_digest else 0
@@ -219,7 +307,7 @@ class Budget:
             daily_fits = not daily or serialized_bytes <= daily - daily_spent
             monthly_fits = not monthly or serialized_bytes <= monthly - monthly_spent
             admitted = (
-                not exhausted and not daily_exhausted and not monthly_exhausted
+                not self.require_existing and not exhausted and not daily_exhausted and not monthly_exhausted
                 and total_fits and daily_fits and monthly_fits
             )
             new_exhausted = exhausted or bool(maximum and (not total_fits or serialized_bytes == maximum - spent))
@@ -263,10 +351,11 @@ class Budget:
                 ),
             )
             db.commit()
+            self.assert_recovery_ledger_present()
             return admitted
 
     def reset_for_test(self, spent_bytes: int = 0) -> None:
-        if not TEST_CONTROL or spent_bytes < 0 or spent_bytes >= BUDGET_BYTES:
+        if self.require_existing or not TEST_CONTROL or spent_bytes < 0 or spent_bytes >= BUDGET_BYTES:
             raise ValueError("test reset is disabled or invalid")
         with _lock, self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -285,7 +374,8 @@ class Budget:
             db.commit()
 
 
-budget = Budget(STATE_DB, BUDGET_BYTES, DAILY_BUDGET_BYTES, MONTHLY_BUDGET_BYTES)
+budget = Budget(STATE_DB, BUDGET_BYTES, DAILY_BUDGET_BYTES, MONTHLY_BUDGET_BYTES,
+                require_existing=RECOVERY_MODE)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -305,10 +395,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/stats":
-            self._json(200, budget.snapshot())
+            try:
+                self._json(200, budget.snapshot())
+            except (RecoveryLedgerError, sqlite3.Error):
+                self._json(503, {"error": "recovery_ledger_unavailable"})
             return
         if path == "/health":
-            snapshot = budget.snapshot()
+            try:
+                snapshot = budget.snapshot()
+            except (RecoveryLedgerError, sqlite3.Error):
+                self._json(503, {"error": "recovery_ledger_unavailable"})
+                return
             failed = any(snapshot[name] for name in ("exhausted", "daily_exhausted", "monthly_exhausted"))
             self._json(507 if failed else 200, snapshot)
             return
@@ -374,7 +471,12 @@ class Handler(BaseHTTPRequestHandler):
 
         records = _record_count(payload)
         digest = hashlib.sha256(serialized).hexdigest()
-        if not budget.reserve(len(serialized), len(wire), records, digest):
+        try:
+            reserved = budget.reserve(len(serialized), len(wire), records, digest)
+        except (RecoveryLedgerError, sqlite3.Error):
+            self._json(503, {"error": "recovery_ledger_unavailable"})
+            return
+        if not reserved:
             self._json(202, {"accepted": False, "budget_exhausted": True})
             return
 
