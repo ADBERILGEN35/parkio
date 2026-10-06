@@ -300,7 +300,9 @@ class RecoveryReplayLaunchPostgresIT {
                 if (!Files.exists(path)) {
                     continue;
                 }
-                for (String line : Files.readAllLines(path).subList(1, Files.readAllLines(path).size())) {
+                // One read: the table changes between reads on a busy host (the first line is the header).
+                List<String> lines = Files.readAllLines(path);
+                for (String line : lines.subList(Math.min(1, lines.size()), lines.size())) {
                     String[] columns = line.trim().split("\\s+");
                     if (columns.length > 9 && "0A".equals(columns[3]) && own.contains(columns[9])) {
                         listening.add(table + " " + columns[1]);
