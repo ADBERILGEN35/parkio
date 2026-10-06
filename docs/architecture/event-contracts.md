@@ -480,9 +480,20 @@ concurrency), so a projection keeps, for each value, the snapshot with the highe
 seen; `user-service` does this per value (points, level, trust score). Events published before
 U12 have no `aggregateVersion`; `user-service` applies such an event only while it has not
 applied a versioned value. Points and level share one version sequence, so a version-less level
-also stops applying once a versioned points snapshot is in. The trust score has no second
-signal: a version-less `TrustScoreUpdated` redriven before a user's first versioned trust event
-still applies, so inspect or drain the user-service gamification DLT before deploying U12.
+also stops applying once a versioned points snapshot is in. Two residuals follow for version-less
+events redriven from the DLT after U12 is deployed:
+
+- **Trust.** The trust score has no second signal: a version-less `TrustScoreUpdated` redriven
+  before a user's first versioned trust event still applies.
+- **Level.** A version-less `UserLevelChanged` redriven after a versioned points snapshot is
+  dropped, even when it is the user's latest level change: without a version, an old level change
+  and the latest one look the same. The projection then keeps the older level until the user's next
+  level change.
+
+Before deploying U12, inspect and drain the whole user-service DLT, `parkio.dlt.user`: every
+gamification event in it (`PointsEarned`, `PointsDeducted`, `UserLevelChanged`,
+`TrustScoreUpdated`), not only `TrustScoreUpdated`. The topic is shared with user-service's other
+consumers.
 
 ## PointsEarnedEvent
 
