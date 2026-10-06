@@ -45,3 +45,9 @@ overrides:
   # Official image-size 2.0.4 is CJS+ESM and is past CVE-2025-71329/71330
   # (last affected 1.2.1 / 2.0.2). metro@0.84.4 still declares ^1.0.2.
   'image-size': '2.0.4'
+  # CVE-2026-87776 GHSA-vc2v-76pw-4v95 (compression < 1.8.2, patched 1.8.2). @expo/cli
+  # 56.1.26 and @react-native-community/cli-server-api 20.2.0 resolved it to 1.8.1.
+  'compression': '^1.8.2'
+  # CVE-2026-93749 GHSA-68fv-2mgg-jv7q (source-map-js >= 1.0.0 < 1.2.2, patched 1.2.2).
+  # postcss 8.5.23 resolved it to 1.2.1.
+  'source-map-js': '^1.2.2'
