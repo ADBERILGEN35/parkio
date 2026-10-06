@@ -37,18 +37,18 @@ the finding in the uploaded artifact.
 | Field | Value |
 |---|---|
 | Finding | `CVE-2026-47884` / `GHSA-pc63-qcmh-9cmg`, "Spring Framework Improper Path Limitation in XsltView" (CWE-22) |
-| Vendor advisory | <https://spring.io/security/cve-2026-47884>, published 2026-08-20, severity **MEDIUM** |
+| Vendor advisory | <https://spring.io/security/cve-2026-47884>, published 2026-08-20, severity **MEDIUM**. The page references CVSS 3.1 `AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:N/A:N` (base score 5.8, MEDIUM), CWE-22 and CWE-918 |
 | Vendor condition | "Use of `XsltView` in a Spring MVC application can result in SSRF and RCE attack if the application has an `"/**"` mapping that results in view rendering, and where the view name is not explicitly specified." |
 | Vendor mitigation | "Users of affected versions should upgrade to the corresponding fixed version. No further mitigation steps are necessary." |
 | Affected (vendor) | 7.0.0 - 7.0.8, 6.2.0 - 6.2.19, 6.1.0 - 6.1.28, 6.0.0 - 6.0.30, 5.3.0 - 5.3.49, 5.2.25.RELEASE and earlier |
 | Fixed (vendor) | **7.0.9 (OSS)**. 7.0.8.1, 6.2.20, 6.1.29, 6.0.31, 5.3.50 and 5.2.26 are **Enterprise Support only** |
 | GitHub advisory | `GHSA-pc63-qcmh-9cmg`, severity **critical**, CVSS 3.1 `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` 9.8. It lists no patched 6.2.x version |
 | Scanner | Trivy (`aquasec/trivy:0.64.1`) reports **CRITICAL**, `SeveritySource: ghsa`, vendor severities `ghsa: 4`, `redhat: 4`, fixed version 7.0.9 |
-| Severity discrepancy | Spring rates it MEDIUM because exploitation needs `XsltView` plus a view-rendering `"/**"` mapping without an explicit view name. GHSA, Red Hat and Trivy carry the unconditional CVSS 9.8 and rate it CRITICAL. The gate follows the scanner. |
+| Severity discrepancy | Spring's vector scores **5.8**: scope changed, low confidentiality impact, no integrity or availability impact. GHSA and Red Hat score **9.8**: scope unchanged, high confidentiality, integrity and availability impact. Trivy takes the GHSA severity, so it reports CRITICAL. Spring's page states no reason beyond its vector and the precondition in its description. The gate follows the scanner. |
 | Classification | **accepted, time-bounded exception**: no OSS fix on the 6.2 line, and the vulnerable view is not used |
 | Owner | Parkio release engineering |
-| Expiry | **2026-11-05**, encoded as `expired_at` in `.trivyignore.yaml`. The finding fails both container gates again once the date passes. |
-| Remediation | migrate to Spring Framework 7 / Spring Boot 4 (a separate decision), or take an OSS 6.2.x fix if one ships |
+| Expiry | `expired_at: 2026-11-05` in `.trivyignore.yaml`. **Trivy treats `expired_at` as exclusive:** the finding is suppressed through 2026-11-04 UTC and reported again from **2026-11-05 00:00 UTC**. From then on, both container gates fail on the nine servlet images, including that day's scheduled scan. Verified with the pinned Trivy: at 2026-10-06 12:28Z, `expired_at: 2026-10-06` already gives exit 1, and `2026-10-07` gives exit 0. |
+| Remediation | Spring Framework 6.2.x and Spring Boot 3.5.x **OSS support ended 2026-06-30**; their commercial support runs to 2032-06-30. Framework 7.0.x OSS support runs to 2027-07-31, and Boot 4.0.x to 2026-12-31 (`https://api.spring.io/projects/spring-framework/generations` and `…/spring-boot/generations`, fetched 2026-10-06). **No OSS 6.2.x fix is expected.** An owner decision is needed **before about 2026-11-01**, choosing one of: a renewed exception (with a fresh review), commercial 6.2.20, or the Spring Framework 7 / Spring Boot 4 migration. Later CVEs on the 6.2 line whose only listed fix is in 7.x will fail the gates the same way. |
 
 ### Affected artifacts
 
@@ -76,13 +76,14 @@ Not affected:
 The vendor condition needs an `XsltView`. None of the nine services configures or uses one,
 directly or indirectly. The evidence below is for api `520acbfd`.
 
-- **Source.** Under `services/`, there are no references to any of these:
+- **Source.** Under `services/` and `platform/` (`parkio-platform`, which ships in every `app.jar`), there are no references to any of these:
   - `XsltView`, `AbstractXsltView`, `XsltViewResolver`, or any `ViewResolver` type or bean;
   - `configureViewResolvers`, `addViewController`, `ModelAndView`, `setViewName`, or `org.springframework.web.servlet.view`;
   - `TransformerFactory` or `javax.xml.transform`.
-- **Files and configuration.** There are no `.xsl`/`.xslt` files. There are no
-  `spring.mvc.view.*`, template-engine or static-path properties in any `application*.yml`; the
-  only `template:` keys are `spring.kafka.template`.
+- **Files and configuration.** Service source and resources contain no `.xsl`/`.xslt` file.
+  - In the shipped images, the only `.xsl` is `org/springframework/security/config/spring-security.xsl`, inside auth-service's third-party `spring-security-config-6.5.11.jar`. Nothing uses it as a view.
+  - The `.trivyignore.yaml` statement's "ships no … .xsl/.xslt file" means service source and resources, in that sense.
+  - There are no `spring.mvc.view.*`, template-engine or static-path properties in any `application*.yml`; the only `template:` keys are `spring.kafka.template`.
 - **Controllers.** Every controller is a `@RestController`; there is no `@Controller` class. Handler
   return values go through message converters, not view resolution.
 - **Dependencies.** No template engine is declared: no Thymeleaf, FreeMarker, Mustache, Groovy
@@ -129,5 +130,14 @@ outputs are in `agent-tools/parkio-trivyignore-cve-2026-47884/` (SHA256SUMS):
 | Expiry: the same file with `expired_at: 2026-10-01` | the critical image gate and the library gate exit 1, reporting `CVE-2026-47884` at the approved path |
 | Unrelated CRITICAL: `log4j-core-2.14.1.jar` added to an image | the critical image gate exits 1 (`CVE-2021-44228`, `CVE-2021-45046`), with the ignore file in place |
 | Same CVE outside the approved path: `spring-webmvc-6.2.19.jar` copied to `/opt/probe` | exits 1, reporting `CVE-2026-47884` at `opt/probe/spring-webmvc-6.2.19.jar` only |
+
+## Code Scanning
+
+Both image SARIF uploads, `trivy-image-<service>` and `trivy-image-<service>-library`, omit suppressed findings.
+- **The alert closes.** After this change merges, Code Scanning alert #73 (CVE-2026-47884 on `refs/heads/api`) will show as **fixed**, although `spring-webmvc-6.2.19.jar` still ships in the nine images. Do not read the closed alert as remediation.
+- **Where the finding stays visible:**
+  - the unfiltered report artifact `trivy-image-<service>-reports` / `trivy-image-<service>.txt`, kept 14 days per run;
+  - the `.trivyignore.yaml` entry;
+  - this document.
 
 S3 gate 3 stays **open** until a scheduled full scan succeeds on api.
