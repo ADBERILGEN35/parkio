@@ -480,9 +480,81 @@ concurrency), so a projection keeps, for each value, the snapshot with the highe
 seen; `user-service` does this per value (points, level, trust score). Events published before
 U12 have no `aggregateVersion`; `user-service` applies such an event only while it has not
 applied a versioned value. Points and level share one version sequence, so a version-less level
-also stops applying once a versioned points snapshot is in. The trust score has no second
-signal: a version-less `TrustScoreUpdated` redriven before a user's first versioned trust event
-still applies, so inspect or drain the user-service gamification DLT before deploying U12.
+also stops applying once a versioned points snapshot is in.
+
+A version-less event can still reach `user-service` after U12 is deployed:
+- from a redrive of `parkio.dlt.user`. This includes pre-U12 records still unconsumed in
+  `parkio.gamification.score` at deploy time that fail afterwards.
+- from a retry of a dead-lettered pre-U12 row in gamification's outbox, which stores the serialized
+  event.
+
+Two residuals follow:
+
+- **Before the first versioned snapshot.** A version-less event still applies until `user-service`
+  has applied a versioned value for it, so an older event can overwrite a newer pre-U12 value:
+  - points (`PointsEarned`, `PointsDeducted`, and the total in `UserLevelChanged`) until the user's
+    first versioned points snapshot;
+  - level until the user's first versioned points or level snapshot;
+  - the trust score until the user's first versioned `TrustScoreUpdated`.
+
+  The value heals at the user's next versioned event for it; for level, that is the next level
+  change.
+- **Level after a versioned points snapshot.** A version-less `UserLevelChanged` that arrives after a
+  versioned points snapshot is dropped, even when it is the user's latest level change: without a
+  version, an old level change and the latest one look the same. The projection then keeps the older
+  level until the user's next level change.
+
+The mitigation for the first residual is to drain before deploying U12:
+- Inspect and drain the whole user-service DLT, `parkio.dlt.user`: every gamification event in it
+  (`PointsEarned`, `PointsDeducted`, `UserLevelChanged`, `TrustScoreUpdated`), not only
+  `TrustScoreUpdated`. The topic is shared with user-service's other consumers.
+- Resolve gamification's dead-lettered outbox rows the same way.
+
+Version-less events that reach the DLT after the deploy remain subject to both residuals.
+
+**Backup and restore ordering (U12, owner decision 2026-10-06).** This is an operational limitation,
+not an implemented restore guard.
+
+- **Invariant.** For every user, gamification's restored row versions must be at least the versions
+  user-service's restored `user_trust_profiles` holds:
+  - `user_level_progress.version` ≥ `points_version` and ≥ `level_version`;
+  - `trust_scores.version` ≥ `trust_version`.
+
+  A NULL on the user-service side always satisfies it. When a gamification version is lower, later
+  events whose versions are not above the stored ones are dropped silently, and the projection stays
+  stale for that user.
+- **Today's backup order.** `scripts/backup-databases.sh` dumps the databases one at a time, in the
+  order of its `SERVICES` list: `user` before `gamification`. Gamification's row versions only grow
+  (account erasure is the one exception: it deletes both rows), and user-service holds only versions
+  that gamification had already committed. A user dump taken before the gamification dump therefore
+  keeps the invariant between the two dumps. The order comes from the list alone: nothing enforces
+  it, and no test checks it. Each `pg_dump` is its own snapshot; there is no snapshot across
+  databases.
+- **Not proven.** No backup or restore test checks the invariant. A restore from one backup set is
+  not claimed to give a consistent projection:
+  - changes committed between the two dumps are in the gamification dump but not in the user dump;
+  - the gamification outbox state, the Kafka topics and the DLT decide which events reach
+    user-service after a restore, and the topics and the DLT are not in the backup.
+
+  Such a projection can stay behind gamification: points and trust until the user's next event for
+  that value, and level until the user's next level change.
+
+  Events produced after the backup was taken can still be in the Kafka topics or the DLT, and their
+  versions are above the restored gamification rows. If a DLT redrive or a consumer offset reset
+  delivers them to the restored user-service, user-service ends up ahead of gamification. That breaks
+  the invariant, as described under "Unsupported".
+- **Unsupported.** These break the invariant:
+  - restoring or rolling back gamification on its own, or to an older state than user-service;
+  - letting events produced after the backup reach a restored user-service.
+
+  Both are unsupported until a reviewed procedure exists to reconcile or reset user-service's
+  projection versions.
+- **Not U12 guards.** The existing restore refusals are about erasure coverage:
+  - a production restore is blocked (`parkio_restore_refuse_unverified_production`);
+  - a standalone single-database restore is refused in production because it does not replay
+    erasures (`parkio_restore_refuse_standalone_database`).
+
+  An isolated fixture can still restore one database.
 
 ## PointsEarnedEvent
 

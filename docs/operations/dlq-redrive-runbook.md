@@ -16,6 +16,12 @@ This runbook is for operators with shell access to the Parkio host. Recovery too
 - Do not repeatedly retry unchanged poison records. If the same row dead-letters again after recovery, escalate to a code/config fix.
 - Never edit event payloads in place. Preserve the original event contract and event id.
 - Consumers are idempotent by `eventId`; redrive may duplicate delivery, but handlers must tolerate it.
+- **Gamification events** (`PointsEarned`, `PointsDeducted`, `UserLevelChanged`, `TrustScoreUpdated`)
+  in `parkio.dlt.user`, or in gamification's dead-lettered outbox rows, are not protected by
+  `eventId` alone. Before redriving or retrying them, read "Ordering (U12)" and "Backup and restore
+  ordering (U12)" in [event-contracts.md](../architecture/event-contracts.md):
+  - a version-less (pre-U12) event can overwrite a newer value;
+  - after a restore, an event produced after the backup can put user-service ahead of gamification.
 
 ## Outbox Inspection
 
