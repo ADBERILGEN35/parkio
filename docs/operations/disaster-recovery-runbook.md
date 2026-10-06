@@ -128,13 +128,18 @@ or apply on production (`parkio_restore_refuse_standalone_database`,
 
 **Gamification and user-service (U12): an operational limitation, not a guard.**
 - **Invariant.** user-service's gamification projection keeps a per-value version. It needs
-  gamification's restored row versions to be at least the ones user-service holds.
+  gamification's restored row versions to be at least the ones user-service holds:
+  - `user_level_progress.version` ≥ `points_version` and ≥ `level_version`;
+  - `trust_scores.version` ≥ `trust_version`.
 - **Backup order.** `scripts/backup-databases.sh` dumps `user` before `gamification`, which keeps
   that invariant between the two dumps. The order comes from its `SERVICES` list; it is not
   enforced or tested.
-- **Unsupported.** Never restore or roll back the gamification database alone, or to an older backup
-  set than the user database, until a reviewed procedure exists to reconcile or reset user-service's
-  projection versions.
+- **Unsupported.** Until a reviewed procedure exists to reconcile or reset user-service's projection
+  versions, never:
+  - restore or roll back the gamification database alone, or to an older backup set than the user
+    database;
+  - let events produced after the backup reach the restored user-service, through a DLT redrive or a
+    consumer offset reset.
 - **No consistency claim.** A restore from one backup set is not claimed to give a consistent
   projection. See "Backup and restore ordering (U12)" in `docs/architecture/event-contracts.md`.
 
