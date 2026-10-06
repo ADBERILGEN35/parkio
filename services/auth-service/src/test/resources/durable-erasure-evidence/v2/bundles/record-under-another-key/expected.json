@@ -1,0 +1,19 @@
+{
+  "description": "A copy of record 1 under another request's key: refused, even though record 1 is also under its own key.",
+  "result": {
+    "error": "evidence object key does not match its body"
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

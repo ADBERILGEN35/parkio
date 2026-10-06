@@ -22,6 +22,7 @@ public record TrustedErasureSetDocument(String recoveryAttemptId,
                                         long verifiedThroughSequence,
                                         String frontierVersion,
                                         Long latestTrustedCheckpoint,
+                                        int ignoredFrontierVersions,
                                         String statement,
                                         String erasureSetDigest,
                                         List<Map<String, String>> entries,
@@ -48,7 +49,10 @@ public record TrustedErasureSetDocument(String recoveryAttemptId,
         }
         JsonNode coverage = root.path("coverage");
         JsonNode set = root.path("erasureSet");
-        if (!coverage.path("verifiedThroughSequence").isIntegralNumber() || !set.path("entries").isArray()) {
+        if (!coverage.path("verifiedThroughSequence").isIntegralNumber()
+                || !coverage.path("ignoredFrontierVersions").isIntegralNumber()
+                || !coverage.path("ignoredFrontierVersions").canConvertToInt()
+                || !set.path("entries").isArray()) {
             throw new DurableEvidenceException("trusted-set file is incomplete");
         }
         List<Map<String, String>> entries = new ArrayList<>();
@@ -61,7 +65,8 @@ public record TrustedErasureSetDocument(String recoveryAttemptId,
                 text(root, "recoveryAttemptId"), text(root, "restoredDatasetId"), text(root, "targetIdentity"),
                 text(root, "evidenceDatabaseIdentity"), coverage.path("verifiedThroughSequence").asLong(),
                 text(coverage, "frontierVersion"), checkpoint.isIntegralNumber() ? checkpoint.asLong() : null,
-                text(coverage, "statement"), text(set, "erasureSetDigest"), entries,
+                coverage.path("ignoredFrontierVersions").asInt(), text(coverage, "statement"),
+                text(set, "erasureSetDigest"), entries,
                 EvidenceBundle.parse(root.path("bundle")));
     }
 
@@ -79,6 +84,7 @@ public record TrustedErasureSetDocument(String recoveryAttemptId,
                 && derived.verifiedThroughSequence() == verifiedThroughSequence
                 && derived.frontierVersion().equals(frontierVersion)
                 && java.util.Objects.equals(derived.latestTrustedCheckpoint(), latestTrustedCheckpoint)
+                && derived.ignoredFrontierVersions() == ignoredFrontierVersions
                 && derived.statement().equals(statement)
                 && derived.erasureSetDigest().equals(erasureSetDigest)
                 && derivedEntries.equals(entries);

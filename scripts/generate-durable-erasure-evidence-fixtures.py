@@ -29,9 +29,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/lib"))
 
-from recovery_evidence_contract import ContractError, PersistFailed, canonical_bytes, sign  # noqa: E402
+from recovery_evidence_contract import ContractError, PersistFailed, canonical_bytes, sha256_hex, sign  # noqa: E402
 from recovery_evidence_bundle import (  # noqa: E402
     bundle_from_store,
+    check_target_identity,
     encode_bundle,
     trusted_erasure_set,
     trusted_set_document,
@@ -42,6 +43,7 @@ from recovery_persist_protocol import (  # noqa: E402
     FRONTIER_KEY,
     KIND_FRONTIER,
     SCHEMA_VERSION,
+    SIGNED_CHECKPOINT,
     SIGNED_FRONTIER,
     SIGNED_PENDING,
     EvidenceTrust,
@@ -288,8 +290,9 @@ def build_cases(tmp: Path):
 
     store = valid_store(tmp, "record-copied-to-other-key")
     write(store.root / record_key(1), store.get(record_key(0)))
-    add("record-copied-to-other-key", "Record 1's bytes were copied over record 2's key. Both "
-        "verify (the key is not signed), so sequence 2 is a gap: BLOCKED.", store)
+    add("record-copied-to-other-key", "Record 1's bytes were copied over record 2's key. A record "
+        "is read only under its own key (records/<erasureRequestId>.json, as signed), so the copy "
+        "is refused (PR #295 B4; until then this case was BLOCKED by the gap at sequence 2).", store)
 
     add("wrong-database-identity", "The consumer's trust pins another database identity.",
         valid_store(tmp, "wrong-database-identity"),
@@ -507,7 +510,108 @@ def build_bundle_cases(tmp: Path):
     bundle["objects"][key] = bundle["objects"][key][:-4] + "AAA="
     add("bundle-digest-mismatch", "An object was changed after export; the bundle digest no "
         "longer matches.", bundle)
+
+    # PR #295 review B4: every signed object is bound to its key, and a sequence has one owner.
+    store = fresh_store(tmp, "bundle-checkpoint-key-swap")
+    coord = coordinator(store)
+    for item in INPUTS[:2]:
+        coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
+    third = SequenceAllocator(store).allocate("checkpoint-reservation-0003")
+    coord.publish_checkpoint(third, ledger_entries(INPUTS[:2]))
+    fourth = SequenceAllocator(store).allocate("checkpoint-reservation-0004")
+    coord.publish_checkpoint(fourth, ledger_entries(INPUTS))
+    coord.advance_frontier(expected_through=fourth, highest_reserved=fourth)
+    objects = store_objects(store)
+    swapped = dict(objects)
+    swapped[checkpoint_key(fourth)[:-len(".json")] + "-moved.json"] = objects[checkpoint_key(fourth)]
+    swapped[checkpoint_key(fourth)] = objects[checkpoint_key(third)]
+    add("checkpoint-key-swap", "Checkpoint 3's signed bytes are stored under checkpoint 4's key and "
+        "checkpoint 4 under another key. Read by key, the set would silently lose the user only "
+        "checkpoint 4 holds; a checkpoint is read only under its own key, so it is refused.",
+        encode_bundle(swapped, frontier_versions(store), "fixture"))
+
+    store = valid_store(tmp, "bundle-record-extra-key")
+    objects = store_objects(store)
+    objects[erasure_record_id("0f0e0d0c-0000-4000-8000-0000000000ff")] = objects[record_key(0)]
+    add("record-under-another-key", "A copy of record 1 under another request's key: refused, "
+        "even though record 1 is also under its own key.",
+        encode_bundle(objects, frontier_versions(store), "fixture"))
+
+    store = valid_store(tmp, "bundle-duplicate-sequence")
+    twin = load(store, record_key(1))
+    twin_request = "0f0e0d0c-0000-4000-8000-0000000000fe"
+    twin.update(erasureRequestId=twin_request, erasureRecordId=erasure_record_id(twin_request),
+                authUserId="0f0e0d0c-0000-4000-8000-0000000000fd")
+    twin["bodyDigest"] = sha256_hex(canonical_bytes({key: twin[key] for key in ("authUserId",
+                                                                                  "erasureRequestId",
+                                                                                  "erasedAt")}))
+    objects = store_objects(store)
+    objects[erasure_record_id(twin_request)] = canonical_bytes(resign(twin, SIGNED_PENDING))
+    add("duplicate-sequence", "A second correctly signed and keyed record claims record 2's sequence: "
+        "a sequence has one owner, so it is refused.",
+        encode_bundle(objects, frontier_versions(store), "fixture"))
+
+    store = checkpoint_tail_store(tmp, "bundle-checkpoint-duplicate-user")
+    body = load(store, checkpoint_key(3))
+    body["entries"] = sorted(body["entries"] + [body["entries"][0]], key=lambda entry: entry["authUserId"])
+    body["ledgerDigest"] = sha256_hex(canonical_bytes({"kind": "erasure-ledger", "entries": body["entries"]}))
+    objects = store_objects(store)
+    objects[checkpoint_key(3)] = canonical_bytes(resign(body, SIGNED_CHECKPOINT))
+    add("checkpoint-duplicate-user", "A correctly signed checkpoint whose ledger names one user twice: "
+        "refused (the ledger has one tombstone per user).",
+        encode_bundle(objects, frontier_versions(store), "fixture"))
+
+    store = valid_store(tmp, "bundle-frontier-missing-field")
+    objects = store_objects(store)
+    older, newer = signed_frontier(2, 2), json.loads(signed_frontier(3, 3).decode("utf-8"))
+    del newer["highestReserved"]
+    add("frontier-version-missing-field", "The newest frontier version lacks a signed field: it fails "
+        "verification and is ignored and counted, as a tampered version is, in both languages; the "
+        "older version (2) bounds the set.",
+        encode_bundle(objects, [("v-0001", older), ("v-0002", canonical_bytes(newer))], "fixture"))
     return cases
+
+
+def ledger_entries(items):
+    return sorted(({"authUserId": item["authUserId"], "erasedAt": item["erasedAt"]} for item in items),
+                  key=lambda entry: entry["authUserId"])
+
+
+def frontier_versions(store):
+    """The model store's one frontier version, with the id bundle_from_store gives it."""
+    raw = store.get(FRONTIER_KEY)
+    return [("sha256:" + sha256_hex(raw), raw)]
+
+
+# PR #295 review B3: a target on the production cluster is refused whatever its database name.
+IDENTITY_CASES = (
+    ("other-cluster", "postgresql:7000000000000000099:parkio_auth"),
+    ("production", DATABASE_IDENTITY),
+    ("production-cluster-other-database", "postgresql:7000000000000000001:parkio_auth_restore"),
+    ("production-cluster-leading-zero", "postgresql:07000000000000000001:parkio_auth"),
+    ("missing-database", "postgresql:7000000000000000099"),
+    ("empty-database", "postgresql:7000000000000000099:"),
+    ("colon-in-database", "postgresql:7000000000000000099:parkio:auth"),
+    ("space-in-database", "postgresql:7000000000000000099:parkio auth"),
+    ("non-digit-cluster", "postgresql:70000000000000000x9:parkio_auth"),
+    ("cluster-too-long", "postgresql:123456789012345678901:parkio_auth"),
+    ("other-scheme", "mysql:7000000000000000099:parkio_auth"),
+    ("upper-case-scheme", "POSTGRESQL:7000000000000000099:parkio_auth"),
+    ("surrounding-space", " postgresql:7000000000000000099:parkio_auth"),
+    ("trailing-newline", "postgresql:7000000000000000099:parkio_auth\n"),
+)
+
+
+def identity_cases():
+    cases = []
+    for name, target in IDENTITY_CASES:
+        try:
+            check_target_identity(target, DATABASE_IDENTITY)
+            refusal = None
+        except ContractError as error:
+            refusal = str(error)
+        cases.append({"name": name, "target": target, "refusal": refusal})
+    return {"productionIdentity": DATABASE_IDENTITY, "cases": cases}
 
 
 def evaluate_bundle(bundle):
@@ -577,6 +681,7 @@ def generate(out: Path) -> None:
         for name, value in CANONICAL_JSON_CASES
     ]))
     write(out / "trust-documents.json", pretty(trust_document_cases()))
+    write(out / "database-identities.json", pretty(identity_cases()))
     names = []
     with tempfile.TemporaryDirectory() as raw_tmp:
         tmp = Path(raw_tmp)

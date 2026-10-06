@@ -16,6 +16,7 @@ import com.parkio.auth.infrastructure.messaging.ErasureAckKafkaConsumer;
 import com.parkio.auth.infrastructure.persistence.PostgresDatabaseIdentity;
 import com.parkio.platform.messaging.EventEnvelope;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,9 +31,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,15 +46,18 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The recovery-replay command on real PostgreSQL (Flyway through V27) with the real coordinator,
- * the real ACK consumer, the real connected-identity read and the real backup-anchor query. ACKs
- * are delivered through the consumer exactly as a participant's outbox relay publishes them; Kafka
- * itself is not needed for this. Synthetic ids and the fixture evidence only.
+ * The recovery replay on real PostgreSQL (Flyway through V27): the real preflight (its plain-JDBC
+ * identity read and backup-anchor query) followed by the command with the real coordinator and the
+ * real ACK consumer. ACKs are delivered through the consumer exactly as a participant's outbox relay
+ * publishes them; Kafka itself is not needed for this. The launch path (no context before the
+ * checks, no web server, the recovery group) is {@link RecoveryReplayLaunchPostgresIT}. Synthetic
+ * ids and the fixture evidence only.
  */
 @Tag("integration")
 @SpringBootTest
 @ActiveProfiles(RecoveryReplayLaunch.PROFILE)
 @Testcontainers(disabledWithoutDocker = true)
+@Timeout(value = 10, unit = TimeUnit.MINUTES)
 class RecoveryReplayCommandPostgresIT {
 
     private static final List<String> PARTICIPANTS = AccountErasureApplicationService.DEFAULT_PARTICIPANTS;
@@ -85,6 +91,7 @@ class RecoveryReplayCommandPostgresIT {
     @TempDir Path dir;
 
     @Autowired private RecoveryReplayCommand command;
+    @Autowired private Environment environment;
     @Autowired private ErasureAckKafkaConsumer consumer;
     @Autowired private ErasureRestoreReplayService restoreReplay;
     @Autowired private ObjectMapper objectMapper;
@@ -117,16 +124,16 @@ class RecoveryReplayCommandPostgresIT {
 
     @Test
     void everyParticipantAndAuthAcknowledgingCompletesTheAttempt() throws Exception {
-        durablyRecorded(user(0));
+        durablyRecorded(user(0), "COMPLETE");
 
-        CompletableFuture<RecoveryReplayCommand.Outcome> run = start("--timeout-seconds=60");
+        CompletableFuture<RecoveryReplayExit> run = start("--timeout-seconds=60");
         awaitAttempt();
         for (String participant : PARTICIPANTS) {
             acknowledgeAll(participant, "SUCCESS");
         }
-        RecoveryReplayCommand.Outcome outcome = run.get(90, TimeUnit.SECONDS);
+        RecoveryReplayExit outcome = run.get(90, TimeUnit.SECONDS);
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.COMPLETE);
+        assertThat(outcome).isEqualTo(RecoveryReplayExit.COMPLETE);
         assertThat(commands()).isEqualTo(USERS);
         assertThat(acks("auth", "SUCCESS")).isEqualTo(USERS);
         for (String participant : PARTICIPANTS) {
@@ -144,14 +151,14 @@ class RecoveryReplayCommandPostgresIT {
 
     @Test
     void aMissingParticipantKeepsTheAttemptBlockedUntilTheBoundedWaitEnds() throws Exception {
-        CompletableFuture<RecoveryReplayCommand.Outcome> run = start("--timeout-seconds=3");
+        CompletableFuture<RecoveryReplayExit> run = start("--timeout-seconds=3");
         awaitAttempt();
         for (String participant : PARTICIPANTS.subList(1, PARTICIPANTS.size())) {
             acknowledgeAll(participant, "SUCCESS");
         }
-        RecoveryReplayCommand.Outcome outcome = run.get(60, TimeUnit.SECONDS);
+        RecoveryReplayExit outcome = run.get(60, TimeUnit.SECONDS);
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.TIMEOUT);
+        assertThat(outcome).isEqualTo(RecoveryReplayExit.TIMEOUT);
         JsonNode written = RecoveryFixtures.readTree(verdict);
         assertThat(written.path("status").asText()).isEqualTo("TIMEOUT");
         assertThat(written.path("participants").path(PARTICIPANTS.get(0)).path("missing").asLong()).isEqualTo(USERS);
@@ -159,38 +166,50 @@ class RecoveryReplayCommandPostgresIT {
 
     @Test
     void aFailedParticipantBlocksTheAttempt() throws Exception {
-        CompletableFuture<RecoveryReplayCommand.Outcome> run = start("--timeout-seconds=60");
+        CompletableFuture<RecoveryReplayExit> run = start("--timeout-seconds=60");
         awaitAttempt();
         deliver("media", user(0), "FAILED");
-        RecoveryReplayCommand.Outcome outcome = run.get(60, TimeUnit.SECONDS);
+        RecoveryReplayExit outcome = run.get(60, TimeUnit.SECONDS);
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.BLOCKED);
+        assertThat(outcome).isEqualTo(RecoveryReplayExit.BLOCKED);
         assertThat(RecoveryFixtures.readTree(verdict).path("participants").path("media").path("failed").asLong())
                 .isEqualTo(1);
     }
 
     @Test
     void aMissingAuthAcknowledgementKeepsTheAttemptBlocked() throws Exception {
-        CompletableFuture<RecoveryReplayCommand.Outcome> run = start("--timeout-seconds=3");
+        CompletableFuture<RecoveryReplayExit> run = start("--timeout-seconds=3");
         awaitAttempt();
         jdbc.update("DELETE FROM erasure_restore_acks WHERE recovery_attempt_id = ? AND service_name = 'auth'", attempt);
         for (String participant : PARTICIPANTS) {
             acknowledgeAll(participant, "SUCCESS");
         }
-        RecoveryReplayCommand.Outcome outcome = run.get(60, TimeUnit.SECONDS);
+        RecoveryReplayExit outcome = run.get(60, TimeUnit.SECONDS);
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.TIMEOUT);
+        assertThat(outcome).isEqualTo(RecoveryReplayExit.TIMEOUT);
         assertThat(RecoveryFixtures.readTree(verdict).path("auth").path("missing").asLong()).isEqualTo(USERS);
     }
 
     @Test
     void aDurablyRecordedErasureMissingFromTheTrustedSetIsRefusedBeforeAnyReplay() {
-        durablyRecorded(UUID.randomUUID());
+        durablyRecorded(UUID.randomUUID(), "COMPLETE");
 
-        RecoveryReplayCommand.Outcome outcome = command.execute(args(evidence, trust, attempt.toString(), dataset,
-                connected, verdict));
+        assertThat(run("--timeout-seconds=5")).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE);
+        assertNothingReplayed();
+    }
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE);
+    @Test
+    void theAnchorCoversEveryDurablyRecordedRequestWhateverItsStatus() {
+        // Review N2: persist-before-COMPLETE leaves IN_PROGRESS + DURABLY_RECORDED. Several recorded
+        // requests are in the set; only the IN_PROGRESS one is missing from it.
+        durablyRecorded(user(0), "COMPLETE");
+        durablyRecorded(user(1), "COMPLETE");
+        durablyRecorded(user(2), "IN_PROGRESS");
+        durablyRecorded(UUID.randomUUID(), "IN_PROGRESS");
+
+        assertThat(run("--timeout-seconds=5")).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE);
+        assertThat(RecoveryFixtures.readTree(verdict).path("reason").asText()).isEqualTo("the trusted set lacks 1"
+                + " erasure(s) the restored auth database marks DURABLY_RECORDED; the evidence is older than the backup");
         assertNothingReplayed();
     }
 
@@ -199,10 +218,7 @@ class RecoveryReplayCommandPostgresIT {
         List<ErasureLedgerEntry> other = List.of(new ErasureLedgerEntry(UUID.randomUUID(), Instant.parse("2026-09-01T00:00:00Z")));
         restoreReplay.startRestoreReplay(attempt, "another-dataset", other);
 
-        RecoveryReplayCommand.Outcome outcome = command.execute(args(evidence, trust, attempt.toString(), dataset,
-                connected, verdict));
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.ATTEMPT_MISMATCH);
+        assertThat(run("--timeout-seconds=5")).isEqualTo(RecoveryReplayExit.ATTEMPT_MISMATCH);
         assertThat(commands()).isEqualTo(1);
     }
 
@@ -211,16 +227,36 @@ class RecoveryReplayCommandPostgresIT {
         String elsewhere = "postgresql:7000000000000000123:parkio_auth";
         evidence = RecoveryFixtures.trustedSet(dir, attempt.toString(), dataset, elsewhere);
 
-        RecoveryReplayCommand.Outcome outcome = command.execute(args(evidence, trust, attempt.toString(), dataset,
-                elsewhere, verdict));
+        RecoveryReplayExit exit = launch(args(evidence, trust, attempt.toString(), dataset, elsewhere, verdict,
+                "--timeout-seconds=5"));
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED);
+        assertThat(exit).isEqualTo(RecoveryReplayExit.TARGET_REFUSED);
         assertNothingReplayed();
     }
 
-    private CompletableFuture<RecoveryReplayCommand.Outcome> start(String... extra) {
+    private CompletableFuture<RecoveryReplayExit> start(String... extra) {
         String[] arguments = args(evidence, trust, attempt.toString(), dataset, connected, verdict, extra);
-        return CompletableFuture.supplyAsync(() -> command.execute(arguments));
+        return CompletableFuture.supplyAsync(() -> launch(arguments));
+    }
+
+    private RecoveryReplayExit run(String timeoutOption) {
+        return launch(args(evidence, trust, attempt.toString(), dataset, connected, verdict, timeoutOption));
+    }
+
+    /** The launch's two steps on this context: the preflight, then (only if it accepts) the command. */
+    private RecoveryReplayExit launch(String[] arguments) {
+        RecoveryReplayArguments parsed = RecoveryReplayArguments.parse(arguments);
+        RecoveryReplayVerdict outcome = new RecoveryReplayVerdict(parsed);
+        RecoveryReplayPreflight preflight = new RecoveryReplayPreflight(Clock.systemUTC(), env -> RecoveryReplayTarget.jdbc(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+        RecoveryReplayPreflight.Plan plan;
+        try {
+            plan = preflight.check(environment, parsed, outcome);
+        } catch (RecoveryReplayRefusal refusal) {
+            outcome.put("reason", refusal.getMessage());
+            return outcome.finish(refusal.exit(), parsed.verdictOut());
+        }
+        return command.execute(plan, outcome);
     }
 
     private void awaitAttempt() throws InterruptedException {
@@ -245,12 +281,12 @@ class RecoveryReplayCommandPostgresIT {
         assertThat(RecoveryFixtures.readTree(verdict).path("status").asText()).isNotEqualTo("COMPLETE");
     }
 
-    private void durablyRecorded(UUID user) {
+    private void durablyRecorded(UUID user, String status) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO erasure_requests (id, auth_user_id, status, requested_at, durable_recording_status)
-                VALUES (?, ?, 'COMPLETE', now(), 'DURABLY_RECORDED')
-                """, id, user);
+                VALUES (?, ?, ?, now(), 'DURABLY_RECORDED')
+                """, id, user, status);
         insertedRequests.add(id);
     }
 

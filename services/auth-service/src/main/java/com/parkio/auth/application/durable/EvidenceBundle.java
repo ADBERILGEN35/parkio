@@ -75,6 +75,33 @@ public final class EvidenceBundle implements EvidenceObjects {
         return new EvidenceBundle(Collections.unmodifiableMap(objects), List.copyOf(versions));
     }
 
+    /**
+     * The canonical bundle of {@code objects} (by store key) and every frontier version, in the
+     * format {@code encode_bundle} writes, with its {@code bundleDigest}.
+     */
+    public static byte[] encode(Map<String, byte[]> objects, List<FrontierVersion> frontierVersions, String source) {
+        Map<String, Object> encodedObjects = new TreeMap<>();
+        objects.forEach((key, bytes) -> {
+            checkKey(key);
+            encodedObjects.put(key, Base64.getEncoder().encodeToString(bytes));
+        });
+        List<Object> versions = new ArrayList<>();
+        for (FrontierVersion version : frontierVersions) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("versionId", version.versionId());
+            item.put("data", Base64.getEncoder().encodeToString(version.bytes()));
+            versions.add(item);
+        }
+        Map<String, Object> bundle = new LinkedHashMap<>();
+        bundle.put("format", FORMAT);
+        bundle.put("version", (long) VERSION);
+        bundle.put("source", source);
+        bundle.put("objects", encodedObjects);
+        bundle.put("frontierVersions", versions);
+        bundle.put("bundleDigest", DurableErasureEvidence.sha256Hex(CanonicalJson.bytes(bundle)));
+        return CanonicalJson.bytes(bundle);
+    }
+
     /** SHA-256 of the canonical bundle without its own {@code bundleDigest} field. */
     static String contentDigest(JsonNode bundle) {
         Map<String, Object> content = new LinkedHashMap<>();

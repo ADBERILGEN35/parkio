@@ -5,6 +5,7 @@ import com.parkio.auth.application.AccountErasureApplicationService;
 import com.parkio.auth.application.ErasureRestoreReplayService;
 import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.domain.event.UserErasureRestoreAcknowledgedEvent;
+import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import com.parkio.platform.messaging.EventEnvelope;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -19,6 +20,13 @@ public class ErasureAckKafkaConsumer {
 
     public static final String TOPIC = "parkio.privacy.erasure";
     public static final String GROUP = "parkio.auth.erasure";
+    /**
+     * The group of the recovery-replay command (PR #295 review B5): even pointed at a Kafka that is
+     * not isolated, the one-shot never joins the live auth group and never takes its partitions.
+     */
+    public static final String RECOVERY_GROUP = "parkio.auth.erasure.recovery-replay";
+    static final String GROUP_FOR_PROFILE = "#{environment.matchesProfiles('" + RecoveryReplayLaunch.PROFILE
+            + "') ? '" + RECOVERY_GROUP + "' : '" + GROUP + "'}";
 
     private static final Logger log = LoggerFactory.getLogger(ErasureAckKafkaConsumer.class);
 
@@ -35,7 +43,7 @@ public class ErasureAckKafkaConsumer {
 
     @KafkaListener(
             topics = TOPIC,
-            groupId = GROUP,
+            groupId = GROUP_FOR_PROFILE,
             containerFactory = "authKafkaListenerContainerFactory")
     public void onMessage(ConsumerRecord<String, String> record,
                           @Header(name = "eventType", required = false) String eventTypeHeader,

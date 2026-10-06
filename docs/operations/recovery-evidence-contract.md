@@ -546,12 +546,37 @@ use `sequence`.
      - The trusted erasure set, with Java/Python parity.
      - The one-shot recovery-replay command (owner decision P6), described in
        `docs/architecture/erasure-restore-replay-contract.md`, Recovery-replay command.
+       Every check that can refuse runs before any application context exists, so a
+       refused run never migrates, writes, subscribes or schedules anything on the target.
+   - **Object binding (PR #295 review B4).** Both verifiers read a signed object only
+     under its own key, and refuse anything else instead of skipping it:
+     - a pending record only at `records/<erasureRequestId>.json`, which it also signs as
+       `erasureRecordId`;
+     - a checkpoint only at `checkpoints/<sequence>.json`, and the latest trusted
+       checkpoint's body must carry that sequence;
+     - one owner per sequence: two published objects with one sequence are refused;
+     - one entry per user in a checkpoint ledger.
+
+     Without this, a checkpoint stored under a later checkpoint's key could silently drop
+     a tombstone while coverage still read "through sequence N". The cost is fail-closed:
+     anyone who can add a mis-keyed object to the store blocks recovery until an operator
+     investigates. A missing signed field is a verification failure in both languages, so
+     such a frontier version is ignored and counted like a tampered one.
+   - **Target identity (PR #295 review B3).** A recovery target on the production
+     cluster (the same `system_identifier`, whatever the database name) is refused, both
+     when the restore writes the trusted-set file and when the command connects. An
+     identity that does not parse strictly is refused as ambiguous.
+   - **Tamper evidence.** `ignoredFrontierVersions` (frontier versions that failed
+     verification) is written into the trusted-set file and the verdict, and the command
+     refuses a file that states another count.
    - **Next: the restore-script integration** (verify before decrypt in isolated
-     mode), the expose gate and the disposable full-recovery drill.
+     mode), the expose gate and the disposable full-recovery drill (#296).
    - **Coverage semantics (owner decision D1, 2026-10-06).** Recovery proceeds only when:
      - the frontier is the highest verified version, gap-free and ACCEPT_ISOLATED;
-     - every erasure the restored auth database marks `DURABLY_RECORDED` is in the
-       trusted set (the backup anchor).
+     - every erasure the restored auth database marks `DURABLY_RECORDED`, whatever the
+       request status, is in the trusted set (the backup anchor). A backup taken before
+       V24 has no durable-recording state, so it cannot be anchored and is refused
+       (fail-closed).
    - **Coverage is reported only** as "erasure coverage verified through sequence N
      (frontier version V)". v2 evidence signs no time, so no time-based claim is
      made, and erasures after the last durable frontier cannot be proven absent.

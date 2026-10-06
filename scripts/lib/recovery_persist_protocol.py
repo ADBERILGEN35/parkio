@@ -85,6 +85,10 @@ def checkpoint_key(sequence):
 
 
 def signed_subset(body, fields):
+    for key in fields:
+        if key not in body:
+            # A missing signed field is a verification failure, as in auth-service (sign()).
+            raise ContractError(f"missing signed field {key}")
     return {key: body[key] for key in fields}
 
 
@@ -671,6 +675,29 @@ class IsolatedErasureCoordinator:
         }
 
 
+def _signed_sequence(body):
+    sequence = body.get("sequence")
+    if type(sequence) is not int:
+        raise ContractError("sequence must be an integer")
+    return sequence
+
+
+def _bind_record_key(key, body):
+    """A record is read only under its own key: records/<erasureRequestId>.json, as signed."""
+    _signed_sequence(body)
+    request_id = body.get("erasureRequestId")
+    if (not isinstance(request_id, str) or key != erasure_record_id(request_id)
+            or body.get("erasureRecordId") != key):
+        raise ContractError("evidence object key does not match its body")
+
+
+def _bind_checkpoint_key(key, body):
+    """A checkpoint is read only under its own key: checkpoints/<sequence>.json, as signed."""
+    sequence = _signed_sequence(body)
+    if sequence < 1 or key != checkpoint_key(sequence):
+        raise ContractError("evidence object key does not match its body")
+
+
 def _abandoned_reservations(store, published):
     abandoned = []
     for key in store.list_prefix("sequences/"):
@@ -693,11 +720,19 @@ def recover_latest_trusted(store, trust, required_through_sequence=None, at=None
     pending = []
     at = at or utc_now()
     for key in store.list_prefix("records/"):
-        pending.append(verify_pending(store, key, trust, at=at))
+        body = verify_pending(store, key, trust, at=at)
+        _bind_record_key(key, body)
+        pending.append(body)
     checkpoints = []
     for key in store.list_prefix("checkpoints/"):
-        checkpoints.append(verify_checkpoint(store, key, trust, at=at))
-    published = {item["sequence"] for item in pending + checkpoints}
+        body = verify_checkpoint(store, key, trust, at=at)
+        _bind_checkpoint_key(key, body)
+        checkpoints.append(body)
+    published = set()
+    for item in pending + checkpoints:
+        if item["sequence"] in published:
+            raise ContractError("duplicate sequence in published evidence")
+        published.add(item["sequence"])
     get_versions = getattr(store, "get_versions", None)
     if get_versions is not None:
         frontier, frontier_version, ignored_frontier = verify_frontier_versions(

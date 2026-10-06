@@ -65,8 +65,9 @@ public record TrustedErasureSet(long verifiedThroughSequence,
 
     /**
      * The trusted set of {@code bundle}, or {@link DurableEvidenceException} when the evidence is not
-     * trusted: no frontier, a gap, an invalid object, a pending record below the checkpoint that its
-     * ledger lacks, or one user with two erasure times.
+     * trusted: no frontier, a gap, an invalid object (also one under another object's key, or a
+     * sequence with two owners), a checkpoint ledger naming one user twice, a pending record below
+     * the checkpoint that its ledger lacks, or one user with two erasure times.
      */
     public static TrustedErasureSet extract(EvidenceBundle bundle, DurableErasureEvidenceVerifier verifier) {
         RecoveryVerdict recovered = verifier.recover(bundle, null);
@@ -78,9 +79,13 @@ public record TrustedErasureSet(long verifiedThroughSequence,
         Map<String, String> ledger = new TreeMap<>();
         if (checkpointSequence != null) {
             byte[] raw = bundle.get(DurableErasureEvidence.checkpointKey(checkpointSequence));
-            verifier.verifyCheckpoint(raw);
+            if (verifier.verifyCheckpoint(raw).sequence() != checkpointSequence) {
+                throw new DurableEvidenceException("the latest trusted checkpoint's body is not that checkpoint");
+            }
             for (JsonNode entry : read(raw).path("entries")) {
-                ledger.put(entry.path("authUserId").asText(), entry.path("erasedAt").asText());
+                if (ledger.put(entry.path("authUserId").asText(), entry.path("erasedAt").asText()) != null) {
+                    throw new DurableEvidenceException("duplicate user in the checkpoint ledger");
+                }
             }
         }
         Map<String, String> entries = new TreeMap<>(ledger);

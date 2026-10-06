@@ -142,13 +142,18 @@ restore path, with no network endpoint (`com.parkio.auth.infrastructure.recovery
 
 **When it runs.** Auth-service runs it only with the `recovery-replay` profile **and**
 `parkio.privacy.account-erasure.restore-replay.enabled=true`.
-- With the profile, `main` starts the service without a web server (`WebApplicationType.NONE`, no
-  HTTP listener), runs the command once and exits with its code.
-- Recovery options without the profile are refused before Spring starts.
+- The profile comes from the environment (`SPRING_PROFILES_ACTIVE=recovery-replay`, or
+  `-Dspring.profiles.active`). The command line takes **only the command's own options**: any
+  `--spring.*` or `--logging.*` argument is refused (20), so no option can reach Spring, override
+  the web application type or redirect the datasource.
+- Recovery options without the profile, and a `--spring.profiles.active=recovery-replay` argument,
+  are refused before Spring starts.
 - An ordinary start, with neither the profile nor the options, is unchanged.
 
 ```
-java -jar auth-service.jar --spring.profiles.active=recovery-replay \
+SPRING_PROFILES_ACTIVE=recovery-replay \
+PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED=true \
+java -jar auth-service.jar \
   --evidence=<trusted-set file> --trust=<trust document> \
   --attempt=<uuid> --dataset=<restored dataset id> \
   --target-identity=<isolated target identity from the ticket> \
@@ -158,55 +163,100 @@ java -jar auth-service.jar --spring.profiles.active=recovery-replay \
 Only these options are accepted, each once, as `--name=value`. There is **no cutoff and no receipt
 option** (see Coverage below).
 
-**Checks, in order.** Each one stops the command before the next:
+**Nothing touches the target before the checks pass** (PR #295 review B1, B2, B5). The launch runs
+in two steps:
 
-1. **Durable-store writers.** If durable recording, its retry worker, the object-lock store or the
-   checkpoint producer is enabled, the command refuses. A restored copy must never write into the
-   real evidence store.
-2. **Evidence.** The trusted-set file (`parkio-trusted-erasure-set`, written by the isolated restore)
+1. **Preflight, before any application context exists.** Spring prepares the environment
+   (configuration files, environment variables, profiles) and the preflight runs every check that
+   can refuse. The target database is read over a plain read-only JDBC transaction, rolled back. A
+   refusal ends the run there: no Flyway migration, no write, no Kafka consumer, no scheduler.
+2. **The command context, only after every check passed.** It is a plain non-web application
+   context whatever `spring.main.web-application-type` says, so it has no HTTP listener; the run is
+   refused (26) if a web server context or factory exists anyway.
+   - Under the profile, the web security configuration, the gateway filter, the retention job, the
+     erasure stuck gauge, the durable-recording worker and the live moderation consumer are not
+     part of it.
+   - The ACK consumer joins its own group, `parkio.auth.erasure.recovery-replay`, never the live
+     `parkio.auth.erasure` group.
+   - If the restored schema is older than the image, Flyway migrates it here, after the checks.
+
+**Checks, in order.** Each one stops the run before the next. Steps 1 to 7 are the preflight:
+
+1. **Profile and web type.** The profile must be active, and `spring.main.web-application-type`, if
+   set anywhere (an argument is already refused; also an environment variable or a file), must be
+   `none`.
+2. **Flag and durable-store writers.** The flag must be on. If durable recording, its retry worker,
+   the object-lock store or the checkpoint producer is enabled, the command refuses: a restored copy
+   must never write into the real evidence store. The poll interval must be a positive duration.
+3. **Evidence.** The trusted-set file (`parkio-trusted-erasure-set`, written by the isolated restore)
    embeds the evidence bundle. The command loads its own trust document, re-derives the trusted set
-   from the bundle, and refuses any difference from the coverage and set the file states. It
-   refuses UNKNOWN (no frontier), BLOCKED (a gap) and any invalid object.
-3. **Attempt and dataset.** They must equal the file's.
-4. **Connected database identity.** It is read from the connection
+   from the bundle, and refuses any difference from the coverage, set and ignored frontier versions
+   the file states. It refuses UNKNOWN (no frontier), BLOCKED (a gap) and any invalid object,
+   including a signed object under another object's key and a sequence with two owners (see
+   `docs/operations/recovery-evidence-contract.md`, stage 4).
+4. **Attempt and dataset.** They must equal the file's.
+5. **Connected database identity.** It is read from the connection
    (`pg_control_system()`: `postgresql:<system_identifier>:<datname>`), not from configuration. The
    command refuses when:
    - the identity is unreadable or blank;
-   - it equals the production identity pinned in the trust document;
+   - it, or `--target-identity`, does not parse strictly (`postgresql:<digits without a leading
+     zero>:<name without ':' or space>`): an ambiguous identity;
+   - it, or `--target-identity`, is on the **production cluster** pinned in the trust document:
+     the same `system_identifier`, **whatever the database name**. A PITR or physical clone keeps
+     the production `system_identifier`, and another database on the production server shares it,
+     so both are refused even under another database name;
    - it differs from `--target-identity`, which is taken from the #121 isolation ticket and is
      mandatory.
 
-   A PITR or physical clone keeps the production `system_identifier`, so it is refused.
-5. **Backup anchor.** Every user the restored auth database's `erasure_requests` marks
-   `durable_recording_status = 'DURABLY_RECORDED'` must be in the trusted set. Otherwise the evidence
-   is older than the backup, and the command refuses. The anchor needs the restored auth database,
-   so the isolated restore applies it to the isolated target first. The copy stays **unexposed**
-   (expose gate CLOSED, no published ports) until the verdict is COMPLETE.
-6. **Attempt reuse.** An attempt id already started for another dataset or set is refused.
-7. **Replay.** `startRestoreReplay`, then the command polls `verdict` until COMPLETE, a FAILED
-   acknowledgement, or the bounded timeout (default 15 min, at most 60). The wait uses a monotonic
-   clock.
+   The Python restore applies the same rule when it writes the trusted-set file; the shared fixture
+   `durable-erasure-evidence/v2/database-identities.json` pins both.
+6. **Backup anchor.** Every user the restored auth database's `erasure_requests` marks
+   `durable_recording_status = 'DURABLY_RECORDED'`, **whatever the request status** (an
+   `IN_PROGRESS` request can already be durably recorded), must be in the trusted set. Otherwise
+   the evidence is older than the backup, and the command refuses (21). The anchor needs the
+   restored auth database, so the isolated restore applies it to the isolated target first. If the
+   state cannot be read, the run is refused (21) **fail-closed**: a backup taken before V24 has no
+   `durable_recording_status` column and cannot be anchored, and the command leaves it as it was.
+7. **Attempt reuse.** Done in the command context (step 8), since it reads the restore tables.
+8. **Command.** The context re-reads the connected identity and refuses (22) anything but the
+   database the preflight checked. An attempt id already started for another dataset or set is
+   refused (23). Then `startRestoreReplay`, and the command polls `verdict` until COMPLETE, a
+   FAILED acknowledgement, or the bounded timeout (default 15 min, at most 60). The wait uses a
+   monotonic clock, and no poll sleeps past the deadline.
+
+**Kafka is not verified.** The command's Kafka bootstrap must be the isolated recovery broker. The
+#296 isolation ticket and recovery overlay supply it; the command checks the database identity, not
+the broker. The recovery consumer group keeps it from taking the live group's partitions, but a
+non-isolated broker would still receive the replay commands. This is a documented limitation.
+
+The command has no network endpoint, so it exposes nothing. Keeping the restored copy unexposed
+until the verdict is COMPLETE is the isolated restore's job (#296: an expose gate, CLOSED until a
+COMPLETE verdict for the same attempt, dataset and digest, and no published ports).
 
 **Exit codes.** Only COMPLETE exits with 0:
 
 | Code | Status | Meaning |
 |---|---|---|
 | 0 | `COMPLETE` | every participant the attempt requires, auth included, acknowledged every user |
-| 20 | `REFUSED` | disabled (profile without the flag, or options without the profile), a durable writer enabled, or invalid arguments |
-| 21 | `INVALID_EVIDENCE` | the evidence, the trusted-set file, the trust document or the backup anchor does not verify |
-| 22 | `TARGET_REFUSED` | production identity, unreadable identity, or not the ticket's target |
+| 20 | `REFUSED` | disabled (profile without the flag, or options without the profile), a `--spring.*` or `--logging.*` argument, a web application type other than none, a durable writer enabled, an invalid poll interval, or invalid arguments |
+| 21 | `INVALID_EVIDENCE` | the evidence, the trusted-set file, the trust document or the backup anchor does not verify, or the anchor cannot be read |
+| 22 | `TARGET_REFUSED` | the production cluster (any database name), an unreadable or ambiguous identity, not the ticket's target, or a command context connected elsewhere |
 | 23 | `ATTEMPT_MISMATCH` | attempt or dataset other than the file's, or an attempt already started for another dataset or set |
 | 24 | `BLOCKED` | a participant reported FAILED |
 | 25 | `TIMEOUT` | the bounded wait ended with acknowledgements missing |
 | 26 | `INTERNAL` | an unexpected failure, a startup failure, or a verdict file that could not be written |
 
-**The verdict file** (`parkio-recovery-replay-verdict`) records:
+**The verdict file** (`parkio-recovery-replay-verdict`) is written for every outcome once the
+arguments parse, refusals included. It records:
 - status, exit code, reason, attempt, dataset and digest;
+- the coverage, including `ignoredFrontierVersions`: frontier versions that failed verification are
+  tamper evidence, reported rather than hidden;
 - the number of users;
 - for each required participant, `success`, `failed` and `missing` counts;
 - **auth's counts separately** (`auth`).
 
-The expose gate (stage 4) opens only on a COMPLETE verdict for the same attempt, dataset and digest.
+The expose gate (stage 4, #296) opens only on a COMPLETE verdict for the same attempt, dataset and
+digest.
 
 **Coverage.** v2 evidence signs no time, and no offline-verifiable receipt exists today. The
 store's `DurableErasureReceipt` is unsigned metadata that is only logged. So:

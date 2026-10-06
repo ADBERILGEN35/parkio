@@ -1,6 +1,9 @@
 package com.parkio.auth;
 
 import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
+import java.util.Map;
+import java.util.OptionalInt;
+import java.util.Properties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -15,11 +18,22 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class AuthServiceApplication {
 
     public static void main(String[] args) {
-        // The isolated restore's one-shot recovery-replay command: no web server, exits with its code.
-        if (RecoveryReplayLaunch.applies(args, System.getenv(), System.getProperties())) {
-            System.exit(RecoveryReplayLaunch.run(AuthServiceApplication.class, args, System.getenv(),
-                    System.getProperties()));
+        OptionalInt recovery = recoveryExit(args, System.getenv(), System.getProperties());
+        if (recovery.isPresent()) {
+            System.exit(recovery.getAsInt());
         }
         SpringApplication.run(AuthServiceApplication.class, args);
+    }
+
+    /**
+     * The isolated restore's one-shot recovery-replay command, when {@code args} or the environment
+     * ask for it: its exit code (no web server; it never starts the service). Empty for an
+     * ordinary start.
+     */
+    static OptionalInt recoveryExit(String[] args, Map<String, String> env, Properties system) {
+        if (!RecoveryReplayLaunch.applies(args, env, system)) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(RecoveryReplayLaunch.run(AuthServiceApplication.class, args, env, system));
     }
 }

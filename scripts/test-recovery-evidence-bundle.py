@@ -7,6 +7,7 @@ auth-service's TrustedErasureSet must reproduce. Synthetic keys and ids only.
 """
 from __future__ import annotations
 
+import base64
 import copy
 import importlib.util
 import inspect
@@ -107,6 +108,32 @@ class TrustedErasureSetFixtureTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(committed(name)[1]["result"]["error"].startswith(prefix))
 
+    def test_every_signed_object_is_read_only_under_its_own_key(self):
+        """PR #295 B4: a re-keyed checkpoint or record, or a sequence with two owners, is refused."""
+        for name, error in (("checkpoint-key-swap", "evidence object key does not match its body"),
+                            ("record-under-another-key", "evidence object key does not match its body"),
+                            ("duplicate-sequence", "duplicate sequence in published evidence"),
+                            ("checkpoint-duplicate-user", "duplicate user in the checkpoint ledger")):
+            with self.subTest(name=name):
+                bundle, expected = committed(name)
+                self.assertEqual(expected["result"], {"error": error})
+                self.assertEqual(outcome(bundle), {"error": error})
+
+    def test_the_swapped_checkpoint_would_have_dropped_a_tombstone(self):
+        """Why B4 matters: read by key alone, the swap keeps 'verified through 4' and loses a user."""
+        bundle, _ = committed("checkpoint-key-swap")
+        swapped = json.loads(base64.b64decode(bundle["objects"]["checkpoints/0000000000000004.json"]))
+        moved = json.loads(base64.b64decode(bundle["objects"]["checkpoints/0000000000000004-moved.json"]))
+        self.assertEqual(swapped["sequence"], 3)
+        self.assertEqual(moved["sequence"], 4)
+        self.assertLess(len(swapped["entries"]), len(moved["entries"]))
+
+    def test_a_frontier_version_missing_a_signed_field_is_ignored_and_counted(self):
+        """PR #295 N6: as in auth-service, a missing signed field is a verification failure."""
+        result = committed("frontier-version-missing-field")[1]["result"]
+        self.assertEqual(result["verifiedThroughSequence"], 2)
+        self.assertEqual(result["ignoredFrontierVersions"], 1)
+
     def test_there_is_no_cutoff_input_to_lower(self):
         """Lowered cutoff: no sequence or time cutoff can be supplied to widen coverage."""
         self.assertEqual(list(inspect.signature(trusted_erasure_set).parameters), ["store", "trust", "at"])
@@ -192,6 +219,35 @@ class TrustedSetDocumentTest(unittest.TestCase):
             trusted_set_document(bundle, fixtures.STANDARD_TRUST, fixtures.RECOVERY_ATTEMPT_ID,
                                  fixtures.RESTORED_DATASET_ID, fixtures.DATABASE_IDENTITY,
                                  at=fixtures.VERIFIED_AT)
+
+    def test_a_target_on_the_production_cluster_is_refused_whatever_its_name(self):
+        """PR #295 B3: the shared identity cases; auth-service applies the same rule."""
+        cases = json.loads((fixtures.FIXTURE_DIR / "database-identities.json").read_text(encoding="utf-8"))
+        self.assertEqual(cases["productionIdentity"], fixtures.STANDARD_TRUST.database_identity)
+        bundle, _ = committed("valid")
+        for case in cases["cases"]:
+            with self.subTest(name=case["name"]):
+                try:
+                    trusted_set_document(bundle, fixtures.STANDARD_TRUST, fixtures.RECOVERY_ATTEMPT_ID,
+                                         fixtures.RESTORED_DATASET_ID, case["target"], at=fixtures.VERIFIED_AT)
+                    refusal = None
+                except ContractError as error:
+                    refusal = str(error)
+                self.assertEqual(refusal, case["refusal"])
+        names = {case["name"]: case["refusal"] for case in cases["cases"]}
+        self.assertIsNone(names["other-cluster"])
+        self.assertIsNotNone(names["production-cluster-other-database"])
+        self.assertIsNotNone(names["production-cluster-leading-zero"])
+
+    def test_the_document_reports_ignored_frontier_versions(self):
+        """PR #295 N1: tamper evidence travels with the set."""
+        bundle, _ = committed("frontier-newest-tampered")
+        document = trusted_set_document(bundle, fixtures.STANDARD_TRUST, fixtures.RECOVERY_ATTEMPT_ID,
+                                        fixtures.RESTORED_DATASET_ID, fixtures.TARGET_IDENTITY,
+                                        at=fixtures.VERIFIED_AT)
+        self.assertEqual(document["coverage"]["ignoredFrontierVersions"], 1)
+        committed_document = json.loads((fixtures.FIXTURE_DIR / "trusted-set.json").read_text(encoding="utf-8"))
+        self.assertEqual(committed_document["coverage"]["ignoredFrontierVersions"], 0)
 
     def test_identifiers_are_required(self):
         bundle, _ = committed("valid")

@@ -12,5 +12,10 @@
   "listed-above-frontier",
   "empty",
   "non-canonical-erased-at",
-  "bundle-digest-mismatch"
+  "bundle-digest-mismatch",
+  "checkpoint-key-swap",
+  "record-under-another-key",
+  "duplicate-sequence",
+  "checkpoint-duplicate-user",
+  "frontier-version-missing-field"
 ]

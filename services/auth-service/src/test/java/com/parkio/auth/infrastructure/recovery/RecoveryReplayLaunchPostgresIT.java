@@ -1,0 +1,461 @@
+package com.parkio.auth.infrastructure.recovery;
+
+import static com.parkio.auth.infrastructure.recovery.RecoveryFixtures.EVIDENCE_IDENTITY;
+import static com.parkio.auth.infrastructure.recovery.RecoveryFixtures.USERS;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assumptions.assumeThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.parkio.auth.application.durable.DurableErasureEvidence;
+import com.parkio.auth.application.durable.DurableErasureEvidenceVerifier;
+import com.parkio.auth.application.durable.EvidenceBundle;
+import com.parkio.auth.application.durable.EvidenceTrust;
+import com.parkio.auth.application.durable.TrustedErasureSet;
+import com.parkio.auth.application.durable.TrustedKey;
+import com.parkio.auth.application.port.DurableErasureRecord;
+import com.parkio.auth.infrastructure.messaging.ErasureAckKafkaConsumer;
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ConsumerGroupListing;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+import org.testcontainers.containers.KafkaContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+/**
+ * The recovery-replay launch as an operator runs it (PR #295 review B1, B2, B5, N4): auth-service's
+ * own {@code main} in a separate JVM, with the MAIN configuration (the test classes and test
+ * resources are left off its classpath), real PostgreSQL and real Kafka, settings only from the
+ * environment. Each refusal must leave the target as it was (no Flyway history, no consumer group)
+ * and the accepted run must hold no listening socket, join only the recovery consumer group and
+ * run no retention. Synthetic keys, secrets and ids only.
+ */
+@Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
+@Timeout(value = 15, unit = TimeUnit.MINUTES)
+class RecoveryReplayLaunchPostgresIT {
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+                    .withDatabaseName("parkio_auth")
+                    .withUsername("parkio")
+                    .withPassword("parkio");
+
+    @Container
+    static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"));
+
+    private static final AtomicInteger DATABASES = new AtomicInteger();
+    private static final String LIVE_GROUP_AUTH = "parkio.auth";
+
+    @TempDir Path dir;
+
+    private String database;
+    private String connected;
+    private String cluster;
+    private UUID attempt;
+    private String dataset;
+    private Path verdict;
+    private int timeoutSeconds = 20;
+
+    @BeforeEach
+    void freshTarget() throws SQLException {
+        database = "launch_target_" + DATABASES.incrementAndGet();
+        admin("CREATE DATABASE " + database);
+        cluster = query(database, "SELECT system_identifier::text FROM pg_control_system()");
+        connected = "postgresql:" + cluster + ":" + database;
+        attempt = UUID.randomUUID();
+        dataset = "backup-stamp-" + attempt;
+        verdict = dir.resolve("verdict.json");
+    }
+
+    @Test
+    void theProfileWithoutTheFlagIsRefusedAndTouchesNothing() throws Exception {
+        Map<String, String> env = env();
+        env.remove("PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED");
+
+        Launch launch = launch(env, fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(written().path("reason").asText()).contains("restore-replay.enabled=false");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void aSpringOptionOnTheCommandLineIsRefused() throws Exception {
+        List<String> args = new ArrayList<>(fixtureArgs());
+        args.add("--spring.main.web-application-type=servlet");
+
+        Launch launch = launch(env(), args);
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(launch.log()).contains("Spring and logging options are not accepted");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void aWebApplicationTypeFromTheEnvironmentIsRefused() throws Exception {
+        Map<String, String> env = env();
+        env.put("SPRING_MAIN_WEB_APPLICATION_TYPE", "servlet");
+
+        Launch launch = launch(env, fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(written().path("reason").asText())
+                .isEqualTo("the command runs without a web server; spring.main.web-application-type=servlet is refused");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void untrustedEvidenceIsRefusedAndTouchesNothing() throws Exception {
+        Path evidence = RecoveryFixtures.trustedSetWithBundle(dir, "gap");
+        ObjectNode document = (ObjectNode) RecoveryFixtures.readTree(evidence);
+        document.put("recoveryAttemptId", attempt.toString()).put("restoredDatasetId", dataset).put("targetIdentity", connected);
+        Files.writeString(evidence, document.toString());
+
+        Launch launch = launch(env(), args(evidence, RecoveryFixtures.trustDocument(dir, EVIDENCE_IDENTITY), connected));
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE.code());
+        assertUntouched(launch);
+    }
+
+    @Test
+    void theProductionDatabaseIsRefusedAndTouchesNothing() throws Exception {
+        // The trust document pins the connected database itself as production.
+        Evidence evidence = Evidence.pinnedTo(connected, dir);
+
+        Launch launch = launch(env(), args(evidence.trustedSet(attempt, dataset, connected), evidence.trust(), connected));
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED.code());
+        assertThat(written().path("reason").asText()).isEqualTo("the target is refused: target identity is on the"
+                + " cluster of the production identity pinned in the trust document");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void anotherDatabaseOnTheProductionClusterIsRefusedAndTouchesNothing() throws Exception {
+        // Production is parkio_auth on this cluster; the target is a scratch database beside it.
+        Evidence evidence = Evidence.pinnedTo("postgresql:" + cluster + ":parkio_auth", dir);
+
+        Launch launch = launch(env(), args(evidence.trustedSet(attempt, dataset, connected), evidence.trust(), connected));
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED.code());
+        assertThat(written().path("reason").asText()).isEqualTo("the target is refused: target identity is on the"
+                + " cluster of the production identity pinned in the trust document");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void aBackupFromBeforeV24CannotBeAnchoredAndIsLeftAsItWas() throws Exception {
+        migrate("23");
+        long history = historyRows();
+
+        Launch launch = launch(env(), fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE.code());
+        assertThat(written().path("reason").asText()).isEqualTo("the restored auth database's durable-recording state"
+                + " cannot be read, so the evidence cannot be anchored to the backup");
+        assertThat(historyRows()).isEqualTo(history);
+        assertThat(query(database, "SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1"))
+                .isEqualTo("23");
+        assertThat(launch.listeners).isEmpty();
+    }
+
+    @Test
+    void anAcceptedRunServesNothingJoinsOnlyTheRecoveryGroupAndRunsNoRetention() throws Exception {
+        migrate(null);
+        UUID retained = UUID.randomUUID();
+        update("""
+                INSERT INTO outbox_events (id, event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at,
+                    published, created_at)
+                VALUES ('%s', '%s', 'User', '%s', 'UserRegistered', '{}', now() - interval '30 days', true,
+                    now() - interval '30 days')
+                """.formatted(retained, UUID.randomUUID(), UUID.randomUUID()));
+        timeoutSeconds = 10;
+
+        Launch launch = launch(env(), fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TIMEOUT.code());
+        JsonNode written = written();
+        assertThat(written.path("status").asText()).isEqualTo("TIMEOUT");
+        assertThat(written.path("auth").path("success").asLong()).isEqualTo(USERS);
+        written.path("participants").forEach(row -> assertThat(row.path("missing").asLong()).isEqualTo(USERS));
+        assertThat(launch.sampled).as("socket samples taken while the command waited").isGreaterThan(3);
+        assertThat(launch.listeners).as("listening sockets of the command process").isEmpty();
+        Set<String> joined = new HashSet<>(consumerGroups());
+        joined.removeAll(launch.groupsBefore());
+        assertThat(joined).contains(ErasureAckKafkaConsumer.RECOVERY_GROUP)
+                .doesNotContain(ErasureAckKafkaConsumer.GROUP, LIVE_GROUP_AUTH);
+        assertThat(query(database, "SELECT count(*) FROM outbox_events WHERE id = '" + retained + "'"))
+                .as("a retention-eligible row survives: no retention job runs").isEqualTo("1");
+        assertThat(query(database, "SELECT count(*) FROM erasure_restore_attempts WHERE recovery_attempt_id = '"
+                + attempt + "'")).isEqualTo("1");
+    }
+
+    // ----- launch -----
+
+    private record Launch(int exit, Path logFile, int sampled, Set<String> listeners, Set<String> groupsBefore) {
+        String log() {
+            try {
+                return Files.readString(logFile);
+            } catch (IOException ex) {
+                return "<no log>";
+            }
+        }
+    }
+
+    private Launch launch(Map<String, String> env, List<String> args) throws Exception {
+        List<String> command = new ArrayList<>();
+        command.add(ProcessHandle.current().info().command().orElse("java"));
+        command.add("-Xmx512m");
+        command.add("-XX:TieredStopAtLevel=1");
+        command.add("-cp");
+        command.add(mainClasspath());
+        command.add("com.parkio.auth.AuthServiceApplication");
+        command.addAll(args);
+        Path logFile = dir.resolve("launch-" + UUID.randomUUID() + ".log");
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(logFile.toFile());
+        builder.environment().keySet().removeIf(key -> key.startsWith("SPRING_") || key.startsWith("PARKIO_"));
+        builder.environment().putAll(env);
+        Set<String> groupsBefore = consumerGroups();
+        Process process = builder.start();
+        Set<String> listeners = new HashSet<>();
+        int sampled = 0;
+        long deadline = System.nanoTime() + Duration.ofMinutes(4).toNanos();
+        while (process.isAlive() && System.nanoTime() < deadline) {
+            if (Files.exists(Path.of("/proc/" + process.pid() + "/net/tcp"))) {
+                listeners.addAll(listeningSockets(process.pid()));
+                sampled++;
+            }
+            process.waitFor(300, TimeUnit.MILLISECONDS);
+        }
+        if (process.isAlive()) {
+            process.destroyForcibly();
+            throw new AssertionError("the command did not exit within 4 minutes:\n" + Files.readString(logFile));
+        }
+        return new Launch(process.exitValue(), logFile, sampled, listeners, groupsBefore);
+    }
+
+    /** The test JVM's classpath without the test classes and test resources: main config only. */
+    private static String mainClasspath() {
+        List<String> entries = new ArrayList<>();
+        for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
+            String normalized = entry.replace('\\', '/');
+            if (!normalized.contains("/build/classes/java/test") && !normalized.contains("/build/resources/test")) {
+                entries.add(entry);
+            }
+        }
+        assertThat(entries).anyMatch(entry -> entry.replace('\\', '/').contains("/build/resources/main"));
+        return String.join(File.pathSeparator, entries);
+    }
+
+    /** LISTEN sockets (TCP state 0A) whose inode is one of the process's own file descriptors. */
+    private static Set<String> listeningSockets(long pid) {
+        Set<String> own = new HashSet<>();
+        try (var fds = Files.list(Path.of("/proc/" + pid + "/fd"))) {
+            fds.forEach(fd -> {
+                try {
+                    String link = Files.readSymbolicLink(fd).toString();
+                    if (link.startsWith("socket:[")) {
+                        own.add(link.substring("socket:[".length(), link.length() - 1));
+                    }
+                } catch (IOException ignored) {
+                    // the descriptor closed meanwhile
+                }
+            });
+            Set<String> listening = new HashSet<>();
+            for (String table : List.of("tcp", "tcp6")) {
+                Path path = Path.of("/proc/" + pid + "/net/" + table);
+                if (!Files.exists(path)) {
+                    continue;
+                }
+                for (String line : Files.readAllLines(path).subList(1, Files.readAllLines(path).size())) {
+                    String[] columns = line.trim().split("\\s+");
+                    if (columns.length > 9 && "0A".equals(columns[3]) && own.contains(columns[9])) {
+                        listening.add(table + " " + columns[1]);
+                    }
+                }
+            }
+            return listening;
+        } catch (IOException ex) {
+            return Set.of();
+        }
+    }
+
+    private Map<String, String> env() {
+        Map<String, String> env = new LinkedHashMap<>();
+        env.put("SPRING_PROFILES_ACTIVE", RecoveryReplayLaunch.PROFILE);
+        env.put("SPRING_DATASOURCE_URL", url(database));
+        env.put("SPRING_DATASOURCE_USERNAME", POSTGRES.getUsername());
+        env.put("SPRING_DATASOURCE_PASSWORD", POSTGRES.getPassword());
+        env.put("SPRING_KAFKA_BOOTSTRAP_SERVERS", KAFKA.getBootstrapServers());
+        env.put("PARKIO_KAFKA_BOOTSTRAP_SERVERS", KAFKA.getBootstrapServers());
+        env.put("PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED", "true");
+        env.put("PARKIO_PRIVACY_ACCOUNT_ERASURE_RECOVERY_REPLAY_POLL_INTERVAL", "PT0.5S");
+        env.put("PARKIO_SECURITY_JWT_GENERATE_EPHEMERAL_KEY", "true");
+        env.put("PARKIO_GATEWAY_INTERNAL_SECRET", "launch-it-synthetic-gateway-secret");
+        env.put("PARKIO_TRACING_ENABLED", "false");
+        return env;
+    }
+
+    private List<String> fixtureArgs() {
+        Path evidence = RecoveryFixtures.trustedSet(dir, attempt.toString(), dataset, connected);
+        return args(evidence, RecoveryFixtures.trustDocument(dir, EVIDENCE_IDENTITY), connected);
+    }
+
+    private List<String> args(Path evidence, Path trust, String target) {
+        return List.of("--evidence=" + evidence, "--trust=" + trust, "--attempt=" + attempt, "--dataset=" + dataset,
+                "--target-identity=" + target, "--verdict-out=" + verdict, "--timeout-seconds=" + timeoutSeconds);
+    }
+
+    private JsonNode written() {
+        return RecoveryFixtures.readTree(verdict);
+    }
+
+    private void assertUntouched(Launch launch) throws Exception {
+        assertThat(query(database, "SELECT to_regclass('public.flyway_schema_history') IS NULL")).as("no migration")
+                .isEqualTo("t");
+        assertThat(query(database, "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")).as("no table")
+                .isEqualTo("0");
+        // The Kafka container is shared by the class: no group may appear during this launch.
+        assertThat(consumerGroups()).as("no consumer group joined").isEqualTo(launch.groupsBefore());
+        assertThat(consumerGroups()).doesNotContain(ErasureAckKafkaConsumer.GROUP, LIVE_GROUP_AUTH);
+        assertThat(launch.listeners).isEmpty();
+    }
+
+    // ----- database and Kafka -----
+
+    private static String url(String name) {
+        return "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name;
+    }
+
+    private static void admin(String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url("postgres"), POSTGRES.getUsername(),
+                POSTGRES.getPassword()); Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    private static String query(String name, String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url(name), POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            return result.next() ? result.getString(1) : null;
+        }
+    }
+
+    private void update(String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url(database), POSTGRES.getUsername(),
+                POSTGRES.getPassword()); Statement statement = connection.createStatement()) {
+            statement.executeUpdate(sql);
+        }
+    }
+
+    /** A restored schema: every migration, or up to {@code target}. */
+    private void migrate(String target) {
+        var configuration = Flyway.configure().dataSource(url(database), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration");
+        if (target != null) {
+            configuration.target(target);
+        }
+        configuration.load().migrate();
+    }
+
+    private long historyRows() throws SQLException {
+        return Long.parseLong(query(database, "SELECT count(*) FROM flyway_schema_history"));
+    }
+
+    private static Set<String> consumerGroups() throws Exception {
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            return admin.listConsumerGroups().all().get(30, TimeUnit.SECONDS).stream()
+                    .map(ConsumerGroupListing::groupId).collect(Collectors.toSet());
+        }
+    }
+
+    // ----- evidence pinned to a real database identity -----
+
+    /** Signed evidence (one record, frontier 1) pinned to {@code identity}, with its trust document. */
+    private record Evidence(String identity, byte[] bundle, Path trust, Path dir) {
+
+        static Evidence pinnedTo(String identity, Path dir) throws IOException {
+            byte[] secret = new byte[32];
+            new java.security.SecureRandom().nextBytes(secret);
+            TrustedKey key = new TrustedKey("launch-it-key", "launch-it-producer", secret,
+                    Instant.parse("2026-01-01T00:00:00Z"), null, false);
+            UUID request = UUID.randomUUID();
+            UUID user = UUID.randomUUID();
+            Instant erasedAt = Instant.parse("2026-10-01T08:00:00Z");
+            DurableErasureRecord record = new DurableErasureRecord(request, user, erasedAt,
+                    DurableErasureEvidence.bodyDigest(user, request, DurableErasureEvidence.erasedAt(erasedAt)));
+            byte[] bundle = EvidenceBundle.encode(
+                    Map.of(DurableErasureEvidence.recordKey(request),
+                            DurableErasureEvidence.pendingRecord(record, 1, identity, key)),
+                    List.of(new EvidenceBundle.FrontierVersion("v-1", DurableErasureEvidence.frontier(1, 1, identity, key))),
+                    "launch-it");
+            Path trust = dir.resolve("trust-" + UUID.randomUUID() + ".json");
+            Files.writeString(trust, """
+                    {"format": "parkio-erasure-evidence-trust", "version": 1, "databaseIdentity": "%s",
+                     "keys": [{"keyId": "launch-it-key", "producerId": "launch-it-producer", "keyHex": "%s",
+                               "notBefore": "2026-01-01T00:00:00Z"}]}
+                    """.formatted(identity, HexFormat.of().formatHex(secret)));
+            return new Evidence(identity, bundle, trust, dir);
+        }
+
+        /** The trusted-set document the isolated restore would write for this evidence. */
+        Path trustedSet(UUID attempt, String dataset, String target) throws IOException {
+            EvidenceTrust parsed = EvidenceTrust.parse(Files.readAllBytes(trust));
+            JsonNode bundleNode = RecoveryFixtures.JSON.readTree(bundle);
+            TrustedErasureSet set = TrustedErasureSet.extract(EvidenceBundle.parse(bundleNode),
+                    new DurableErasureEvidenceVerifier(parsed, Instant.now()));
+            ObjectNode document = RecoveryFixtures.JSON.createObjectNode();
+            document.put("format", "parkio-trusted-erasure-set").put("version", 1)
+                    .put("recoveryAttemptId", attempt.toString()).put("restoredDatasetId", dataset)
+                    .put("targetIdentity", target).put("evidenceDatabaseIdentity", identity);
+            ObjectNode coverage = document.putObject("coverage");
+            coverage.put("verifiedThroughSequence", set.verifiedThroughSequence())
+                    .put("frontierVersion", set.frontierVersion())
+                    .put("ignoredFrontierVersions", set.ignoredFrontierVersions())
+                    .put("statement", set.statement());
+            coverage.putNull("latestTrustedCheckpoint");
+            ObjectNode erasureSet = document.putObject("erasureSet");
+            erasureSet.put("erasureSetDigest", set.erasureSetDigest());
+            var entries = erasureSet.putArray("entries");
+            set.entries().forEach(entry -> entries.addObject().put("authUserId", entry.authUserId().toString())
+                    .put("erasedAt", DurableErasureEvidence.erasedAt(entry.erasedAt())));
+            document.set("bundle", bundleNode);
+            Path path = dir.resolve("trusted-set-" + UUID.randomUUID() + ".json");
+            Files.writeString(path, document.toString(), StandardCharsets.UTF_8);
+            return path;
+        }
+    }
+}

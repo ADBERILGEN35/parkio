@@ -9,9 +9,12 @@ import java.util.UUID;
 
 /**
  * The recovery-replay command line. Only {@code --name=value} options from {@link #OPTIONS} are
- * accepted, each once; Spring's own {@code --spring.*} and {@code --logging.*} options pass through.
- * There is no cutoff or receipt option: no offline-verifiable receipt exists, so coverage is
- * reported only through the verified sequence.
+ * accepted, each once. Nothing else is, Spring's {@code --spring.*} and {@code --logging.*} options
+ * included: none of them can reach the command's Spring context (it gets no command line), so
+ * {@code --spring.main.web-application-type} cannot open a listener and no option can redirect the
+ * datasource after the checks. The profile comes from {@code SPRING_PROFILES_ACTIVE}. There is no
+ * cutoff or receipt option: no offline-verifiable receipt exists, so coverage is reported only
+ * through the verified sequence.
  *
  * @param evidence the trusted-set file the isolated restore wrote (embeds the evidence bundle)
  * @param trust the trust document (pinned database identity and producer keys)
@@ -45,7 +48,8 @@ public record RecoveryReplayArguments(Path evidence,
         Map<String, String> values = new HashMap<>();
         for (String arg : args) {
             if (arg.startsWith("--spring.") || arg.startsWith("--logging.")) {
-                continue;
+                throw new Refusal("Spring and logging options are not accepted; the command takes only its own"
+                        + " options (set the profile with SPRING_PROFILES_ACTIVE)");
             }
             int equals = arg.indexOf('=');
             if (!arg.startsWith("--")) {

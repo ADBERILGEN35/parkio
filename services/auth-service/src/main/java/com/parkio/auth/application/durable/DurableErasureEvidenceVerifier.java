@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -181,15 +182,24 @@ public final class DurableErasureEvidenceVerifier {
     public RecoveryVerdict recover(EvidenceObjects store, Long requiredThroughSequence) {
         List<VerifiedPending> pending = new ArrayList<>();
         for (String key : store.list("records/")) {
-            pending.add(verifyPending(store.get(key)));
+            byte[] raw = store.get(key);
+            VerifiedPending record = verifyPending(raw);
+            bindRecordKey(key, parse(raw));
+            pending.add(record);
         }
         List<VerifiedCheckpoint> checkpoints = new ArrayList<>();
         for (String key : store.list("checkpoints/")) {
-            checkpoints.add(verifyCheckpoint(store.get(key)));
+            VerifiedCheckpoint checkpoint = verifyCheckpoint(store.get(key));
+            bindCheckpointKey(key, checkpoint.sequence());
+            checkpoints.add(checkpoint);
         }
         Set<Long> published = new TreeSet<>();
-        pending.forEach(item -> published.add(item.sequence()));
-        checkpoints.forEach(item -> published.add(item.sequence()));
+        for (long sequence : LongStream.concat(pending.stream().mapToLong(VerifiedPending::sequence),
+                checkpoints.stream().mapToLong(VerifiedCheckpoint::sequence)).toArray()) {
+            if (!published.add(sequence)) {
+                throw new DurableEvidenceException("duplicate sequence in published evidence");
+            }
+        }
         FrontierVersions frontierVersions = verifyFrontierVersions(store.findAll(FRONTIER_KEY));
         Optional<VerifiedFrontier> frontier = frontierVersions.highest();
         int ignored = frontierVersions.ignoredVersions();
@@ -243,6 +253,25 @@ public final class DurableErasureEvidenceVerifier {
         }
         return new RecoveryVerdict(verdict, expectedThrough, latest, latestCheckpoint, listedMaximum,
                 List.copyOf(gaps), List.copyOf(abandoned), List.copyOf(trusted), reason, ignoredFrontierVersions);
+    }
+
+    /**
+     * A record is read only under its own key, {@code records/<erasureRequestId>.json}, which it
+     * also signs as {@code erasureRecordId}: a copy under another key is refused, never counted.
+     */
+    private static void bindRecordKey(String key, Map<String, Object> body) {
+        Object requestId = body.get("erasureRequestId");
+        if (!(requestId instanceof String id) || !key.equals("records/" + id.toLowerCase(Locale.ROOT) + ".json")
+                || !key.equals(body.get("erasureRecordId"))) {
+            throw new DurableEvidenceException("evidence object key does not match its body");
+        }
+    }
+
+    /** A checkpoint is read only under its own key, {@code checkpoints/<sequence>.json}. */
+    private static void bindCheckpointKey(String key, long sequence) {
+        if (sequence < 1 || !key.equals(DurableErasureEvidence.checkpointKey(sequence))) {
+            throw new DurableEvidenceException("evidence object key does not match its body");
+        }
     }
 
     /** Reserved sequences without a published record or checkpoint (markers are unsigned). */

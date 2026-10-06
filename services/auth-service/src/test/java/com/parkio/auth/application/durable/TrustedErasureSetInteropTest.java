@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -96,7 +97,9 @@ class TrustedErasureSetInteropTest {
                 root -> ((ObjectNode) root.path("coverage")).put("frontierVersion", "v-other"),
                 root -> ((ObjectNode) root.path("coverage")).put("statement",
                         "erasure coverage verified through 2026-10-01T00:00:00Z"),
-                root -> root.put("evidenceDatabaseIdentity", "postgresql:7000000000000000002:parkio_auth"));
+                root -> root.put("evidenceDatabaseIdentity", "postgresql:7000000000000000002:parkio_auth"),
+                // Review N1: tamper evidence cannot be dropped from the file.
+                root -> ((ObjectNode) root.path("coverage")).put("ignoredFrontierVersions", 1));
         for (Consumer<ObjectNode> edit : edits) {
             ObjectNode root = (ObjectNode) DurableEvidenceFixtures.json("trusted-set.json").deepCopy();
             edit.accept(root);
@@ -105,6 +108,26 @@ class TrustedErasureSetInteropTest {
             assertThatThrownBy(() -> document.verify(verifier(), "postgresql:7000000000000000001:parkio_auth"))
                     .isInstanceOf(DurableEvidenceException.class)
                     .hasMessage("trusted-set file does not match its evidence");
+        }
+    }
+
+    @Test
+    void javaEncodesTheSameBundleThePythonExportWrites() throws Exception {
+        for (String name : List.of("valid", "checkpoint-tail", "frontier-versions-newest-first")) {
+            JsonNode committed = DurableEvidenceFixtures.json("bundles/" + name + "/bundle.json");
+            Map<String, byte[]> objects = new java.util.TreeMap<>();
+            committed.path("objects").properties().forEach(field ->
+                    objects.put(field.getKey(), java.util.Base64.getDecoder().decode(field.getValue().asText())));
+            List<EvidenceBundle.FrontierVersion> versions = new ArrayList<>();
+            committed.path("frontierVersions").forEach(version -> versions.add(new EvidenceBundle.FrontierVersion(
+                    version.path("versionId").asText(),
+                    java.util.Base64.getDecoder().decode(version.path("data").asText()))));
+
+            JsonNode encoded = DurableEvidenceFixtures.JSON.readTree(
+                    EvidenceBundle.encode(objects, versions, committed.path("source").asText()));
+
+            assertThat(encoded.path("bundleDigest").asText()).as(name).isEqualTo(committed.path("bundleDigest").asText());
+            assertThat(encoded).as(name).isEqualTo(committed);
         }
     }
 

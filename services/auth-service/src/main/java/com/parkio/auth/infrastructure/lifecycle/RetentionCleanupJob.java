@@ -1,10 +1,12 @@
 package com.parkio.auth.infrastructure.lifecycle;
 
+import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -12,6 +14,9 @@ import org.springframework.stereotype.Component;
 
 @Component
 @EnableScheduling
+// Not in the recovery-replay command context (PR #295 review B5): retention deletes outbox and
+// inbox rows of the restored copy.
+@Profile("!" + RecoveryReplayLaunch.PROFILE)
 public class RetentionCleanupJob {
     private final JdbcTemplate jdbc;
     private final Clock clock;
