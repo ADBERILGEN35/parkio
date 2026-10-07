@@ -3,12 +3,27 @@ package com.parkio.auth.infrastructure.recovery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.parkio.auth.infrastructure.lifecycle.ErasureDurableRecordingWorker;
+import com.parkio.auth.infrastructure.lifecycle.ErasureStuckGaugeJob;
+import com.parkio.auth.infrastructure.lifecycle.RetentionCleanupJob;
+import com.parkio.auth.infrastructure.messaging.ErasureAckKafkaConsumer;
+import com.parkio.auth.infrastructure.messaging.ModerationActionsKafkaConsumer;
+import com.parkio.auth.infrastructure.security.SecurityConfig;
+import com.parkio.auth.infrastructure.web.GatewayAuthFilter;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Profile;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.mock.env.MockEnvironment;
 
 /** How {@code main} reaches the recovery-replay command, and the command line it accepts. */
 class RecoveryReplayLaunchTest {
@@ -63,8 +78,90 @@ class RecoveryReplayLaunchTest {
         assertThat(parsed.evidence()).isEqualTo(Path.of("/tmp/set.json"));
         assertThat(parsed.timeout()).isEqualTo(Duration.ofMinutes(15));
         assertThat(RecoveryReplayArguments.parse(with("--timeout-seconds=3600")).timeout()).isEqualTo(Duration.ofHours(1));
-        assertThat(RecoveryReplayArguments.parse(with("--spring.profiles.active=recovery-replay", "--logging.level.root=WARN")))
-                .isEqualTo(parsed);
+    }
+
+    @Test
+    void springAndLoggingOptionsNeverReachTheCommandContext() {
+        // Review B2: spring.main.web-application-type and friends could override .web(NONE).
+        String reason = "Spring and logging options are not accepted; the command takes only its own options"
+                + " (set the profile with SPRING_PROFILES_ACTIVE)";
+        for (String option : List.of("--spring.main.web-application-type=servlet", "--spring.profiles.active=recovery-replay",
+                "--spring.datasource.url=jdbc:postgresql://elsewhere/parkio_auth", "--logging.level.root=WARN")) {
+            refused(with(option), reason);
+        }
+    }
+
+    @Test
+    void aSpringOptionIsRefusedBeforeSpringStarts() {
+        String[] args = with("--spring.main.web-application-type=servlet");
+        Map<String, String> env = Map.of("SPRING_PROFILES_ACTIVE", "recovery-replay");
+
+        assertThat(RecoveryReplayLaunch.applies(args, env, new Properties())).isTrue();
+        assertThat(RecoveryReplayLaunch.run(Object.class, args, env, new Properties()))
+                .isEqualTo(RecoveryReplayExit.REFUSED.code());
+    }
+
+    @Test
+    void theProfileOnTheCommandLineIsRoutedToTheLauncherAndRefusedThere() {
+        // Never an ordinary service started with the recovery profile.
+        String[] args = {"--spring.profiles.active=recovery-replay"};
+
+        assertThat(RecoveryReplayLaunch.applies(args, Map.of(), new Properties())).isTrue();
+        assertThat(RecoveryReplayLaunch.run(Object.class, args, Map.of(), new Properties()))
+                .isEqualTo(RecoveryReplayExit.REFUSED.code());
+    }
+
+    @Test
+    void anOrdinaryStartWithTheProfileActiveFromAnySourceIsRefusedBeforeAnyContext() {
+        // Review N10: an include or a profile group reaches the profile without SPRING_PROFILES_ACTIVE.
+        for (String[] args : List.of(
+                new String[] {"--spring.profiles.include=recovery-replay"},
+                new String[] {"--spring.profiles.default=recovery-replay"},
+                new String[] {"--spring.profiles.active=prod", "--spring.profiles.group.prod=recovery-replay"})) {
+            assertThat(RecoveryReplayLaunch.startOrdinary(Object.class, args)).as(String.join(" ", args)).hasValue(20);
+        }
+    }
+
+    @Test
+    void underTheProfileTheLiveComponentsAreNotInTheCommandContext() {
+        for (Class<?> live : List.of(SecurityConfig.class, GatewayAuthFilter.class, RetentionCleanupJob.class,
+                ErasureStuckGaugeJob.class, ErasureDurableRecordingWorker.class, ModerationActionsKafkaConsumer.class)) {
+            assertThat(live.getAnnotation(Profile.class)).as(live.getSimpleName()).isNotNull();
+            assertThat(live.getAnnotation(Profile.class).value()).as(live.getSimpleName()).containsExactly("!recovery-replay");
+        }
+    }
+
+    @Test
+    void theAckConsumerJoinsItsOwnGroupUnderTheProfile() throws Exception {
+        String expression = ErasureAckKafkaConsumer.class
+                .getMethod("onMessage", ConsumerRecord.class, String.class, Acknowledgment.class)
+                .getAnnotation(KafkaListener.class).groupId();
+        assertThat(expression).startsWith("#{").endsWith("}");
+        String body = expression.substring(2, expression.length() - 1);
+        Map<String, String> expected = Map.of(
+                "recovery-replay", "parkio.auth.erasure.recovery-replay", "prod", "parkio.auth.erasure", "", "parkio.auth.erasure");
+        expected.forEach((profile, group) -> {
+            MockEnvironment environment = new MockEnvironment();
+            if (!profile.isEmpty()) {
+                environment.setActiveProfiles(profile);
+            }
+            Object resolved = new SpelExpressionParser().parseExpression(body)
+                    .getValue(new StandardEvaluationContext(new BeanExpressionRoot(environment)));
+            assertThat(resolved).as(profile).isEqualTo(group);
+        });
+    }
+
+    /** Resolves {@code environment} as the listener's bean expression context does. */
+    public static final class BeanExpressionRoot {
+        private final MockEnvironment environment;
+
+        BeanExpressionRoot(MockEnvironment environment) {
+            this.environment = environment;
+        }
+
+        public MockEnvironment getEnvironment() {
+            return environment;
+        }
     }
 
     @Test

@@ -42,6 +42,9 @@ OBJECT_PREFIXES = ("records/", "sequences/", "checkpoints/")
 # seconds, otherwise 3 or 6 digits).
 _UUID_TEXT = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _INSTANT_TEXT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3}|\.\d{6})?Z$")
+# postgresql:<system_identifier>:<datname>, as auth-service reads it from pg_control_system().
+# system_identifier is printed without leading zeros; the database name holds no ':' or space.
+_DATABASE_IDENTITY = re.compile(r"postgresql:([1-9][0-9]{0,19}):([^:\s]+)")
 
 
 def _check_entry_text(auth_user_id, erased_at):
@@ -50,6 +53,28 @@ def _check_entry_text(auth_user_id, erased_at):
             or not isinstance(erased_at, str) or not _INSTANT_TEXT.match(erased_at)
             or fraction.endswith("000")):
         raise ContractError("erasure set entry is not in the evidence format")
+
+
+def parse_database_identity(identity):
+    """(system_identifier, database) of a database identity; anything else is ambiguous."""
+    match = _DATABASE_IDENTITY.fullmatch(identity) if isinstance(identity, str) else None
+    if match is None:
+        raise ContractError("ambiguous database identity")
+    return match.group(1), match.group(2)
+
+
+def check_target_identity(target_identity, production_identity):
+    """Refuse a recovery target on the production cluster, whatever the database name.
+
+    system_identifier names the cluster lineage: a PITR or physical clone keeps it, and another
+    database on the same server shares it. auth-service applies the same rule
+    (com.parkio.auth.application.durable.DatabaseIdentity); the shared fixture
+    durable-erasure-evidence/v2/database-identities.json pins both.
+    """
+    target_cluster, _ = parse_database_identity(target_identity)
+    production_cluster, _ = parse_database_identity(production_identity)
+    if target_cluster == production_cluster:
+        raise ContractError("target identity is on the cluster of the production identity pinned in the trust document")
 
 
 def coverage_statement(verified_through, frontier_version):
@@ -182,7 +207,11 @@ def trusted_erasure_set(store, trust, at=None):
     ledger = {}
     if checkpoint_sequence is not None:
         body = verify_checkpoint(store, checkpoint_key(checkpoint_sequence), trust, at=at)
+        if body.get("sequence") != checkpoint_sequence:
+            raise ContractError("the latest trusted checkpoint's body is not that checkpoint")
         for entry in body["entries"]:
+            if entry["authUserId"] in ledger:
+                raise ContractError("duplicate user in the checkpoint ledger")
             ledger[entry["authUserId"]] = entry["erasedAt"]
     entries = dict(ledger)
     for record in recovered["pending"]:
@@ -220,8 +249,7 @@ def trusted_set_document(bundle, trust, recovery_attempt_id, restored_dataset_id
                          ("targetIdentity", target_identity)):
         if not isinstance(value, str) or not value.strip():
             raise ContractError(f"{label} is required")
-    if target_identity == trust.database_identity:
-        raise ContractError("target identity is the production identity pinned in the trust document")
+    check_target_identity(target_identity, trust.database_identity)
     verified = trusted_erasure_set(BundleStore(bundle), trust, at=at)
     return {
         "format": TRUSTED_SET_FORMAT,
@@ -234,6 +262,7 @@ def trusted_set_document(bundle, trust, recovery_attempt_id, restored_dataset_id
             "verifiedThroughSequence": verified["verifiedThroughSequence"],
             "frontierVersion": verified["frontierVersion"],
             "latestTrustedCheckpoint": verified["latestTrustedCheckpoint"],
+            "ignoredFrontierVersions": verified["ignoredFrontierVersions"],
             "statement": verified["statement"],
         },
         "erasureSet": {

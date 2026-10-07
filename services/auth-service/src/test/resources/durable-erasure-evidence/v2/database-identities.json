@@ -1,0 +1,75 @@
+{
+  "cases": [
+    {
+      "name": "other-cluster",
+      "refusal": null,
+      "target": "postgresql:7000000000000000099:parkio_auth"
+    },
+    {
+      "name": "production",
+      "refusal": "target identity is on the cluster of the production identity pinned in the trust document",
+      "target": "postgresql:7000000000000000001:parkio_auth"
+    },
+    {
+      "name": "production-cluster-other-database",
+      "refusal": "target identity is on the cluster of the production identity pinned in the trust document",
+      "target": "postgresql:7000000000000000001:parkio_auth_restore"
+    },
+    {
+      "name": "production-cluster-leading-zero",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:07000000000000000001:parkio_auth"
+    },
+    {
+      "name": "missing-database",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:7000000000000000099"
+    },
+    {
+      "name": "empty-database",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:7000000000000000099:"
+    },
+    {
+      "name": "colon-in-database",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:7000000000000000099:parkio:auth"
+    },
+    {
+      "name": "space-in-database",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:7000000000000000099:parkio auth"
+    },
+    {
+      "name": "non-digit-cluster",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:70000000000000000x9:parkio_auth"
+    },
+    {
+      "name": "cluster-too-long",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:123456789012345678901:parkio_auth"
+    },
+    {
+      "name": "other-scheme",
+      "refusal": "ambiguous database identity",
+      "target": "mysql:7000000000000000099:parkio_auth"
+    },
+    {
+      "name": "upper-case-scheme",
+      "refusal": "ambiguous database identity",
+      "target": "POSTGRESQL:7000000000000000099:parkio_auth"
+    },
+    {
+      "name": "surrounding-space",
+      "refusal": "ambiguous database identity",
+      "target": " postgresql:7000000000000000099:parkio_auth"
+    },
+    {
+      "name": "trailing-newline",
+      "refusal": "ambiguous database identity",
+      "target": "postgresql:7000000000000000099:parkio_auth\n"
+    }
+  ],
+  "productionIdentity": "postgresql:7000000000000000001:parkio_auth"
+}

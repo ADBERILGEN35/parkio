@@ -10,11 +10,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,31 +21,34 @@ import com.parkio.auth.application.ErasureRestoreReplayService;
 import com.parkio.auth.application.RestoreReplayVerdict;
 import com.parkio.auth.application.port.ErasureRestoreRepository;
 import com.parkio.auth.application.port.ErasureRestoreRepository.RestoreAttempt;
+import com.parkio.auth.infrastructure.messaging.RecoveryReplayOutboxScope;
+import com.parkio.auth.infrastructure.recovery.RecoveryFixtures.Target;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
- * The recovery-replay command's checks, in isolation (owner decision P6 and its conditions, D1).
- * Every refusal must leave the replay unstarted and the verdict not COMPLETE; the real-PostgreSQL
- * paths are in {@link RecoveryReplayCommandPostgresIT}. Synthetic ids and keys only.
+ * The part of the recovery replay that runs in the command context, after the preflight accepted
+ * the run: the identity re-check, attempt reuse, the bounded wait and the verdict. The real
+ * PostgreSQL paths are in {@link RecoveryReplayCommandPostgresIT}, the real launch in
+ * {@link RecoveryReplayLaunchPostgresIT}. Synthetic ids and keys only.
  */
+@Timeout(value = 60, unit = TimeUnit.SECONDS)
 class RecoveryReplayCommandTest {
 
     private static final Pattern FORBIDDEN_CLAIMS = Pattern.compile(
@@ -58,18 +59,18 @@ class RecoveryReplayCommandTest {
 
     private final ErasureRestoreReplayService replay = mock(ErasureRestoreReplayService.class);
     private final ErasureRestoreRepository restores = mock(ErasureRestoreRepository.class);
-    private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    private final Clock clock = Clock.fixed(Instant.parse("2026-10-06T12:00:00Z"), ZoneOffset.UTC);
+    private final RecoveryReplayOutboxScope outboxScope = new RecoveryReplayOutboxScope();
+    private MockEnvironment environment;
     private Path evidence;
     private Path trust;
-    private Path verdict;
+    private Path verdictFile;
 
     @BeforeEach
     void inputs() {
+        environment = RecoveryFixtures.environment();
         evidence = RecoveryFixtures.trustedSet(dir, ATTEMPT, DATASET, TARGET);
         trust = RecoveryFixtures.trustDocument(dir, EVIDENCE_IDENTITY);
-        verdict = dir.resolve("verdict.json");
-        when(jdbc.queryForList(anyString(), eq(UUID.class))).thenReturn(List.of());
+        verdictFile = dir.resolve("verdict.json");
         when(restores.findAttempt(any())).thenReturn(Optional.empty());
     }
 
@@ -80,109 +81,65 @@ class RecoveryReplayCommandTest {
     }
 
     @Test
-    void theProfileWithoutTheFlagIsRefusedBeforeAnythingIsRead() {
-        RecoveryReplayCommand.Outcome outcome = command(() -> TARGET, false, Map.of()).execute(validArgs());
+    void aContextConnectedElsewhereThanThePreflightCheckedIsRefused() {
+        for (Supplier<String> elsewhere : List.<Supplier<String>>of(
+                () -> "postgresql:7000000000000000123:parkio_auth",
+                () -> null,
+                () -> {
+                    throw new IllegalStateException("connection refused");
+                })) {
+            RecoveryReplayExit exit = command(elsewhere).execute(plan(validArgs()), verdict());
 
-        assertRefusedUntouched(outcome, RecoveryReplayExit.REFUSED);
-        assertThat(outcome.verdict().get("reason").toString()).contains("restore-replay.enabled=false");
-    }
-
-    @Test
-    void anEnabledDurableStoreWriterIsRefused() {
-        for (String writer : RecoveryReplayCommand.writers(false, false, false, false).keySet()) {
-            Map<String, Boolean> writers = new HashMap<>(RecoveryReplayCommand.writers(false, false, false, false));
-            writers.put(writer, true);
-            RecoveryReplayCommand.Outcome outcome = command(() -> TARGET, true, writers).execute(validArgs());
-
-            assertRefusedUntouched(outcome, RecoveryReplayExit.REFUSED);
-            assertThat(outcome.verdict().get("reason").toString()).contains(writer);
+            assertThat(exit).isEqualTo(RecoveryReplayExit.TARGET_REFUSED);
+            assertThat(written().path("reason").asText())
+                    .isEqualTo("the command context is not connected to the database the preflight checked");
         }
-    }
-
-    @Test
-    void thereIsNoCutoffOrReceiptOption() {
-        for (String option : List.of("--required-through-sequence=4", "--receipt=receipt.json", "--recovery-cutoff=x")) {
-            RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(
-                    args(evidence, trust, ATTEMPT, DATASET, TARGET, verdict, option));
-
-            assertRefusedUntouched(outcome, RecoveryReplayExit.REFUSED);
-            assertThat(outcome.verdict().get("reason").toString()).startsWith("unknown option --");
-        }
-    }
-
-    @Test
-    void untrustedEvidenceIsRefusedBeforeTheDatabaseIsTouched() {
-        for (String bundle : List.of("gap", "missing-frontier", "frontier-all-tampered", "tail-conflict",
-                "frontier-newest-tampered", "listed-above-frontier")) {
-            evidence = RecoveryFixtures.trustedSetWithBundle(dir, bundle);
-            RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-            assertRefusedUntouched(outcome, RecoveryReplayExit.INVALID_EVIDENCE);
-            assertThat(outcome.verdict().get("reason").toString()).as(bundle).startsWith("evidence does not verify: ");
-            assertWrittenStatus("INVALID_EVIDENCE");
-        }
-    }
-
-    @Test
-    void aTrustDocumentForAnotherDatabaseRefusesTheEvidence() {
-        trust = RecoveryFixtures.trustDocument(dir, "postgresql:7000000000000000002:parkio_auth");
-
-        assertRefusedUntouched(enabled(() -> TARGET).execute(validArgs()), RecoveryReplayExit.INVALID_EVIDENCE);
-    }
-
-    @Test
-    void anAttemptOrDatasetOtherThanTheTrustedSetIsRefused() {
-        String otherAttempt = UUID.randomUUID().toString();
-        assertRefusedUntouched(enabled(() -> TARGET).execute(
-                args(evidence, trust, otherAttempt, DATASET, TARGET, verdict)), RecoveryReplayExit.ATTEMPT_MISMATCH);
-        assertRefusedUntouched(enabled(() -> TARGET).execute(
-                args(evidence, trust, ATTEMPT, "another-dataset", TARGET, verdict)), RecoveryReplayExit.ATTEMPT_MISMATCH);
-    }
-
-    @Test
-    void theProductionIdentityAndAnAmbiguousIdentityAreRefused() {
-        assertRefusedUntouched(enabled(() -> EVIDENCE_IDENTITY).execute(validArgs()), RecoveryReplayExit.TARGET_REFUSED);
-        assertRefusedUntouched(enabled(() -> {
-            throw new IllegalStateException("permission denied for pg_control_system");
-        }).execute(validArgs()), RecoveryReplayExit.TARGET_REFUSED);
-        assertRefusedUntouched(enabled(() -> null).execute(validArgs()), RecoveryReplayExit.TARGET_REFUSED);
-        assertRefusedUntouched(enabled(() -> " ").execute(validArgs()), RecoveryReplayExit.TARGET_REFUSED);
-    }
-
-    @Test
-    void aTargetOtherThanTheTicketsIsRefused() {
-        assertRefusedUntouched(enabled(() -> "postgresql:7000000000000000123:parkio_auth").execute(validArgs()),
-                RecoveryReplayExit.TARGET_REFUSED);
-        evidence = RecoveryFixtures.trustedSet(dir, ATTEMPT, DATASET, "postgresql:7000000000000000123:parkio_auth");
-        assertRefusedUntouched(enabled(() -> TARGET).execute(validArgs()), RecoveryReplayExit.TARGET_REFUSED);
-        evidence = RecoveryFixtures.trustedSet(dir, ATTEMPT, DATASET, EVIDENCE_IDENTITY);
-        assertRefusedUntouched(enabled(() -> EVIDENCE_IDENTITY).execute(
-                args(evidence, trust, ATTEMPT, DATASET, EVIDENCE_IDENTITY, verdict)), RecoveryReplayExit.TARGET_REFUSED);
-    }
-
-    @Test
-    void aDurablyRecordedErasureMissingFromTheTrustedSetIsRefused() {
-        when(jdbc.queryForList(anyString(), eq(UUID.class))).thenReturn(List.of(UUID.randomUUID()));
-
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.INVALID_EVIDENCE);
-        assertThat(outcome.verdict().get("reason").toString())
-                .isEqualTo("the trusted set lacks 1 erasure(s) the restored auth database marks DURABLY_RECORDED;"
-                        + " the evidence is older than the backup");
         verify(replay, never()).startRestoreReplay(any(), anyString(), anyList());
-        assertWrittenStatus("INVALID_EVIDENCE");
     }
 
     @Test
-    void anAttemptStartedForAnotherDatasetIsRefused() {
-        when(restores.findAttempt(UUID.fromString(ATTEMPT))).thenReturn(Optional.of(
-                new RestoreAttempt(UUID.fromString(ATTEMPT), "another-dataset", "0".repeat(64), 1, clock.instant())));
+    void anAttemptStartedForAnotherDatasetOrSetIsRefused() {
+        RecoveryReplayPreflight.Plan plan = plan(validArgs());
+        for (RestoreAttempt other : List.of(
+                new RestoreAttempt(UUID.fromString(ATTEMPT), "another-dataset", plan.set().erasureSetDigest(), 1,
+                        RecoveryFixtures.CLOCK.instant()),
+                new RestoreAttempt(UUID.fromString(ATTEMPT), DATASET, "0".repeat(64), 1,
+                        RecoveryFixtures.CLOCK.instant()))) {
+            when(restores.findAttempt(UUID.fromString(ATTEMPT))).thenReturn(Optional.of(other));
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.ATTEMPT_MISMATCH);
+            assertThat(enabled().execute(plan, verdict())).isEqualTo(RecoveryReplayExit.ATTEMPT_MISMATCH);
+        }
         verify(replay, never()).startRestoreReplay(any(), anyString(), anyList());
+    }
+
+    @Test
+    void theSameAttemptDatasetAndSetResumes() {
+        RecoveryReplayPreflight.Plan plan = plan(validArgs());
+        when(restores.findAttempt(UUID.fromString(ATTEMPT))).thenReturn(Optional.of(new RestoreAttempt(
+                UUID.fromString(ATTEMPT), DATASET, plan.set().erasureSetDigest(), USERS, RecoveryFixtures.CLOCK.instant())));
+        acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
+
+        assertThat(enabled().execute(plan, verdict())).isEqualTo(RecoveryReplayExit.COMPLETE);
+    }
+
+    @Test
+    void theRelayIsLimitedToThisAttemptBeforeTheReplayStarts() {
+        acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
+        when(replay.startRestoreReplay(any(), anyString(), anyList())).thenAnswer(invocation -> {
+            assertThat(outboxScope.attempt()).contains(UUID.fromString(ATTEMPT));
+            return null;
+        });
+        assertThat(outboxScope.attempt()).isEmpty();
+
+        assertThat(enabled().execute(plan(validArgs()), verdict())).isEqualTo(RecoveryReplayExit.COMPLETE);
+        verify(replay).startRestoreReplay(any(), anyString(), anyList());
+    }
+
+    @Test
+    void aRefusedRunNeverOpensTheRelay() {
+        command(() -> "postgresql:7000000000000000123:parkio_auth").execute(plan(validArgs()), verdict());
+
+        assertThat(outboxScope.attempt()).isEmpty();
     }
 
     @Test
@@ -190,21 +147,19 @@ class RecoveryReplayCommandTest {
         when(replay.startRestoreReplay(any(), anyString(), anyList()))
                 .thenThrow(new IllegalStateException("auth share failed; the start transaction rolled back"));
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.INTERNAL);
-        assertWrittenStatus("INTERNAL");
+        assertThat(enabled().execute(plan(validArgs()), verdict())).isEqualTo(RecoveryReplayExit.INTERNAL);
+        assertThat(written().path("status").asText()).isEqualTo("INTERNAL");
     }
 
     @Test
-    void completeWhenEveryParticipantAndAuthAcknowledgedCountedSeparately() throws Exception {
+    void completeWhenEveryParticipantAndAuthAcknowledgedCountedSeparately() {
         acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
+        RecoveryReplayExit exit = enabled().execute(plan(validArgs()), verdict());
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.COMPLETE);
-        assertThat(outcome.exitCode()).isZero();
-        JsonNode written = RecoveryFixtures.readTree(verdict);
+        assertThat(exit).isEqualTo(RecoveryReplayExit.COMPLETE);
+        assertThat(exit.code()).isZero();
+        JsonNode written = written();
         assertThat(written.path("status").asText()).isEqualTo("COMPLETE");
         assertThat(written.path("exitCode").asInt()).isZero();
         assertThat(written.path("users").asInt()).isEqualTo(USERS);
@@ -212,9 +167,9 @@ class RecoveryReplayCommandTest {
         assertThat(written.path("participants").size()).isEqualTo(8);
         assertThat(written.path("participants").has("auth")).isFalse();
         written.path("participants").forEach(row -> assertThat(row.path("success").asLong()).isEqualTo(USERS));
+        assertThat(written.path("coverage").path("ignoredFrontierVersions").asInt()).isZero();
         String statement = written.path("coverage").path("statement").asText();
         assertThat(statement).matches("erasure coverage verified through sequence 4 \\(frontier version sha256:[0-9a-f]{64}\\)");
-        assertThat(FORBIDDEN_CLAIMS.matcher(statement).find()).isFalse();
         assertThat(FORBIDDEN_CLAIMS.matcher(written.path("coverage").toString()).find()).isFalse();
     }
 
@@ -222,35 +177,33 @@ class RecoveryReplayCommandTest {
     void aFailedParticipantBlocksTheAttempt() {
         acks(Map.of("media", 1L), RestoreReplayVerdict.Status.BLOCKED);
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.BLOCKED);
-        assertWrittenStatus("BLOCKED");
+        assertThat(enabled().execute(plan(validArgs()), verdict())).isEqualTo(RecoveryReplayExit.BLOCKED);
+        assertThat(written().path("status").asText()).isEqualTo("BLOCKED");
     }
 
     @Test
-    void missingAcknowledgementsTimeOutWithinTheBound() {
+    void missingAcknowledgementsTimeOutWithinTheBoundWhateverThePollInterval() {
         acks(Map.of(), RestoreReplayVerdict.Status.BLOCKED);
+        // A poll interval far beyond the timeout never stretches the wait (review N5).
+        environment.setProperty(RecoveryReplayPreflight.POLL_INTERVAL, "PT1H");
         long started = System.nanoTime();
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(
-                args(evidence, trust, ATTEMPT, DATASET, TARGET, verdict, "--timeout-seconds=1"));
+        RecoveryReplayExit exit = enabled().execute(
+                plan(args(evidence, trust, ATTEMPT, DATASET, TARGET, verdictFile, "--timeout-seconds=1")), verdict());
 
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.TIMEOUT);
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
-        assertThat(RecoveryFixtures.readTree(verdict).path("reason").asText()).startsWith("timed out after 1s");
-        assertWrittenStatus("TIMEOUT");
+        assertThat(exit).isEqualTo(RecoveryReplayExit.TIMEOUT);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        assertThat(written().path("reason").asText()).startsWith("timed out after 1s");
+        assertThat(written().path("status").asText()).isEqualTo("TIMEOUT");
     }
 
     @Test
     void aVerdictThatCannotBeWrittenIsNeverReportedAsComplete() {
         acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
-        verdict = dir.resolve("missing-directory").resolve("verdict.json");
+        verdictFile = dir.resolve("missing-directory").resolve("verdict.json");
 
-        RecoveryReplayCommand.Outcome outcome = enabled(() -> TARGET).execute(validArgs());
-
-        assertThat(outcome.exit()).isEqualTo(RecoveryReplayExit.INTERNAL);
-        assertThat(Files.exists(verdict)).isFalse();
+        assertThat(enabled().execute(plan(validArgs()), verdict())).isEqualTo(RecoveryReplayExit.INTERNAL);
+        assertThat(Files.exists(verdictFile)).isFalse();
     }
 
     private void acks(Map<String, Long> failed, RestoreReplayVerdict.Status status) {
@@ -267,33 +220,31 @@ class RecoveryReplayCommandTest {
                 status == RestoreReplayVerdict.Status.COMPLETE ? null : "participant acknowledgements are missing or failed"));
     }
 
+    private RecoveryReplayPreflight.Plan plan(String[] arguments) {
+        RecoveryReplayArguments parsed = RecoveryReplayArguments.parse(arguments);
+        return RecoveryFixtures.preflight(Target.of(TARGET)).check(environment, parsed, new RecoveryReplayVerdict(parsed));
+    }
+
+    private RecoveryReplayVerdict verdict() {
+        RecoveryReplayArguments parsed = RecoveryReplayArguments.parse(validArgs());
+        RecoveryReplayVerdict verdict = new RecoveryReplayVerdict(parsed);
+        verdict.set(plan(validArgs()).set());
+        return verdict;
+    }
+
+    private JsonNode written() {
+        return RecoveryFixtures.readTree(verdictFile);
+    }
+
     private String[] validArgs() {
-        return args(evidence, trust, ATTEMPT, DATASET, TARGET, verdict);
+        return args(evidence, trust, ATTEMPT, DATASET, TARGET, verdictFile);
     }
 
-    private RecoveryReplayCommand enabled(Supplier<String> identity) {
-        return command(identity, true, RecoveryReplayCommand.writers(false, false, false, false));
+    private RecoveryReplayCommand enabled() {
+        return command(() -> TARGET);
     }
 
-    private RecoveryReplayCommand command(Supplier<String> identity, boolean enabled, Map<String, Boolean> writers) {
-        return new RecoveryReplayCommand(replay, restores, jdbc, clock, identity, enabled, writers, Duration.ofMillis(100));
-    }
-
-    private void assertRefusedUntouched(RecoveryReplayCommand.Outcome outcome, RecoveryReplayExit expected) {
-        assertThat(outcome.exit()).isEqualTo(expected);
-        assertThat(outcome.exitCode()).isNotZero();
-        assertThat(outcome.verdict().get("status")).isEqualTo(expected.name());
-        verify(replay, never()).startRestoreReplay(any(), anyString(), anyList());
-        verify(replay, never()).verdict(any());
-        if (Files.exists(verdict)) {
-            assertThat(RecoveryFixtures.readTree(verdict).path("status").asText()).isNotEqualTo("COMPLETE");
-        }
-        if (expected == RecoveryReplayExit.REFUSED || expected == RecoveryReplayExit.INVALID_EVIDENCE) {
-            verifyNoInteractions(restores);
-        }
-    }
-
-    private void assertWrittenStatus(String status) {
-        assertThat(RecoveryFixtures.readTree(verdict).path("status").asText()).isEqualTo(status);
+    private RecoveryReplayCommand command(Supplier<String> identity) {
+        return new RecoveryReplayCommand(replay, restores, outboxScope, identity);
     }
 }

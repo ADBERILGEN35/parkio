@@ -35,6 +35,7 @@ from recovery_persist_protocol import (  # noqa: E402
     EvidenceTrust,
     IsolatedErasureCoordinator,
     IsolatedVersionedStore,
+    CHECKPOINT_RESERVATION_ID,
     SequenceAllocator,
     checkpoint_producer_is_disabled,
     erasure_record_id,
@@ -160,7 +161,9 @@ class PersistProtocolTest(unittest.TestCase):
 
     def test_host_loss_recovers_only_store_evidence(self):
         self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
-        self.coord.publish_checkpoint(1, [{"authUserId": ERASED, "erasedAt": "2026-09-27T10:00:00Z"}])
+        # A checkpoint takes its own reserved sequence: a record and a checkpoint never share one.
+        checkpoint = SequenceAllocator(self.store).allocate(CHECKPOINT_RESERVATION_ID)
+        self.coord.publish_checkpoint(checkpoint, [{"authUserId": ERASED, "erasedAt": "2026-09-27T10:00:00Z"}])
         self.coord.crash_forget_memory()
         recovered = IsolatedErasureCoordinator(self.store, self.trust, KEY_ID).recover_from_store(self.trust)
         self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")

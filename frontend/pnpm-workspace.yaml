@@ -51,3 +51,6 @@ overrides:
   # CVE-2026-93749 GHSA-68fv-2mgg-jv7q (source-map-js >= 1.0.0 < 1.2.2, patched 1.2.2).
   # postcss 8.5.23 resolved it to 1.2.1.
   'source-map-js': '^1.2.2'
+  # CVE-2026-102422 GHSA-pqg4-j6r4-53mv (shell-quote >= 1.8.4 < 1.11.0, patched 1.11.0).
+  # launch-editor 2.14.1 (^1.8.4) and react-devtools-core 6.1.5 (^1.6.1) resolved it to 1.9.0.
+  'shell-quote': '^1.11.0'

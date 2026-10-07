@@ -10,6 +10,14 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.Supplier;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * Inputs for the recovery-replay command built from the cross-language evidence fixtures
@@ -25,6 +33,7 @@ final class RecoveryFixtures {
     static final String DATASET = "backup-stamp-2026-09-29T08-00-00Z";
     static final String TARGET = "postgresql:7000000000000000099:parkio_auth";
     static final int USERS = 4;
+    static final String DATASOURCE_URL = "jdbc:postgresql://parkio-iso-0123456789ab-pg:5432/parkio_auth";
 
     private RecoveryFixtures() {
     }
@@ -90,7 +99,6 @@ final class RecoveryFixtures {
     static String[] args(Path evidence, Path trust, String attempt, String dataset, String target, Path verdict,
                          String... extra) {
         String[] base = {
-            "--spring.profiles.active=recovery-replay",
             "--evidence=" + evidence, "--trust=" + trust, "--attempt=" + attempt, "--dataset=" + dataset,
             "--target-identity=" + target, "--verdict-out=" + verdict,
         };
@@ -99,6 +107,58 @@ final class RecoveryFixtures {
         System.arraycopy(extra, 0, all, base.length, extra.length);
         return all;
     }
+
+    /** A prepared environment as the launch gives it: the profile and the flag on, every writer off. */
+    static MockEnvironment environment() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setConversionService(new ApplicationConversionService());
+        environment.setActiveProfiles(RecoveryReplayLaunch.PROFILE);
+        environment.setProperty(RecoveryReplayPreflight.FLAG, "true");
+        environment.setProperty(RecoveryReplayPreflight.POLL_INTERVAL, "PT0.1S");
+        environment.setProperty("spring.datasource.url", DATASOURCE_URL);
+        return environment;
+    }
+
+    /** A target that answers the preflight's two reads, counting them. */
+    static final class Target implements RecoveryReplayTarget {
+        final Supplier<String> identity;
+        final Supplier<List<UUID>> recorded;
+        int identityReads;
+        int anchorReads;
+        boolean closed;
+
+        Target(Supplier<String> identity, Supplier<List<UUID>> recorded) {
+            this.identity = identity;
+            this.recorded = recorded;
+        }
+
+        static Target of(String identity) {
+            return new Target(() -> identity, List::of);
+        }
+
+        @Override
+        public String identity() {
+            identityReads++;
+            return identity.get();
+        }
+
+        @Override
+        public List<UUID> durablyRecordedUsers() {
+            anchorReads++;
+            return recorded.get();
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+    }
+
+    static RecoveryReplayPreflight preflight(Target target) {
+        return new RecoveryReplayPreflight(CLOCK, environment -> target);
+    }
+
+    static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-06T12:00:00Z"), ZoneOffset.UTC);
 
     static JsonNode readTree(Path path) {
         try {

@@ -1,0 +1,19 @@
+{
+  "description": "Checkpoint 3's signed bytes are stored under checkpoint 4's key and checkpoint 4 under another key. Read by key, the set would silently lose the user only checkpoint 4 holds; a checkpoint is read only under its own key, so it is refused.",
+  "result": {
+    "error": "evidence object key does not match its body"
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

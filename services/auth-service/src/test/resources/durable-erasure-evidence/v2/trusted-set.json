@@ -23,6 +23,7 @@
   },
   "coverage": {
     "frontierVersion": "sha256:3010dd1fa2c5d892cc308cf41e4076954a91e390822d25fab935984a636981f6",
+    "ignoredFrontierVersions": 0,
     "latestTrustedCheckpoint": 3,
     "statement": "erasure coverage verified through sequence 4 (frontier version sha256:3010dd1fa2c5d892cc308cf41e4076954a91e390822d25fab935984a636981f6)",
     "verifiedThroughSequence": 4
