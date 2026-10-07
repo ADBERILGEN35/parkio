@@ -105,6 +105,8 @@ GATEWAY_ALLOWED = {
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION",
     "PARKIO_WAITLIST_FULL_NAME_REQUIRED",
     "PARKIO_WAITLIST_EXPORT_MAX_ROWS",
+    # CL-F18: consent text version required (default true; false only for a marketing deploy window).
+    "PARKIO_WAITLIST_CONSENT_REQUIRED",
 }
 AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_MODE",
@@ -196,6 +198,7 @@ check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICAT
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
 check("gateway export row cap mapped", genv.get("PARKIO_WAITLIST_EXPORT_MAX_ROWS") == "50000")
+check("gateway consent text version required by example/default", genv.get("PARKIO_WAITLIST_CONSENT_REQUIRED") == "true")
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
 check("kafka GC logs capped for the tmpfs",
       dis["services"].get("kafka", {}).get("environment", {}).get("KAFKA_GC_LOG_OPTS") == KAFKA_GC_LOG_OPTS)
