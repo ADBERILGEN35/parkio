@@ -1,0 +1,170 @@
+# Publish accepted candidate images (owner decision 2026-10-07, item 3: publication is a separate
+# approval). This workflow pushes to GHCR the exact images a "Candidate images" run built and
+# accepted, after checking every artifact against that run's manifest. It never builds.
+#
+# Three independent gates, all owner-controlled:
+#   1. the `candidate-publication` environment (create it with a required reviewer so every run
+#      waits for an explicit approval; see docs/releases/CANDIDATE-IMAGES.md);
+#   2. the repository variable PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA must equal the source SHA;
+#   3. the `confirm` input must read `PUBLISH <sha12>`.
+# The job records registry digests, platform, config digest (= image id) and revision for the pin
+# PR. Pinning, deploying and rolling back remain separate steps with their own authorization.
+
+name: Candidate publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run id of the Candidate images run whose artifacts to publish"
+        required: true
+        type: string
+      source_sha:
+        description: "Full 40-hex api commit the run built (must match the manifest)"
+        required: true
+        type: string
+      confirm:
+        description: "Type PUBLISH <first 12 hex of source_sha>"
+        required: true
+        type: string
+      services:
+        description: "all, or a comma-separated subset to publish"
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-publish-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and push the accepted candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: candidate-publication
+    if: ${{ vars.PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA == inputs.source_sha }}
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+    env:
+      REGISTRY: ghcr.io
+      RUN_ID: ${{ inputs.run_id }}
+      SHA: ${{ inputs.source_sha }}
+      CONFIRM: ${{ inputs.confirm }}
+      SERVICES: ${{ inputs.services }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check the confirmation and the source id
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_sha must be a full 40-hex commit id"; exit 2; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::run_id must be numeric"; exit 2; }
+          test "$CONFIRM" = "PUBLISH ${SHA:0:12}" || { echo "::error::confirm must read 'PUBLISH ${SHA:0:12}'"; exit 2; }
+          echo "sha12=${SHA:0:12}" >> "$GITHUB_ENV"
+
+      - name: Checkout api (scripts only)
+        uses: actions/checkout@v4
+        with:
+          ref: api
+          persist-credentials: false
+
+      - name: Download the manifest and the candidate images from the accepted run
+        run: |
+          set -euo pipefail
+          run_sha="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.head_sha + " " + .name + " " + .conclusion')"
+          echo "run: $run_sha"
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "candidate-manifest-${sha12}" -D manifest
+          (cd manifest && sha256sum -c SHA256SUMS --quiet)
+          python3 - "$SHA" "$RUN_ID" <<'PY'
+          import json, sys
+          sha, run_id = sys.argv[1:3]
+          m = json.load(open("manifest/candidate-manifest.json"))
+          problems = []
+          if m.get("source_sha") != sha: problems.append(f"manifest source {m.get('source_sha')} != {sha}")
+          if str((m.get("run") or {}).get("id")) != run_id: problems.append(f"manifest run {m.get('run', {}).get('id')} != {run_id}")
+          if m.get("verdict") != "accepted-candidate": problems.append(f"manifest verdict {m.get('verdict')}: {m.get('problems')}")
+          if problems:
+              print("::error::" + "; ".join(problems)); sys.exit(1)
+          print(f"manifest ok: {len(m.get('images') or [])} images accepted")
+          PY
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -p "candidate-image-*-${sha12}" -D candidates
+          ls candidates
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify every artifact against the manifest, load, push and verify the registry
+        run: |
+          set -euo pipefail
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          mkdir -p published
+          python3 - "$SHA" "$SERVICES" "$REGISTRY/$repo" <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          sha, services, base = sys.argv[1:4]
+          sha12 = sha[:12]
+          manifest = json.load(open("manifest/candidate-manifest.json"))
+          wanted = None if services.strip() in ("", "all") else {s.strip() for s in services.split(",") if s.strip()}
+          by_service = {i["service"]: i for i in manifest["images"]}
+          results = []
+          def run(*args, check=True):
+              return subprocess.run(list(args), check=check, capture_output=True, text=True).stdout
+          for service, record in by_service.items():
+              if wanted is not None and service not in wanted:
+                  continue
+              d = Path("candidates") / f"candidate-image-{service}-{sha12}"
+              if not d.is_dir():
+                  print(f"::error::artifact for {service} missing"); sys.exit(1)
+              run("sha256sum", "-c", "SHA256SUMS", "--quiet", check=True) if False else subprocess.run(["sha256sum", "-c", "SHA256SUMS", "--quiet"], cwd=d, check=True)
+              inspect = json.load(open(d / "inspect.json"))[0]
+              if inspect["Id"] != record["image_id"]:
+                  print(f"::error::{service}: artifact id {inspect['Id']} != manifest {record['image_id']}"); sys.exit(1)
+              subprocess.run(f"gunzip -c '{d / 'image.tar.gz'}' | docker load", shell=True, check=True)
+              local_tag = f"parkio/{service}:candidate-{sha12}"
+              loaded = run("docker", "image", "inspect", "-f", "{{.Id}}", local_tag).strip()
+              if loaded != record["image_id"]:
+                  print(f"::error::{service}: loaded {loaded} != manifest {record['image_id']}"); sys.exit(1)
+              tags = [f"{base}/{service}:candidate-{sha12}", f"{base}/{service}:sha-{sha}"]
+              for tag in tags:
+                  run("docker", "tag", local_tag, tag)
+                  print(run("docker", "push", tag))
+              # Registry evidence: the manifest digest, platform and config digest (= image id).
+              raw = json.loads(run("docker", "buildx", "imagetools", "inspect", tags[1], "--raw"))
+              digest = run("docker", "buildx", "imagetools", "inspect", tags[1], "--format", "{{json .Manifest.Digest}}").strip().strip('"')
+              config_digest = (raw.get("config") or {}).get("digest")
+              if raw.get("manifests"):
+                  print(f"::error::{service}: a multi-platform index was pushed; expected a single linux/amd64 manifest"); sys.exit(1)
+              if config_digest != record["image_id"]:
+                  print(f"::error::{service}: registry config digest {config_digest} != image id {record['image_id']}"); sys.exit(1)
+              results.append({"service": service, "source_sha": sha, "image_id": record["image_id"],
+                              "tags": tags, "digest": digest, "config_digest": config_digest,
+                              "pin": f"{base}/{service}@{digest}", "platform": record["platform"],
+                              "revision_label": record["revision_label"], "trivy": record.get("trivy")})
+              print(f"{service}: {base}/{service}@{digest}")
+          json.dump({"schema": "parkio.candidate-publish/v1", "source_sha": sha, "run_id": manifest["run"]["id"],
+                     "published": results}, open("published/published-digests.json", "w"), indent=2)
+          lines = ["# Published candidates", "", f"Source `{sha}` from Candidate images run {manifest['run']['id']}", "",
+                   "| Service | Pin | Config digest (= image id) |", "|---|---|---|"]
+          lines += [f"| {r['service']} | `{r['pin']}` | `{r['config_digest']}` |" for r in results]
+          lines += ["", "Next steps (separate authorization): pin PR with these digests, deploy, rollback rehearsal."]
+          Path("published/SUMMARY.md").write_text("\n".join(lines) + "\n")
+          PY
+          (cd published && sha256sum published-digests.json SUMMARY.md > SHA256SUMS)
+          cat published/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the publication record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-published-${{ env.sha12 }}
+          path: published/
+          retention-days: 90
