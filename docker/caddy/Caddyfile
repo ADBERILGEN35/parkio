@@ -75,6 +75,9 @@
 	handle {
 		reverse_proxy gateway-service:8080 {
 			header_up X-Parkio-Edge-Relay 1
+			# Caddy replaces X-Forwarded-* for untrusted clients but passes RFC 7239 Forwarded through,
+			# which Spring prefers; drop it so the client address comes only from Caddy (CL-F15).
+			header_up -Forwarded
 		}
 	}
 }

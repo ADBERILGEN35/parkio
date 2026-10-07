@@ -63,6 +63,26 @@ class AuthLoginMetricsTest {
         assertThat(registry.counter("login_lockouts").count()).isZero();
     }
 
+    /** CL-F15: the gateway-resolved client IP reaches the service only on a gateway-authenticated request. */
+    @Test
+    void loginPassesTheGatewayResolvedClientKeyToTheService() {
+        org.mockito.ArgumentCaptor<LoginCommand> command = org.mockito.ArgumentCaptor.forClass(LoginCommand.class);
+        when(authService.login(command.capture())).thenThrow(new AuthException(AuthErrorCode.INVALID_CREDENTIALS));
+
+        MockHttpServletRequest viaGateway = new MockHttpServletRequest();
+        viaGateway.setAttribute(com.parkio.auth.infrastructure.web.GatewayAuthFilter.GATEWAY_AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
+        viaGateway.addHeader("X-Parkio-Client-Ip", "198.51.100.7");
+        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), viaGateway))
+                .isInstanceOf(AuthException.class);
+        assertThat(command.getValue().clientKey()).isEqualTo("198.51.100.7");
+
+        MockHttpServletRequest direct = new MockHttpServletRequest();
+        direct.addHeader("X-Parkio-Client-Ip", "203.0.113.99");
+        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), direct))
+                .isInstanceOf(AuthException.class);
+        assertThat(command.getValue().clientKey()).isEqualTo(com.parkio.auth.application.LoginFailureTracker.UNKNOWN_CLIENT);
+    }
+
     @Test
     void failedLoginIncrementsFailureCounterAndRethrows() {
         when(authService.login(any(LoginCommand.class)))

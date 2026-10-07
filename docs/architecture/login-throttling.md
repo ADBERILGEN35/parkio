@@ -22,7 +22,11 @@ e-mail could keep that account locked from anywhere, and a password reset did no
   An unresolved address has no `InetAddress`, and until this change `ClientIpResolver` returned null
   for it: in hosted-beta every anonymous client shared the `unknown` bucket of the gateway's per-IP
   rate limits and of the waitlist IP limit. The resolver now reads the host string as an IP literal
-  (never DNS; host names are refused), which fixes those limits as well. Caddy, the only internet-facing ingress, replaces
+  (never DNS; host names are refused), which fixes those limits as well.
+- The stock transformer prefers the RFC 7239 `Forwarded` header over `X-Forwarded-For`, and Caddy
+  passes `Forwarded` through unchanged. The gateway therefore replaces Boot's transformer with
+  `EdgeOwnedForwardedHeaderTransformer`, which drops any `Forwarded` header first, and Caddy also
+  removes it (`header_up -Forwarded`); only the edge-owned `X-Forwarded-For` can set the address. Caddy, the only internet-facing ingress, replaces
   `X-Forwarded-For` with the connecting client's address for untrusted clients, so the value the
   gateway resolves is the edge-observed client. In that mode the gateway's trusted-proxy list plays no
   part; the edge owns the header. A caller that reached the gateway without passing Caddy could pick
@@ -67,10 +71,18 @@ own (24 h and at most 1 h).
 - Clients behind one shared NAT address share a pair per account: a wrong-password streak by one of
   them delays the others for the same account, bounded by the tiers above. Other accounts from the
   same address are unaffected.
-- A distributed attacker with many addresses can keep an account at the soft cap; the legitimate user
-  then waits 10 s after each attacker failure while the attack lasts. The gateway's per-IP rate limit
-  and the 1 h pair tier raise the attacker's cost; a challenge (P3 item 4) is the product-level answer
-  and is not part of this change.
+- A distributed attacker with many addresses can keep an account at the soft cap. Each attacker
+  failure restarts the account's 10 s wait, so an attacker failing about every 10 s gets about 360
+  guesses per hour per account and, while that lasts, the owner's attempts can all land inside a
+  wait and be refused (the review measured 0 of 360 owner attempts admitted in such an hour). The
+  e-mail-only lock it replaces allowed about 20 guesses in the first hour and then locked the owner
+  out for an hour, from any single client. The gateway's per-IP rate limit and the 1 h pair tier
+  raise the attacker's cost; a challenge or a trusted-device exemption (P3 item 4) is the
+  product-level answer and is not part of this change. Owner decision: keep these parameters
+  (`LoginThrottlePolicy`: cap 50 per hour, 10 s soft delay) or change them.
+- IPv6 clients are keyed by the full /128 address, so an attacker holding one /64 can present many
+  client keys and bypass the per-client tiers (the account soft cap still applies). Keying IPv6 by
+  /64 would close that at the cost of shared buckets on shared /64 networks; owner decision.
 - No challenge, device binding or notification to the account owner yet.
 
 ## Tests

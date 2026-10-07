@@ -349,6 +349,12 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
     `X-Forwarded-For` may be trusted; empty = trust nothing (key on the socket peer);
   - the client is the **right-most non-proxy** hop, so a forged left-most value is never selected
     (spoofing-resistant even if the proxy appends); malformed input fails closed to the socket peer.
+  - With `SERVER_FORWARD_HEADERS_STRATEGY=framework` (hosted-beta) the trusted-proxy walk above does
+    not run: Spring's transformer has already set the peer to the **first** `X-Forwarded-For` entry
+    and removed the header. That is safe only because Caddy replaces `X-Forwarded-For` for untrusted
+    clients and the gateway publishes no port; the gateway's transformer also ignores a
+    client-supplied `Forwarded` header, which Spring would otherwise prefer and Caddy passes through
+    (CL-F15; `docs/architecture/login-throttling.md`).
   - For public prod with a managed LB, add the LB's egress range to `PARKIO_TRUSTED_PROXIES`.
 - **Internal gateway-secret rotation.** *(Implemented.)* Rotate `PARKIO_GATEWAY_INTERNAL_SECRET`
   without downtime via a **dual-accept** window: set `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS`

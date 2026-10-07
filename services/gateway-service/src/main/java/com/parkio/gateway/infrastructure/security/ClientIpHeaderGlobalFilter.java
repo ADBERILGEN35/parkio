@@ -18,11 +18,12 @@ import reactor.core.publisher.Mono;
  *
  * <p>The value comes from {@link ClientIpResolver}: the peer address, or the right-most
  * untrusted {@code X-Forwarded-For} hop when the peer is a configured trusted proxy. With
- * {@code server.forward-headers-strategy=framework} (hosted-beta) Spring's
- * {@code ForwardedHeaderTransformer} has already replaced the peer address with the
- * {@code X-Forwarded-For} value and removed the header before this filter runs; the edge
- * proxy (Caddy) owns that header and replaces whatever an internet client sent, so the
- * value here is the edge-observed client. When no address can be determined the header is
+ * {@code server.forward-headers-strategy=framework} (hosted-beta) the transformer
+ * ({@code EdgeOwnedForwardedHeaderTransformer}) has already replaced the peer address with the
+ * first {@code X-Forwarded-For} entry and removed the forwarding headers before this filter runs;
+ * it ignores a client-supplied RFC 7239 {@code Forwarded} header, and the edge (Caddy) owns
+ * {@code X-Forwarded-For} and replaces whatever an internet client sent, so the value here is the
+ * edge-observed client. When no address can be determined the header is
  * left absent and the consumer falls back to its shared bucket; nothing fails open.
  */
 @Component

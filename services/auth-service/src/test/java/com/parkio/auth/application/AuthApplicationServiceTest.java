@@ -387,6 +387,28 @@ class AuthApplicationServiceTest {
                 .isNotBlank();
     }
 
+    /** Inside a transaction the counters are cleared at commit, not before (and not on rollback). */
+    @Test
+    void passwordResetClearsTheCountersOnlyWhenTheTransactionCommits() {
+        registerVerified("reset@example.com");
+        assertThatThrownBy(() -> service.login(new LoginCommand("reset@example.com", "wrong-password", OTHER_CLIENT)))
+                .isInstanceOf(AuthException.class);
+        service.forgotPassword(new ForgotPasswordCommand("reset@example.com"));
+
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.resetPassword(new ResetPasswordCommand(passwordResetEmailSender.tokenFor("reset@example.com"), "FreshStrong123"));
+            assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
+
+            for (var synchronization : org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+            assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isZero();
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
     /** Clearing the counters is best effort: an unavailable throttle store does not fail a reset. */
     @Test
     void passwordResetSucceedsWhenTheThrottleStoreCannotBeCleared() {

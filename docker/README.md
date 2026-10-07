@@ -241,9 +241,13 @@ gateway derives the anonymous rate-limit client IP itself, in a **trusted-proxy-
 > actual proxy/Docker ranges; do **not** add public ranges. Leaving it empty (the default
 > outside hosted-beta) means the gateway trusts nothing and keys on the socket peer.
 
-Caddy needs no extra config here: by default it sets `X-Forwarded-For` to the real client and
-does not trust client-supplied values. Only add Caddy `trusted_proxies` if Caddy itself runs
-behind another load balancer (not the case for a single VPS).
+Caddy sets `X-Forwarded-For` to the real client and does not trust client-supplied values; it
+does pass the RFC 7239 `Forwarded` header through, so the gateway block removes it
+(`header_up -Forwarded`) and the gateway ignores it too (`EdgeOwnedForwardedHeaderTransformer`).
+Under `SERVER_FORWARD_HEADERS_STRATEGY=framework` (hosted-beta) Spring sets the peer to the first
+`X-Forwarded-For` entry before the trusted-proxy walk above can run, which is why the edge must own
+that header. Only add Caddy `trusted_proxies` if Caddy itself runs behind another load balancer (not
+the case for a single VPS).
 
 ### DNS
 Point **three** records at the VPS public IP:
