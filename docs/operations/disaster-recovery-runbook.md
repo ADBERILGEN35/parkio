@@ -47,10 +47,10 @@ start any application.
 
 ## RPO / RTO
 
-**Not measured, and no RPO or RTO is offered.** Backups run nightly, but while production
-restore is BLOCKED no recovery time or recovery point can be promised. Numbers are recorded
-here only after the U02 measured, disposable full-recovery drill (host/state loss → fresh
-environment → erasure-safe recovery), together with the conditions they were measured under.
+**No production RPO or RTO is offered.** Backups run nightly, but while production restore is
+BLOCKED no recovery time or recovery point can be promised. The U02 measured, disposable
+full-recovery drill (host/state loss → fresh environment → erasure-safe recovery) has run; its
+numbers are below, with the conditions they were measured under, and describe that drill only.
 Proposed targets awaiting operator review are in
 [backup-restore-readiness.md](backup-restore-readiness.md) §9; they are not commitments. RPO/RTO
 approval remains NOT APPROVED ([backup-restore.md](backup-restore.md)).
@@ -64,14 +64,27 @@ gives per-phase timings:
 - RPO (data): host loss minus the backup's stamp time;
 - RPO (erasures): durably recorded erasures the replay did not apply.
 
+Measured by the CI drill on the reviewed #296 head (run
+[37634422144](https://github.com/ADBERILGEN35/parkio/actions/runs/37634422144), 2026-10-07, head
+`fad96778`, PASS 46/46 checks):
+
 | Measure | Value | Conditions |
 |---------|-------|------------|
-| RTO | _pending: from the final CI drill on the reviewed #296 head_ | |
-| RPO (data) | _pending_ | |
-| RPO (erasures) | _pending_ | |
+| RTO | 234 s (3 min 54 s) | End of host loss to the expose gate OPEN, through the fresh isolated environment (9 s), four negative evidence variants (15 s), the verified restore of 10 databases and the media bucket (91 s), starting the eight participants and the replay to COMPLETE (115 s) and the checks. It **includes the drill-only phases**: the negative variants and the checks (about 20 s). It **excludes the image build** (1081 s in this run), done before the host loss |
+| RPO (data) | 165 s | **The drill's own backup-to-loss interval** (host loss minus the backup's stamp time), **not a production RPO**: in production the interval depends on the backup schedule and when the loss happens. Everything written after the backup is lost; in this drill that is only the two later erasures, which the evidence replays |
+| RPO (erasures) | 0 | Durably recorded erasures the replay did not apply: none of the three. **Relative to the trusted evidence set only** ("erasure coverage verified through sequence 4": a checkpoint plus a pending record above it). No time-based coverage and no absence of later erasures is claimed |
 
-These numbers describe the isolated drill only. They are not a production commitment: production
-recovery stays BLOCKED, and Slack replay and the NR budget (#101/#103/#104, HOLD) are not covered.
+Conditions of the run:
+- **Runner:** GitHub-hosted ubuntu-24.04 with 4 vCPU and 15.6 GiB; Docker 28.0.4, Compose 2.38.2.
+- **Images:** built from the head, never pushed. MinIO and mc are the pinned GHCR images. The databases run postgres:16.4-alpine, and postgis/postgis:16-3.4 for parking and for the isolated target.
+- **Data:** synthetic. Four users, one row per participant and one media object each. Three were erased: one before the backup, two after it.
+- **Evidence:** a single-node off-host evidence store (MinIO with object lock), exported as a bundle by the test-scope drill tool. A production export procedure is a later owner decision.
+
+These numbers describe the isolated drill only, at this data volume. Real volumes, a production
+host or a managed database would differ, so they are not a production commitment: production
+recovery stays BLOCKED, `verifiedCoverage` stays false, and Slack replay and the NR budget
+(#101/#103/#104, HOLD) are not covered. Re-measure with the drill when its executable inputs
+change.
 
 | Asset | Recovery on current code |
 |-------|--------------------------|
