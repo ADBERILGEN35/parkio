@@ -40,7 +40,9 @@ public class WaitlistController {
     private static final WaitlistAcceptedResponse CONFIRMED = new WaitlistAcceptedResponse("confirmed");
     private static final WaitlistAcceptedResponse WITHDRAWN = new WaitlistAcceptedResponse("withdrawn");
     private static final String NO_STORE = "no-store";
-    private static final String CSV_HEADER = "email,fullName,city,role,source,createdAt,consentTimestamp\n";
+    /** CL-F18 appended consentTextVersion and confirmedAt after the original columns. */
+    private static final String CSV_HEADER =
+            "email,fullName,city,role,source,createdAt,consentTimestamp,consentTextVersion,confirmedAt\n";
 
     private final WaitlistApplicationService waitlistService;
     private final ClientIpResolver clientIpResolver;
@@ -59,6 +61,8 @@ public class WaitlistController {
         SubmitWaitlistCommand command = new SubmitWaitlistCommand(
                 request.email(),
                 request.consentTimestamp(),
+                request.consent(),
+                request.consentTextVersion(),
                 request.fullName(),
                 request.city(),
                 request.role(),
@@ -170,7 +174,9 @@ public class WaitlistController {
                     .append(WaitlistCsv.cell(row.role())).append(',')
                     .append(WaitlistCsv.cell(row.source())).append(',')
                     .append(WaitlistCsv.cell(row.createdAt().toString())).append(',')
-                    .append(WaitlistCsv.cell(row.consentTimestamp().toString())).append('\n');
+                    .append(WaitlistCsv.cell(row.consentTimestamp().toString())).append(',')
+                    .append(WaitlistCsv.cell(row.consentTextVersion())).append(',')
+                    .append(WaitlistCsv.cell(row.confirmedAt().toString())).append('\n');
         }
         return csv.toString();
     }

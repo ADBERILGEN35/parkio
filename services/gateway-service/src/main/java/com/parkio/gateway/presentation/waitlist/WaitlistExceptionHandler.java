@@ -1,6 +1,7 @@
 package com.parkio.gateway.presentation.waitlist;
 
 import com.parkio.gateway.application.waitlist.WaitlistAdmissionsDisabledException;
+import com.parkio.gateway.application.waitlist.WaitlistConsentException;
 import com.parkio.gateway.application.waitlist.WaitlistConsentTimestampException;
 import com.parkio.gateway.application.waitlist.WaitlistEmailDeliveryException;
 import com.parkio.gateway.application.waitlist.WaitlistExportFilterException;
@@ -36,6 +37,15 @@ public class WaitlistExceptionHandler {
         boolean emailField = ex.getFieldErrors().stream()
                 .map(FieldError::getField)
                 .anyMatch("email"::equals);
+        boolean consentVersionField = ex.getFieldErrors().stream()
+                .map(FieldError::getField)
+                .anyMatch("consentTextVersion"::equals);
+        if (consentVersionField && !emailField && !consentField) {
+            return Mono.just(error(
+                    exchange,
+                    "WAITLIST_CONSENT_VERSION_INVALID",
+                    "Waitlist consent text version is missing or not a registered version."));
+        }
         if (consentField && !emailField) {
             return Mono.just(error(
                     exchange,
@@ -55,6 +65,16 @@ public class WaitlistExceptionHandler {
                 exchange,
                 "WAITLIST_CONSENT_TIMESTAMP_INVALID",
                 "Waitlist consent timestamp is missing or outside the accepted time window."));
+    }
+
+    @ExceptionHandler(WaitlistConsentException.class)
+    public Mono<ApiError> consent(WaitlistConsentException ex, ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+        String code = ex.code();
+        String message = "WAITLIST_CONSENT_REQUIRED".equals(code)
+                ? "Waitlist consent is required."
+                : "Waitlist consent text version is missing or not a registered version.";
+        return Mono.just(error(exchange, code, message));
     }
 
     @ExceptionHandler(WaitlistFullNameException.class)

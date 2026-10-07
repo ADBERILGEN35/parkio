@@ -137,6 +137,9 @@ services:
       PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENVIRONMENT:-local}
       PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION: ${PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION:-1}
       PARKIO_WAITLIST_FULL_NAME_REQUIRED: ${PARKIO_WAITLIST_FULL_NAME_REQUIRED:-false}
+      # CL-F18: a submission must carry consent=true and a registered consentTextVersion (default).
+      # false only for the deploy window in which an older marketing bundle is still live.
+      PARKIO_WAITLIST_CONSENT_REQUIRED: ${PARKIO_WAITLIST_CONSENT_REQUIRED:-true}
       # Row cap of the confirmed CSV export; a larger match is cut and reported as truncated.
       PARKIO_WAITLIST_EXPORT_MAX_ROWS: ${PARKIO_WAITLIST_EXPORT_MAX_ROWS:-50000}
       PARKIO_AUTH_JWKS_URI: http://auth-service:8081/api/v1/auth/.well-known/jwks.json

@@ -105,6 +105,8 @@ GATEWAY_ALLOWED = {
     "PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION",
     "PARKIO_WAITLIST_FULL_NAME_REQUIRED",
     "PARKIO_WAITLIST_EXPORT_MAX_ROWS",
+    # CL-F18: consent text version required (default true; false only for a marketing deploy window).
+    "PARKIO_WAITLIST_CONSENT_REQUIRED",
 }
 # CL-F17 / PRIV-002: location-log retention (fail-closed default off; enabling is a release step).
 PARKING_ALLOWED = {
@@ -205,6 +207,7 @@ check("gateway ops disabled by default", genv.get("PARKIO_WAITLIST_OPS_NOTIFICAT
 check("gateway contract version mapped", genv.get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_CONTRACT_VERSION") in {"1", "2"})
 check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_REQUIRED") in {"true", "false"})
 check("gateway export row cap mapped", genv.get("PARKIO_WAITLIST_EXPORT_MAX_ROWS") == "50000")
+check("gateway consent text version required by example/default", genv.get("PARKIO_WAITLIST_CONSENT_REQUIRED") == "true")
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
 penv = dis["services"].get("parking-service", {}).get("environment", {})
 check("parking location-log retention OFF by example/default",

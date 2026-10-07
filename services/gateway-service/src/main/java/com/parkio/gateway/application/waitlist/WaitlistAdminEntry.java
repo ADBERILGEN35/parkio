@@ -16,5 +16,9 @@ public record WaitlistAdminEntry(
         String source,
         Instant createdAt,
         Instant confirmedAt,
-        Instant withdrawnAt) {
+        Instant withdrawnAt,
+        /** Server receipt time of the consented submission (CL-F18). */
+        Instant consentTimestamp,
+        /** Consent text version the subscriber accepted, or a sentinel for unversioned rows (CL-F18). */
+        String consentTextVersion) {
 }

@@ -353,6 +353,10 @@ parkio:
     admissions-enabled: ${PARKIO_WAITLIST_ADMISSIONS_ENABLED:false}
     # Default false for Hostinger/API rollout compatibility; flip true after marketing form ships.
     full-name-required: ${PARKIO_WAITLIST_FULL_NAME_REQUIRED:false}
+    # CL-F18: submissions must carry consent=true and a registered consentTextVersion (400 otherwise).
+    # Set false only for the deploy window in which the live marketing site does not send them yet;
+    # such submissions are then recorded as consent_text_version=unversioned-client.
+    consent-required: ${PARKIO_WAITLIST_CONSENT_REQUIRED:true}
     hash-secret: ${PARKIO_WAITLIST_HASH_SECRET:${PARKIO_GATEWAY_INTERNAL_SECRET:}}
     confirm-base-url: ${PARKIO_WAITLIST_CONFIRM_URL:https://parkio.dev/waitlist/confirm/}
     withdraw-base-url: ${PARKIO_WAITLIST_WITHDRAW_URL:https://parkio.dev/waitlist/unsubscribe/}

@@ -90,7 +90,7 @@ class WaitlistExportStreamingTest {
         FakeRepository(int total) {
             for (int i = 0; i < total; i++) {
                 rows.add(new WaitlistExportRow(new UUID(0, i), FROM.plusSeconds(i), "user" + i + "@parkio.dev",
-                        null, null, null, "parkio.dev-landing", FROM, FROM));
+                        null, null, null, "parkio.dev-landing", FROM, FROM, "waitlist-consent-v1"));
             }
             when(mock.countConfirmedForExport(any(), any())).thenReturn((long) total);
             when(mock.exportConfirmedPage(any(), any(), any(), anyInt())).thenAnswer(invocation -> {
