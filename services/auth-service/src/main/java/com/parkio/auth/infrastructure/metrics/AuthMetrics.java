@@ -25,7 +25,7 @@ public class AuthMetrics {
                 .description("Failed logins (bad credentials, suspended account, ...)")
                 .register(registry);
         this.loginLockout = Counter.builder("login_lockouts")
-                .description("Login attempts blocked by account lockout")
+                .description("Login attempts refused by the throttle (per-client progressive delay or account soft delay)")
                 .register(registry);
     }
 

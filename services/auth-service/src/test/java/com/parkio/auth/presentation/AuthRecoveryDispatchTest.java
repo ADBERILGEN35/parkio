@@ -13,6 +13,7 @@ import com.parkio.auth.application.command.ForgotPasswordCommand;
 import com.parkio.auth.application.command.ResendVerificationCommand;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
+import com.parkio.auth.infrastructure.web.ClientIdentityResolver;
 import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
 import com.parkio.auth.presentation.dto.ResendVerificationRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -32,7 +33,8 @@ class AuthRecoveryDispatchTest {
     private final AuthApplicationService authService = mock(AuthApplicationService.class);
     private final List<Runnable> dispatched = new ArrayList<>();
     private final AuthController controller = new AuthController(
-            authService, new AuthMetrics(new SimpleMeterRegistry()), refreshCookieProperties(), dispatched::add);
+            authService, new AuthMetrics(new SimpleMeterRegistry()), refreshCookieProperties(), dispatched::add,
+            new ClientIdentityResolver());
 
     @Test
     void forgotPasswordAnswersBeforeTheWorkRuns() {

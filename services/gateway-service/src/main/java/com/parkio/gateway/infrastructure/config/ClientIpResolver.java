@@ -109,7 +109,17 @@ public class ClientIpResolver {
 
     private static InetAddress remoteAddress(ServerHttpRequest request) {
         InetSocketAddress remote = request.getRemoteAddress();
-        return remote != null ? remote.getAddress() : null;
+        if (remote == null) {
+            return null;
+        }
+        if (remote.getAddress() != null) {
+            return remote.getAddress();
+        }
+        // Under server.forward-headers-strategy=framework (hosted-beta), Spring's
+        // ForwardedHeaderTransformer replaces the peer with InetSocketAddress.createUnresolved(<first
+        // X-Forwarded-For entry>), whose getAddress() is null. Read the host string as an IP literal
+        // (never DNS); without this every client resolved to null and shared one bucket (CL-F15).
+        return parseIpLiteral(remote.getHostString());
     }
 
     private static String normalize(InetAddress addr) {

@@ -12,6 +12,12 @@ public final class PlatformHeaders {
     public static final String USER_EMAIL = "X-User-Email";
     public static final String USER_ROLES = "X-User-Roles";
     public static final String GATEWAY_AUTH = "X-Gateway-Auth";
+    /**
+     * Client IP as the gateway resolved it at the edge (CL-F15). The gateway strips any
+     * client-supplied copy and injects the resolved value; downstream services may key
+     * per-client throttling on it, and only on gateway-authenticated requests.
+     */
+    public static final String CLIENT_IP = "X-Parkio-Client-Ip";
     public static final String CORRELATION_ID = "X-Correlation-Id";
     public static final String CORRELATION_ID_ATTRIBUTE = "parkio.correlationId";
     public static final String TOKEN_SESSION_EPOCH_ATTRIBUTE = "parkio.tokenSessionEpoch";

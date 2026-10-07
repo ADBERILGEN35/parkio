@@ -34,6 +34,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
+import com.parkio.auth.infrastructure.web.ClientIdentityResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -72,15 +73,18 @@ public class AuthController {
     private final AuthMetrics authMetrics;
     private final RefreshCookieProperties refreshCookie;
     private final Executor recoveryDispatch;
+    private final ClientIdentityResolver clientIdentity;
 
     public AuthController(AuthApplicationService authService,
                           AuthMetrics authMetrics,
                           RefreshCookieProperties refreshCookie,
-                          @Qualifier(AuthRecoveryDispatchConfig.EXECUTOR) Executor recoveryDispatch) {
+                          @Qualifier(AuthRecoveryDispatchConfig.EXECUTOR) Executor recoveryDispatch,
+                          ClientIdentityResolver clientIdentity) {
         this.authService = authService;
         this.authMetrics = authMetrics;
         this.refreshCookie = refreshCookie;
         this.recoveryDispatch = recoveryDispatch;
+        this.clientIdentity = clientIdentity;
     }
 
     @Operation(summary = "Register a new account")
@@ -104,7 +108,8 @@ public class AuthController {
         validateOriginIfPresent(httpRequest);
         AuthResult result;
         try {
-            result = authService.login(new LoginCommand(request.email(), request.password()));
+            result = authService.login(new LoginCommand(
+                    request.email(), request.password(), clientIdentity.clientKey(httpRequest)));
         } catch (RuntimeException ex) {
             authMetrics.loginFailed();
             if (ex instanceof LoginLockedException) {
