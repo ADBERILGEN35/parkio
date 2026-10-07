@@ -53,6 +53,8 @@ on:
       - "docs/architecture/production-readiness.md"
       - "docs/architecture/wp-05-implementation-plan.md"
       - ".github/workflows/observability-validation.yml"
+      - "scripts/alerting-live-backup-stale-acceptance.sh"
+      - "scripts/test-alerting-live-backup-stale-acceptance.sh"
   pull_request:
     paths:
       - "docker/prometheus/**"
@@ -103,6 +105,8 @@ on:
       - "docs/architecture/production-readiness.md"
       - "docs/architecture/wp-05-implementation-plan.md"
       - ".github/workflows/observability-validation.yml"
+      - "scripts/alerting-live-backup-stale-acceptance.sh"
+      - "scripts/test-alerting-live-backup-stale-acceptance.sh"
   workflow_dispatch:
 
 concurrency:
@@ -305,6 +309,13 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+
+      - name: Live backup-stale acceptance tooling (fake Prometheus and Alertmanager, no host)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/alerting-live-backup-stale-acceptance.sh scripts/test-alerting-live-backup-stale-acceptance.sh
+          bash -n scripts/alerting-live-backup-stale-acceptance.sh
+          ./scripts/test-alerting-live-backup-stale-acceptance.sh
 
       - name: Non-root volume migration tool (disposable volumes)
         run: |

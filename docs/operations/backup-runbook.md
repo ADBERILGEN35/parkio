@@ -143,6 +143,8 @@ PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-offsite.sh
 
 Alerts (see [alerting.md](./alerting.md)): **BackupFailed**, **BackupStale**, **BackupOffsiteFailed**, **BackupOffsiteStale**, **BackupEncryptionDisabledInProduction**, **BackupTelemetryAbsent** (PA-16: node-exporter up but production backup series gone), **BackupRequiredSeriesMissing**, **BackupTextfileCollectorError**. Do not put credentials or secret paths in labels.
 
+The authorized live acceptance of `BackupStale` delivery (synthetic second textfile for an unused production scope, FIRING and RESOLVED exactly once) is planned in [alerting-live-backup-stale-acceptance.md](./alerting-live-backup-stale-acceptance.md).
+
 ## Failed backups {#failed-backups}
 
 1. Read `/var/log/parkio-backup.log` or script stdout.
