@@ -55,7 +55,9 @@ Clearing:
 - a successful login clears that client's pair and the account-wide counter and delay; other clients'
   pairs (an attacker's) keep their delays;
 - a completed password reset clears every client's pair for the account (the tracker keeps a set of
-  client digests per account for this) and the account-wide counter.
+  client digests per account for this) and the account-wide counter, once the reset has committed.
+  This is best effort: if the throttle store is unavailable the reset still succeeds and the counters
+  expire on their own (24 h / 1 h).
 
 Pre-CL-F15 keys (`auth:login:failures:*`, `auth:login:lock:*`) are no longer read and expire on their
 own (24 h and at most 1 h).

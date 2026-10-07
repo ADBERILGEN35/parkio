@@ -47,6 +47,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 
 /**
  * Authentication use cases: register, login, refresh, logout and current-user
@@ -316,9 +318,35 @@ public class AuthApplicationService {
                 user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
         // The account's owner proved control of the mailbox and chose a new password: the
         // failures counted against the old one, from every client, no longer say anything (CL-F15).
-        loginFailures.clearAccount(user.email());
+        clearLoginThrottleAfterCommit(user.email(), user.id());
         log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
+    }
+
+    /**
+     * Clears the account's login-throttle counters once the password reset has committed. Best effort:
+     * the throttle store being unavailable must not undo or fail a completed reset, and the counters
+     * expire on their own (CL-F15).
+     */
+    private void clearLoginThrottleAfterCommit(String email, UUID userId) {
+        Runnable clear = () -> {
+            try {
+                loginFailures.clearAccount(email);
+            } catch (RuntimeException ex) {
+                log.warn("Login throttle counters not cleared after a password reset; they expire on their own; userId={}",
+                        userId);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    clear.run();
+                }
+            });
+        } else {
+            clear.run();
+        }
     }
 
     public void changePassword(ChangePasswordCommand command) {

@@ -283,18 +283,29 @@ class AuthApplicationServiceTest {
     @Test
     void failuresFromAnotherClientDoNotThrottleTheUser() {
         registerVerified("user@example.com");
-        for (int i = 0; i < 20; i++) {
-            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", OTHER_CLIENT)))
-                    .isInstanceOf(AuthException.class);
-        }
-        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofHours(1));
+        // The attacker waits out every delay, so all 20 failures count and its pair reaches the 1 h tier.
+        failWaitingOutEachDelay("user@example.com", OTHER_CLIENT, 20);
+        assertThat(loginFailures.failureCount("user@example.com", OTHER_CLIENT)).isEqualTo(20);
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, clock.instant())).isEqualTo(Duration.ofHours(1));
 
         AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
 
         assertThat(result.accessToken()).isNotBlank();
         // The user's success clears the account-wide counter, not the attacker's own pair.
         assertThat(loginFailures.accountFailureCount("user@example.com")).isZero();
-        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofHours(1));
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, clock.instant())).isEqualTo(Duration.ofHours(1));
+    }
+
+    /** Wrong-password attempts from one client, each made only after that client's current delay has passed. */
+    private void failWaitingOutEachDelay(String email, String client, int failures) {
+        for (int i = 0; i < failures; i++) {
+            Duration wait = loginFailures.retryAfter(email, client, clock.instant());
+            if (!wait.isZero()) {
+                clock.advance(wait.plusSeconds(1));
+            }
+            assertThatThrownBy(() -> service.login(new LoginCommand(email, "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
     }
 
     /** CL-F15 acceptance: brute force from one client is still throttled, progressively. */
@@ -374,6 +385,22 @@ class AuthApplicationServiceTest {
         assertThat(loginFailures.accountFailureCount("reset@example.com")).isZero();
         assertThat(service.login(new LoginCommand("reset@example.com", "FreshStrong123", OTHER_CLIENT)).accessToken())
                 .isNotBlank();
+    }
+
+    /** Clearing the counters is best effort: an unavailable throttle store does not fail a reset. */
+    @Test
+    void passwordResetSucceedsWhenTheThrottleStoreCannotBeCleared() {
+        registerVerified("reset@example.com");
+        assertThatThrownBy(() -> service.login(new LoginCommand("reset@example.com", "wrong-password", OTHER_CLIENT)))
+                .isInstanceOf(AuthException.class);
+        loginFailures.failClearAccount = true;
+
+        service.forgotPassword(new ForgotPasswordCommand("reset@example.com"));
+        service.resetPassword(new ResetPasswordCommand(passwordResetEmailSender.tokenFor("reset@example.com"), "FreshStrong123"));
+
+        loginFailures.failClearAccount = false;
+        assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
+        assertThat(service.login(new LoginCommand("reset@example.com", "FreshStrong123", CLIENT)).accessToken()).isNotBlank();
     }
 
     /** A request without a client key uses the shared unknown-client pair. */
@@ -1440,8 +1467,14 @@ class AuthApplicationServiceTest {
             accountWaitUntil.remove(normalizedEmail);
         }
 
+        /** Simulates the throttle store being unavailable when a reset tries to clear the counters. */
+        boolean failClearAccount;
+
         @Override
         public void clearAccount(String normalizedEmail) {
+            if (failClearAccount) {
+                throw new IllegalStateException("throttle store unavailable");
+            }
             pairFailures.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
             pairWaitUntil.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
             accountFailures.remove(normalizedEmail);
