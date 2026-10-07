@@ -35,6 +35,7 @@ def load(name, relative):
 
 evidence_cli = load("recovery_evidence_cli", "scripts/lib/recovery-evidence.py")
 gate = load("recovery_expose_gate", "scripts/lib/recovery-expose-gate.py")
+inspect_mod = load("restore_isolated_inspect", "scripts/lib/restore-isolated-inspect.py")
 
 
 def trust_document(path, identity=EVIDENCE_IDENTITY):
@@ -231,6 +232,55 @@ class ExposeGateTest(unittest.TestCase):
 
         self.assertEqual(self.state(), "CLOSED")
         self.assertEqual((self.dir / "expose-gate.json").stat().st_mode & 0o077, 0)
+
+
+class SourceBucketTicketTest(unittest.TestCase):
+    """The ticket's sourceBucket (U02, coordinator option A): the stamp's original MinIO bucket,
+    which the media recovery app maps onto the fixture bucket for account erasure only."""
+
+    PROJECT = "parkio-iso-0123456789ab"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.stamp = Path(self.tmp.name)
+        self.write_manifest({"minio": {"bucket": "parkio-media", "objectCount": 1}})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_manifest(self, manifest):
+        (self.stamp / "backup-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    def minio(self, **fields):
+        return {"bucket": f"{self.PROJECT}-media", **fields}
+
+    def test_the_manifest_names_the_source_bucket(self):
+        self.assertEqual(inspect_mod.manifest_source_bucket(str(self.stamp)), "parkio-media")
+        self.write_manifest({"minioOk": 0, "minio": {"objectCount": 0}})
+        self.assertIsNone(inspect_mod.manifest_source_bucket(str(self.stamp)))
+        (self.stamp / "backup-manifest.json").unlink()
+        self.assertIsNone(inspect_mod.manifest_source_bucket(str(self.stamp)))
+
+    def test_only_the_stamps_own_bucket_is_accepted(self):
+        inspect_mod.check_source_bucket(self.minio(sourceBucket="parkio-media"), self.PROJECT, str(self.stamp))
+        inspect_mod.check_source_bucket(self.minio(), self.PROJECT, str(self.stamp))  # absent: no mapping
+        cases = {
+            "parkio-media-other": "minio sourceBucket is not the selected stamp's MinIO bucket",
+            f"{self.PROJECT}-media": "minio sourceBucket is a fixture bucket",
+            f"{self.PROJECT}-other": "minio sourceBucket is a fixture bucket",
+            "": "minio sourceBucket is not a valid bucket name",
+            "Parkio_Media": "minio sourceBucket is not a valid bucket name",
+            None: "minio sourceBucket is not a valid bucket name",
+        }
+        for source, message in cases.items():
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(ValueError, "^" + re.escape(message) + "$"):
+                    inspect_mod.check_source_bucket(self.minio(sourceBucket=source), self.PROJECT, str(self.stamp))
+
+    def test_a_stamp_without_a_minio_bucket_accepts_no_source_bucket(self):
+        self.write_manifest({"minio": {"objectCount": 0}})
+        with self.assertRaisesRegex(ValueError, "not the selected stamp's MinIO bucket"):
+            inspect_mod.check_source_bucket(self.minio(sourceBucket="parkio-media"), self.PROJECT, str(self.stamp))
 
 
 if __name__ == "__main__":

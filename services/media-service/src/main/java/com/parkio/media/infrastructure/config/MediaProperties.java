@@ -168,6 +168,13 @@ public class MediaProperties {
         private Duration writeTimeout = Duration.ofSeconds(10);
         /** End-to-end per-call timeout for MinIO/S3-compatible SDK operations. */
         private Duration callTimeout = Duration.ofSeconds(15);
+        /**
+         * Isolated recovery only (U02): the bucket restored media rows name, which the isolated
+         * restore brought back into the configured bucket under another name. Unset by default.
+         * Honoured only with {@code parkio.privacy.restore-replay.enabled=true} and only on the
+         * account-erasure path; see {@code RestoredSourceBucket}.
+         */
+        private String restoredSourceBucket;
 
         public String getBucket() {
             return bucket;
@@ -247,6 +254,14 @@ public class MediaProperties {
 
         public void setCallTimeout(Duration callTimeout) {
             this.callTimeout = callTimeout;
+        }
+
+        public String getRestoredSourceBucket() {
+            return restoredSourceBucket;
+        }
+
+        public void setRestoredSourceBucket(String restoredSourceBucket) {
+            this.restoredSourceBucket = restoredSourceBucket;
         }
     }
 }

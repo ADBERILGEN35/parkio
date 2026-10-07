@@ -135,6 +135,23 @@ exactly one binding per job), and the worker queues `UserErasureRestoreAcknowled
 job id as event id, in the transaction that deletes the job once every stored object of the user
 is confirmed gone. A redelivery reopens the same job; another attempt opens its own.
 
+**Media in an isolated recovery: the restored source bucket (recovery only).** The isolated
+restore brings the backup's objects back into the #121 ticket's own bucket (`<project>-media`;
+the ticket refuses any other name). The restored `media_files` and write-ledger rows still name
+the bucket they were written to. Media deletes and confirms only in its configured bucket, so an
+isolated recovery sets `parkio.media.storage.restored-source-bucket`
+(`PARKIO_MEDIA_STORAGE_RESTORED_SOURCE_BUCKET`) to the backup's bucket. The drill's recovery
+overlay sets it from the manifest's bucket, through the ticket, for the media recovery app only.
+- **Unset by default.** It is honoured only with `parkio.privacy.restore-replay.enabled=true`.
+- **Startup refuses** it when restore replay is off, when it is empty or not an S3 bucket name,
+  and when it equals the configured bucket. It is never ignored silently.
+- **Erasure listing only.** A key named in the source bucket is listed in the configured bucket,
+  and the versions found carry the configured bucket, so version deletes stay strict. Uploads,
+  reads, presigned URLs and listings never use it. A row naming any third bucket is still refused,
+  and its deletion stays unconfirmed: no `SUCCESS`.
+- **Restored rows are never rewritten.** The mapping is configuration of the recovery app, not a
+  change to the restored data.
+
 ## Recovery-replay command (owner decision P6)
 
 The one entry point that starts a replay. It is a one-shot command, run only by the isolated

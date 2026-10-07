@@ -393,6 +393,35 @@ def verify_stamp(ticket: dict, stamp_dir: str) -> None:
         fail("isolated-fixture ticket stamp does not match the selected stamp")
 
 
+# S3 bucket naming, as the media service checks parkio.media.storage.restored-source-bucket.
+SOURCE_BUCKET_RE = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
+
+
+def manifest_source_bucket(stamp_dir: str) -> str | None:
+    """The bucket the stamp's MinIO backup came from (backup-manifest.json minio.bucket), if any."""
+    try:
+        manifest = json.loads((Path(stamp_dir) / "backup-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    bucket = (manifest.get("minio") or {}).get("bucket") if isinstance(manifest, dict) else None
+    return bucket if isinstance(bucket, str) and bucket else None
+
+
+def check_source_bucket(minio: dict, project: str, stamp_dir: str) -> None:
+    """U02 isolated recovery: the ticket's sourceBucket names the stamp's original bucket, which
+    the media recovery app maps onto the fixture bucket for account erasure only. It must equal
+    the bound stamp's manifest bucket, be a valid bucket name, and never be a fixture bucket."""
+    if "sourceBucket" not in minio:
+        return
+    source = minio.get("sourceBucket")
+    if not isinstance(source, str) or not SOURCE_BUCKET_RE.fullmatch(source):
+        fail("minio sourceBucket is not a valid bucket name")
+    if source == minio.get("bucket") or source.startswith(project):
+        fail("minio sourceBucket is a fixture bucket")
+    if source != manifest_source_bucket(stamp_dir):
+        fail("minio sourceBucket is not the selected stamp's MinIO bucket")
+
+
 def verify_daemon(ticket: dict, live: dict) -> None:
     for key in ("dockerContext", "dockerHost", "dockerEngineId"):
         if ticket.get(key) != live.get(key):
@@ -479,6 +508,7 @@ def validate_ticket_live(ticket_path: str, stamp_dir: str) -> dict:
             fail("minio bucket is not a fixture bucket")
         if minio.get("volumeName") != state["volumeName"]:
             fail("minio volume drifted")
+        check_source_bucket(minio, project, stamp_dir)
     return ticket
 
 
@@ -583,6 +613,7 @@ def resolve_minio(ticket_path: str, stamp_dir: str) -> dict:
         "aliasHost": minio["aliasHost"],
         "endpoint": minio["endpoint"],
         "bucket": minio["bucket"],
+        "sourceBucket": minio.get("sourceBucket", ""),
         "user": user,
         "password": password,
     }
@@ -794,6 +825,12 @@ def issue_from_live(args) -> dict:
             "bucket": f"{project}-media",
             "volumeName": minio_state["volumeName"],
         }
+        source = manifest_source_bucket(args.stamp)
+        if source is not None:
+            # The restored rows name this bucket; an isolated recovery maps it onto the fixture
+            # bucket for media erasure only (parkio.media.storage.restored-source-bucket).
+            payload["minio"]["sourceBucket"] = source
+            check_source_bucket(payload["minio"], project, args.stamp)
     ticket = add_digest(payload)
     out = Path(args.out)
     out.write_text(json.dumps(ticket, indent=2, sort_keys=True) + "\n", encoding="utf-8")
