@@ -28,7 +28,7 @@ Prometheus ──► Alertmanager ──► Slack webhook  (PARKIO_ALERT_SLACK_W
 | `warning` | P1 — investigate soon | `4h` (`PARKIO_ALERT_REPEAT_WARNING`) |
 | `heartbeat` | Not a page. Only `Watchdog` carries it; it goes to the [external dead-man's switch](#heartbeat), never to the operator channel | `2m` (`PARKIO_ALERT_HEARTBEAT_REPEAT`) |
 
-Every production alert has: stable `alertname`, `severity`, `summary`, `description`, `runbook_url`, and a `for:` duration. Labels must not carry secrets or PII.
+Every production alert has: stable `alertname`, `severity`, `summary`, `description`, `runbook_url`, and a `for:` duration (the one exception is `Watchdog`, which is always firing by design; see [Heartbeat](#heartbeat)). Labels must not carry secrets or PII.
 
 ## Routing / grouping
 
@@ -136,6 +136,10 @@ The delivery-failure alerts travel the path they watch, so they cannot report a 
 | Who is paged on silence | the operator on call, through the monitor's own channel, not through this Alertmanager |
 
 **What silence means.** No heartbeat for the grace period: Prometheus is not evaluating, Alertmanager is not sending, the host or its egress is down, or the heartbeat URL or credential is wrong. It does not mean the `Watchdog` alert resolved. Response: [alert-response-runbook.md#watchdog](./alert-response-runbook.md#watchdog). While the pipeline is silent, no other alert reaches the operator either.
+
+**Detection latency.** When Alertmanager or the host stops, the heartbeat stops at once. When only Prometheus stops, Alertmanager keeps re-sending the last `Watchdog` it received until that alert's `endsAt` passes: Prometheus sets it about four evaluation intervals ahead, so about four minutes at the production interval. Silence at the switch therefore starts up to four minutes after Prometheus dies, and the page comes one grace period later. In the isolated run (5 s evaluation, 10 s resend) that tail is under a minute.
+
+**The URL is a credential.** For a ping-style switch, whoever knows `PARKIO_ALERT_HEARTBEAT_URL` can keep the switch quiet. On a non-2xx answer Alertmanager v0.27.0 logs the full URL (transport errors are redacted), and on stacks that run promtail that log reaches Loki. Treat the Alertmanager log like a secret-bearing log: redact URLs before sharing (`sed -E 's#https?://[^[:space:]"]+#<url>#g'`). The optional Bearer `PARKIO_ALERT_HEARTBEAT_SECRET` is never logged.
 
 **Receiver failure is visible.** A heartbeat `POST` that fails counts in `alertmanager_notifications_failed_total{integration="webhook"}`, so a broken switch URL fires `AlertmanagerNotificationsFailing` to the operator channel while that channel still works.
 

@@ -17,6 +17,7 @@ export PARKIO_ALERT_ACCEPT_RECEIPTS_DIR="${RECEIPTS_DIR}"
 
 mkdir -p "${RECEIPTS_DIR}"
 : > "${RECEIPTS_DIR}/receipts.jsonl"
+: > "${RECEIPTS_DIR}/heartbeats.jsonl"
 : > "${EVIDENCE}"
 
 log() {
@@ -257,7 +258,9 @@ log "heartbeat resumed after Alertmanager restart"
 
 log "stop Prometheus: the heartbeat must halt once Alertmanager times the Watchdog alert out"
 "${COMPOSE[@]}" stop alerting-prometheus
-# resolve_timeout (30s) plus one heartbeat period, then the count must stay frozen for two more periods.
+# Alertmanager keeps re-sending the last Watchdog until that alert's endsAt passes (Prometheus sets it a
+# few evaluation intervals ahead: under a minute here, about four minutes in production). Wait for
+# that tail, then the count must stay frozen for two more heartbeat periods.
 sleep 60
 HB_PROM_STOPPED="$(heartbeat_count)"
 sleep 45
@@ -271,6 +274,13 @@ if operator_has_watchdog; then
   log "FAIL Watchdog reached the operator receiver"
   exit 1
 fi
+# send_resolved is false on the heartbeat receiver: after the alert timed out, no RESOLVED Watchdog
+# may have reached the heartbeat catcher, so every receipt is still a firing Watchdog.
+if ! heartbeat_only_watchdog; then
+  log "FAIL the heartbeat receiver got a non-firing or non-Watchdog delivery (send_resolved must stay false)"
+  exit 1
+fi
+log "heartbeat receiver saw only firing Watchdog deliveries for the whole run"
 
 log "evidence written (credentials not included): ${EVIDENCE}"
 echo "ALERTING_ACCEPTANCE_PASS"

@@ -268,7 +268,8 @@ jobs:
           grep -q 'heartbeat resumed after Alertmanager restart' docker/.alerting-acceptance-receipts/evidence.txt
           grep -q 'heartbeat halted after Prometheus stopped' docker/.alerting-acceptance-receipts/evidence.txt
           test -s docker/.alerting-acceptance-receipts/heartbeats.jsonl
-          if grep -Ei 'hooks\.slack\.com|xox[bp]-|Bearer [A-Za-z0-9._-]{20,}' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl; then
+          grep -q 'heartbeat receiver saw only firing Watchdog deliveries' docker/.alerting-acceptance-receipts/evidence.txt
+          if grep -Ei 'hooks\.slack\.com|xox[bp]-|Bearer [A-Za-z0-9._-]{20,}' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl docker/.alerting-acceptance-receipts/heartbeats.jsonl; then
             echo "FAIL: credential-like string in alerting receipts" >&2
             exit 1
           fi
