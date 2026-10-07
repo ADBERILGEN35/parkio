@@ -104,6 +104,6 @@ class StorageWriteOutcomeTest {
         storage.setCallTimeout(Duration.ofSeconds(4));
         MediaInfrastructureConfig config = new MediaInfrastructureConfig();
         return new MinioMediaStorageAdapter(config.internalMinioClient(properties), config.presignMinioClient(properties),
-                config.versionListingClient(properties), properties, 100);
+                config.versionListingClient(properties), properties, 100, false);
     }
 }

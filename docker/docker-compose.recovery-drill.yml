@@ -1,0 +1,152 @@
+# U02 recovery drill: PRIMARY overlay (scripts/recovery-drill.sh). Disposable, synthetic data only.
+# Use ONLY with COMPOSE_PROJECT_NAME=parkio-rd-<run>-primary; never the developer project "parkio".
+#
+# The primary is the synthetic "before host loss" environment: auth records erasures durably in the
+# off-host evidence store (a separate MinIO the drill starts on DRILL_OFFHOST_NETWORK), and every
+# participant runs its live erasure. Containers are named after the project so the backup scripts can
+# address them (PARKIO_PG_CONTAINER_PREFIX, PARKIO_MINIO_CONTAINER). No port is published except the
+# primary auth database on an ephemeral loopback port, for the test-scope drill tool's checkpoint
+# capture. The base networks are renamed per project so the drill never joins another stack's
+# network. Media runs without the scanner: the drill writes its synthetic media directly, and ClamAV
+# is not started.
+
+name: ${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME=parkio-rd-<run>-primary}
+
+networks:
+  parkio-backend:
+    name: ${COMPOSE_PROJECT_NAME}-backend
+  parkio-observability:
+    name: ${COMPOSE_PROJECT_NAME}-observability
+  drill-offhost:
+    external: true
+    name: ${DRILL_OFFHOST_NETWORK:?set DRILL_OFFHOST_NETWORK}
+
+x-drill-primary-erasure: &drill-primary-erasure
+  PARKIO_ACCOUNT_ERASURE_ENABLED: "true"
+
+services:
+  postgres-auth:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-auth
+    ports: !override
+      - "127.0.0.1::5432"
+  postgres-gateway:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-gateway
+    ports: !reset []
+  postgres-user:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-user
+    ports: !reset []
+  postgres-parking:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-parking
+    ports: !reset []
+  postgres-media:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-media
+    ports: !reset []
+  postgres-gamification:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-gamification
+    ports: !reset []
+  postgres-notification:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-notification
+    ports: !reset []
+  postgres-moderation:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-moderation
+    ports: !reset []
+  postgres-analytics:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-analytics
+    ports: !reset []
+  postgres-ai-validation:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres-ai-validation
+    ports: !reset []
+  redis:
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    ports: !reset []
+  kafka:
+    container_name: ${COMPOSE_PROJECT_NAME}-kafka
+    ports: !reset []
+  minio:
+    container_name: ${COMPOSE_PROJECT_NAME}-minio
+    ports: !reset []
+  minio-setup:
+    container_name: ${COMPOSE_PROJECT_NAME}-minio-setup
+  clamav:
+    container_name: ${COMPOSE_PROJECT_NAME}-clamav
+    ports: !reset []
+
+  auth-service:
+    ports: !reset []
+    networks:
+      - parkio-backend
+      - drill-offhost
+    volumes:
+      - ${DRILL_TRUST_FILE:?set DRILL_TRUST_FILE}:/run/drill/erasure-trust.json:ro
+    environment:
+      <<: *drill-primary-erasure
+      PARKIO_REGISTRATION_MODE: OPEN
+      PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED: "true"
+      PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_RETRY_WORKER_ENABLED: "true"
+      PARKIO_ERASURE_STORE_OBJECT_LOCK_ENABLED: "true"
+      PARKIO_ERASURE_STORE_ENDPOINT: http://${DRILL_OFFHOST_MINIO:?set DRILL_OFFHOST_MINIO}:9000
+      PARKIO_ERASURE_STORE_BUCKET: ${DRILL_EVIDENCE_BUCKET:?set DRILL_EVIDENCE_BUCKET}
+      PARKIO_ERASURE_STORE_ACCESS_KEY: ${DRILL_OFFHOST_ACCESS_KEY:?set DRILL_OFFHOST_ACCESS_KEY}
+      PARKIO_ERASURE_STORE_SECRET_KEY: ${DRILL_OFFHOST_SECRET_KEY:?set DRILL_OFFHOST_SECRET_KEY}
+      PARKIO_ERASURE_STORE_RETENTION_MODE: GOVERNANCE
+      PARKIO_ERASURE_STORE_RETENTION: PT2H
+      PARKIO_ERASURE_STORE_TRUST_FILE: /run/drill/erasure-trust.json
+      PARKIO_ERASURE_STORE_PRODUCER_KEY_ID: ${DRILL_PRODUCER_KEY_ID:?set DRILL_PRODUCER_KEY_ID}
+  user-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  parking-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  media-service:
+    ports: !reset []
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+      postgres-media:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      <<: *drill-primary-erasure
+      PARKIO_MEDIA_ERASURE_WORKER_ENABLED: "true"
+      PARKIO_MEDIA_SCANNER_ENABLED: "false"
+  gamification-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  notification-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  moderation-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  ai-validation-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+  analytics-service:
+    ports: !reset []
+    environment: *drill-primary-erasure
+
+  # Not started by the drill; reset anyway so the primary can never publish anything else.
+  gateway-service:
+    ports: !reset []
+  kafka-exporter:
+    ports: !reset []
+  blackbox-exporter:
+    ports: !reset []
+  prometheus:
+    ports: !reset []
+  alertmanager:
+    ports: !reset []
+  loki:
+    ports: !reset []
+  promtail:
+    ports: !reset []
+  node-exporter:
+    ports: !reset []
+  tempo:
+    ports: !reset []
+  grafana:
+    ports: !reset []

@@ -79,6 +79,37 @@ No attestation mechanism is implemented. The cutoff is never lowered.
   container IDs, never production `parkio-postgres-*` defaults
 - Restore drill 01: separate path; proves helper replay + ACTIVE=0 on synthetic isolated Postgres
 
+## Stage-4 isolated recovery (U02)
+
+Isolated only; a production restore stays refused whatever these options say. The steps, with
+the synthetic drill (`scripts/recovery-drill.sh`) as the worked example:
+
+1. `scripts/restore-isolated-fixture.sh up --stamp STAMP --with-minio` issues the ticket. The
+   ticket pins the auth target's database identity and the backup's media bucket
+   (`minio.sourceBucket`). For parking, the target image must carry PostGIS, and its psql must
+   read the stamp's dumps (one PostgreSQL client version for dump and restore; pg_dump 16.10 and
+   later writes `\restrict`, which older clients refuse). The parking dump creates the PostGIS
+   extension, which needs a superuser: give the target's `parkio_parking` role SUPERUSER for the
+   restore only, and take it back before any application starts (the drill does both and checks).
+2. `restore-hosted-beta.sh --manifest STAMP/backup-manifest.json --yes --recovery-cutoff T
+   --isolated-fixture --isolated-ticket TICKET --erasure-evidence BUNDLE --erasure-trust TRUST
+   --recovery-attempt UUID --recovery-dir DIR` verifies the off-host evidence bundle before it
+   decrypts anything. Untrusted evidence exits 3 with nothing applied. Trusted evidence writes
+   `DIR/trusted-erasure-set.json` and a CLOSED `DIR/expose-gate.json`, then the restore runs.
+   The time-based ledger check is unchanged.
+3. `scripts/recovery-replay.sh up` starts Kafka, Redis and the eight participants on the
+   ticket's internal network only. `scripts/recovery-replay.sh run --recovery-dir DIR --trust
+   TRUST` runs the auth recovery-replay command once. Its exit code is the verdict: 0 COMPLETE;
+   20-26 refused, blocked, failed or timed out. A rerun of the same attempt resumes it.
+4. `scripts/lib/recovery-expose-gate.py open --recovery-dir DIR --verdict
+   DIR/replay-verdict-<attempt>.json --operator NAME` records OPEN only on that attempt's
+   COMPLETE verdict. Exposing the copy to traffic is outside this procedure.
+5. `scripts/recovery-replay.sh down`, then `restore-isolated-fixture.sh down --ticket TICKET`.
+
+Coverage is reported only as "erasure coverage verified through sequence N (frontier version
+V)". The evidence bundle is exported with a test-scope tool in the drill; a production export
+procedure is a later owner decision.
+
 ## Restore source inventory
 
 - scripts/restore-hosted-beta.sh
@@ -93,6 +124,9 @@ No attestation mechanism is implemented. The cutoff is never lowered.
 - scripts/lib/restore-dump-profile.py
 - scripts/lib/erasure-tombstones.sh
 - scripts/lib/backup-common.sh
+- scripts/lib/recovery-evidence.py
+- scripts/lib/recovery-expose-gate.py
+- scripts/recovery-replay.sh
 
 Runtime: bash, python3, jq, openssl, gzip, sha256sum, docker, identified psql.
 Later host check (not authorized): sha256sum those files against the

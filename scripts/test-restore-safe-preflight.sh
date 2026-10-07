@@ -155,6 +155,9 @@ if cmd == "exec":
             if "to_regclass" in joined:
                 print("erased_user_tombstones")
                 sys.exit(0)
+            if "pg_control_system" in joined:
+                print(os.environ.get("PARKIO_STUB_SYSTEM_IDENTIFIER", "7000000000000000099"))
+                sys.exit(0)
             with open(log, "a", encoding="utf-8") as handle:
                 handle.write("PSQL_APPLY " + joined + "\n")
             try:
@@ -729,6 +732,135 @@ PY
 else
   bad "valid restore with newer ledger should pass"
 fi
+
+# --- U02 stage 4: off-host erasure evidence is verified before anything is decrypted ---
+MANIFEST="${STAMP}/backup-manifest.json"
+FIX="${ROOT}/services/auth-service/src/test/resources/durable-erasure-evidence/v2"
+make_trust() {
+  python3 - "${FIX}/producer.json" "$1" "$2" <<'PY'
+import json, os, sys
+producer = json.load(open(sys.argv[1], encoding="utf-8"))
+key = next(k for k in producer["keys"] if k["keyId"] == "interop-fixture-key-2026a")
+json.dump({"format": "parkio-erasure-evidence-trust", "version": 1, "databaseIdentity": sys.argv[3],
+           "keys": [{"keyId": key["keyId"], "producerId": key["producerId"], "keyHex": key["keyHex"],
+                     "notBefore": "2026-01-01T00:00:00Z"}]}, open(sys.argv[2], "w", encoding="utf-8"))
+os.chmod(sys.argv[2], 0o600)
+PY
+}
+TRUST="${WORK}/erasure-trust.json"
+make_trust "${TRUST}" "postgresql:7000000000000000001:parkio_auth"
+ATTEMPT="5e5e5e5e-0000-4000-8000-00000000a772"
+run_stage4() {
+  local bundle="$1"
+  shift
+  RECOVERY="${WORK}/recovery-${bundle}"
+  rm -rf "${RECOVERY:?}"
+  mkdir -p "${RECOVERY}"
+  : > "${LOG}"
+  PARKIO_ENV_FILE="${ENV_FILE}" PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
+    "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes --only databases \
+    --recovery-cutoff "2026-09-20T03:30:01Z" \
+    --erasure-evidence "${FIX}/bundles/${bundle}/bundle.json" --erasure-trust "${TRUST}" \
+    --recovery-attempt "${ATTEMPT}" --recovery-dir "${RECOVERY}" "$@"
+}
+untouched() {
+  no_destroy && [ ! -e "${RECOVERY}/trusted-erasure-set.json" ] && [ ! -e "${RECOVERY}/expose-gate.json" ]
+}
+
+mint_ticket ok-recovery
+for bundle in gap missing-frontier tail-conflict frontier-all-tampered bundle-digest-mismatch non-canonical-erased-at; do
+  rc=0
+  run_stage4 "${bundle}" --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" >/dev/null 2>&1 || rc=$?
+  if [ "${rc}" -eq 3 ] && untouched; then
+    ok "stage 4: ${bundle} evidence is BLOCKED (exit 3) before decrypt, zero apply, no trusted set, no gate"
+  else
+    bad "stage 4: ${bundle} evidence must exit 3 with nothing decrypted (rc=${rc})"
+  fi
+done
+
+rc=0
+out="$(run_stage4 checkpoint-tail --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" 2>&1)" || rc=$?
+RECOVERY="${WORK}/recovery-checkpoint-tail"  # run_stage4 ran in the $(...) subshell
+if [ "${rc}" -eq 0 ] && grep -q PSQL_APPLY "${LOG}" \
+    && printf '%s' "${out}" | grep -q "erasure coverage verified through sequence 4 (frontier version sha256:" \
+    && python3 - "${RECOVERY}" "${STAMP##*/}" "${ATTEMPT}" <<'PY'
+import json, re, sys
+from pathlib import Path
+d = Path(sys.argv[1])
+trusted = json.loads((d / "trusted-erasure-set.json").read_text())
+gate = json.loads((d / "expose-gate.json").read_text())
+assert trusted["targetIdentity"] == "postgresql:7000000000000000099:parkio_auth", trusted["targetIdentity"]
+assert trusted["restoredDatasetId"] == sys.argv[2] and trusted["recoveryAttemptId"] == sys.argv[3]
+assert len(trusted["erasureSet"]["entries"]) == 4
+assert gate["state"] == "CLOSED" and gate["erasureSetDigest"] == trusted["erasureSet"]["erasureSetDigest"]
+statement = trusted["coverage"]["statement"]
+assert not re.search(r"\d{4}-\d{2}-\d{2}T|no later|absen|cutoff", statement, re.I), statement
+assert (d / "trusted-erasure-set.json").stat().st_mode & 0o077 == 0
+PY
+then
+  ok "stage 4: trusted evidence restores, binds the ticket's target, writes the trusted set and a CLOSED gate"
+else
+  bad "stage 4: trusted evidence path failed (rc=${rc})"
+fi
+
+mint_ticket ok
+rc=0
+run_stage4 checkpoint-tail --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -eq 2 ] && untouched; then
+  ok "stage 4: a ticket without the target's databaseIdentity is refused before decrypt"
+else
+  bad "stage 4: ticket without identity must exit 2 with zero apply (rc=${rc})"
+fi
+
+mint_ticket identity-drift
+rc=0
+run_stage4 checkpoint-tail --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -ne 0 ] && untouched; then
+  ok "stage 4: a ticket whose pinned identity no longer matches the live target is refused (rc=${rc})"
+else
+  bad "stage 4: identity drift must be refused with zero apply (rc=${rc})"
+fi
+
+unset PARKIO_RESTORE_ISOLATED_TICKET || true
+rc=0
+run_stage4 checkpoint-tail >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -ne 0 ] && untouched; then
+  ok "stage 4: evidence options on the production path are refused with zero apply (rc=${rc})"
+else
+  bad "stage 4: production path with evidence must stay refused (rc=${rc})"
+fi
+
+mint_ticket ok-recovery
+rc=0
+RECOVERY="${WORK}/recovery-incomplete"; rm -rf "${RECOVERY:?}"; mkdir -p "${RECOVERY}"; : > "${LOG}"
+PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-hosted-beta.sh" --manifest "${MANIFEST}" --yes \
+  --only databases --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+  --recovery-cutoff "2026-09-20T03:30:01Z" --erasure-evidence "${FIX}/bundles/checkpoint-tail/bundle.json" \
+  --erasure-trust "${TRUST}" --recovery-attempt "${ATTEMPT}" >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -eq 2 ] && untouched; then
+  ok "stage 4: an incomplete option set is refused before decrypt"
+else
+  bad "stage 4: incomplete options must exit 2 (rc=${rc})"
+fi
+
+rc=0
+run_stage4 checkpoint-tail --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+  --only minio >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -eq 2 ] && untouched; then
+  ok "stage 4: --only minio cannot carry a recovery"
+else
+  bad "stage 4: --only minio with evidence must exit 2 (rc=${rc})"
+fi
+
+make_trust "${TRUST}" "postgresql:7000000000000000099:parkio_auth"
+rc=0
+run_stage4 checkpoint-tail --isolated-fixture --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" >/dev/null 2>&1 || rc=$?
+if [ "${rc}" -eq 3 ] && untouched; then
+  ok "stage 4: evidence not pinned to the trust document's identity is BLOCKED before decrypt"
+else
+  bad "stage 4: foreign-identity evidence must exit 3 (rc=${rc})"
+fi
+unset PARKIO_RESTORE_ISOLATED_TICKET || true
 
 echo
 echo "${pass} passed, ${fail} failed"

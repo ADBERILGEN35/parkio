@@ -220,6 +220,10 @@ parkio:
       # All four timeouts must be positive (0 would mean "no timeout"). A request body is never
       # transmitted twice: the storage client makes every body one-shot (no follow-up after a
       # reply, no retry once sent), follows no redirect and uses no proxy (U05 object write ledger).
+      # restored-source-bucket: deliberately absent (unset). Isolated recovery only: the bucket the
+      # restored media rows name, mapped onto the configured bucket for account erasure alone. Set
+      # it with PARKIO_MEDIA_STORAGE_RESTORED_SOURCE_BUCKET; startup refuses it unless
+      # parkio.privacy.restore-replay.enabled is true (docs/architecture/erasure-restore-replay-contract.md).
   kafka:
     # Topic provisioning via NewTopic beans (KafkaTopicsConfig). Replication factor is
     # configurable for production; 1 is the local/dev default (single-broker compose).

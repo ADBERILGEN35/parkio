@@ -45,6 +45,8 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
     private final MinioClient presignClient;
     private final VersionListingClient listing;
     private final String bucket;
+    /** Isolated recovery only: the restored rows' bucket, listed here in the configured bucket. */
+    private final Optional<String> restoredSourceBucket;
     private final int listingPageSize;
 
     public MinioMediaStorageAdapter(
@@ -52,7 +54,8 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
             @Qualifier("presignMinioClient") MinioClient presignClient,
             VersionListingClient listing,
             MediaProperties properties,
-            @Value("${parkio.media.erasure-worker.listing-page-size:100}") int listingPageSize) {
+            @Value("${parkio.media.erasure-worker.listing-page-size:100}") int listingPageSize,
+            @Value("${parkio.privacy.restore-replay.enabled:false}") boolean restoreReplayEnabled) {
         if (listingPageSize < 1 || listingPageSize > 1000) {
             throw new IllegalArgumentException("parkio.media.erasure-worker.listing-page-size must be 1..1000");
         }
@@ -60,6 +63,8 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
         this.presignClient = presignClient;
         this.listing = listing;
         this.bucket = properties.getStorage().getBucket();
+        this.restoredSourceBucket = RestoredSourceBucket.of(
+                properties.getStorage().getRestoredSourceBucket(), bucket, restoreReplayEnabled);
         this.listingPageSize = listingPageSize;
     }
 
@@ -173,11 +178,13 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
      * entries come first: the page holds all of them unless they fill it (then the rest follow once
      * these are removed), and keys that only share the prefix are never paged through. An empty
      * listing is backed by a HEAD: an object the listing missed is still reported, never confirmed
-     * absent.
+     * absent. During an isolated recovery a key named in the restored source bucket is listed in
+     * the configured bucket, where the restore put it ({@link RestoredSourceBucket}); the versions
+     * found carry the configured bucket.
      */
     @Override
     public List<StoredVersion> versionsOf(String objectBucket, String objectKey) {
-        requireConfiguredBucket(objectBucket);
+        requireErasableBucket(objectBucket);
         try {
             List<StoredVersion> versions = page(objectKey, objectKey::equals);
             if (versions.isEmpty()) {
@@ -248,6 +255,18 @@ public class MinioMediaStorageAdapter implements MediaStoragePort {
             }
             throw e;
         }
+    }
+
+    /**
+     * Account erasure's bucket rule: the configured bucket, or during an isolated recovery the
+     * restored source bucket, whose objects the restore put into the configured bucket. Any other
+     * bucket is refused as before.
+     */
+    private void requireErasableBucket(String objectBucket) {
+        if (restoredSourceBucket.isPresent() && restoredSourceBucket.get().equals(objectBucket)) {
+            return;
+        }
+        requireConfiguredBucket(objectBucket);
     }
 
     /**

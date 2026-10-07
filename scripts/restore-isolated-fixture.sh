@@ -56,8 +56,10 @@ done
 wait_pg() {
   local name="$1"
   local i
+  # Over TCP: the image's temporary init server (initdb scripts, e.g. PostGIS) listens on the
+  # socket only, so a socket probe can pass just before that server shuts down and restarts.
   for i in $(seq 1 60); do
-    if docker exec "${name}" pg_isready -U postgres >/dev/null 2>&1; then
+    if docker exec "${name}" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
       return 0
     fi
     sleep 1

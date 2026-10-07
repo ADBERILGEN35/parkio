@@ -123,7 +123,7 @@ done
 # Production mode counts a failed or invalid export as a backup failure.
 # shellcheck source=lib/erasure-tombstones.sh
 source "${SCRIPT_DIR}/lib/erasure-tombstones.sh"
-if ! parkio_export_erasure_tombstones "${DEST_DIR}"; then
+if ! parkio_export_erasure_tombstones "${DEST_DIR}" "${_PG_PREFIX}-postgres-auth"; then
   echo "ERROR: erasure ledger export failed" >&2
   failures=$((failures + 1))
 fi
