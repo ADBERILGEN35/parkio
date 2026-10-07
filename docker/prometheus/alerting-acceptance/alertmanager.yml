@@ -12,6 +12,13 @@ route:
   repeat_interval: 1h
   routes:
     - matchers:
+        - alertname="Watchdog"
+      receiver: "heartbeat"
+      group_by: ["alertname"]
+      group_wait: 0s
+      group_interval: 30s
+      repeat_interval: 20s
+    - matchers:
         - severity="critical"
       receiver: "operator"
       group_wait: 5s
@@ -38,3 +45,7 @@ receivers:
     webhook_configs:
       - url: "http://alerting-webhook:8080/webhook"
         send_resolved: true
+  - name: "heartbeat"
+    webhook_configs:
+      - url: "http://alerting-webhook:8080/heartbeat"
+        send_resolved: false

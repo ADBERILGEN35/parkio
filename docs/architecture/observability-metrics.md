@@ -549,7 +549,10 @@ PARKIO_ALERT_REPEAT_WARNING=4h
 
 The Slack webhook is read from environment and rendered into a container-local runtime
 config by `docker/alertmanager/render-config.sh`; it is never committed to YAML. Critical
-alerts repeat every hour by default, warnings every four hours. In hosted beta Prometheus
+alerts repeat every hour by default, warnings every four hours. A first route sends the
+always-firing `Watchdog` heartbeat to an external dead-man's switch
+(`PARKIO_ALERT_HEARTBEAT_URL`, every `PARKIO_ALERT_HEARTBEAT_REPEAT`) and never to Slack; see
+[alerting.md#heartbeat](../operations/alerting.md#heartbeat). In hosted beta Prometheus
 (`:9090`), Alertmanager (`:9093`), and Grafana (`:3000`) are bound to **loopback only** —
 reach them via SSH tunnel:
 

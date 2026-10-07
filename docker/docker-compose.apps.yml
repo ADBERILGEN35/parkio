@@ -274,6 +274,9 @@ services:
       PARKIO_USER_SERVICE_URI: http://user-service:8082
       PARKIO_PUBLIC_EXPLORE_ENABLED: ${PARKIO_PUBLIC_EXPLORE_ENABLED:-false}
       PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES: ${PARKIO_PUBLIC_EXPLORE_ALLOWED_SOURCE_FAMILIES:-}
+      # CL-F17 / PRIV-002 location-log retention. Fail-closed default (off); enabling is a release step.
+      PARKIO_LOCATION_LOG_RETENTION_ENABLED: ${PARKIO_LOCATION_LOG_RETENTION_ENABLED:-false}
+      PARKIO_LOCATION_LOG_RETENTION: ${PARKIO_LOCATION_LOG_RETENTION:-P30D}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]

@@ -1,14 +1,15 @@
 # Internal service identity and Kafka authentication (design, CL-F16)
 
-> **Status: direction approved (owner decision A4, 2026-10-03); not implemented.** Design and
-> threat model only (Asana U18 / CL-F16). The approval covers section 6, items 1–4:
-> short-lived per-service signed tokens with endpoint permissions enforced by each callee,
-> segmentation, dedicated credentials and per-participant erasure ACK topics. `SASL_PLAINTEXT`
-> is limited to isolated development and test networks; transport security in production is an
-> explicit rollout gate (section 10, item 4). Item 5 (waitlist hash key) is open. Section 10
-> separates what is decided, what is only recommended and what is open. Nothing here is
-> implemented, and no secret, credential or infrastructure changes with this document;
-> implementation tasks are created separately.
+> **Status: design approved (owner decisions A4, 2026-10-03, and the design answers of
+> 2026-10-07); not implemented.** Design and threat model only (Asana U18 / CL-F16). The approval
+> covers section 6, items 1–5: short-lived per-service signed tokens with endpoint permissions
+> enforced by each callee, segmentation, dedicated credentials, per-participant erasure ACK
+> topics, and a dedicated waitlist hash secret. `SASL_PLAINTEXT` is limited to isolated
+> development and test networks; transport security in production is an explicit rollout gate
+> (section 10, item 4). Section 10 lists every decision and its answer. The approval is of the
+> design, not of live activation: nothing here is implemented, and no secret, credential or
+> infrastructure changes with this document. Implementation tasks are created only when the
+> owner asks for them, not by this approval.
 > Inventory baseline: `api` at `f3778407` (2026-10-02). The erasure rows (2.2, 2.3, 11) and the
 > consumer group ids (6) were re-checked on `api` at `fd3b81f0` (2026-10-02, after U05). Where
 > this document and the code disagree, the code is authoritative.
@@ -183,12 +184,10 @@ Erasure ACK binding, either:
 
 ## 6. Approved direction
 
-Owner decision A4 (2026-10-03) approves items 1–4 below, within the limits in section 10:
-- the Kafka mechanism (item 3) and the location of the operator endpoints (item 4) are
-  recommendations still to be confirmed;
-- `SASL_PLAINTEXT` is limited to isolated development and test networks.
-
-Item 5 is open (section 10, item 7).
+Owner decision A4 (2026-10-03) approved items 1–4 below; the owner's design answers of
+2026-10-07 confirmed the Kafka mechanism (item 3, SCRAM), the location of the operator
+endpoints (item 4, under `/internal`) and item 5 (section 10, items 4, 6 and 7).
+`SASL_PLAINTEXT` stays limited to isolated development and test networks.
 
 1. **HTTP:** option B for service-to-service calls, with the endpoint matrix enforced by
    each callee; U1 for user-initiated requests; the two user-impersonating calls replaced
@@ -198,16 +197,19 @@ Item 5 is open (section 10, item 7).
    Kafka on networks reachable only by their users.
 3. **Kafka:** K1 with per-service ACLs, per-participant erasure ACK topics and topic
    provisioning by a separate admin job (services lose CREATE/DELETE/ALTER in
-   production; development keeps auto-provisioning behind its flag). The mechanism is a
-   recommendation, not yet confirmed: SCRAM (K1). `SASL_PLAINTEXT` is allowed only on
-   isolated development and test networks. Production transport security (`SASL_SSL` or K2)
-   is an explicit rollout gate before P5 reaches production.
+   production; development keeps auto-provisioning behind its flag). The mechanism is
+   confirmed: SCRAM (K1, 2026-10-07). `SASL_PLAINTEXT` is allowed only on isolated
+   development and test networks. Production transport security (`SASL_SSL` or K2) is an
+   explicit rollout gate before P5 reaches production.
 4. **Operators:** keep the extra operator tokens; give operator scripts their own
-   credential instead of the services' value. Dedicated credentials are approved; keeping
-   these endpoints under `/internal` is the recommendation (section 10, item 6).
-5. **Waitlist (open, section 10, item 7):** proposed: a dedicated `PARKIO_WAITLIST_HASH_SECRET`
-   without fallback, with a plan for existing hashes (they were computed with whatever key
-   was active).
+   credential instead of the services' value. Dedicated credentials are approved, and the
+   endpoints stay under `/internal` with those credentials (confirmed 2026-10-07, section 10,
+   item 6).
+5. **Waitlist (approved 2026-10-07, section 10, item 7):** a dedicated
+   `PARKIO_WAITLIST_HASH_SECRET` without fallback. Rollout: introduce it set to today's
+   effective value, so no stored hash changes; remove the fallback; rotate later with a batch
+   job that recomputes `email_hash` from the stored e-mail and resets the short-lived `ip_hash`
+   rate-limit buckets.
 
 ACL sketch for K1 (prefixes are literal topic names unless marked):
 
@@ -295,30 +297,37 @@ between HTTP and Kafka there); P5's ACK topics change the erasure contract
 
 ## 10. Decisions
 
-Owner decision A4 (2026-10-03) approved the direction in section 6. Item by item:
+Owner decision A4 (2026-10-03) approved the direction in section 6; the owner's design answers
+of 2026-10-07 settled the remaining items. Item by item:
 
 1. **HTTP direction: approved.** B + U1 + scoped internal endpoints: short-lived
    per-service signed tokens, with the endpoint matrix enforced by each callee.
 2. **Shared verification code versus the "no shared module" rule** in
-   [`kafka-transport.md`](kafka-transport.md): **open.** Choose between a small verifier
-   duplicated per service and one security library.
-3. **Token lifetime and clock-skew budget: open.**
-4. **Kafka: approved with a gate.** Kafka authentication with per-service ACLs.
-   `SASL_PLAINTEXT` is allowed only on isolated development and test networks. Transport
-   security in production (`SASL_SSL` or mTLS) is an explicit rollout gate: P5 does not reach
-   production until it is chosen and in place. The mechanism is recommended but not yet
-   confirmed: SCRAM (K1).
+   [`kafka-transport.md`](kafka-transport.md): **decided (2026-10-07).** Service-token signing
+   and verification live in the existing shared `platform/parkio-platform` library, next to
+   `PlatformHeaders`, `EventEnvelope` and `ApiError`. The "no shared module" rule is about
+   domain models; security verification is not copied nine times.
+3. **Token lifetime and clock-skew budget: decided (2026-10-07).** `exp` at most 60 s after
+   issue; verifiers allow 30 s of clock skew and reject a token whose `iat` is more than 30 s in
+   the future.
+4. **Kafka: approved with a gate; mechanism confirmed (2026-10-07).** Kafka authentication with
+   per-service ACLs using SCRAM (K1). `SASL_PLAINTEXT` is allowed only on isolated development
+   and test networks. Transport security in production (`SASL_SSL` or mTLS) is an explicit
+   rollout gate: P5 does not reach production until it is chosen and in place.
 5. **Erasure ACK binding: approved.** Per-participant ACK topics.
-6. **Operator credentials: approved.** Operator scripts get dedicated credentials instead of
-   the services' value. Where the endpoints live is recommended but not yet confirmed: keep
-   them under `/internal` with those credentials (section 6, item 4), rather than move them
-   behind the admin API.
-7. **Waitlist hash key separation and existing hashes: open.**
-8. **Sharing the private live network-isolation record with reviewers: open.**
+6. **Operator credentials: approved; location confirmed (2026-10-07).** Operator scripts get
+   dedicated credentials instead of the services' value, and the operator endpoints stay under
+   `/internal` with those credentials (section 6, item 4) rather than moving behind the admin API.
+7. **Waitlist hash key separation and existing hashes: decided (2026-10-07).** A dedicated
+   `PARKIO_WAITLIST_HASH_SECRET` without fallback, introduced at today's effective value so no
+   stored hash changes, then rotated with a batch job that recomputes `email_hash` from the
+   stored e-mail and resets the `ip_hash` buckets (section 6, item 5).
+8. **Sharing the private live network-isolation record with reviewers: decided (2026-10-07).**
+   Reviewers get a redacted copy without host names or IP addresses; the original stays private.
 
-Items 2, 3, 7 and 8 need owner decisions before the phases that depend on them (P2 for 2
-and 3). The recommendations in items 4 and 6 need the owner's confirmation before P5 and P3.
-Segmentation (E) is approved as part of section 6.
+Every item is now decided. Segmentation (E) is approved as part of section 6. The approval is of
+the design: it does not activate anything, and implementation tasks (P0–P6) are created only
+when the owner asks for them.
 
 ## 11. Code references
 

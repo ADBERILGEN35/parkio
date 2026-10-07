@@ -17,6 +17,7 @@ export PARKIO_ALERT_ACCEPT_RECEIPTS_DIR="${RECEIPTS_DIR}"
 
 mkdir -p "${RECEIPTS_DIR}"
 : > "${RECEIPTS_DIR}/receipts.jsonl"
+: > "${RECEIPTS_DIR}/heartbeats.jsonl"
 : > "${EVIDENCE}"
 
 log() {
@@ -93,12 +94,40 @@ webhook_has_service_down() {
     | "${PYTHON}" -c 'import json,sys; items=json.load(sys.stdin); names={a.get("alertname") for it in items for a in it.get("alerts",[])}; raise SystemExit(0 if names & {"CoreServiceDown","ServiceDown"} else 1)'
 }
 
+# Heartbeat (U06, CL-F04): deliveries of the always-firing Watchdog to the heartbeat catcher.
+heartbeat_count() {
+  curl -fsS --max-time 10 "${WEBHOOK_URL}/heartbeats" \
+    | "${PYTHON}" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))'
+}
+
+heartbeat_at_least() {
+  [ "$(heartbeat_count)" -ge "$1" ]
+}
+
+heartbeat_only_watchdog() {
+  curl -fsS --max-time 10 "${WEBHOOK_URL}/heartbeats" \
+    | "${PYTHON}" -c 'import json,sys; items=json.load(sys.stdin).get("items",[]); raise SystemExit(0 if items and all(it.get("group_status")=="firing" and it.get("alertnames")==["Watchdog"] for it in items) else 1)'
+}
+
+operator_has_watchdog() {
+  curl -fsS --max-time 10 "${WEBHOOK_URL}/received" \
+    | "${PYTHON}" -c 'import json,sys; items=json.load(sys.stdin); raise SystemExit(0 if any(it.get("alertname")=="Watchdog" or any(a.get("alertname")=="Watchdog" for a in it.get("alerts",[])) for it in items) else 1)'
+}
+
+am_ready() {
+  curl -fsS --max-time 5 -o /dev/null "${AM_URL}/-/ready"
+}
+
 log "start isolated alerting acceptance"
 # Catcher path must not inherit a Slack webhook from the runner environment.
 # Slack takes precedence in render-config.sh and would skip the in-compose catcher.
 unset PARKIO_ALERT_SLACK_WEBHOOK_URL || true
 export PARKIO_ALERT_WEBHOOK_URL="http://alerting-webhook:8080/webhook"
 unset PARKIO_ALERT_WEBHOOK_SECRET || true
+# Heartbeat (U06): the in-compose catcher's /heartbeat endpoint, never an external switch.
+unset PARKIO_ALERT_HEARTBEAT_SECRET || true
+export PARKIO_ALERT_HEARTBEAT_URL="http://alerting-webhook:8080/heartbeat"
+export PARKIO_ALERT_HEARTBEAT_REPEAT="${PARKIO_ALERT_HEARTBEAT_REPEAT:-20s}"
 export PARKIO_ALERT_GROUP_WAIT="${PARKIO_ALERT_GROUP_WAIT:-5s}"
 export PARKIO_ALERT_GROUP_WAIT_CRITICAL="${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-5s}"
 export PARKIO_ALERT_GROUP_INTERVAL="${PARKIO_ALERT_GROUP_INTERVAL:-10s}"
@@ -183,6 +212,20 @@ for name in AlertmanagerNotificationsFailing PrometheusNotificationsFailing; do
 done
 log "healthy delivery: no delivery-failure alert firing"
 
+# Heartbeat (U06, CL-F04): the always-firing Watchdog reaches only the heartbeat receiver.
+log "heartbeat: wait for periodic Watchdog deliveries (repeat ${PARKIO_ALERT_HEARTBEAT_REPEAT})"
+wait_for "at least 3 heartbeat deliveries" 150 heartbeat_at_least 3
+if ! heartbeat_only_watchdog; then
+  log "FAIL heartbeat receiver got something other than a firing Watchdog"
+  exit 1
+fi
+if operator_has_watchdog; then
+  log "FAIL Watchdog reached the operator receiver"
+  exit 1
+fi
+HB_PERIODIC="$(heartbeat_count)"
+log "heartbeat delivered periodically: ${HB_PERIODIC} Watchdog deliveries to the heartbeat receiver, none to the operator receiver"
+
 log "receiver failure: the operator webhook now answers 503"
 curl -fsS -X POST "${WEBHOOK_URL}/control/fail" >/dev/null
 curl -fsS -X POST "${METRICS_URL}/arm" >/dev/null
@@ -193,9 +236,51 @@ log "receiver failure alert firing (AlertmanagerNotificationsFailing, integratio
 
 log "Alertmanager unreachable: stop it"
 "${COMPOSE[@]}" stop alerting-alertmanager
+sleep 10
+HB_AM_STOPPED="$(heartbeat_count)"
 # The rule holds for 5m, so this takes a little over five minutes.
 wait_for "PrometheusNotificationsFailing firing" 600 prom_firing PrometheusNotificationsFailing
 log "alertmanager unreachable alert firing (PrometheusNotificationsFailing)"
+
+# Heartbeat (U06): no Alertmanager, no heartbeat.
+HB_AM_LATER="$(heartbeat_count)"
+if [ "${HB_AM_LATER}" -ne "${HB_AM_STOPPED}" ]; then
+  log "FAIL heartbeat kept arriving while Alertmanager was stopped (${HB_AM_STOPPED} -> ${HB_AM_LATER})"
+  exit 1
+fi
+log "heartbeat halted while Alertmanager is stopped (count ${HB_AM_STOPPED} unchanged over the outage)"
+
+log "restart Alertmanager: the heartbeat must resume"
+"${COMPOSE[@]}" start alerting-alertmanager
+wait_for "Alertmanager ready after restart" 90 am_ready
+wait_for "heartbeat resumed after Alertmanager restart" 120 heartbeat_at_least $((HB_AM_LATER + 1))
+log "heartbeat resumed after Alertmanager restart"
+
+log "stop Prometheus: the heartbeat must halt once Alertmanager times the Watchdog alert out"
+"${COMPOSE[@]}" stop alerting-prometheus
+# Alertmanager keeps re-sending the last Watchdog until that alert's endsAt passes (Prometheus sets it
+# 4 x max(resend delay, evaluation interval) ahead: under a minute here, about four minutes in production). Wait for
+# that tail, then the count must stay frozen for two more heartbeat periods.
+sleep 60
+HB_PROM_STOPPED="$(heartbeat_count)"
+sleep 45
+HB_PROM_LATER="$(heartbeat_count)"
+if [ "${HB_PROM_LATER}" -ne "${HB_PROM_STOPPED}" ]; then
+  log "FAIL heartbeat kept arriving after Prometheus was stopped (${HB_PROM_STOPPED} -> ${HB_PROM_LATER})"
+  exit 1
+fi
+log "heartbeat halted after Prometheus stopped (count ${HB_PROM_STOPPED} unchanged over 45s)"
+if operator_has_watchdog; then
+  log "FAIL Watchdog reached the operator receiver"
+  exit 1
+fi
+# send_resolved is false on the heartbeat receiver: after the alert timed out, no RESOLVED Watchdog
+# may have reached the heartbeat catcher, so every receipt is still a firing Watchdog.
+if ! heartbeat_only_watchdog; then
+  log "FAIL the heartbeat receiver got a non-firing or non-Watchdog delivery (send_resolved must stay false)"
+  exit 1
+fi
+log "heartbeat receiver saw only firing Watchdog deliveries for the whole run"
 
 log "evidence written (credentials not included): ${EVIDENCE}"
 echo "ALERTING_ACCEPTANCE_PASS"

@@ -6,6 +6,9 @@ Modes:
   probe    — always-up /metrics on :8082 (parking-service scrape target)
   webhook  — Alertmanager webhook catcher on :8080. POST /control/fail makes it answer every
              delivery with 503 (a failing receiver) until POST /control/heal; GET /rejected counts them.
+             POST /heartbeat is the heartbeat catcher (U06 dead-man's switch stand-in): it is never
+             switched to failing, records only when and which alerts arrived, and GET /heartbeats
+             returns the count and entries.
 
 Never logs Authorization headers, webhook URLs, tokens, or passwords.
 """
@@ -38,6 +41,7 @@ STATE: dict[str, Any] = {
     "disk_size": 100_000_000_000,
 }
 RECEIPTS: list[dict[str, Any]] = []
+HEARTBEATS: list[dict[str, Any]] = []
 # Failing-receiver switch for the delivery-failure case (U06): deliveries get 503 and no receipt.
 WEBHOOK_CONTROL: dict[str, Any] = {"failing": False, "rejected": 0}
 RECEIPTS_DIR = Path(os.environ.get("PARKIO_ALERT_ACCEPT_RECEIPTS_DIR", "/receipts"))
@@ -109,9 +113,9 @@ def _sanitize_alert(alert: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _persist_receipt(entry: dict[str, Any]) -> None:
+def _persist_receipt(entry: dict[str, Any], name: str = "receipts.jsonl") -> None:
     RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = RECEIPTS_DIR / "receipts.jsonl"
+    path = RECEIPTS_DIR / name
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
@@ -200,6 +204,11 @@ class WebhookHandler(MetricsHandler):
                 snapshot = dict(WEBHOOK_CONTROL)
             self._send(200, json.dumps(snapshot).encode("utf-8"), "application/json")
             return
+        if path == "/heartbeats":
+            with STATE_LOCK:
+                items = list(HEARTBEATS)
+            self._send(200, json.dumps({"count": len(items), "items": items}).encode("utf-8"), "application/json")
+            return
         if path == "/received":
             alertname = (query.get("alertname") or [None])[0]
             status = (query.get("status") or [None])[0]
@@ -220,6 +229,31 @@ class WebhookHandler(MetricsHandler):
                 WEBHOOK_CONTROL["failing"] = path == "/control/fail"
                 snapshot = dict(WEBHOOK_CONTROL)
             self._send(200, json.dumps(snapshot).encode("utf-8"), "application/json")
+            return
+        if path == "/heartbeat":
+            # The heartbeat catcher stands in for the external dead-man's switch. It never fails on
+            # purpose: the receiver-failure case above is about the operator receiver only.
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send(400, b"invalid json\n", "text/plain")
+                return
+            names = sorted({((a.get("labels") or {}).get("alertname") or "?")
+                            for a in (payload.get("alerts") or []) if isinstance(a, dict)})
+            entry = {
+                "receivedAt": _utcnow(),
+                "group_status": payload.get("status"),
+                "receiver": payload.get("receiver"),
+                "alertnames": names,
+            }
+            with STATE_LOCK:
+                HEARTBEATS.append(entry)
+            _persist_receipt(entry, "heartbeats.jsonl")
+            sys.stderr.write("%s - heartbeat status=%s receiver=%s alerts=%s\n"
+                             % (_utcnow(), payload.get("status"), payload.get("receiver"), ",".join(names) or "none"))
+            self._send(200, b'{"ok":true}\n', "application/json")
             return
         with STATE_LOCK:
             failing = WEBHOOK_CONTROL["failing"]
