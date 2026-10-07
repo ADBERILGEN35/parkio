@@ -15,42 +15,33 @@ GROUP_WAIT_CRITICAL="${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-15s}"
 GROUP_INTERVAL="${PARKIO_ALERT_GROUP_INTERVAL:-5m}"
 RESOLVE_TIMEOUT="${PARKIO_ALERT_RESOLVE_TIMEOUT:-5m}"
 
-# The Civo production overlay sets PARKIO_ALERT_REQUIRE_RECEIVER. A missing
-# receiver must stop the process. Unset keeps the committed null receiver so
-# local and Azure-disabled paths can still render without a webhook.
-case "${PARKIO_ALERT_REQUIRE_RECEIVER:-}" in
-  1|true|TRUE|yes|YES)
-    if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
-      echo "ERROR: PARKIO_ALERT_REQUIRE_RECEIVER is set but neither PARKIO_ALERT_SLACK_WEBHOOK_URL nor PARKIO_ALERT_WEBHOOK_URL is set" >&2
-      exit 1
-    fi
-    ;;
-esac
+# Heartbeat to an external dead-man's switch (U06, CL-F04). The always-firing Watchdog alert
+# goes only here, never to the operator receivers. Empty URL: its route ends at "null".
+HEARTBEAT_URL="${PARKIO_ALERT_HEARTBEAT_URL:-}"
+HEARTBEAT_SECRET="${PARKIO_ALERT_HEARTBEAT_SECRET:-}"
+HEARTBEAT_REPEAT="${PARKIO_ALERT_HEARTBEAT_REPEAT:-2m}"
+HEARTBEAT_RECEIVER="null"
+if [ -n "$HEARTBEAT_URL" ]; then
+  HEARTBEAT_RECEIVER="heartbeat"
+fi
 
-if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
-  cp "$BASE_CONFIG" "$RUNTIME_CONFIG"
-else
-  cat > "$RUNTIME_CONFIG" <<EOF
-global:
-  resolve_timeout: ${RESOLVE_TIMEOUT}
-
-route:
-  receiver: "warning"
-  group_by: ["alertname", "service", "severity", "component"]
-  group_wait: ${GROUP_WAIT}
-  group_interval: ${GROUP_INTERVAL}
-  repeat_interval: ${REPEAT_WARNING}
-  routes:
+render_watchdog_route() {
+  cat <<EOF
+    # Heartbeat first: Watchdog never reaches the operator routes below (U06 dead-man's switch).
     - matchers:
-        - severity="critical"
-      receiver: "critical"
-      group_wait: ${GROUP_WAIT_CRITICAL}
-      repeat_interval: ${REPEAT_CRITICAL}
-    - matchers:
-        - severity="warning"
-      receiver: "warning"
-      repeat_interval: ${REPEAT_WARNING}
+        - alertname="Watchdog"
+      receiver: "${HEARTBEAT_RECEIVER}"
+      group_by: ["alertname"]
+      group_wait: 0s
+      # Alertmanager re-sends at the first flush after repeat_interval has elapsed, so the
+      # period is the repeat rounded up to the next 30 s flush (2m -> 2m to 2m30s).
+      group_interval: 30s
+      repeat_interval: ${HEARTBEAT_REPEAT}
+EOF
+}
 
+render_inhibit_rules() {
+  cat <<EOF
 inhibit_rules:
   - source_matchers:
       - severity="critical"
@@ -90,9 +81,116 @@ inhibit_rules:
     target_matchers:
       - alertname="BackupOffsiteStale"
     equal: ["scope"]
+EOF
+}
+
+render_heartbeat_receiver() {
+  if [ -z "$HEARTBEAT_URL" ]; then
+    return 0
+  fi
+  cat <<EOF
+  - name: "heartbeat"
+    webhook_configs:
+      - url: '${HEARTBEAT_URL}'
+        send_resolved: false
+EOF
+  if [ -n "$HEARTBEAT_SECRET" ]; then
+    cat <<EOF
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: '${HEARTBEAT_SECRET}'
+EOF
+  fi
+}
+
+# The Civo production overlay sets PARKIO_ALERT_REQUIRE_RECEIVER. A missing
+# receiver must stop the process. Unset keeps the committed null receiver so
+# local and Azure-disabled paths can still render without a webhook.
+case "${PARKIO_ALERT_REQUIRE_RECEIVER:-}" in
+  1|true|TRUE|yes|YES)
+    if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
+      echo "ERROR: PARKIO_ALERT_REQUIRE_RECEIVER is set but neither PARKIO_ALERT_SLACK_WEBHOOK_URL nor PARKIO_ALERT_WEBHOOK_URL is set" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+if [ -z "$SLACK_URL" ] && [ -z "$WEBHOOK_URL" ]; then
+  if [ -z "$HEARTBEAT_URL" ]; then
+    cp "$BASE_CONFIG" "$RUNTIME_CONFIG"
+  else
+    # No operator receiver (local or Azure-disabled paths) but a heartbeat: the committed
+    # null routing, with the Watchdog route pointed at the heartbeat receiver.
+    {
+      cat <<EOF
+global:
+  resolve_timeout: ${RESOLVE_TIMEOUT}
+
+route:
+  receiver: "null"
+  group_by: ["alertname", "service", "severity", "component"]
+  group_wait: ${GROUP_WAIT}
+  group_interval: ${GROUP_INTERVAL}
+  repeat_interval: ${REPEAT_WARNING}
+  routes:
+EOF
+      render_watchdog_route
+      cat <<EOF
+    - matchers:
+        - severity="critical"
+      receiver: "null"
+      group_wait: ${GROUP_WAIT_CRITICAL}
+      repeat_interval: ${REPEAT_CRITICAL}
+    - matchers:
+        - severity="warning"
+      receiver: "null"
+      repeat_interval: ${REPEAT_WARNING}
+
+EOF
+      render_inhibit_rules
+      cat <<EOF
 
 receivers:
+  - name: "null"
 EOF
+      render_heartbeat_receiver
+    } > "$RUNTIME_CONFIG"
+  fi
+else
+  {
+    cat <<EOF
+global:
+  resolve_timeout: ${RESOLVE_TIMEOUT}
+
+route:
+  receiver: "warning"
+  group_by: ["alertname", "service", "severity", "component"]
+  group_wait: ${GROUP_WAIT}
+  group_interval: ${GROUP_INTERVAL}
+  repeat_interval: ${REPEAT_WARNING}
+  routes:
+EOF
+    render_watchdog_route
+    cat <<EOF
+    - matchers:
+        - severity="critical"
+      receiver: "critical"
+      group_wait: ${GROUP_WAIT_CRITICAL}
+      repeat_interval: ${REPEAT_CRITICAL}
+    - matchers:
+        - severity="warning"
+      receiver: "warning"
+      repeat_interval: ${REPEAT_WARNING}
+
+EOF
+    render_inhibit_rules
+    cat <<EOF
+
+receivers:
+  - name: "null"
+EOF
+  } > "$RUNTIME_CONFIG"
 
   if [ -n "$SLACK_URL" ]; then
     cat >> "$RUNTIME_CONFIG" <<EOF
@@ -144,6 +242,7 @@ EOF
 EOF
     fi
   fi
+  render_heartbeat_receiver >> "$RUNTIME_CONFIG"
 fi
 
 if [ "${PARKIO_ALERTMANAGER_VALIDATE_ONLY:-}" = "1" ]; then

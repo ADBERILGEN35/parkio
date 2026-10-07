@@ -9,6 +9,7 @@
     {"workflow": "staging-verification.yml", "job": "Restore drill + evidence bundle", "reason": "runs on the schedule or a dispatch that asks for a restore"},
     {"workflow": "staging-verification.yml", "job": "Requested restore executed and succeeded", "reason": "runs on the schedule or a dispatch that asks for a restore"},
     {"workflow": "web-build-image-acceptance.yml", "job": "web-image", "reason": "runs only for pull requests #87 and #91"},
+    {"workflow": "registry-pull-recovery.yml", "job": "Fresh-runner pull with the recovery credential", "reason": "runs only on a workflow_dispatch; it needs the recovery registry credential from the repository secrets"},
     {"workflow": "security-ci.yml", "job": "CodeQL (${{ matrix.language }})", "reason": "off while the repository variable CODEQL_ENABLED is not true"},
     {"workflow": "security-ci.yml", "job": "Container scan (${{ matrix.service }})", "reason": "a pull request whose changed files reach no image; the Security CI summary fails unless the selection succeeded and chose none"}
   ],
