@@ -97,8 +97,9 @@ fi
 
 # ---- pull, against a fake docker ----
 # The fake reads its behaviour from FAKE_DOCKER_MODE: allow (pull ok, digest and platform right),
-# deny (every pull is refused by the registry), wrongdigest (the pulled image carries another
-# digest), arm64, network (every pull fails without a denial), noinspect (pull ok, inspect fails).
+# deny (every pull is refused by the registry), ghcrhidden (GHCR's "manifest unknown" for a private
+# manifest and a token without access), wrongdigest (the pulled image carries another digest),
+# arm64, network (every pull fails without a denial), noinspect (pull ok, inspect fails).
 FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/docker" <<'FAKE'
@@ -109,6 +110,7 @@ echo "$*" >> "${FAKE_DOCKER_LOG:?}"
 case "$1 $2" in
   "pull --quiet")
     [ "$mode" = deny ] && { echo "Error response from daemon: Head \"https://ghcr.io/v2/x/manifests/sha256:0\": denied: denied" >&2; exit 1; }
+    [ "$mode" = ghcrhidden ] && { echo "Error response from daemon: manifest unknown" >&2; exit 1; }
     [ "$mode" = network ] && { echo "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host" >&2; exit 1; }
     exit 0 ;;
   "image inspect")
@@ -152,6 +154,10 @@ fi
 if run_pull deny --expect-denied; then
   if [ "$(grep -c '^OK denied' "$TMP/pull.out")" = 4 ] && grep -q '4/4 pulls denied' "$TMP/pull.out"; then ok "pull --expect-denied: every refused pull passes"; else bad "pull --expect-denied: unexpected output"; cat "$TMP/pull.out"; fi
 else bad "pull --expect-denied failed with a denying registry"; cat "$TMP/pull.out"; fi
+
+if run_pull ghcrhidden --expect-denied; then
+  if [ "$(grep -c '^OK denied' "$TMP/pull.out")" = 4 ]; then ok "pull --expect-denied: GHCR's 'manifest unknown' for a hidden private manifest counts as a denial"; else bad "pull --expect-denied: ghcr hidden output"; cat "$TMP/pull.out"; fi
+else bad "pull --expect-denied failed on GHCR's manifest-unknown denial"; cat "$TMP/pull.out"; fi
 
 if run_pull network --expect-denied; then bad "pull --expect-denied: a network failure passed as a denial"; else
   if grep -q 'not because access was denied' "$TMP/pull.out" && grep -q 'no such host' "$TMP/pull.out"; then ok "pull --expect-denied: a failure that is not a denial fails the check and names the reason"; else bad "pull --expect-denied: unexpected network output"; cat "$TMP/pull.out"; fi

@@ -100,7 +100,7 @@ Workflow `.github/workflows/registry-pull-recovery.yml` has no `packages` permis
 | Job | Runs on | Proves |
 |---|---|---|
 | `script-tests` | pull requests touching the pins, the script or this document; dispatch | the inventory and the pull check behave (fixtures and a fake docker; mutable pins refused; wrong digest or platform refused; `--expect-denied` semantics) and prints the current inventory |
-| `scope-less-token-denied` | same | a `GITHUB_TOKEN` without `read:packages` cannot pull any inventory image: after a public control pull proves the registry answers, `pull --expect-denied` passes only when the registry refuses every pull for lack of access (its error text says denied, unauthorized or forbidden); a network or daemon failure fails the job instead of passing as a denial |
+| `scope-less-token-denied` | same | a `GITHUB_TOKEN` without `read:packages` cannot pull any inventory image: after a public control pull proves the registry answers, `pull --expect-denied` passes only when the registry refuses every pull for lack of access. GHCR answers a logged-in token without access with `manifest unknown` (it hides private manifests rather than saying denied), so that text counts as a denial; a network or daemon failure fails the job instead of passing as a denial |
 | `custody-credential-pull` | `workflow_dispatch` only | a fresh `ubuntu-latest` runner, logged in with nothing but the recovery credential, pulls every inventory digest and verifies digest and platform. Without the two secrets it stops with `BLOCKED — RECOVERY REGISTRY CREDENTIAL NOT CONFIGURED` (exit 2) |
 
 The dated acceptance for this document is a green `custody-credential-pull` run after the
@@ -111,5 +111,9 @@ the task evidence; the token never does.
 
 - A green run proves that the credential and the inventory work on that day. It does not prove
   GHCR availability during a GitHub outage, and there is no mirror.
+- On a denial run, a digest that does not exist in GHCR looks exactly like a denied one
+  (`manifest unknown` in both cases). Only the dispatch run with the recovery credential proves
+  that every inventory digest exists; treat the denial job as proof of the access control, not of
+  the inventory's existence.
 - The six host-built services need source and a build on the new host; see the U13 pin task.
 - The live host's deploy credential, and whether it is read-only, are outside this document.

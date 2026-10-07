@@ -15,8 +15,9 @@
 #       `docker pull` every listed reference with the current docker login, then verify that the
 #       pulled image carries exactly that digest and is linux/amd64. With --expect-denied every
 #       pull must be refused by the registry for lack of access (its error text says denied,
-#       unauthorized or forbidden); any other failure (network, daemon, unknown manifest) fails
-#       the check, so an outage cannot pass as a denial. Exit 0 only when all of them are denied.
+#       unauthorized, forbidden, or GHCR's "manifest unknown" for a hidden private manifest); any
+#       other failure (network, daemon, timeout) fails the check, so an outage cannot pass as a
+#       denial. Exit 0 only when all of them are denied.
 #
 # Reads only. Never prints a credential: it does not log in and does not read the docker config.
 set -euo pipefail
@@ -43,8 +44,13 @@ done
 FILE_SET="$ROOT/docker/compose.production.files"
 ENV_EXAMPLE="$ROOT/docker/.env.example"
 REGISTRY_RE='ghcr\.io/adberilgen35/parkio/[a-z0-9._-]+@sha256:[0-9a-f]{64}'
-# What a registry says when the credential may not read the package. Anything else is not a denial.
-DENIED_RE='denied|unauthorized|forbidden|permission_denied|authentication required'
+# What a registry says when the credential may not read the package. GHCR hides private
+# manifests from a token without access: a logged-in but unauthorized pull by digest gets
+# "manifest unknown" (observed on PR #299, run 37661969390), not "denied", so that text counts
+# as a denial too. The price is that a digest that does not exist looks the same on a denial
+# run; the positive run with the recovery credential is what proves the digests exist.
+# Anything else (network, daemon, timeout) is not a denial and fails the check.
+DENIED_RE='denied|unauthorized|forbidden|permission_denied|authentication required|manifest unknown'
 
 # strip_comment LINE -> the line without a trailing "# ..." comment.
 strip_comment() {
