@@ -258,8 +258,8 @@ log "heartbeat resumed after Alertmanager restart"
 
 log "stop Prometheus: the heartbeat must halt once Alertmanager times the Watchdog alert out"
 "${COMPOSE[@]}" stop alerting-prometheus
-# Alertmanager keeps re-sending the last Watchdog until that alert's endsAt passes (Prometheus sets it a
-# few evaluation intervals ahead: under a minute here, about four minutes in production). Wait for
+# Alertmanager keeps re-sending the last Watchdog until that alert's endsAt passes (Prometheus sets it
+# 4 x max(resend delay, evaluation interval) ahead: under a minute here, about four minutes in production). Wait for
 # that tail, then the count must stay frozen for two more heartbeat periods.
 sleep 60
 HB_PROM_STOPPED="$(heartbeat_count)"
