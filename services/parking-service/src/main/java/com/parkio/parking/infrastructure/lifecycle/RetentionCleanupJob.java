@@ -4,6 +4,8 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -14,11 +16,15 @@ import org.springframework.stereotype.Component;
  * Bounded retention cleanup for this service's outbox and inbox transport rows and, when enabled,
  * for the per-user location logs ({@code parking_spot_search_logs}, {@code parking_spot_view_logs};
  * CL-F17 / PRIV-002). Location-log cleanup is off by default: enabling it is a release decision,
- * because the first run deletes production rows older than the retention period.
+ * because from the first enabled run on, production rows older than the retention period are
+ * deleted, {@code batch-size} rows per table per run. The retention duration is validated at
+ * startup even while the cleanup is disabled, so a bad value fails closed and loud.
  */
 @Component
 @EnableScheduling
 public class RetentionCleanupJob {
+
+    private static final Logger log = LoggerFactory.getLogger(RetentionCleanupJob.class);
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
@@ -57,10 +63,15 @@ public class RetentionCleanupJob {
 
     @Scheduled(fixedDelayString = "${parkio.lifecycle.retention.fixed-delay-ms:3600000}")
     public void cleanup() {
-        cleanupOutbox();
-        cleanupInbox();
-        cleanupSearchLogs();
-        cleanupViewLogs();
+        int outbox = cleanupOutbox();
+        int inbox = cleanupInbox();
+        int searchLogs = cleanupSearchLogs();
+        int viewLogs = cleanupViewLogs();
+        if (outbox + inbox + searchLogs + viewLogs > 0) {
+            // Counts only: the operator can see that the cleanup is active and how fast a backlog drains.
+            log.info("Retention cleanup deleted rows; outbox={}, inbox={}, searchLogs={}, viewLogs={}, batchSize={}",
+                    outbox, inbox, searchLogs, viewLogs, batchSize);
+        }
     }
 
     public int cleanupOutbox() {

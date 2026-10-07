@@ -74,7 +74,7 @@ class ManagedParkingFlywayBaselineIT {
     private static final String RUNTIME_ROLE = "parkio_parking_it";
     private static final String RUNTIME_PASSWORD = "runtime-it-pw";
     private static final String LOCATIONS = "classpath:db/migration";
-    private static final int EXPECTED_HEAD = 41;
+    private static final int EXPECTED_HEAD = 42;
 
     /** Verbatim from the R7/R8 invite-production crash loop. */
     private static final String AZURE_GUARD_MESSAGE =
@@ -436,7 +436,7 @@ class ManagedParkingFlywayBaselineIT {
     /**
      * STATE D on a database that has never been migrated — no history table at all. Flyway's
      * supported {@code baseline()} operation, run by the unprivileged migration role, writes its own
-     * BASELINE marker and {@code migrate()} then applies V2…V41. V1 is never executed.
+     * BASELINE marker and {@code migrate()} then applies V2…V42. V1 is never executed.
      */
     @Test
     void stateD_explicitBaselineOnACleanManagedDatabase_skipsV1AndReachesHead() throws Exception {

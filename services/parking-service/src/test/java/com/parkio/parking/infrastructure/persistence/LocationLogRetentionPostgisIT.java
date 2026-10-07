@@ -84,12 +84,13 @@ class LocationLogRetentionPostgisIT {
 
     @Test
     void cleanupDeletesOnlyRowsOlderThanTheRetentionOldestFirstInBoundedBatches() {
-        UUID oldestSearch = insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(45)));
+        // Inserted out of chronological order: physical order must not stand in for ORDER BY created_at.
         UUID oldSearch = insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(31)));
         UUID recentSearch = insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(29)));
-        UUID oldestView = insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(45)));
+        UUID oldestSearch = insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(45)));
         UUID oldView = insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(31)));
         UUID recentView = insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(29)));
+        UUID oldestView = insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(45)));
         RetentionCleanupJob job = new RetentionCleanupJob(
                 jdbc, Clock.fixed(NOW, ZoneOffset.UTC), false, false, true,
                 Duration.ofDays(7), Duration.ofDays(30), Duration.ofDays(30), 1);

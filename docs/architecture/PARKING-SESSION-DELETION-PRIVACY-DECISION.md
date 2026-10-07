@@ -287,11 +287,17 @@ search and the spot detail view and read by no product feature; their purpose is
 forensics. `RetentionCleanupJob` deletes rows older than `parkio.lifecycle.retention.location-log-retention`
 (default 30 days) in bounded batches of `batch-size` rows per table per run, oldest first, on the same
 schedule as the outbox and inbox cleanup; V42 adds the `created_at` indexes the range scan uses. The
-cleanup is **off by default** (`PARKIO_LOCATION_LOG_RETENTION_ENABLED=false`): the first enabled run
-deletes every production row older than the retention, so enabling it is a release step with its own
-authorization, not a code default. Account erasure (PRIV-001) keeps deleting a user's rows regardless
-of age through `AccountErasureHandler`; the two paths are independent. The public privacy page's
-wording about these logs is a product and legal decision outside this change.
+cleanup is **off by default** (`PARKIO_LOCATION_LOG_RETENTION_ENABLED=false`): once enabled, every
+run deletes up to `batch-size` rows per table (default 1000, `PARKIO_RETENTION_BATCH_SIZE`, shared with
+the outbox and inbox cleanup) that are older than the retention, so an existing backlog drains at that
+rate per run (hourly by default) rather than in one shot; enabling it is a release step with its own
+authorization, not a code default. The retention duration is validated at startup even while the
+cleanup is disabled (a zero, negative or unparsable `PARKIO_LOCATION_LOG_RETENTION` stops the service
+from starting). The job logs one line per run with the deleted counts when anything was deleted; the
+release step verifies activity from that line or from `SELECT count(*) ... WHERE created_at < now() -
+interval '30 days'` falling run by run. Account erasure (PRIV-001) keeps deleting a user's rows
+regardless of age through `AccountErasureHandler`; the two paths are independent. The public privacy
+page's wording about these logs is a product and legal decision outside this change.
 
 ---
 

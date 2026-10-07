@@ -153,11 +153,13 @@ class RetentionCleanupJobTest {
 
     @Test
     void locationLogCleanupDeletesTheOldestRowsUpToTheBatchLimit() {
-        UUID oldestSearch = insertSearchLog(NOW.minus(Duration.ofDays(40)));
+        // Inserted out of chronological order so that a DELETE without ORDER BY created_at
+        // (insertion-order scan) would delete the wrong row first.
         UUID olderSearch = insertSearchLog(NOW.minus(Duration.ofDays(35)));
         UUID recentSearch = insertSearchLog(NOW.minus(Duration.ofDays(10)));
-        UUID oldestView = insertViewLog(NOW.minus(Duration.ofDays(40)));
+        UUID oldestSearch = insertSearchLog(NOW.minus(Duration.ofDays(40)));
         UUID olderView = insertViewLog(NOW.minus(Duration.ofDays(35)));
+        UUID oldestView = insertViewLog(NOW.minus(Duration.ofDays(40)));
         RetentionCleanupJob job = new RetentionCleanupJob(
                 jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
                 Duration.ofDays(30), 1);
