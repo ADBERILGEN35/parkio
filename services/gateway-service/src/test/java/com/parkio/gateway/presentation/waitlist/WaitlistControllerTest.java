@@ -155,6 +155,8 @@ class WaitlistControllerTest {
                         {
                           "email": "small-skew@parkio.dev",
                           "consentTimestamp": "%s",
+                          "consent": true,
+                          "consentTextVersion": "waitlist-consent-v1",
                           "source": "parkio.dev-landing",
                           "locale": "en"
                         }
@@ -476,8 +478,12 @@ class WaitlistControllerTest {
                 .getResponseBody();
         // UTF-8 BOM first, for spreadsheet clients, then the header row.
         org.assertj.core.api.Assertions.assertThat(body)
-                .startsWith("\uFEFFemail,fullName,city,role,source,createdAt,consentTimestamp\n");
+                .startsWith("\uFEFFemail,fullName,city,role,source,createdAt,consentTimestamp,consentTextVersion,confirmedAt\n");
         org.assertj.core.api.Assertions.assertThat(body).contains("will-confirm@parkio.dev");
+        // CL-F18: the stored consent version and the confirmation time are exported.
+        org.assertj.core.api.Assertions.assertThat(body).containsPattern(
+                "\"will-confirm@parkio.dev\",\"\",\"Izmir\",\"tester\",\"parkio.dev-landing\",\"[0-9T:.Z-]+\",\"[0-9T:.Z-]+\","
+                        + "\"waitlist-consent-v1\",\"[0-9T:.Z-]+\"\n");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("only-pending@parkio.dev");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("verification_token");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("email_hash");
@@ -631,6 +637,8 @@ class WaitlistControllerTest {
                 .jsonPath("$.content[0].locale").isEqualTo("tr")
                 .jsonPath("$.content[0].source").isEqualTo("parkio.dev-landing")
                 .jsonPath("$.content[0].confirmedAt").exists()
+                .jsonPath("$.content[0].consentTimestamp").exists()
+                .jsonPath("$.content[0].consentTextVersion").isEqualTo("waitlist-consent-v1")
                 .jsonPath("$.content[0].verificationTokenHash").doesNotExist()
                 .jsonPath("$.content[0].emailHash").doesNotExist()
                 .jsonPath("$.content[0].ipHash").doesNotExist();
@@ -737,11 +745,109 @@ class WaitlistControllerTest {
                 {
                   "email": "%s",
                   "consentTimestamp": "%s",
+                  "consent": true,
+                  "consentTextVersion": "waitlist-consent-v1",
                   "city": "Izmir",
                   "role": "tester",
                   "source": "parkio.dev-landing",
                   "locale": "tr"
                 }
                 """.formatted(email, java.time.Instant.now().minusSeconds(5).toString());
+    }
+
+    // CL-F18: server-side consent recording.
+
+    @Test
+    void rejectsASubmissionWithoutConsent() {
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "email": "no-consent@parkio.dev",
+                          "consentTimestamp": "%s",
+                          "consentTextVersion": "waitlist-consent-v1",
+                          "source": "parkio.dev-landing"
+                        }
+                        """.formatted(java.time.Instant.now().minusSeconds(5)))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_REQUIRED");
+        Integer rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM waitlist_interest", Integer.class);
+        org.assertj.core.api.Assertions.assertThat(rows).isZero();
+    }
+
+    @Test
+    void rejectsAnExplicitRefusalAndAnUnknownOrMalformedVersion() {
+        String now = java.time.Instant.now().minusSeconds(5).toString();
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"email": "refused@parkio.dev", "consentTimestamp": "%s", "consent": false,
+                         "consentTextVersion": "waitlist-consent-v1", "source": "parkio.dev-landing"}
+                        """.formatted(now))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_REQUIRED");
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"email": "unknown-version@parkio.dev", "consentTimestamp": "%s", "consent": true,
+                         "consentTextVersion": "waitlist-consent-v9", "source": "parkio.dev-landing"}
+                        """.formatted(now))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_VERSION_INVALID");
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"email": "bad-format@parkio.dev", "consentTimestamp": "%s", "consent": true,
+                         "consentTextVersion": "Waitlist Consent V1", "source": "parkio.dev-landing"}
+                        """.formatted(now))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_VERSION_INVALID");
+        webTestClient.post()
+                .uri("/api/v1/waitlist")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"email": "no-version@parkio.dev", "consentTimestamp": "%s", "consent": true,
+                         "source": "parkio.dev-landing"}
+                        """.formatted(now))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("WAITLIST_CONSENT_VERSION_INVALID");
+        Integer rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM waitlist_interest", Integer.class);
+        org.assertj.core.api.Assertions.assertThat(rows).isZero();
+    }
+
+    @Test
+    void storesTheConsentVersionAndKeepsTheFirstEvidenceOnResubmission() {
+        postAccepted("versioned@parkio.dev");
+        String stored = jdbcTemplate.queryForObject(
+                "SELECT consent_text_version FROM waitlist_interest WHERE email = ?",
+                String.class, "versioned@parkio.dev");
+        Instant firstConsent = jdbcTemplate.queryForObject(
+                "SELECT consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class, "versioned@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(stored).isEqualTo("waitlist-consent-v1");
+
+        // The same address submits again while PENDING: the row, its version and its consent time stay.
+        postAccepted("versioned@parkio.dev");
+        Integer rows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM waitlist_interest WHERE email = ?", Integer.class, "versioned@parkio.dev");
+        Instant afterResubmit = jdbcTemplate.queryForObject(
+                "SELECT consent_timestamp FROM waitlist_interest WHERE email = ?",
+                Instant.class, "versioned@parkio.dev");
+        org.assertj.core.api.Assertions.assertThat(rows).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(afterResubmit).isEqualTo(firstConsent);
     }
 }

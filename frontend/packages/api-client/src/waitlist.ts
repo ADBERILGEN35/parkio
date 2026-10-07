@@ -16,6 +16,9 @@ export interface WaitlistPayload {
   city?: string;
   role?: WaitlistRole;
   consentTimestamp: string;
+  /** CL-F18: the gateway requires these unless its compatibility flag is off. */
+  consent?: boolean;
+  consentTextVersion?: string;
   source: typeof WAITLIST_SOURCE;
   locale?: 'tr' | 'en';
 }

@@ -6,6 +6,9 @@ import com.parkio.gateway.application.waitlist.WaitlistApplicationService;
 import com.parkio.gateway.application.waitlist.WaitlistExport;
 import com.parkio.gateway.application.waitlist.WaitlistExportCursor;
 import com.parkio.gateway.application.waitlist.WaitlistExportRow;
+import com.parkio.gateway.application.waitlist.WaitlistInterest;
+import com.parkio.gateway.application.waitlist.WaitlistAdminPage;
+import com.parkio.gateway.application.waitlist.WaitlistAdminEntry;
 import com.parkio.gateway.application.waitlist.WaitlistProperties;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -152,6 +155,27 @@ class JdbcWaitlistInterestRepositoryExportPostgresIT {
         // Evidence only (JVM heap is not deterministic): printed into the test report.
         System.out.printf("export-memory baseline=%d peak=%d delta=%d bytes rows=%d largestPage=%d%n",
                 baseline, peak.get(), peak.get() - baseline, rows.get(), largestPage.get());
+    }
+
+    @Test
+    void exportCarriesTheStoredConsentVersionAndLegacyRowsReadAsUnversioned() {
+        Instant confirmed = Instant.parse("2026-09-10T10:00:00Z");
+        UUID legacy = insert("CONFIRMED", confirmed);
+        UUID versioned = insert("CONFIRMED", confirmed.plusSeconds(1));
+        jdbc.update("UPDATE waitlist_interest SET consent_text_version = ? WHERE id = ?", "waitlist-consent-v1", versioned);
+
+        List<WaitlistExportRow> rows = repository.exportConfirmedPage(null, null, null, 10);
+        assertThat(rows).extracting(WaitlistExportRow::id).containsExactly(legacy, versioned);
+        // CL-F18: a row inserted without a version is legacy-unversioned (the V6 backfill default).
+        assertThat(rows.get(0).consentTextVersion()).isEqualTo("legacy-unversioned");
+        assertThat(rows.get(1).consentTextVersion()).isEqualTo("waitlist-consent-v1");
+        assertThat(rows.get(1).confirmedAt()).isEqualTo(confirmed.plusSeconds(1));
+        assertThat(repository.findById(versioned)).get()
+                .extracting(WaitlistInterest::consentTextVersion).isEqualTo("waitlist-consent-v1");
+        WaitlistAdminPage page = repository.findAdminPage(null, null, null, 0, 10);
+        assertThat(page.content()).extracting(WaitlistAdminEntry::consentTextVersion)
+                .containsExactlyInAnyOrder("legacy-unversioned", "waitlist-consent-v1");
+        assertThat(page.content()).allSatisfy(entry -> assertThat(entry.consentTimestamp()).isNotNull());
     }
 
     private static UUID insert(String status, Instant confirmedAt) {

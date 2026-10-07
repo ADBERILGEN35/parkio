@@ -394,7 +394,7 @@ class WaitlistOpsNotificationOutboxTest {
 
     private void submitPending() {
         service.submit(new SubmitWaitlistCommand(
-                EMAIL, Instant.now(), "Ayşe Yılmaz", "Izmir", "driver", "parkio.dev-landing", "tr",
+                EMAIL, Instant.now(), true, "waitlist-consent-v1", "Ayşe Yılmaz", "Izmir", "driver", "parkio.dev-landing", "tr",
                 "198.51.100.23", "synthetic-agent")).block();
         assertThat(verificationToken.get()).isNotNull();
     }

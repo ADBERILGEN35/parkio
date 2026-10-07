@@ -62,6 +62,22 @@
 
   const mockStore = new Set();
 
+  // CL-F18: the id of the consent text the checkbox shows. The gateway records it with the row and
+  // accepts only registered ids. A new wording gets a new id here and in the gateway's registry.
+  const CONSENT_TEXT_VERSION = 'waitlist-consent-v1';
+
+  function buildSubmitPayload({ fullName, email, locale }) {
+    return {
+      fullName,
+      email,
+      consentTimestamp: new Date().toISOString(),
+      consent: true,
+      consentTextVersion: CONSENT_TEXT_VERSION,
+      source: 'parkio.dev-landing',
+      locale,
+    };
+  }
+
   async function submitApi(payload) {
     const response = await fetch(`${apiBase()}/waitlist`, {
       method: 'POST',
@@ -91,6 +107,9 @@
       const body = await response.json().catch(() => ({}));
       if (body && body.code === 'WAITLIST_CONSENT_TIMESTAMP_INVALID') {
         return { ok: false, code: 'CONSENT_TIMESTAMP_INVALID' };
+      }
+      if (body && (body.code === 'WAITLIST_CONSENT_REQUIRED' || body.code === 'WAITLIST_CONSENT_VERSION_INVALID')) {
+        return { ok: false, code: 'CONSENT_REQUIRED' };
       }
       if (body && body.code === 'WAITLIST_FULL_NAME_REQUIRED') {
         return { ok: false, code: 'FULL_NAME_REQUIRED' };
@@ -205,6 +224,8 @@
         return 'waitlist.error.delivery';
       case 'CONSENT_TIMESTAMP_INVALID':
         return 'waitlist.error.consentTime';
+      case 'CONSENT_REQUIRED':
+        return 'waitlist.error.consent';
       case 'FULL_NAME_REQUIRED':
         return 'waitlist.error.fullNameRequired';
       case 'FULL_NAME_INVALID':
@@ -325,13 +346,7 @@
         return;
       }
 
-      const payload = {
-        fullName,
-        email,
-        consentTimestamp: new Date().toISOString(),
-        source: 'parkio.dev-landing',
-        locale: currentLocale(),
-      };
+      const payload = buildSubmitPayload({ fullName, email, locale: currentLocale() });
 
       submitBtn.disabled = true;
       submitBtn.dataset.waitlistBusy = '1';
@@ -414,6 +429,8 @@
     isValidEmail,
     normalizeEmail,
     detectMode,
+    buildSubmitPayload,
+    CONSENT_TEXT_VERSION,
     submitApi,
     submitMock,
     confirmApi,
