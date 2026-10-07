@@ -27,6 +27,11 @@
 #       Removes the synthetic textfile (only a file carrying this tool's marker). Same confirmation.
 #   alerting-live-backup-stale-acceptance.sh status
 #       One read-only poll.
+#   alerting-live-backup-stale-acceptance.sh delivery-rules
+#       Read-only (option A for "receiver failure surfaces"): checks that the delivery-failure rules
+#       AlertmanagerNotificationsFailing and PrometheusNotificationsFailing are loaded, healthy, evaluated
+#       in the last 10 minutes and inactive, and that the counters they read exist. It proves the live
+#       configuration, not a live receiver failure.
 #
 # Environment: PARKIO_PROMETHEUS_TEXTFILE_DIR (default docker/prometheus/textfile under the repo;
 # on the Civo host /opt/parkio/docker/prometheus/textfile), PARKIO_LIVE_PROM_URL
@@ -52,7 +57,7 @@ PRODUCTION_SCOPES="invite-production hosted-beta azure-hosted-beta"
 STALE_AGE_SECONDS=93600
 PYTHON="${PYTHON:-python3}"
 
-usage() { sed -n '2,36p' "$0" >&2; exit 2; }
+usage() { sed -n '2,41p' "$0" >&2; exit 2; }
 COMMAND="${1:-}"; [ -n "$COMMAND" ] || usage; shift
 YES=0; ANY_HOST=0; UNTIL=firing; TIMEOUT=""; INTERVAL=30
 while [ "$#" -gt 0 ]; do
@@ -175,6 +180,71 @@ import json, sys
 d = json.load(sys.stdin)
 names = {r.get("name") for g in d.get("data", {}).get("groups", []) for r in g.get("rules", [])}
 sys.exit(0 if "BackupStale" in names else 1)' 2>/dev/null
+}
+
+# Option A for "receiver failure surfaces" (docs/operations/alerting-live-backup-stale-acceptance.md):
+# the delivery-failure rules on the live host, read-only. One line per rule:
+# "<name> loaded=<yes|no> health=<..> state=<..> evaluated_s_ago=<n|?> last_error=<none|present>".
+PY_DELIVERY_RULES=""
+read -r -d '' PY_DELIVERY_RULES <<'PY' || true
+import json, sys
+from datetime import datetime, timezone
+body, now = sys.argv[1], datetime.now(timezone.utc)
+rules = {}
+for group in json.loads(body).get("data", {}).get("groups", []):
+    for rule in group.get("rules", []):
+        rules[rule.get("name")] = rule
+for name in ("AlertmanagerNotificationsFailing", "PrometheusNotificationsFailing"):
+    rule = rules.get(name)
+    if rule is None:
+        print(f"{name} loaded=no health=- state=- evaluated_s_ago=? last_error=none")
+        continue
+    age = "?"
+    stamp = rule.get("lastEvaluation") or ""
+    try:
+        head = stamp.rstrip("Z").partition(".")[0]
+        when = datetime.strptime(head, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        age = str(max(0, int((now - when).total_seconds())))
+    except ValueError:
+        pass
+    print(f"{name} loaded=yes health={rule.get('health', '-')} state={rule.get('state', '-')} "
+          f"evaluated_s_ago={age} last_error={'present' if rule.get('lastError') else 'none'}")
+PY
+
+delivery_rules() {
+  local failures=0 body lines line name age state
+  log "delivery-rules: read-only check of the delivery-failure rules on $(hostname) (option A)"
+  if ! body="$(http_get "$PROM_URL/api/v1/rules?type=alert" 2>/dev/null)"; then
+    log "FAIL could not read the rules from Prometheus at $PROM_URL"; evidence delivery_rules "result=unreadable"; log "DELIVERY RULES: FAIL (1)"; return 1
+  fi
+  if ! lines="$("$PYTHON" -c "$PY_DELIVERY_RULES" "$body" 2>/dev/null)"; then
+    log "FAIL could not parse the rules answer"; evidence delivery_rules "result=unparsable"; log "DELIVERY RULES: FAIL (1)"; return 1
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    name="${line%% *}"
+    state="${line##*state=}"; state="${state%% *}"
+    age="${line##*evaluated_s_ago=}"; age="${age%% *}"
+    if [[ "$line" == *"loaded=no"* ]]; then
+      log "FAIL $name is not loaded"; failures=$((failures+1))
+    else
+      if [[ "$line" != *"health=ok"* ]]; then log "FAIL $name is not healthy: $line"; failures=$((failures+1)); fi
+      if [[ "$line" == *"last_error=present"* ]]; then log "FAIL $name has an evaluation error"; failures=$((failures+1)); fi
+      if [ "$state" != inactive ]; then log "FAIL $name is $state: a delivery failure is happening now; investigate before any acceptance"; failures=$((failures+1)); fi
+      if ! is_number "$age"; then log "FAIL $name has no readable last evaluation time"; failures=$((failures+1));
+      elif [ "$age" -gt 600 ]; then log "FAIL $name was last evaluated ${age}s ago (over 10 minutes)"; failures=$((failures+1)); fi
+    fi
+    log "rule: $line"
+    evidence delivery_rule "line=$line"
+  done <<< "$lines"
+  local am_series prom_series
+  am_series="$(prom_count 'alertmanager_notifications_failed_total')"
+  prom_series="$(prom_count 'prometheus_notifications_errors_total')"
+  if is_number "$am_series" && [ "$am_series" -gt 0 ]; then log "ok alertmanager_notifications_failed_total present ($am_series series)"; else log "FAIL alertmanager_notifications_failed_total is not readable (series: $am_series)"; failures=$((failures+1)); fi
+  if is_number "$prom_series" && [ "$prom_series" -gt 0 ]; then log "ok prometheus_notifications_errors_total present ($prom_series series)"; else log "FAIL prometheus_notifications_errors_total is not readable (series: $prom_series)"; failures=$((failures+1)); fi
+  evidence delivery_rules "am_failed_series=$am_series" "prom_errors_series=$prom_series" "failures=$failures"
+  if [ "$failures" -ne 0 ]; then log "DELIVERY RULES: FAIL ($failures)"; return 1; fi
+  log "DELIVERY RULES: PASS (configuration only; a live receiver failure was not observed)"
 }
 
 preflight() {
@@ -352,5 +422,6 @@ case "$COMMAND" in
   observe) observe ;;
   disarm) disarm ;;
   status) status ;;
+  delivery-rules) delivery_rules ;;
   *) usage ;;
 esac

@@ -97,11 +97,22 @@ where the catcher answers 503. Proving it live means breaking the real Slack rec
 host for 10 to 15 minutes, during which real alerts are not delivered and the failure alert
 itself only reaches the Prometheus and Alertmanager UIs (it travels the broken path). Options:
 
-- **A (recommended):** accept the isolated proof plus a live read-only check that the two
-  delivery-failure rules are loaded and healthy on the host (`/api/v1/rules`), and rely on the
-  heartbeat / dead-man's switch (`alerting.md#heartbeat`) as the independent path once the
-  owner picks the external monitor (the heartbeat lands with #300; its `alerting.md#heartbeat`
-  section exists once that merges). No live outage window.
+- **A (recommended, prepared 2026-10-08):** accept the isolated proof plus a live read-only check of
+  the delivery-failure rules, and rely on the heartbeat / dead-man's switch (`alerting.md#heartbeat`)
+  as the independent path once the owner activates it. No live outage window. The live part is one
+  read-only command on the host, run in the same authorized session as the acceptance:
+
+      PARKIO_LIVE_EVIDENCE_DIR=<evidence dir> scripts/alerting-live-backup-stale-acceptance.sh delivery-rules
+
+  It passes only when `AlertmanagerNotificationsFailing` and `PrometheusNotificationsFailing` are
+  loaded, healthy (no evaluation error), evaluated within the last 10 minutes and inactive, and the
+  counters they read (`alertmanager_notifications_failed_total`, `prometheus_notifications_errors_total`)
+  have series; it records each rule line in the evidence and prints no URL. The isolated half is the
+  alerting acceptance in CI (`scripts/alerting-acceptance.sh`: the catcher answers 503 and
+  `AlertmanagerNotificationsFailing` fires for `integration="webhook"`).
+  **Scope note:** A does not observe a receiver failure on the live host, so it does not satisfy the
+  original criterion "receiver failure surfaces" as written; accepting it is an owner scope decision.
+  Its independent path (the heartbeat) counts only once the heartbeat is activated.
 - **B:** a scheduled live break: set `PARKIO_ALERT_SLACK_WEBHOOK_URL` to an unroutable
   `https://127.0.0.1:9/` in the host env, recreate Alertmanager, arm the synthetic alert as
   above, watch `alertmanager_notifications_failed_total{integration="slack"}` reach 2 and

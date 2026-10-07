@@ -27,7 +27,12 @@ while [ "$#" -gt 0 ]; do
 done
 case "$url" in
   */-/ready) [ "${FAKE_READY:-1}" = 1 ] || exit 22; if [ -n "$out" ]; then echo OK > "$out"; else echo OK; fi; exit 0 ;;
-  */api/v1/rules*) echo '{"status":"success","data":{"groups":[{"name":"parkio-critical","rules":[{"name":"BackupFailed"},{"name":"'"${FAKE_RULE:-BackupStale}"'"}]}]}}' ;;
+  */api/v1/rules*)
+    [ "${FAKE_RULES_ERROR:-0}" = 1 ] && exit 22
+    eval_at="$(date -u -d "@$(( $(date +%s) - ${FAKE_DR_AGE:-15} ))" +%Y-%m-%dT%H:%M:%S.123456789Z)"
+    dr='{"name":"AlertmanagerNotificationsFailing","health":"'"${FAKE_DR_HEALTH:-ok}"'","state":"'"${FAKE_DR_STATE:-inactive}"'","lastError":"'"${FAKE_DR_ERROR:-}"'","lastEvaluation":"'"$eval_at"'"},{"name":"PrometheusNotificationsFailing","health":"ok","state":"inactive","lastError":"","lastEvaluation":"'"$eval_at"'"}'
+    [ "${FAKE_DR_MISSING:-0}" = 1 ] && dr='{"name":"PrometheusNotificationsFailing","health":"ok","state":"inactive","lastError":"","lastEvaluation":"'"$eval_at"'"}'
+    echo '{"status":"success","data":{"groups":[{"name":"parkio-critical","rules":[{"name":"BackupFailed"},{"name":"'"${FAKE_RULE:-BackupStale}"'"}]},{"name":"parkio-alerting","rules":['"$dr"']}]}}' ;;
   */api/v1/query)
     [ "${FAKE_QUERY_ERROR:-0}" = 1 ] && exit 22
     case "$query" in
@@ -35,6 +40,7 @@ case "$url" in
       *'ALERTS{alertname=~"Backup.*"}'*) if [ "${FAKE_BACKUP_ACTIVE:-0}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{"alertname":"BackupStale","alertstate":"pending"},"value":[0,"1"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *'ALERTS{alertname="BackupStale"'*) echo '{"status":"success","data":{"result":'"${FAKE_PROM_ALERTS:-[]}"'}}' ;;
       *notifications_failed_total*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_FAILED:-0}"'"]}]}}' ;;
+      *prometheus_notifications_errors_total*) if [ "${FAKE_PROM_ERR_SERIES:-1}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{"alertmanager":"http://alertmanager:9093/api/v2/alerts"},"value":[0,"0"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *notifications_total*)
         val="${FAKE_SENT:-7}"
         if [ -n "${FAKE_SENT_SEQ:-}" ]; then
@@ -114,6 +120,20 @@ if run PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE PARKIO_LIVE_SYNTH
   if run -- status; then grep -q 'synthetic file absent (scope hosted-beta)' "$TMP/out" && ok "status and observe keep the armed scope after the file is gone" || { bad "status scope after disarm"; cat "$TMP/out"; }; else bad "status failed"; fi
 else bad "arm with a forced free scope failed"; cat "$TMP/out"; fi
 rm -f "$TMP/evidence/armed-scope"
+
+# Option A: delivery-rules (read-only configuration check of the delivery-failure rules).
+if run -- delivery-rules; then
+  grep -q 'DELIVERY RULES: PASS (configuration only' "$TMP/out" && grep -q 'rule: AlertmanagerNotificationsFailing loaded=yes health=ok state=inactive' "$TMP/out" \
+    && grep -q 'rule: PrometheusNotificationsFailing loaded=yes' "$TMP/out" && grep -q '"type":"delivery_rules"' "$TMP/evidence/events.jsonl" \
+    && ok "delivery-rules passes on healthy, recently evaluated, inactive rules and records evidence" || { bad "delivery-rules pass output"; cat "$TMP/out"; }
+else bad "delivery-rules failed on a healthy fake"; cat "$TMP/out"; fi
+if run FAKE_DR_MISSING=1 -- delivery-rules; then bad "delivery-rules passed with a missing rule"; else grep -q 'FAIL AlertmanagerNotificationsFailing is not loaded' "$TMP/out" && ok "delivery-rules refuses a missing rule" || { bad "missing rule message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_STATE=firing -- delivery-rules; then bad "delivery-rules passed while the rule fires"; else grep -q 'AlertmanagerNotificationsFailing is firing' "$TMP/out" && ok "delivery-rules refuses a firing delivery-failure rule" || { bad "firing message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_AGE=900 -- delivery-rules; then bad "delivery-rules passed with a stale evaluation"; else grep -q 'over 10 minutes' "$TMP/out" && ok "delivery-rules refuses a rule not evaluated in 10 minutes" || { bad "stale evaluation message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_ERROR=boom FAKE_DR_HEALTH=err -- delivery-rules; then bad "delivery-rules passed with an evaluation error"; else grep -q 'has an evaluation error' "$TMP/out" && grep -q 'is not healthy' "$TMP/out" && ok "delivery-rules refuses an unhealthy rule with an evaluation error" || { bad "evaluation error message"; cat "$TMP/out"; }; fi
+if run FAKE_PROM_ERR_SERIES=0 -- delivery-rules; then bad "delivery-rules passed without the Prometheus error counter"; else grep -q 'prometheus_notifications_errors_total is not readable' "$TMP/out" && ok "delivery-rules refuses when a counter the rules read is absent" || { bad "counter message"; cat "$TMP/out"; }; fi
+if run FAKE_RULES_ERROR=1 -- delivery-rules; then bad "delivery-rules passed with unreadable rules"; else grep -q 'could not read the rules' "$TMP/out" && ok "delivery-rules fails when the rules cannot be read" || { bad "unreadable rules message"; cat "$TMP/out"; }; fi
+if run -- delivery-rules && ! grep -qE 'https?://' "$TMP/out"; then ok "delivery-rules prints no URL"; else bad "delivery-rules printed a URL"; fi
 
 echo "not mine" > "$TMP/textfile/parkio_backup_synthetic_stale.prom"
 if run PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE -- disarm --yes; then bad "disarm removed a file without the marker"; else grep -q 'does not carry this tool' "$TMP/out" && [ -f "$TMP/textfile/parkio_backup_synthetic_stale.prom" ] && ok "disarm refuses a file it did not write" || bad "disarm marker refusal"; fi
