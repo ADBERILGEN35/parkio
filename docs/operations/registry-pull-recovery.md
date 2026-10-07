@@ -44,7 +44,7 @@ Not in the inventory, on purpose:
 | Item | Value |
 |---|---|
 | Name | `parkio-ghcr-readonly` |
-| Type | A GitHub token whose only scope is `read:packages` (a classic personal access token with that single scope, or a fine-grained token if GitHub grants it package read access when it is created; check at creation and do not add any other scope). Pulls through it are read-only by construction: it can neither push nor delete a package |
+| Type | A **personal access token (classic)** with the single scope `read:packages`. GitHub Packages, the container registry included, authenticates only with classic tokens; fine-grained personal access tokens have no package permissions ([docs: working with the container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [about permissions for GitHub Packages](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages), read 2026-10-07). Do not add any other scope: `read:packages` is the minimum that can pull, and it cannot push or delete a package |
 | Issued by | the repository owner, on an account that has read access to the `ADBERILGEN35/parkio` packages |
 | Expiry | 90 days, set at creation; GitHub refuses the token afterwards even if it is never rotated |
 | Custody | the DR secrets store that already holds `BACKUP_ENCRYPT_PASSPHRASE` and the offsite `mc` credentials (see the DR runbook's "Contacts / secrets"), as one entry with the user name, the token and the expiry date. Role: repository owner. It is never written into git, `docker/.env.example`, a workflow file or a ticket |
@@ -56,7 +56,7 @@ Why not the live host's own credential: it dies with the host.
 
 ### Creating or rotating it
 
-1. Create the new token with only `read:packages`, expiry 90 days. Record the expiry date.
+1. Create the new token: GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic); tick only `read:packages`; expiry 90 days; note "parkio-ghcr-readonly" and the expiry date. The issuing account must be able to read the `ADBERILGEN35/parkio` packages (the repository owner can).
 2. Put the user name, token and expiry into the DR secrets store entry.
 3. Update the two repository secrets (`PARKIO_REGISTRY_READONLY_USER`, `PARKIO_REGISTRY_READONLY_TOKEN`).
 4. Dispatch **Registry pull recovery** (`gh workflow run registry-pull-recovery.yml --ref api`).
