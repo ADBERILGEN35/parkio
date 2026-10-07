@@ -49,6 +49,9 @@ on:
       - "scripts/test_alerting_workflow_safety.py"
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
+      - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
       - "docs/architecture/production-readiness.md"
       - "docs/architecture/wp-05-implementation-plan.md"
@@ -99,6 +102,9 @@ on:
       - "scripts/test_alerting_workflow_safety.py"
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
+      - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
       - "docs/architecture/production-readiness.md"
       - "docs/architecture/wp-05-implementation-plan.md"
@@ -118,7 +124,7 @@ jobs:
   validate:
     name: Config + script checks
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -257,6 +263,11 @@ jobs:
           grep -q 'healthy delivery: no delivery-failure alert firing' docker/.alerting-acceptance-receipts/evidence.txt
           grep -q 'receiver failure alert firing' docker/.alerting-acceptance-receipts/evidence.txt
           grep -q 'alertmanager unreachable alert firing' docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'heartbeat delivered periodically' docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'heartbeat halted while Alertmanager is stopped' docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'heartbeat resumed after Alertmanager restart' docker/.alerting-acceptance-receipts/evidence.txt
+          grep -q 'heartbeat halted after Prometheus stopped' docker/.alerting-acceptance-receipts/evidence.txt
+          test -s docker/.alerting-acceptance-receipts/heartbeats.jsonl
           if grep -Ei 'hooks\.slack\.com|xox[bp]-|Bearer [A-Za-z0-9._-]{20,}' docker/.alerting-acceptance-receipts/evidence.txt docker/.alerting-acceptance-receipts/receipts.jsonl; then
             echo "FAIL: credential-like string in alerting receipts" >&2
             exit 1
@@ -305,6 +316,7 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+          bash scripts/test-preflight-hosted-beta.sh
 
       - name: Non-root volume migration tool (disposable volumes)
         run: |

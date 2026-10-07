@@ -16,7 +16,8 @@ Grafana dashboards and Alertmanager "firing" in the UI are **not** acceptance of
 
 ```
 Prometheus ──► Alertmanager ──► Slack webhook  (PARKIO_ALERT_SLACK_WEBHOOK_URL)
-                         └──► generic webhook (PARKIO_ALERT_WEBHOOK_URL)
+                         ├──► generic webhook (PARKIO_ALERT_WEBHOOK_URL)
+                         └──► heartbeat: Watchdog only ──► external dead-man's switch (PARKIO_ALERT_HEARTBEAT_URL)
 ```
 
 ## Severity
@@ -25,6 +26,7 @@ Prometheus ──► Alertmanager ──► Slack webhook  (PARKIO_ALERT_SLACK_W
 |-------|---------|--------|
 | `critical` | P0 — page now (outage, data protection, or synthetic acceptance) | `1h` (`PARKIO_ALERT_REPEAT_CRITICAL`) |
 | `warning` | P1 — investigate soon | `4h` (`PARKIO_ALERT_REPEAT_WARNING`) |
+| `heartbeat` | Not a page. Only `Watchdog` carries it; it goes to the [external dead-man's switch](#heartbeat), never to the operator channel | `2m` (`PARKIO_ALERT_HEARTBEAT_REPEAT`) |
 
 Every production alert has: stable `alertname`, `severity`, `summary`, `description`, `runbook_url`, and a `for:` duration. Labels must not carry secrets or PII.
 
@@ -112,9 +114,34 @@ For the first alert, Prometheus scrapes Alertmanager's own metrics (job `alertma
 - Production renders one integration, Slack or the generic webhook, never both.
 - When that integration fails, `AlertmanagerNotificationsFailing` is routed to the same failing receiver.
 - When Alertmanager is down, `PrometheusNotificationsFailing` cannot reach anyone.
-- Both still show in the Prometheus and Alertmanager UIs. Getting them to a person needs a second, independent path: a second receiver integration, or a watchdog outside the hosted-beta failure domain (the U06 dead-man's-switch task). Choosing that path is an owner decision; nothing here adds one.
+- Both still show in the Prometheus and Alertmanager UIs. Getting them to a person needs a second, independent path: the [heartbeat](#heartbeat) to a dead-man's switch outside the hosted-beta failure domain. The switch product is still an operator decision (recorded in that section); the rule and route are in place.
 
 On Azure hosted-beta, Alertmanager is disabled. There, `PrometheusNotificationsFailing` fires five minutes after any alert becomes active, and then keeps itself active. That is accurate: alerts have nowhere to go on that path.
+
+## Heartbeat / dead-man's switch {#heartbeat}
+
+The delivery-failure alerts travel the path they watch, so they cannot report a host, Prometheus or Alertmanager that is simply gone. The heartbeat closes that gap from outside the hosted-beta failure domain (U06, CL-F04).
+
+**Rule.** `Watchdog` (`docker/prometheus/alerts.yml`, group `parkio-heartbeat`) is `vector(1)`: it always fires, with `severity="heartbeat"` and `service="observability"`. Its unit test is `docker/prometheus/tests/heartbeat.test.yml`.
+
+**Route.** The first Alertmanager route matches `alertname="Watchdog"`, groups it alone (`group_by: ["alertname"]`, `group_wait: 0s`, `group_interval: 30s`) and re-sends it once `PARKIO_ALERT_HEARTBEAT_REPEAT` (default `2m`) has elapsed. Alertmanager re-sends at the first flush after the repeat has elapsed, so the observed period is the repeat rounded up to the next 30 s flush: 2m to 2m30s with the default, 30 s in the isolated run with its 20 s repeat. It goes to receiver `heartbeat`: a webhook `POST` to `PARKIO_ALERT_HEARTBEAT_URL`, optional Bearer `PARKIO_ALERT_HEARTBEAT_SECRET`, `send_resolved: false`. With no URL the route ends at the `null` receiver. Because the route comes first and does not `continue`, `Watchdog` never matches the critical or warning routes and never reaches Slack or the operator webhook. A heartbeat alone is not an operator receiver: `PARKIO_ALERT_REQUIRE_RECEIVER` still refuses to start without Slack or the generic webhook, and a heartbeat-only render keeps every operator route on `null`.
+
+**External receiver contract.** The receiver is a dead-man's switch hosted outside this host and its network. It expects one `POST` about every `PARKIO_ALERT_HEARTBEAT_REPEAT` (plus up to one 30 s flush) and pages the operator through its own channel when none arrives for its grace period. Set the grace to at least two periods plus the flush: with the default 2m, 6m. Any request body must be accepted; the switch must not depend on the Alertmanager payload. The product is an operator decision; record it here.
+
+| Item | Value |
+|---|---|
+| External monitor | **Pending operator decision.** Recommendation: a hosted heartbeat/ping service with one URL per check and its own paging channel (Healthchecks-style). It needs no new image and no inbound access to the host |
+| Expected period | `PARKIO_ALERT_HEARTBEAT_REPEAT` = `2m`, observed as 2m to 2m30s |
+| Grace before paging | at least `6m` (two periods plus the flush) |
+| Who is paged on silence | the operator on call, through the monitor's own channel, not through this Alertmanager |
+
+**What silence means.** No heartbeat for the grace period: Prometheus is not evaluating, Alertmanager is not sending, the host or its egress is down, or the heartbeat URL or credential is wrong. It does not mean the `Watchdog` alert resolved. Response: [alert-response-runbook.md#watchdog](./alert-response-runbook.md#watchdog). While the pipeline is silent, no other alert reaches the operator either.
+
+**Receiver failure is visible.** A heartbeat `POST` that fails counts in `alertmanager_notifications_failed_total{integration="webhook"}`, so a broken switch URL fires `AlertmanagerNotificationsFailing` to the operator channel while that channel still works.
+
+**Activation (separately authorized).** Set `PARKIO_ALERT_HEARTBEAT_URL` (and the optional secret) in the host env, recreate Alertmanager so `render-config.sh` re-runs, confirm the switch shows a fresh ping, then fill the table above. `scripts/preflight-hosted-beta.sh` warns while the URL is empty and refuses a placeholder or non-HTTPS value. Drill and restore stacks must never carry the heartbeat URL (`scripts/lib/restore-drill-isolation-preflight.py` refuses it): a drill pinging the production switch would hide a real outage. Do not point two stacks at one switch URL.
+
+**Tests.** `observability-validate.sh` renders the configuration with and without the URL and asks `amtool config routes test` which receiver `Watchdog`, a critical and a warning alert get. The isolated acceptance (`scripts/alerting-acceptance.sh`) proves periodic delivery to the heartbeat catcher only, no `Watchdog` at the operator receiver, that stopping Alertmanager halts the heartbeat, that it resumes on restart, and that stopping Prometheus halts it once the alert times out.
 
 ## Backup alerts
 
@@ -141,6 +168,11 @@ The isolated run also proves the delivery-failure alerts:
 - while delivery is healthy, neither fires;
 - with the catcher answering 503, `AlertmanagerNotificationsFailing{integration="webhook"}` fires;
 - with Alertmanager stopped, `PrometheusNotificationsFailing` fires after its 5-minute hold.
+
+And the [heartbeat](#heartbeat):
+- `Watchdog` reaches the heartbeat catcher periodically and never the operator catcher;
+- it halts while Alertmanager is stopped and resumes after the restart;
+- it halts after Prometheus is stopped, once Alertmanager times the alert out.
 
 CI: `.github/workflows/observability-validation.yml` (no `continue-on-error`).
 

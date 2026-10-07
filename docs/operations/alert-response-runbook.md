@@ -118,6 +118,15 @@ auto-complete individually (see stale runbook).
 - Do not leave it firing on hosted-beta.
 - Procedure: [alerting.md](./alerting.md#synthetic-acceptance).
 
+## Watchdog / heartbeat silence {#watchdog}
+
+- Meaning: the external dead-man's switch reports that the `Watchdog` heartbeat stopped. The alerting pipeline (host, Prometheus, Alertmanager or egress) is down or misconfigured. The `Watchdog` alert itself is never a page; it is meant to fire forever.
+- Inspect, in order: is the host reachable (SSH)? `docker compose ps` for `parkio-prometheus` and `parkio-alertmanager`; Alertmanager `/-/healthy` and `/api/v2/alerts` through the SSH tunnel (the list must contain `Watchdog`); `alertmanager_notifications_failed_total{integration="webhook"}` and the Alertmanager log for the heartbeat receiver error (the URL is redacted, the status is not); outbound HTTPS from the host to the switch; whether `PARKIO_ALERT_HEARTBEAT_URL` or the switch's URL changed.
+- Safe first action: start the stopped component (`docker compose up -d alertmanager` or `prometheus` through the deployment wrapper). If the URL or token changed, update the host env and recreate Alertmanager so `render-config.sh` re-runs.
+- Do not: silence `Watchdog`, point a drill or test stack at the production switch, or lengthen the switch's grace to make the page stop.
+- While the heartbeat is silent, no other alert reaches the operator: check backups, disk and service health by hand until it is back.
+- Procedure and contract: [alerting.md#heartbeat](./alerting.md#heartbeat).
+
 ## Escalation
 
 - Capture alert labels, Grafana screenshots, and `docker compose ps`.
