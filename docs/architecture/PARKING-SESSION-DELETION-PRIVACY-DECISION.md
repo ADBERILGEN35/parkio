@@ -153,7 +153,7 @@ Shared `@parkio/api-client` exposes start/active/complete/cancel/history — **n
 | `ParkingSpotClaimedEvent` / outbox / Kafka | Yes | domain event + relay |
 | Gamification `point_transactions` / trust | Yes | claim handlers |
 | Analytics `PARKING_CLAIMED` | Yes | analytics consumer |
-| `parking_spot_view_logs` / `parking_spot_search_logs` | Yes | V5/V6 — adjacent location PII (PRIV-002); **not** created by session start |
+| `parking_spot_view_logs` / `parking_spot_search_logs` | Yes | V5/V6 — adjacent location PII (PRIV-002); **not** created by session start; retained 30 days by `RetentionCleanupJob` once `PARKIO_LOCATION_LOG_RETENTION_ENABLED=true` (CL-F17) |
 | ParkingSession lifecycle Kafka events | **No** | R17–R19 |
 | Session뿯↽spot FK | **No** | V15 / claim code |
 | Session DELETE API | **No** | controller/OpenAPI |
@@ -277,9 +277,21 @@ Rejected alternative: leave ACTIVE stranded after auth user is gone.
 | Trust adjustments | User | **No** on session delete | Maybe on account erasure | Anti-abuse | Trust model | S1-P1-04 |
 | Analytics `PARKING_CLAIMED` | Platform | **No** on session delete | Anonymize user id on account erasure (D-ANA-01) | Product metrics | Aggregate analytics | Analytics erasure task |
 | Future `parking_session_*` analytics | Platform | N/A until created | Must never include precise coords | — | R17–R22 policy | Analytics tasks |
-| `parking_spot_search_logs` / view logs | Platform | Out of session-delete scope | Separate PRIV-002 program | Currently indefinite (gap) | Ops | PRIV-002 remediation |
+| `parking_spot_search_logs` / view logs | Platform | Out of session-delete scope | Account erasure deletes a user's rows (PRIV-001); age-based retention below | **30 days** (`PARKIO_LOCATION_LOG_RETENTION`, default `P30D`) once `PARKIO_LOCATION_LOG_RETENTION_ENABLED=true`; indefinite until that release step | Abuse and incident forensics only; no product feature reads them | CL-F17: `RetentionCleanupJob`, V42 indexes |
 | Backups containing sessions | Ops | Not surgically purged | — | Until backup retention | Disaster recovery | Restore + tombstone replay |
 | Application logs with `sessionId` | Ops | Log retention policy | Redact coords (must not log lat/lng) | Short ops window | Security/debug | Logging standards task |
+
+**Location logs (PRIV-002, CL-F17, 2026-10-07).** `parking_spot_search_logs` (searcher id, coordinates,
+radius, result count) and `parking_spot_view_logs` (viewer id, spot id) are written by the nearby
+search and the spot detail view and read by no product feature; their purpose is abuse and incident
+forensics. `RetentionCleanupJob` deletes rows older than `parkio.lifecycle.retention.location-log-retention`
+(default 30 days) in bounded batches of `batch-size` rows per table per run, oldest first, on the same
+schedule as the outbox and inbox cleanup; V42 adds the `created_at` indexes the range scan uses. The
+cleanup is **off by default** (`PARKIO_LOCATION_LOG_RETENTION_ENABLED=false`): the first enabled run
+deletes every production row older than the retention, so enabling it is a release step with its own
+authorization, not a code default. Account erasure (PRIV-001) keeps deleting a user's rows regardless
+of age through `AccountErasureHandler`; the two paths are independent. The public privacy page's
+wording about these logs is a product and legal decision outside this change.
 
 ---
 
