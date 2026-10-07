@@ -163,6 +163,24 @@ else
 fi
 rm -f "$NOALERT"
 
+# ---- heartbeat URL shape (U06 dead-man's switch) ----------------------------
+HB="${TMPDIR:-/tmp}/preflight-heartbeat-$$.env"
+cp "$FIXTURES/valid.env" "$HB"
+echo 'PARKIO_ALERT_HEARTBEAT_URL=http://heartbeat.fixture.parkio.dev/ping/not-a-secret' >> "$HB"
+run_case "http heartbeat URL exits 1" "$HB" 1
+expect "http heartbeat URL rejected" "PARKIO_ALERT_HEARTBEAT_URL: must be HTTPS"
+cp "$FIXTURES/valid.env" "$HB"
+echo 'PARKIO_ALERT_HEARTBEAT_URL=https://heartbeat.PLACEHOLDER.parkio.dev/ping' >> "$HB"
+run_case "placeholder heartbeat URL exits 1" "$HB" 1
+expect "placeholder heartbeat URL rejected" "PARKIO_ALERT_HEARTBEAT_URL: is a placeholder"
+cp "$FIXTURES/valid.env" "$HB"
+echo 'PARKIO_ALERT_HEARTBEAT_URL=https://heartbeat.fixture.parkio.dev/ping/not-a-secret' >> "$HB"
+run_case "https heartbeat URL exits 0" "$HB" 0
+expect_not "https heartbeat URL has no heartbeat WARN" "WARN heartbeat"
+run_case "valid.env without a heartbeat URL still exits 0" valid.env 0
+expect "missing heartbeat URL is a WARN, not a FAIL" "WARN heartbeat: PARKIO_ALERT_HEARTBEAT_URL is empty"
+rm -f "$HB"
+
 # ---- known CI synthetic MapTiler key must fail hosted deploy preflight ------
 SYNTH_MAP="${TMPDIR:-/tmp}/preflight-synthetic-map-$$.env"
 sed -e 's/^VITE_APP_ENV=hosted-beta$/VITE_APP_ENV=hosted-beta\nVITE_MAPTILER_KEY=ci-web-build-security-synthetic/' \
