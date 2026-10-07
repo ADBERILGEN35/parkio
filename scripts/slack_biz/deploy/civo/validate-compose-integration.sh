@@ -108,6 +108,11 @@ GATEWAY_ALLOWED = {
     # CL-F18: consent text version required (default true; false only for a marketing deploy window).
     "PARKIO_WAITLIST_CONSENT_REQUIRED",
 }
+# CL-F17 / PRIV-002: location-log retention (fail-closed default off; enabling is a release step).
+PARKING_ALLOWED = {
+    "PARKIO_LOCATION_LOG_RETENTION_ENABLED",
+    "PARKIO_LOCATION_LOG_RETENTION",
+}
 AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_MODE",
     "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED",
@@ -144,6 +149,10 @@ def strip_allowlisted_env(model, from_base=False):
         genv.pop(k, None)
     for k in AUTH_ALLOWED:
         aenv.pop(k, None)
+    if "parking-service" in m["services"]:
+        penv = m["services"]["parking-service"].setdefault("environment", {})
+        for k in PARKING_ALLOWED:
+            penv.pop(k, None)
     if "web" in m["services"]:
         wenv = m["services"]["web"].setdefault("environment", {})
         for k in WEB_ALLOWED:
@@ -200,6 +209,9 @@ check("gateway full-name-required mapped", genv.get("PARKIO_WAITLIST_FULL_NAME_R
 check("gateway export row cap mapped", genv.get("PARKIO_WAITLIST_EXPORT_MAX_ROWS") == "50000")
 check("gateway consent text version required by example/default", genv.get("PARKIO_WAITLIST_CONSENT_REQUIRED") == "true")
 check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATION_MODE") == "closed")
+penv = dis["services"].get("parking-service", {}).get("environment", {})
+check("parking location-log retention OFF by example/default",
+      penv.get("PARKIO_LOCATION_LOG_RETENTION_ENABLED") == "false" and penv.get("PARKIO_LOCATION_LOG_RETENTION") == "P30D")
 check("kafka GC logs capped for the tmpfs",
       dis["services"].get("kafka", {}).get("environment", {}).get("KAFKA_GC_LOG_OPTS") == KAFKA_GC_LOG_OPTS)
 if "web" in dis["services"]:

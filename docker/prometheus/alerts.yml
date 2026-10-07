@@ -773,3 +773,24 @@ groups:
           summary: "Prometheus cannot send alerts to Alertmanager"
           description: "Prometheus has been failing to send alerts to {{ $labels.alertmanager }} for about five minutes. Alerts are not reaching Alertmanager or the operator channel. Check that Alertmanager is running and reachable from Prometheus."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--prometheusnotificationsfailing"
+
+  # ===================================================================== #
+  # HEARTBEAT — always firing; its absence is the signal (U06, CL-F04).    #
+  # ===================================================================== #
+  - name: parkio-heartbeat
+    rules:
+      - alert: Watchdog
+        # Always firing on purpose. Alertmanager routes it to the heartbeat receiver only
+        # (PARKIO_ALERT_HEARTBEAT_URL, an external dead-man's switch outside this host) and
+        # re-sends it about every PARKIO_ALERT_HEARTBEAT_REPEAT. The switch pages when the heartbeat
+        # stops arriving: Prometheus, Alertmanager, the host or its egress is down, which the
+        # delivery-failure alerts above cannot report about themselves. Without a heartbeat URL
+        # it goes to the null receiver; it never reaches the operator channel.
+        expr: vector(1)
+        labels:
+          severity: heartbeat
+          service: observability
+        annotations:
+          summary: "Alerting pipeline heartbeat"
+          description: "Always-firing heartbeat from Prometheus through Alertmanager to the external dead-man's switch. Silence at the switch means the alerting pipeline is down, not that this alert resolved."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#watchdog"

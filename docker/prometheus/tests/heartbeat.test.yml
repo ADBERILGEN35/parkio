@@ -1,0 +1,38 @@
+# promtool unit tests for the heartbeat rule in docker/prometheus/alerts.yml (U06, CL-F04).
+# Watchdog is always firing on purpose; its absence at the external dead-man's switch is the signal.
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: the heartbeat fires with no input and keeps firing
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: heartbeat
+              service: observability
+            exp_annotations:
+              summary: "Alerting pipeline heartbeat"
+              description: "Always-firing heartbeat from Prometheus through Alertmanager to the external dead-man's switch. Silence at the switch means the alerting pipeline is down, not that this alert resolved."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#watchdog"
+      - eval_time: 6h
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: heartbeat
+              service: observability
+            exp_annotations:
+              summary: "Alerting pipeline heartbeat"
+              description: "Always-firing heartbeat from Prometheus through Alertmanager to the external dead-man's switch. Silence at the switch means the alerting pipeline is down, not that this alert resolved."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#watchdog"
+
+  - name: the heartbeat never carries a paging severity
+    interval: 1m
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="Watchdog", severity=~"critical|warning"})
+        eval_time: 5m
+        exp_samples: []

@@ -114,6 +114,9 @@ services:
       PARKIO_ALERT_GROUP_WAIT_CRITICAL: ${PARKIO_ALERT_GROUP_WAIT_CRITICAL:-15s}
       PARKIO_ALERT_GROUP_INTERVAL: ${PARKIO_ALERT_GROUP_INTERVAL:-5m}
       PARKIO_ALERT_RESOLVE_TIMEOUT: ${PARKIO_ALERT_RESOLVE_TIMEOUT:-5m}
+      # Heartbeat (U06): the in-compose catcher, never an external switch. Short repeat for the test.
+      PARKIO_ALERT_HEARTBEAT_URL: ${PARKIO_ALERT_HEARTBEAT_URL:-http://alerting-webhook:8080/heartbeat}
+      PARKIO_ALERT_HEARTBEAT_REPEAT: ${PARKIO_ALERT_HEARTBEAT_REPEAT:-20s}
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./alertmanager/render-config.sh:/etc/alertmanager/render-config.sh:ro

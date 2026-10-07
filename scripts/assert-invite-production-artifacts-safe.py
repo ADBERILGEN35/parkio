@@ -16,6 +16,7 @@ SENSITIVE_KEY_PARTS = (
     "SECRET",
     "TOKEN",
     "WEBHOOK",
+    "HEARTBEAT_URL",
     "API_KEY",
     "MAPTILER_KEY",
 )

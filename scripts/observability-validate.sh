@@ -37,6 +37,7 @@ promtool test rules /etc/prometheus/tests/municipal-source-health.test.yml
 promtool test rules /etc/prometheus/tests/operational-readiness-availability.test.yml
 promtool test rules /etc/prometheus/tests/blackbox-exporter.test.yml
 promtool test rules /etc/prometheus/tests/alert-delivery.test.yml
+promtool test rules /etc/prometheus/tests/heartbeat.test.yml
 
 echo "==> Alertmanager templates reject unsupported | default"
 if grep -E '\|[[:space:]]*default\b' "${ROOT}/docker/alertmanager/render-config.sh"; then
@@ -93,6 +94,84 @@ docker run --rm \
   --entrypoint /bin/sh \
   "${AM_IMAGE}" \
   -c '/etc/alertmanager/render-config.sh && amtool check-config /tmp/alertmanager.yml'
+
+# Heartbeat routing (U06): render with the given env and print the receiver amtool picks for the labels.
+am_route() {
+  local envargs=()
+  while [ "$1" != "--" ]; do
+    envargs+=(-e "$1")
+    shift
+  done
+  shift
+  docker run --rm \
+    -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
+    "${envargs[@]}" \
+    -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
+    --entrypoint /bin/sh \
+    "${AM_IMAGE}" \
+    -c "/etc/alertmanager/render-config.sh && amtool check-config /tmp/alertmanager.yml >/dev/null && amtool config routes test --config.file=/tmp/alertmanager.yml $*" \
+    | tail -n 1
+}
+
+expect_route() {
+  local want="$1"
+  shift
+  local got
+  got="$(am_route "$@")"
+  if [ "${got}" != "${want}" ]; then
+    echo "ERROR: expected receiver '${want}', amtool picked '${got}' for: $*" >&2
+    exit 1
+  fi
+  echo "    ${*##*-- } -> ${got}"
+}
+
+SLACK_ENV=(PARKIO_ALERT_SLACK_WEBHOOK_URL=https://example.invalid/hooks/test 'PARKIO_ALERT_SLACK_CHANNEL=#test')
+HEARTBEAT_ENV=(PARKIO_ALERT_HEARTBEAT_URL=https://example.invalid/ping/test)
+
+echo "==> heartbeat routing: without a heartbeat URL, Watchdog ends at the null receiver"
+expect_route null -- alertname=Watchdog severity=heartbeat
+expect_route null "${SLACK_ENV[@]}" -- alertname=Watchdog severity=heartbeat
+expect_route critical "${SLACK_ENV[@]}" -- alertname=GatewayDown severity=critical
+expect_route warning "${SLACK_ENV[@]}" -- alertname=HostDiskSpaceLow severity=warning
+
+echo "==> heartbeat routing: with a heartbeat URL, only Watchdog goes to the heartbeat receiver"
+expect_route heartbeat "${SLACK_ENV[@]}" "${HEARTBEAT_ENV[@]}" -- alertname=Watchdog severity=heartbeat
+expect_route critical "${SLACK_ENV[@]}" "${HEARTBEAT_ENV[@]}" -- alertname=GatewayDown severity=critical
+expect_route warning "${SLACK_ENV[@]}" "${HEARTBEAT_ENV[@]}" -- alertname=HostDiskSpaceLow severity=warning
+expect_route heartbeat PARKIO_ALERT_WEBHOOK_URL=https://example.invalid/hooks/test "${HEARTBEAT_ENV[@]}" \
+  PARKIO_ALERT_HEARTBEAT_SECRET=not-a-secret -- alertname=Watchdog severity=heartbeat
+
+echo "==> heartbeat routing: a heartbeat alone leaves every operator route on the null receiver"
+expect_route heartbeat "${HEARTBEAT_ENV[@]}" -- alertname=Watchdog severity=heartbeat
+expect_route null "${HEARTBEAT_ENV[@]}" -- alertname=GatewayDown severity=critical
+expect_route null "${HEARTBEAT_ENV[@]}" -- alertname=HostDiskSpaceLow severity=warning
+
+echo "==> heartbeat receiver: send_resolved false, URL rendered once, operator receiver still required"
+docker run --rm \
+  -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
+  -e PARKIO_ALERT_SLACK_WEBHOOK_URL=https://example.invalid/hooks/test \
+  -e PARKIO_ALERT_SLACK_CHANNEL='#test' \
+  -e PARKIO_ALERT_HEARTBEAT_URL=https://example.invalid/ping/test \
+  -e PARKIO_ALERT_HEARTBEAT_REPEAT=90s \
+  -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
+  --entrypoint /bin/sh \
+  "${AM_IMAGE}" \
+  -c '/etc/alertmanager/render-config.sh && amtool check-config /tmp/alertmanager.yml >/dev/null \
+      && grep -A3 "name: \"heartbeat\"" /tmp/alertmanager.yml | grep -q "send_resolved: false" \
+      && [ "$(grep -c example.invalid/ping/test /tmp/alertmanager.yml)" = 1 ] \
+      && grep -q "repeat_interval: 90s" /tmp/alertmanager.yml \
+      && ! grep -q "example.invalid/ping/test.*hooks" /tmp/alertmanager.yml'
+if docker run --rm \
+  -v "${ROOT}/docker/alertmanager:/etc/alertmanager:ro" \
+  -e PARKIO_ALERT_REQUIRE_RECEIVER=true \
+  -e PARKIO_ALERT_HEARTBEAT_URL=https://example.invalid/ping/test \
+  -e PARKIO_ALERTMANAGER_VALIDATE_ONLY=1 \
+  --entrypoint /bin/sh \
+  "${AM_IMAGE}" \
+  -c '/etc/alertmanager/render-config.sh'; then
+  echo "ERROR: a heartbeat URL alone satisfied PARKIO_ALERT_REQUIRE_RECEIVER" >&2
+  exit 1
+fi
 
 echo "==> Alertmanager check-config (isolated acceptance config)"
 docker run --rm \
