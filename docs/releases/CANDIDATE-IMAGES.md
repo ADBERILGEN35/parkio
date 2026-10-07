@@ -10,23 +10,24 @@ proves. Pinning, deploying and rolling back stay separate steps with their own a
 
 Dispatch on `api` with `source_sha` = the full commit id to build (it must be reachable from
 `origin/api`; anything else is refused), `services` = `all` (default) or a subset, `acceptance` =
-true (default; needs `all`). The helper scripts and the acceptance stack come from the workflow's
-own revision (checked out under `tools/`), the source from `source_sha`, so an older api commit
-that predates the helpers can still be built. On pull requests that touch these files only the
+true (default; needs `all`). Every job checks out the workflow's own revision as the workspace root
+(helper scripts, acceptance stack, composite action) and the source at `source_sha` under
+`source/`, which is also the Docker build context, so an older api commit that predates the
+helpers can still be built and no tracked path of the source is touched. On pull requests that touch these files only the
 helper script tests run (`scripts/ci/test-candidate-scripts.sh`); the other jobs are allowed skips
 in `.github/ci-gate-policy.json`.
 
 | Job | What it does | What it proves |
 |---|---|---|
 | Resolve | checks the id, its ancestry in `api`, selects services | the candidate is a pinned api revision |
-| Build (one job per service, one for web) | checks out the exact commit, verifies a clean tree, and runs the composite action `.github/actions/candidate-image-build`: the pinned `docker/setup-buildx-action` and `docker/build-push-action` release.yml uses, the same Dockerfile and build arguments (`IMAGE_VERSION=candidate-<sha12>`, `IMAGE_REVISION`, `IMAGE_CREATED`; for web the release bake arguments from `scripts/ci/candidate-web-build-args.sh` and the `WEB_MAPTILER_KEY` secret, which lives on the `release` environment, so `Build web` runs on that environment), `push: false`, `load: true`; records `docker image inspect`; scans with Security CI's container policy verbatim (Trivy 0.64.1, `.trivyignore.yaml`, fixed-only report at HIGH/CRITICAL, gate 1 = CRITICAL fixed over every package type, gate 2 = HIGH/CRITICAL fixed over application libraries); saves the image as `image.tar.gz` with `SHA256SUMS` | release-equivalent bytes exist, with their identity (image id, labels, platform) and scan on record |
+| Build (one job per service, one for web) | checks out the exact commit, verifies a clean tree, and runs the composite action `.github/actions/candidate-image-build`: the pinned `docker/setup-buildx-action` and `docker/build-push-action` release.yml uses, the same Dockerfile and build arguments (`IMAGE_VERSION=candidate-<sha12>`, `IMAGE_REVISION`, `IMAGE_CREATED`; for web the release bake arguments from `scripts/ci/candidate-web-build-args.sh` and the `WEB_MAPTILER_KEY` secret, which lives on the `release` environment, so the `Candidate web image` job runs on that environment), `push: false`, `load: true`; records `docker image inspect`; scans with Security CI's container policy verbatim (Trivy 0.64.1, the source revision's `.trivyignore.yaml`, fixed-only report at HIGH/CRITICAL, gate 1 = CRITICAL fixed over every package type, gate 2 = HIGH/CRITICAL fixed over application libraries); saves the image as `image.tar.gz` with `SHA256SUMS` | release-equivalent bytes exist, with their identity (image id, labels, platform) and scan on record |
 | Full stack acceptance | loads every candidate, checks each loaded id against its record, starts the Compose stack from `docker-compose.images.yml` tags with `pull_policy: never` on the services, proves every container runs the recorded image id (`scripts/ci/compose_image_identity.py`), waits for all healthchecks, runs the runtime-validation checks (readiness per service, gateway JWKS, protected routes 401, direct service call 401 `GATEWAY_AUTH_REQUIRED`, traversal 400; `scripts/ci/candidate-stack-checks.sh`) | the candidate set boots and guards the ingress as the source-built stack does |
 | Auth+gateway artifact acceptance | the U03 disposable stack (`scripts/ci/candidate-acceptance/`, reused from the September release package where it passed 22/22): privileged-token revocation inside the configured epoch-cache bound (fixture `PT3S`), revoke-all, fail-closed epoch lookups (null, malformed, mismatch, empty, missing → 503), direct auth admin ingress without or with a wrong gateway secret → 401, single-session revocation semantics | the U03 rollout properties hold on these exact images |
 | Web suites | `scripts/web-candidate-evidence.sh` in prebuilt mode against the candidate web image: a11y-web (axe, keyboard walk, TR/EN) and cxf11-acceptance | the web candidate passes the same suites the source-built evidence runs |
 | Manifest | `scripts/ci/candidate-manifest.py` collects every identity record, scan summary and acceptance result into `candidate-manifest.json` + `SUMMARY.md`; verdict `accepted-candidate` only when every selected service has a record with a scan summary, every revision label equals `source_sha`, every platform is linux/amd64, every Trivy gate passed and every requested acceptance passed | one document the owner reviews before approving publication |
 
 Artifacts (90 days): `candidate-image-<service>-<sha12>` (image.tar.gz, inspect.json, trivy.json,
-trivy-summary.json, trivy-fixed.txt, SHA256SUMS), `candidate-image-<service>-<sha12>-meta`,
+trivy.txt, trivy-critical.txt, trivy-library.txt, trivy-summary.json, SHA256SUMS), `candidate-image-<service>-<sha12>-meta`,
 `candidate-acceptance-{stack,auth-gateway,web}`, `candidate-manifest-<sha12>`. Nothing is pushed.
 The images are kept as bytes rather than rebuilt at publication time because service jars carry
 build timestamps: the accepted image and the published image must be the same bytes.
@@ -58,7 +59,8 @@ the pin PR's digest review stays the final control):
 3. **`confirm`** must read `PUBLISH <first 12 hex of source_sha>`.
 
 The job first checks that `run_id` is a completed, successful `workflow_dispatch` of
-`candidate-images.yml` on `api` (no other workflow can feed it), then downloads the run's manifest
+`candidate-images.yml` on `api` whose revision is on `api` (no other workflow can feed it) and that
+the run's manifest records all three acceptance jobs as passed, then downloads the run's manifest
 and image artifacts, refuses a manifest whose source, run id or verdict do not match, verifies each `SHA256SUMS` and each artifact's image id against the
 manifest, loads, tags `ghcr.io/<repo>/<service>:candidate-<sha12>` and `:sha-<sha>`, pushes, and
 verifies the registry: a single linux/amd64 manifest whose config digest equals the image id. It

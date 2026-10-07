@@ -14,7 +14,7 @@
     {"workflow": "security-ci.yml", "job": "Container scan (${{ matrix.service }})", "reason": "a pull request whose changed files reach no image; the Security CI summary fails unless the selection succeeded and chose none"},
     {"workflow": "candidate-images.yml", "job": "Resolve the pinned api revision", "reason": "runs only on a workflow_dispatch; pull requests run the script tests"},
     {"workflow": "candidate-images.yml", "job": "Build ${{ matrix.service }}", "reason": "runs only on a workflow_dispatch"},
-    {"workflow": "candidate-images.yml", "job": "Build web", "reason": "runs only on a workflow_dispatch"},
+    {"workflow": "candidate-images.yml", "job": "Candidate web image", "reason": "runs only on a workflow_dispatch"},
     {"workflow": "candidate-images.yml", "job": "Full stack acceptance (candidate images)", "reason": "runs only on a workflow_dispatch with acceptance"},
     {"workflow": "candidate-images.yml", "job": "Auth+gateway artifact acceptance (U03, 22 checks)", "reason": "runs only on a workflow_dispatch with acceptance"},
     {"workflow": "candidate-images.yml", "job": "Web suites against the candidate web image (a11y, CX-F11)", "reason": "runs only on a workflow_dispatch with acceptance"},

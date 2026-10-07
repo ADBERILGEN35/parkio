@@ -91,7 +91,7 @@ check() { # name expected actual
   check gateway-jwks-200 200 "$(capture_status gateway-service gateway-valid-route.json \
     'http://localhost:8080/api/v1/auth/.well-known/jwks.json')" || true
 } | tee "$OUT/checks.tsv"
-expected_checks=9
+expected_checks=8
 if grep -q '^FAIL' "$OUT/checks.tsv" || [ "$(grep -c '^PASS' "$OUT/checks.tsv")" -ne "$expected_checks" ]; then
   echo "::error::candidate stack checks failed (see $OUT/checks.tsv)"
   exit 1

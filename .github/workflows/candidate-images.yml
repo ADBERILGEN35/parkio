@@ -15,8 +15,10 @@
 # against this run's manifest. Artifacts, not a rebuild at publication time, because service jars
 # are not byte-reproducible: the accepted image and the published image must be the same bytes.
 #
-# The helper scripts run from this workflow's own revision (checked out under tools/), so an older
-# source_sha that predates them can still be built. The source is checked out at source_sha.
+# Layout of every job: this workflow's own revision is the workspace root (helper scripts, the
+# acceptance stack, the composite action), and the source is checked out at source_sha under
+# source/, which is also the Docker build context. So an older source_sha that predates the
+# helpers can still be built, and no tracked path of the source is touched.
 #
 # Prerequisites: the WEB_MAPTILER_KEY secret on the `release` environment (release-equivalent web
 # image; the Dockerfile refuses an empty key), read access to the private MinIO image for the full
@@ -62,6 +64,8 @@ concurrency:
 env:
   TRIVY_IMAGE: aquasec/trivy:0.64.1
   TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+  # As release.yml: no Docker build record artifact (it would carry the build arguments).
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   script-tests:
@@ -164,22 +168,23 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.resolve.outputs.service_matrix) }}
     steps:
-      - name: Checkout the pinned revision
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-          persist-credentials: false
-
-      - name: Checkout this workflow's tooling
+      - name: Checkout this workflow's tooling (workspace root)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: tools
+          persist-credentials: false
+
+      - name: Checkout the pinned revision (source/)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: source
           persist-credentials: false
 
       - name: Build, scan and save the candidate image
-        uses: ./tools/.github/actions/candidate-image-build
+        uses: ./.github/actions/candidate-image-build
         with:
+          source_dir: source
           service: ${{ matrix.service }}
           dockerfile: ${{ matrix.dockerfile }}
           source_sha: ${{ needs.resolve.outputs.sha }}
@@ -190,7 +195,7 @@ jobs:
           ghcr_token: ${{ secrets.GITHUB_TOKEN }}
 
   build_web:
-    name: Build web
+    name: Candidate web image
     needs: resolve
     if: github.event_name == 'workflow_dispatch' && needs.resolve.outputs.web_selected == 'true'
     runs-on: ubuntu-latest
@@ -202,17 +207,17 @@ jobs:
       contents: read
       packages: read
     steps:
-      - name: Checkout the pinned revision
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-          persist-credentials: false
-
-      - name: Checkout this workflow's tooling
+      - name: Checkout this workflow's tooling (workspace root)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: tools
+          persist-credentials: false
+
+      - name: Checkout the pinned revision (source/)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: source
           persist-credentials: false
 
       # release.yml's web build arguments, derived from the hosted-beta release bake with the same
@@ -227,18 +232,21 @@ jobs:
           if [ -z "${WEB_MAPTILER_KEY}" ]; then
             echo "::error::WEB_MAPTILER_KEY is empty: set it on the release environment (release.yml needs it too)"; exit 1
           fi
-          chmod +x tools/scripts/ci/candidate-web-build-args.sh
+          chmod +x scripts/ci/candidate-web-build-args.sh
+          # The source revision's bake file, not this workflow's: the image is built from source/.
+          bake="$GITHUB_WORKSPACE/source/docker/web-hosted-beta.release-bake.env"
           {
             echo 'args<<ARGS_EOF'
-            PARKIO_WEB_BAKE=docker/web-hosted-beta.release-bake.env tools/scripts/ci/candidate-web-build-args.sh
+            PARKIO_WEB_BAKE="$bake" scripts/ci/candidate-web-build-args.sh
             echo "VITE_MAPTILER_KEY=${WEB_MAPTILER_KEY}"
             echo 'ARGS_EOF'
           } >> "$GITHUB_OUTPUT"
-          PARKIO_WEB_BAKE=docker/web-hosted-beta.release-bake.env tools/scripts/ci/candidate-web-build-args.sh
+          PARKIO_WEB_BAKE="$bake" scripts/ci/candidate-web-build-args.sh
 
       - name: Build, scan and save the candidate web image
-        uses: ./tools/.github/actions/candidate-image-build
+        uses: ./.github/actions/candidate-image-build
         with:
+          source_dir: source
           service: web
           dockerfile: frontend/apps/web/Dockerfile
           source_sha: ${{ needs.resolve.outputs.sha }}
@@ -268,17 +276,17 @@ jobs:
         -f docker/docker-compose.images.yml
         -f docker/docker-compose.hosted-beta.yml
     steps:
-      - name: Checkout the pinned revision
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-          persist-credentials: false
-
-      - name: Checkout this workflow's tooling
+      - name: Checkout this workflow's tooling (workspace root)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: tools
+          persist-credentials: false
+
+      - name: Checkout the pinned revision (source/)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: source
           persist-credentials: false
 
       - name: Log in to GHCR for the private MinIO pull
@@ -310,38 +318,44 @@ jobs:
           test "$(wc -l < acceptance-stack/loaded-images.txt)" -eq 11 || { echo "::error::expected 11 candidate images"; exit 1; }
 
       - name: Prepare the CI-only env and start the stack from the loaded images only
+        working-directory: source
         run: |
           set -euo pipefail
+          T="$GITHUB_WORKSPACE"; A="$T/acceptance-stack"
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/jwt.pem"
-          python3 tools/scripts/ci/candidate-stack-env.py --image-tag "candidate-$SHA12" --git-sha "$SHA" \
+          python3 "$T/scripts/ci/candidate-stack-env.py" --image-tag "candidate-$SHA12" --git-sha "$SHA" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --jwt-pem "$RUNNER_TEMP/jwt.pem" --out "$COMPOSE_ENV_FILE"
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json > "$RUNNER_TEMP/compose-model.json"
-          python3 tools/scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
-            --expect-revision "$SHA" --out acceptance-stack/image-identity.json \
+          python3 "$T/scripts/ci/compose_image_identity.py" record "$RUNNER_TEMP/compose-model.json" \
+            --expect-revision "$SHA" --out "$A/image-identity.json" \
             --override "$RUNNER_TEMP/compose-pull-never.json"
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES -f "$RUNNER_TEMP/compose-pull-never.json" up -d --no-build
-          python3 tools/scripts/ci/compose_image_identity.py verify acceptance-stack/image-identity.json
+          python3 "$T/scripts/ci/compose_image_identity.py" verify "$A/image-identity.json"
 
       - name: Healthchecks, readiness and ingress protection
+        working-directory: source
         run: |
           set -euo pipefail
-          chmod +x tools/scripts/ci/candidate-stack-checks.sh
-          if tools/scripts/ci/candidate-stack-checks.sh acceptance-stack; then
-            echo '{"status": "pass", "detail": "every container runs the candidate image id; healthchecks, readiness and gateway/ingress checks passed"}' > acceptance-stack/result.json
+          T="$GITHUB_WORKSPACE"; A="$T/acceptance-stack"
+          chmod +x "$T/scripts/ci/candidate-stack-checks.sh"
+          if "$T/scripts/ci/candidate-stack-checks.sh" "$A"; then
+            echo '{"status": "pass", "detail": "every container runs the candidate image id; healthchecks, readiness and gateway/ingress checks passed"}' > "$A/result.json"
           else
-            echo '{"status": "fail", "detail": "see checks.tsv and health.tsv"}' > acceptance-stack/result.json
+            echo '{"status": "fail", "detail": "see checks.tsv and health.tsv"}' > "$A/result.json"
             exit 1
           fi
 
       - name: Collect logs and tear down
         if: always()
+        working-directory: source
         run: |
           set -euo pipefail
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > acceptance-stack/ps.txt 2>&1 || true
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail 400 > acceptance-stack/compose-logs.txt 2>&1 || true
+          A="$GITHUB_WORKSPACE/acceptance-stack"
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > "$A/ps.txt" 2>&1 || true
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail 400 > "$A/compose-logs.txt" 2>&1 || true
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans || true
-          [ -f acceptance-stack/result.json ] || echo '{"status": "fail", "detail": "stack did not start"}' > acceptance-stack/result.json
+          [ -f "$A/result.json" ] || echo '{"status": "fail", "detail": "stack did not start"}' > "$A/result.json"
 
       - name: Upload the stack acceptance evidence
         if: always()
@@ -354,7 +368,7 @@ jobs:
 
   acceptance-auth-gateway:
     name: Auth+gateway artifact acceptance (U03, 22 checks)
-    needs: [resolve, build, build_web]
+    needs: [resolve, build]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -362,13 +376,12 @@ jobs:
       SHA12: ${{ needs.resolve.outputs.sha12 }}
       AUTH_IMAGE: parkio/auth-service:candidate-${{ needs.resolve.outputs.sha12 }}
       GATEWAY_IMAGE: parkio/gateway-service:candidate-${{ needs.resolve.outputs.sha12 }}
-      COMPOSE_FILE: tools/scripts/ci/candidate-acceptance/docker-compose.yml
+      COMPOSE_FILE: scripts/ci/candidate-acceptance/docker-compose.yml
     steps:
       - name: Checkout this workflow's tooling
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: tools
           persist-credentials: false
 
       - name: Download the auth and gateway candidates
@@ -401,7 +414,7 @@ jobs:
             test "$running" = "$expected" || { echo "::error::$svc runs $running, candidate is $expected"; exit 1; }
           done
           rc=0
-          CANDIDATE_ACCEPTANCE_OUT="$PWD/acceptance-auth-gateway" python3 tools/scripts/ci/candidate-acceptance/run-acceptance.py || rc=$?
+          CANDIDATE_ACCEPTANCE_OUT="$PWD/acceptance-auth-gateway" python3 scripts/ci/candidate-acceptance/run-acceptance.py || rc=$?
           python3 - "$rc" <<'PY'
           import json, sys
           rc = int(sys.argv[1])
@@ -434,7 +447,7 @@ jobs:
 
   acceptance-web:
     name: Web suites against the candidate web image (a11y, CX-F11)
-    needs: [resolve, build, build_web]
+    needs: [resolve, build_web]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -442,37 +455,37 @@ jobs:
       SHA12: ${{ needs.resolve.outputs.sha12 }}
       WEB_IMAGE: parkio/web:candidate-${{ needs.resolve.outputs.sha12 }}
     steps:
-      - name: Checkout the pinned revision
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-          persist-credentials: false
-
-      - name: Checkout this workflow's tooling
+      - name: Checkout this workflow's tooling (workspace root)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: tools
+          persist-credentials: false
+
+      - name: Checkout the pinned revision (source/)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: source
           persist-credentials: false
 
       - name: Set up pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          package_json_file: frontend/package.json
+          package_json_file: source/frontend/package.json
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: source/frontend/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: source/frontend
         run: pnpm install --frozen-lockfile
 
       - name: Install focused browser
-        run: pnpm --dir frontend --filter @parkio/web exec playwright install --with-deps chromium
+        run: pnpm --dir source/frontend --filter @parkio/web exec playwright install --with-deps chromium
 
       - name: Download the web candidate
         uses: actions/download-artifact@v4
@@ -488,14 +501,15 @@ jobs:
           docker image inspect -f '{{.Id}}' "$WEB_IMAGE"
 
       # The script comes from this workflow's revision; the source root (frontend, bake, git) is the
-      # pinned checkout, so the provenance records source_sha and the prebuilt revision check holds.
+      # pinned checkout under source/, so the provenance records source_sha and the prebuilt revision
+      # check holds.
       - name: Run the suites against the prebuilt candidate image
         run: |
           set -euo pipefail
           mkdir -p acceptance-web
           rc=0
-          PARKIO_CANDIDATE_SOURCE_ROOT="$GITHUB_WORKSPACE" PARKIO_CANDIDATE_PREBUILT_TAG="$WEB_IMAGE" \
-            bash tools/scripts/web-candidate-evidence.sh acceptance-web/evidence || rc=$?
+          PARKIO_CANDIDATE_SOURCE_ROOT="$GITHUB_WORKSPACE/source" PARKIO_CANDIDATE_PREBUILT_TAG="$WEB_IMAGE" \
+            bash scripts/web-candidate-evidence.sh "$GITHUB_WORKSPACE/acceptance-web/evidence" || rc=$?
           python3 - "$rc" <<'PY'
           import json, sys
           rc = int(sys.argv[1])

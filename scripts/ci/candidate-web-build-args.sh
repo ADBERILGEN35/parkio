@@ -6,12 +6,15 @@
 # Exit 2 when the bake file breaks the live contract (release.yml refuses it too).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-BAKE="${PARKIO_WEB_BAKE:-docker/web-hosted-beta.release-bake.env}"
+# PARKIO_WEB_BAKE: the bake file to read, absolute or relative to the caller's directory (the
+# candidate workflow passes the source checkout's file). Default: this checkout's bake file.
+BAKE="${PARKIO_WEB_BAKE:-$ROOT/docker/web-hosted-beta.release-bake.env}"
+[ -f "$BAKE" ] || { echo "FAIL: bake file $BAKE not found" >&2; exit 2; }
 WEB_APP_ENV="${WEB_APP_ENV:-hosted-beta}"
 WEB_API_BASE_URL="${WEB_API_BASE_URL:-https://api.parkio.dev/api/v1}"
 declare -A bake=()
 while IFS='=' read -r key value; do bake["$key"]="$value"; done < <(
-  env -i PATH="$PATH" bash -c 'set -a; . "$1"; set +a; for k in $(compgen -v VITE_); do printf "%s=%s\n" "$k" "${!k}"; done' bake "$ROOT/$BAKE")
+  env -i PATH="$PATH" bash -c 'set -a; . "$1"; set +a; for k in $(compgen -v VITE_); do printf "%s=%s\n" "$k" "${!k}"; done' bake "$BAKE")
 municipal="${bake[VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED]:-}"
 case "$municipal" in true|false) ;; *) echo "FAIL: $BAKE VITE_WEB_MUNICIPAL_DISCOVERY_ENABLED must be true or false" >&2; exit 2 ;; esac
 if [ "$WEB_APP_ENV" = "hosted-beta" ]; then

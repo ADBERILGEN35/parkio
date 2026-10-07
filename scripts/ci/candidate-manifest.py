@@ -84,7 +84,7 @@ def main() -> int:
             problems.append(f"{image['service']}: revision label {image['revision_label']} != {args.source_sha}")
         if image["platform"] != "linux/amd64":
             problems.append(f"{image['service']}: platform {image['platform']}")
-        if image["trivy"].get("gate") not in (None, "pass"):
+        if image["trivy"] and image["trivy"].get("gate") != "pass":
             problems.append(f"{image['service']}: Trivy gate {image['trivy'].get('gate')}")
     if args.acceptance_required:
         for name, result in acceptance.items():

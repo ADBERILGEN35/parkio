@@ -20,7 +20,7 @@ grep -q '^VITE_APP_ENV=hosted-beta$' <<<"$args" && grep -q '^VERIFY_REQUIRE_PUBL
   && grep -q '^VERIFY_REQUIRE_MUNICIPAL=true$' <<<"$args" && ! grep -q 'MAPTILER_KEY' <<<"$args" \
   && [ "$(wc -l <<<"$args")" -eq 11 ] && ok "web build args from the bake" || ko "web build args from the bake"
 printf 'VITE_APP_ENV=hosted-beta\nVITE_API_BASE_URL=https://api.parkio.dev/api/v1\nVITE_PUBLIC_EXPLORE_ENABLED=true\nVITE_WEB_MUNICIPAL_DISCOVERY_ENABLED=maybe\n' > "$TMP/bad.env"
-if PARKIO_WEB_BAKE="$(realpath --relative-to="$ROOT" "$TMP/bad.env" 2>/dev/null || echo "$TMP/bad.env")" bash "$ROOT/scripts/ci/candidate-web-build-args.sh" >/dev/null 2>&1; then ko "bad bake refused"; else ok "bad bake refused"; fi
+if PARKIO_WEB_BAKE="$TMP/bad.env" bash "$ROOT/scripts/ci/candidate-web-build-args.sh" >/dev/null 2>&1; then ko "bad bake refused"; else ok "bad bake refused"; fi
 
 # 3. stack env: overrides applied, candidate tag in place, no example secret kept for the keys we override
 printf -- '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n' > "$TMP/jwt.pem"
@@ -78,14 +78,19 @@ build_step = [st for st in act["runs"]["steps"] if "build-push-action" in str(st
 assert build_step["with"]["push"] is False and build_step["with"]["load"] is True
 scan = [st for st in act["runs"]["steps"] if st.get("name", "").startswith("Scan")][0]["run"]
 assert "--severity CRITICAL --ignore-unfixed" in scan and "--pkg-types library --severity HIGH,CRITICAL --ignore-unfixed" in scan
-assert "--ignorefile .trivyignore.yaml" in scan
+assert '--ignorefile "/work/${SRC}/.trivyignore.yaml"' in scan       # the source revision's exceptions
 job = pub["jobs"]["publish"]
 assert job["environment"] == "candidate-publication"
 assert "PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA" in job["if"]
 assert job["permissions"]["packages"] == "write" and pub["permissions"] == {"contents": "read"}
 download = [st for st in job["steps"] if st.get("name", "").startswith("Download")][0]["run"]
-for needle in ('.github/workflows/candidate-images.yml', '"workflow_dispatch"', '"api"', '"success"'):
-    assert needle in download, needle                                # the run must be an accepted candidate run
+for needle in ('.github/workflows/candidate-images.yml', '"workflow_dispatch"', '"api"', '"success"', "merge-base --is-ancestor",
+               "acceptance-stack", "acceptance-auth-gateway", "acceptance-web"):
+    assert needle in download, needle                                # accepted candidate run, on api, acceptance passed
+text = open(f"{root}/.github/workflows/candidate-images.yml").read()
+assert "path: tools" not in text and "tools/" not in text            # no checkout into a tracked directory
+assert "path: source" in text and "source_dir: source" in text
+assert "source_dir" in act["inputs"] and act["runs"]["steps"][2]["with"]["context"] == "${{ inputs.source_dir }}"
 policy = json.load(open(f"{root}/.github/ci-gate-policy.json"))
 skips = {e["job"] for e in policy["allowed_skips"] if e["workflow"] == "candidate-images.yml"}
 names = {ci["jobs"][j]["name"] for j in ci["jobs"] if j != "script-tests"}
@@ -98,6 +103,57 @@ if python3 "$ROOT/scripts/ci/candidate-manifest.py" --source-sha "$SHA" --artifa
   grep -q 'web: no identity record' "$TMP/expect-out/candidate-manifest.json" && ok "manifest requires every expected service" || ko "manifest requires every expected service"; fi
 rm -f "$E/candidate-image-auth-service-abc123def456-meta/trivy-summary.json"
 if python3 "$ROOT/scripts/ci/candidate-manifest.py" --source-sha "$SHA" --artifacts "$E" --out "$TMP/expect-out2" --expect-services auth-service >/dev/null; then ko "manifest requires a scan summary"; else ok "manifest requires a scan summary"; fi
+
+# 8. web build args read the bake file given by absolute path (the source checkout's), not their own
+mkdir -p "$TMP/src/docker"; cp "$ROOT/docker/web-hosted-beta.release-bake.env" "$TMP/src/docker/web-hosted-beta.release-bake.env"
+sed -i 's/^VITE_MAPTILER_STYLE=.*/VITE_MAPTILER_STYLE=source-specific-style/' "$TMP/src/docker/web-hosted-beta.release-bake.env"
+grep -q '^VITE_MAPTILER_STYLE=' "$TMP/src/docker/web-hosted-beta.release-bake.env" || echo 'VITE_MAPTILER_STYLE=source-specific-style' >> "$TMP/src/docker/web-hosted-beta.release-bake.env"
+if PARKIO_WEB_BAKE="$TMP/src/docker/web-hosted-beta.release-bake.env" bash "$ROOT/scripts/ci/candidate-web-build-args.sh" | grep -q '^VITE_MAPTILER_STYLE=source-specific-style$'; then
+  ok "web build args use the given (source) bake file"; else ko "web build args use the given (source) bake file"; fi
+if PARKIO_WEB_BAKE="$TMP/missing.env" bash "$ROOT/scripts/ci/candidate-web-build-args.sh" >/dev/null 2>&1; then ko "missing bake file refused"; else ok "missing bake file refused"; fi
+
+# 9. stack checks against a fake docker: a healthy stack passes with exactly 8 checks; one wrong answer fails
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/docker" <<'FAKE'
+#!/usr/bin/env bash
+# Minimal docker stand-in for candidate-stack-checks.sh: every service exists and is healthy,
+# and each probed URL answers what a correct stack answers (FAKE_BREAK names one URL to break).
+args="$*"
+if [ "$1" = "inspect" ]; then echo healthy; exit 0; fi
+case "$args" in
+  *" ps -q "*) echo cid; exit 0 ;;
+  *" ps"*) exit 0 ;;
+esac
+if [[ "$args" == *" exec -T "* ]]; then
+  if [[ "$args" == *" cat /tmp/"* ]]; then
+    case "$args" in
+      *direct-parking-gateway-auth-required.json*) echo '{"code":"GATEWAY_AUTH_REQUIRED"}' ;;
+      *gateway-traversal-400.json*) echo '{"code":"INVALID_REQUEST_PATH"}' ;;
+      *) echo '{}' ;;
+    esac
+    exit 0
+  fi
+  url="${!#}"
+  if [[ "$args" == *"-w %{http_code}"* ]]; then
+    code=200
+    case "$url" in
+      *8083*nearby*) code=401 ;;
+      *spots/nearby*|*geocode/reverse*) code=401 ;;
+      *users/../overview*|*%2e%2e*) code=400 ;;
+      *jwks.json) code=200 ;;
+    esac
+    if [ -n "${FAKE_BREAK:-}" ] && [[ "$url" == *"$FAKE_BREAK"* ]]; then code=500; fi
+    printf '%s' "$code"; exit 0
+  fi
+  echo '{"status":"UP"}'; exit 0
+fi
+exit 0
+FAKE
+chmod +x "$TMP/bin/docker"
+if PATH="$TMP/bin:$PATH" COMPOSE_ENV_FILE=x COMPOSE_FILES="-f a.yml" bash "$ROOT/scripts/ci/candidate-stack-checks.sh" "$TMP/stack-ok" >/dev/null 2>&1 \
+   && [ "$(grep -c '^PASS' "$TMP/stack-ok/checks.tsv")" -eq 8 ]; then ok "stack checks pass a healthy stack with 8 checks"; else ko "stack checks pass a healthy stack with 8 checks"; fi
+if PATH="$TMP/bin:$PATH" FAKE_BREAK=geocode COMPOSE_ENV_FILE=x COMPOSE_FILES="-f a.yml" bash "$ROOT/scripts/ci/candidate-stack-checks.sh" "$TMP/stack-bad" >/dev/null 2>&1; then
+  ko "stack checks fail on one wrong answer"; else grep -q '^FAIL.gateway-geocoding-401' "$TMP/stack-bad/checks.tsv" && ok "stack checks fail on one wrong answer" || ko "stack checks fail on one wrong answer"; fi
 
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

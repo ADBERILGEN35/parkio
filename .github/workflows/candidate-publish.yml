@@ -68,10 +68,11 @@ jobs:
           test "$CONFIRM" = "PUBLISH ${SHA:0:12}" || { echo "::error::confirm must read 'PUBLISH ${SHA:0:12}'"; exit 2; }
           echo "sha12=${SHA:0:12}" >> "$GITHUB_ENV"
 
-      - name: Checkout api (scripts only)
+      - name: Checkout api (history for the ancestry check)
         uses: actions/checkout@v4
         with:
           ref: api
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Download the manifest and the candidate images from the accepted run
@@ -91,7 +92,11 @@ jobs:
           if problems:
               print("::error::run is not an accepted Candidate images run: " + "; ".join(problems)); sys.exit(1)
           print(f"run {run['id']}: {run['name']} on {run['head_branch']} ({run['event']}) {run['conclusion']}, workflow revision {run['head_sha']}")
+          open(sys.argv[1] + ".head_sha", "w").write(run["head_sha"])
           PY
+          # head_branch alone would also match a tag named "api": the run's revision must be on api.
+          git merge-base --is-ancestor "$(cat "$RUNNER_TEMP/run.json.head_sha")" origin/api \
+            || { echo "::error::the run's workflow revision is not on api"; exit 1; }
           gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "candidate-manifest-${sha12}" -D manifest
           (cd manifest && sha256sum -c SHA256SUMS --quiet)
           python3 - "$SHA" "$RUN_ID" <<'PY'
@@ -102,6 +107,10 @@ jobs:
           if m.get("source_sha") != sha: problems.append(f"manifest source {m.get('source_sha')} != {sha}")
           if str((m.get("run") or {}).get("id")) != run_id: problems.append(f"manifest run {m.get('run', {}).get('id')} != {run_id}")
           if m.get("verdict") != "accepted-candidate": problems.append(f"manifest verdict {m.get('verdict')}: {m.get('problems')}")
+          # Owner item 3: candidates are published only after the isolated acceptance passed in that run.
+          for name in ("acceptance-stack", "acceptance-auth-gateway", "acceptance-web"):
+              status = ((m.get("acceptance") or {}).get(name) or {}).get("status")
+              if status != "pass": problems.append(f"{name}: {status}")
           if problems:
               print("::error::" + "; ".join(problems)); sys.exit(1)
           print(f"manifest ok: {len(m.get('images') or [])} images accepted")
