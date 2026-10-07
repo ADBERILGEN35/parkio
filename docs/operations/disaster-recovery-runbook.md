@@ -116,7 +116,11 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 
 1. Provision VPS (see `docs/operations/runtime-sizing.md`).
 2. Install Docker, clone the repo at a known good tag, restore `docker/.env` from the secrets
-   store. The host needs read access to the registry of the digest-pinned images (GHCR).
+   store. The host needs read access to the registry of the digest-pinned images (GHCR): log in
+   with the recovery credential from the secrets store and run
+   `scripts/registry-recovery-images.sh pull`, which pulls and verifies every pinned private
+   digest (see [registry-pull-recovery.md](registry-pull-recovery.md)). The six host-built
+   services are built from the checkout, not pulled.
 3. Copy the backup set from offsite (`BACKUP_MC_DEST`) to `BACKUP_DIR` and verify it
    (`sha256sum -c <stamp>/SHA256SUMS`, `test -f <stamp>/COMPLETE`).
 4. Run the stamp preflight only:
@@ -138,6 +142,9 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 - Grafana/Prometheus historical data (rebuilt from scratch)
 - Secrets in `docker/.env` (store separately)
 - SPA static assets in the `web` image (rebuild from git at known SHA)
+- Container images: pulled again from GHCR with the recovery credential
+  ([registry-pull-recovery.md](registry-pull-recovery.md)); the six host-built services are
+  rebuilt from the checkout
 
 ## Exact commands
 
@@ -198,3 +205,5 @@ recovery cutoff equals the stamp clock.
 - Slack/webhook URLs for alerts
 - `BACKUP_ENCRYPT_PASSPHRASE` if encryption enabled
 - Offsite `mc` credentials for `BACKUP_MC_DEST`
+- Registry read-only recovery credential `parkio-ghcr-readonly` (user, token, expiry; custody:
+  repository owner; see [registry-pull-recovery.md](registry-pull-recovery.md))
