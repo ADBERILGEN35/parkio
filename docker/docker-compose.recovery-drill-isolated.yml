@@ -7,7 +7,9 @@
 # on and read their restored databases in the ticket's PostgreSQL and the restored media bucket in its
 # MinIO. auth-service is never started as a service here: scripts/recovery-replay.sh runs it once as
 # the recovery-replay command (profile plus flag, no web server), with every durable-store writer off.
-# Start it with an explicit service list; the base files' other services are not part of a recovery.
+# Start it with an explicit service list and --no-deps; the base files' other services are not part
+# of a recovery. The !override/!reset tags sit on each service: some Compose releases drop tags
+# merged in through a YAML anchor.
 # The base networks are renamed per project so nothing here can attach to another stack's network.
 
 name: ${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME=parkio-rd-<run>-recovery}
@@ -21,12 +23,6 @@ networks:
     external: true
     name: ${RECOVERY_NETWORK:?set RECOVERY_NETWORK to the ticket network}
 
-x-isolated: &isolated
-  networks: !override
-    - drill-isolated
-  ports: !reset []
-  depends_on: !reset {}
-
 x-replay-participant: &replay-participant
   SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   PARKIO_ACCOUNT_ERASURE_ENABLED: "true"
@@ -34,14 +30,23 @@ x-replay-participant: &replay-participant
 
 services:
   kafka:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     container_name: ${COMPOSE_PROJECT_NAME}-kafka
   redis:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     container_name: ${COMPOSE_PROJECT_NAME}-redis
 
   auth-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     volumes:
       - ${RECOVERY_DIR:?set RECOVERY_DIR}:/run/recovery
       - ${RECOVERY_TRUST_FILE:?set RECOVERY_TRUST_FILE}:/run/recovery-trust/erasure-trust.json:ro
@@ -61,14 +66,20 @@ services:
       PARKIO_PRIVACY_ACCOUNT_ERASURE_RECOVERY_REPLAY_POLL_INTERVAL: PT2S
 
   user-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_user
       SPRING_DATASOURCE_USERNAME: parkio_user
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_USER_PASSWORD:?}
   parking-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_parking
@@ -76,7 +87,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_PARKING_PASSWORD:?}
       SPRING_DATA_REDIS_HOST: redis
   media-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_media
@@ -91,7 +105,10 @@ services:
       PARKIO_MEDIA_STORAGE_RESTORED_SOURCE_BUCKET: ${RECOVERY_SOURCE_BUCKET:?set from the ticket's minio.sourceBucket}
       PARKIO_MEDIA_ERASURE_WORKER_ENABLED: "true"
   gamification-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_gamification
@@ -99,28 +116,40 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_GAMIFICATION_PASSWORD:?}
       SPRING_DATA_REDIS_HOST: redis
   notification-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_notification
       SPRING_DATASOURCE_USERNAME: parkio_notification
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_NOTIFICATION_PASSWORD:?}
   moderation-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_moderation
       SPRING_DATASOURCE_USERNAME: parkio_moderation
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_MODERATION_PASSWORD:?}
   ai-validation-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_aivalidation
       SPRING_DATASOURCE_USERNAME: parkio_aivalidation
       SPRING_DATASOURCE_PASSWORD: ${RECOVERY_AIVALIDATION_PASSWORD:?}
   analytics-service:
-    <<: *isolated
+    networks: !override
+      - drill-isolated
+    ports: !reset []
+    depends_on: !reset {}
     environment:
       <<: *replay-participant
       SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_analytics

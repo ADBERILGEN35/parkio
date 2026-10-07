@@ -162,7 +162,7 @@ with open(sql_file, "w", encoding="utf-8") as out:
     # RECOVERY_DIR and RECOVERY_TRUST_FILE are only mounted by the one-shot command; the overlay
     # still needs a value to render.
     export RECOVERY_DIR="${STATE}" RECOVERY_TRUST_FILE="${STATE_ENV}"
-    compose up -d --wait --no-build --pull never "${APPS[@]}"
+    compose up -d --wait --no-build --pull never --no-deps "${APPS[@]}"
     echo "recovery apps up: project=${PROJECT} network=${RECOVERY_NETWORK} (internal, no published port)"
     ;;
   run)

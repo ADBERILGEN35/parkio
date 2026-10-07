@@ -216,6 +216,7 @@ fact runId "${RUN}"
 fact gitSha "${GIT_SHA}"
 fact imageTag "${IMAGE_TAG}"
 fact dockerServer "$(docker version --format '{{.Server.Version}} {{.Server.Os}}/{{.Server.Arch}}')"
+fact composeVersion "$(docker compose version --short)"
 fact host "$(uname -sr) cpus=$(nproc) memGiB=$(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo)"
 
 # ---------------------------------------------------------------------------------------------
@@ -501,6 +502,15 @@ phase "P8-replay"
 replay up --ticket "${TICKET}" --stamp "${STAMP_DIR}" > "${LOGS}/recovery-apps-up.log" 2>&1
 expect "replay: no recovery container publishes a port" \
   "$(docker ps --filter "label=com.docker.compose.project=${RECOVERY}" --format '{{.Ports}}' | grep -c -- '->' || true)" "0"
+expect "replay: exactly Kafka, Redis and the eight participants run in the recovery project" \
+  "$(docker ps -a --filter "label=com.docker.compose.project=${RECOVERY}" --format '{{.Label "com.docker.compose.service"}}' \
+    | sort | paste -sd, -)" \
+  "ai-validation-service,analytics-service,gamification-service,kafka,media-service,moderation-service,notification-service,parking-service,redis,user-service"
+# shellcheck disable=SC2016  # a Go template for docker inspect, not a shell expansion
+expect "replay: every recovery container is attached only to the ticket's internal network" \
+  "$(docker ps -aq --filter "label=com.docker.compose.project=${RECOVERY}" \
+    | xargs docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \
+    | sort -u | tr -d '\n' | sed 's/ $//')" "${ISO_NETWORK}"
 rc=0
 replay run --ticket "${TICKET}" --stamp "${STAMP_DIR}" --recovery-dir "${RECOVERY_X}" --trust "${TRUST}" \
   --timeout-seconds "${REPLAY_TIMEOUT}" > "${LOGS}/replay-x.log" 2>&1 || rc=$?
