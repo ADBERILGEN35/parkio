@@ -22,6 +22,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -132,6 +134,84 @@ class RecoveryReplayPreflightTest {
                 "parkio.privacy.account-erasure.recovery-replay.poll-interval is not a duration");
         environment.setProperty(RecoveryReplayPreflight.POLL_INTERVAL, "2s");
         assertThat(check(validArgs(), verdict()).pollInterval()).isEqualTo(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void everySettingThatRedirectsAConnectionIsRefusedBeforeTheTargetIsRead() {
+        // Review B6, layer 1: whatever the value, even the checked database's own URL or credentials.
+        for (String property : List.of(
+                "spring.flyway.url", "spring.flyway.user", "spring.flyway.password", "spring.flyway.driver-class-name",
+                "spring.datasource.hikari.jdbc-url", "spring.datasource.hikari.username",
+                "spring.datasource.hikari.password", "spring.datasource.hikari.data-source-class-name",
+                "spring.datasource.hikari.data-source-j-n-d-i", "spring.datasource.jndi-name",
+                "spring.datasource.xa.data-source-class-name")) {
+            environment = RecoveryFixtures.environment();
+            environment.setProperty(property, RecoveryFixtures.DATASOURCE_URL);
+
+            refused(RecoveryReplayExit.TARGET_REFUSED,
+                    property + " is set; the command connects only to the checked spring.datasource.url");
+        }
+        for (String map : List.of("spring.datasource.hikari.data-source-properties.serverName",
+                "spring.datasource.xa.properties.url")) {
+            environment = RecoveryFixtures.environment();
+            environment.setProperty(map, "elsewhere");
+
+            refused(RecoveryReplayExit.TARGET_REFUSED, map.substring(0, map.lastIndexOf('.'))
+                    + " is set; the command connects only to the checked spring.datasource.url");
+        }
+        assertTargetUntouched();
+    }
+
+    @Test
+    void redirectsFromEnvironmentVariablesAreRefusedToo() {
+        for (Map.Entry<String, String> variable : Map.of(
+                "SPRING_DATASOURCE_HIKARI_JDBCURL", "spring.datasource.hikari.jdbc-url",
+                "SPRING_FLYWAY_URL", "spring.flyway.url",
+                "SPRING_FLYWAY_USER", "spring.flyway.user").entrySet()) {
+            environment = RecoveryFixtures.environment();
+            environment.getPropertySources().addFirst(new SystemEnvironmentPropertySource(
+                    StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                    Map.of(variable.getKey(), "jdbc:postgresql://production-db:5432/parkio_auth")));
+
+            refused(RecoveryReplayExit.TARGET_REFUSED,
+                    variable.getValue() + " is set; the command connects only to the checked spring.datasource.url");
+        }
+        assertTargetUntouched();
+    }
+
+    @Test
+    void onlyASingleHostPostgresUrlWithAllowedParametersIsAccepted() {
+        for (String url : List.of(
+                "jdbc:postgresql://isolated-pg:5432,production-pg:5432/parkio_auth",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?targetServerType=primary",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?loadBalanceHosts=true",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?socketFactory=x.Y",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?PGHOST=production-pg",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?service=production",
+                "jdbc:postgresql:parkio_auth", "jdbc:postgresql://isolated-pg:5432/", "jdbc:mysql://isolated-pg/parkio_auth",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth/extra", " jdbc:postgresql://isolated-pg/parkio_auth")) {
+            environment = RecoveryFixtures.environment();
+            environment.setProperty("spring.datasource.url", url);
+
+            refused(RecoveryReplayExit.TARGET_REFUSED,
+                    "spring.datasource.url is not a single-host PostgreSQL URL with allowed parameters only");
+        }
+        environment = RecoveryFixtures.environment();
+        environment.setProperty("spring.datasource.url",
+                "jdbc:postgresql://isolated-pg:5432/parkio_auth?sslmode=require&ApplicationName=recovery&connectTimeout=5");
+        check(validArgs(), verdict());
+        environment = RecoveryFixtures.environment();
+        environment.setProperty("spring.datasource.url", "jdbc:postgresql://[::1]:5432/parkio_auth");
+        check(validArgs(), verdict());
+    }
+
+    @Test
+    void theTargetIsReadOnOneConnectionAndClosed() {
+        check(validArgs(), verdict());
+
+        assertThat(target.identityReads).isEqualTo(1);
+        assertThat(target.anchorReads).isEqualTo(1);
+        assertThat(target.closed).isTrue();
     }
 
     @Test

@@ -71,7 +71,8 @@ class RecoveryReplayCommandPostgresIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        // The preflight accepts only a plain single-host URL (review B6); drop the container's ?loggerLevel.
+        registry.add("spring.datasource.url", () -> POSTGRES.getJdbcUrl().replaceFirst("\\?.*$", ""));
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.datasource.driver-class-name", POSTGRES::getDriverClassName);
@@ -248,7 +249,7 @@ class RecoveryReplayCommandPostgresIT {
         RecoveryReplayArguments parsed = RecoveryReplayArguments.parse(arguments);
         RecoveryReplayVerdict outcome = new RecoveryReplayVerdict(parsed);
         RecoveryReplayPreflight preflight = new RecoveryReplayPreflight(Clock.systemUTC(), env -> RecoveryReplayTarget.jdbc(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+                env.getProperty("spring.datasource.url"), POSTGRES.getUsername(), POSTGRES.getPassword()));
         RecoveryReplayPreflight.Plan plan;
         try {
             plan = preflight.check(environment, parsed, outcome);

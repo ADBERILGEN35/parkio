@@ -33,6 +33,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +42,11 @@ import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -68,6 +74,14 @@ class RecoveryReplayLaunchPostgresIT {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+                    .withDatabaseName("parkio_auth")
+                    .withUsername("parkio")
+                    .withPassword("parkio");
+
+    /** Another cluster, standing for production in the redirect cases (review B6). */
+    @Container
+    static final PostgreSQLContainer<?> PRODUCTION =
             new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
                     .withDatabaseName("parkio_auth")
                     .withUsername("parkio")
@@ -192,6 +206,82 @@ class RecoveryReplayLaunchPostgresIT {
         assertThat(launch.listeners).isEmpty();
     }
 
+    // Review B6: no connection of the command may reach a database the preflight did not check.
+
+    @Test
+    void aPoolUrlRedirectIsRefusedAndNeitherClusterIsWritten() throws Exception {
+        migrate(null);
+        long history = historyRows();
+        Map<String, String> env = env();
+        env.put("SPRING_DATASOURCE_HIKARI_JDBCURL", productionUrl());
+
+        Launch launch = launch(env, fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED.code());
+        assertThat(written().path("reason").asText()).contains("spring.datasource.hikari.jdbc-url");
+        assertNothingWritten(launch, history);
+    }
+
+    @Test
+    void aFlywayConnectionRedirectIsRefusedAndNeitherClusterIsWritten() throws Exception {
+        migrate(null);
+        long history = historyRows();
+        Map<String, String> env = env();
+        env.put("SPRING_FLYWAY_URL", productionUrl());
+        env.put("SPRING_FLYWAY_USER", PRODUCTION.getUsername());
+        env.put("SPRING_FLYWAY_PASSWORD", PRODUCTION.getPassword());
+
+        Launch launch = launch(env, fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED.code());
+        assertThat(written().path("reason").asText()).contains("spring.flyway.");
+        assertNothingWritten(launch, history);
+    }
+
+    @Test
+    void aMultiHostUrlIsRefusedAndNeitherClusterIsWritten() throws Exception {
+        migrate(null);
+        long history = historyRows();
+        Map<String, String> env = env();
+        env.put("SPRING_DATASOURCE_URL", "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432)
+                + "," + PRODUCTION.getHost() + ":" + PRODUCTION.getMappedPort(5432) + "/" + database);
+
+        Launch launch = launch(env, fixtureArgs());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.TARGET_REFUSED.code());
+        assertThat(written().path("reason").asText())
+                .isEqualTo("spring.datasource.url is not a single-host PostgreSQL URL with allowed parameters only");
+        assertNothingWritten(launch, history);
+    }
+
+    // Review N10: the profile never reaches an ordinary start, whatever activates it.
+
+    @Test
+    void anOrdinaryStartWithTheProfileIncludedIsRefusedAndTouchesNothing() throws Exception {
+        Map<String, String> env = env();
+        env.remove("SPRING_PROFILES_ACTIVE");
+        env.put("SPRING_PROFILES_INCLUDE", RecoveryReplayLaunch.PROFILE);
+
+        Launch launch = launch(env, List.of());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(launch.log()).contains("auth-service refused to start");
+        assertUntouched(launch);
+    }
+
+    @Test
+    void anOrdinaryStartWithALowerCaseProfileVariableIsRefusedAndTouchesNothing() throws Exception {
+        Map<String, String> env = env();
+        env.remove("SPRING_PROFILES_ACTIVE");
+        env.put("spring_profiles_active", RecoveryReplayLaunch.PROFILE);
+
+        Launch launch = launch(env, List.of());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(launch.log()).contains("auth-service refused to start");
+        assertUntouched(launch);
+    }
+
     @Test
     void anAcceptedRunServesNothingJoinsOnlyTheRecoveryGroupAndRunsNoRetention() throws Exception {
         migrate(null);
@@ -202,6 +292,9 @@ class RecoveryReplayLaunchPostgresIT {
                 VALUES ('%s', '%s', 'User', '%s', 'UserRegistered', '{}', now() - interval '30 days', true,
                     now() - interval '30 days')
                 """.formatted(retained, UUID.randomUUID(), UUID.randomUUID()));
+        // Review N11: unpublished rows of the restored copy, for two topics the relay serves.
+        UUID restoredRegistration = unpublished("AuthUser", "UserRegistered");
+        UUID restoredErasureRequest = unpublished("AccountErasure", "UserErasureRequested");
         timeoutSeconds = 10;
 
         Launch launch = launch(env(), fixtureArgs());
@@ -221,6 +314,23 @@ class RecoveryReplayLaunchPostgresIT {
                 .as("a retention-eligible row survives: no retention job runs").isEqualTo("1");
         assertThat(query(database, "SELECT count(*) FROM erasure_restore_attempts WHERE recovery_attempt_id = '"
                 + attempt + "'")).isEqualTo("1");
+        // N11: the relay published this attempt's replay commands and nothing else of the copy.
+        for (UUID row : List.of(restoredRegistration, restoredErasureRequest)) {
+            assertThat(query(database, "SELECT published::text || '/' || failure_count FROM outbox_events WHERE id = '"
+                    + row + "'")).as("a restored unpublished row stays unpublished and untouched").isEqualTo("false/0");
+        }
+        assertThat(query(database, """
+                SELECT count(*) FROM outbox_events
+                WHERE event_type = 'UserErasureRestoreReplayRequested' AND published
+                  AND payload::jsonb ->> 'recoveryAttemptId' = '%s'
+                """.formatted(attempt))).isEqualTo(String.valueOf(USERS));
+        List<JsonNode> erasureTopic = topic("parkio.privacy.erasure");
+        assertThat(erasureTopic).as("the erasure topic holds only this attempt's replay commands").hasSize(USERS)
+                .allSatisfy(envelope -> {
+                    assertThat(envelope.path("eventType").asText()).isEqualTo("UserErasureRestoreReplayRequested");
+                    assertThat(envelope.path("payload").path("recoveryAttemptId").asText()).isEqualTo(attempt.toString());
+                });
+        assertThat(topic("parkio.auth.user")).as("no restored registration was published").isEmpty();
     }
 
     // ----- launch -----
@@ -255,8 +365,12 @@ class RecoveryReplayLaunchPostgresIT {
         long deadline = System.nanoTime() + Duration.ofMinutes(4).toNanos();
         while (process.isAlive() && System.nanoTime() < deadline) {
             if (Files.exists(Path.of("/proc/" + process.pid() + "/net/tcp"))) {
-                listeners.addAll(listeningSockets(process.pid()));
-                sampled++;
+                Optional<Set<String>> sample = listeningSockets(process);
+                if (sample.isPresent()) {
+                    // Review N13: only a complete read of the descriptors and both tables counts.
+                    listeners.addAll(sample.get());
+                    sampled++;
+                }
             }
             process.waitFor(300, TimeUnit.MILLISECONDS);
         }
@@ -280,20 +394,26 @@ class RecoveryReplayLaunchPostgresIT {
         return String.join(File.pathSeparator, entries);
     }
 
-    /** LISTEN sockets (TCP state 0A) whose inode is one of the process's own file descriptors. */
-    private static Set<String> listeningSockets(long pid) {
+    /**
+     * LISTEN sockets (TCP state 0A) whose inode is one of the process's own file descriptors, from
+     * one complete sample. Empty only when the process exited during the read; any other read
+     * failure fails the test, so an unreadable table never passes as "no listener".
+     */
+    private static Optional<Set<String>> listeningSockets(Process process) {
+        long pid = process.pid();
         Set<String> own = new HashSet<>();
         try (var fds = Files.list(Path.of("/proc/" + pid + "/fd"))) {
-            fds.forEach(fd -> {
+            for (Path fd : fds.toList()) {
+                String link;
                 try {
-                    String link = Files.readSymbolicLink(fd).toString();
-                    if (link.startsWith("socket:[")) {
-                        own.add(link.substring("socket:[".length(), link.length() - 1));
-                    }
-                } catch (IOException ignored) {
-                    // the descriptor closed meanwhile
+                    link = Files.readSymbolicLink(fd).toString();
+                } catch (java.nio.file.NoSuchFileException closed) {
+                    continue; // this descriptor closed meanwhile; the others still count
                 }
-            });
+                if (link.startsWith("socket:[")) {
+                    own.add(link.substring("socket:[".length(), link.length() - 1));
+                }
+            }
             Set<String> listening = new HashSet<>();
             for (String table : List.of("tcp", "tcp6")) {
                 Path path = Path.of("/proc/" + pid + "/net/" + table);
@@ -309,9 +429,23 @@ class RecoveryReplayLaunchPostgresIT {
                     }
                 }
             }
-            return listening;
+            return Optional.of(listening);
         } catch (IOException ex) {
-            return Set.of();
+            // An exiting process loses its /proc entries before Java reaps it (isAlive() is still
+            // true for a moment): if it ends now, the read was cut short, an incomplete sample.
+            if (exitsWithin(process, Duration.ofSeconds(2))) {
+                return Optional.empty();
+            }
+            throw new AssertionError("the command's sockets could not be read: " + ex, ex);
+        }
+    }
+
+    private static boolean exitsWithin(Process process, Duration bound) {
+        try {
+            return process.waitFor(bound.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -391,6 +525,70 @@ class RecoveryReplayLaunchPostgresIT {
             configuration.target(target);
         }
         configuration.load().migrate();
+    }
+
+    private void assertNothingWritten(Launch launch, long targetHistory) throws Exception {
+        assertThat(historyRows()).as("the target was not migrated").isEqualTo(targetHistory);
+        assertThat(query(database, "SELECT count(*) FROM erasure_restore_attempts")).as("no attempt").isEqualTo("0");
+        assertThat(productionQuery("SELECT to_regclass('public.flyway_schema_history') IS NULL"))
+                .as("production was not migrated").isEqualTo("t");
+        assertThat(productionQuery("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"))
+                .as("production has no table").isEqualTo("0");
+        assertThat(consumerGroups()).as("no consumer group joined").isEqualTo(launch.groupsBefore());
+        assertThat(launch.listeners).isEmpty();
+    }
+
+    private static String productionUrl() {
+        return "jdbc:postgresql://" + PRODUCTION.getHost() + ":" + PRODUCTION.getMappedPort(5432) + "/parkio_auth";
+    }
+
+    private static String productionQuery(String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(productionUrl(), PRODUCTION.getUsername(),
+                PRODUCTION.getPassword()); Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            return result.next() ? result.getString(1) : null;
+        }
+    }
+
+    /** An unpublished outbox row of the restored copy. */
+    private UUID unpublished(String aggregateType, String eventType) throws SQLException {
+        UUID id = UUID.randomUUID();
+        update("""
+                INSERT INTO outbox_events (id, event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at,
+                    published)
+                VALUES ('%s', '%s', '%s', '%s', '%s', '{"restored": true}', now() - interval '1 day', false)
+                """.formatted(id, UUID.randomUUID(), aggregateType, UUID.randomUUID(), eventType));
+        return id;
+    }
+
+    /** Every record of {@code topic} from the beginning, as envelopes; empty if the topic does not exist. */
+    private static List<JsonNode> topic(String topic) throws Exception {
+        Map<String, Object> config = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        List<JsonNode> envelopes = new ArrayList<>();
+        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config)) {
+            List<TopicPartition> partitions = consumer.partitionsFor(topic, Duration.ofSeconds(10)).stream()
+                    .map(info -> new TopicPartition(info.topic(), info.partition())).toList();
+            if (partitions.isEmpty()) {
+                return envelopes;
+            }
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions);
+            Map<TopicPartition, Long> end = consumer.endOffsets(partitions);
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (partitions.stream().anyMatch(tp -> consumer.position(tp) < end.get(tp))) {
+                if (System.nanoTime() > deadline) {
+                    throw new AssertionError("could not read " + topic + " to its end");
+                }
+                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
+                    envelopes.add(RecoveryFixtures.JSON.readTree(record.value()));
+                }
+            }
+        }
+        return envelopes;
     }
 
     private long historyRows() throws SQLException {

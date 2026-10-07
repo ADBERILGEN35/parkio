@@ -548,6 +548,9 @@ use `sequence`.
        `docs/architecture/erasure-restore-replay-contract.md`, Recovery-replay command.
        Every check that can refuse runs before any application context exists, so a
        refused run never migrates, writes, subscribes or schedules anything on the target.
+       Settings that would point a connection elsewhere are refused, every connection the
+       command context opens is re-checked against the target (PR #295 review B6), and the
+       relay publishes only the attempt's replay commands (N11).
    - **Object binding (PR #295 review B4).** Both verifiers read a signed object only
      under its own key, and refuse anything else instead of skipping it:
      - a pending record only at `records/<erasureRequestId>.json`, which it also signs as

@@ -2,6 +2,7 @@ package com.parkio.auth.infrastructure.recovery;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.ApplicationContextFactory;
@@ -89,11 +90,17 @@ public final class RecoveryReplayLaunch {
         }
         RecoveryReplayVerdict verdict = new RecoveryReplayVerdict(arguments);
         Preflight listener = new Preflight(preflight, arguments, verdict);
+        AtomicReference<RecoveryReplayConnectionGuard> guard = new AtomicReference<>();
         SpringApplication app = new SpringApplicationBuilder(application)
                 .web(WebApplicationType.NONE)
                 .contextFactory(ApplicationContextFactory.ofContextClass(AnnotationConfigApplicationContext.class))
                 .profiles(PROFILE)
                 .listeners(listener)
+                // Runs only once the preflight accepted the run: it holds the checked identity.
+                .initializers(context -> {
+                    guard.set(new RecoveryReplayConnectionGuard(listener.plan.get().connectedIdentity()));
+                    guard.get().install(context);
+                })
                 .build();
         ConfigurableApplicationContext context;
         try {
@@ -101,6 +108,9 @@ public final class RecoveryReplayLaunch {
             context = app.run();
         } catch (RuntimeException ex) {
             RecoveryReplayRefusal refusal = listener.refusal.get();
+            if (refusal == null && guard.get() != null) {
+                refusal = guard.get().refusal();
+            }
             if (refusal != null) {
                 verdict.put("reason", refusal.getMessage());
                 System.err.println("recovery replay refused: " + refusal.getMessage());
@@ -111,7 +121,10 @@ public final class RecoveryReplayLaunch {
             return verdict.finish(RecoveryReplayExit.INTERNAL, arguments.verdictOut()).code();
         }
         RecoveryReplayExit exit;
-        if (context instanceof WebServerApplicationContext
+        if (guard.get().refusal() != null) {
+            verdict.put("reason", guard.get().refusal().getMessage());
+            exit = verdict.finish(guard.get().refusal().exit(), arguments.verdictOut());
+        } else if (context instanceof WebServerApplicationContext
                 || context.getBeanNamesForType(WebServerFactory.class, true, false).length > 0) {
             verdict.put("reason", "a web server context or factory was created; the command never serves traffic");
             exit = verdict.finish(RecoveryReplayExit.INTERNAL, arguments.verdictOut());
@@ -122,9 +135,51 @@ public final class RecoveryReplayLaunch {
                 verdict.put("reason", "internal failure: " + ex.getClass().getSimpleName());
                 exit = verdict.finish(RecoveryReplayExit.INTERNAL, arguments.verdictOut());
             }
+            // A connection refused during the run taints it, whatever the command concluded.
+            RecoveryReplayRefusal refusedDuringRun = guard.get().refusal();
+            if (refusedDuringRun != null && exit != refusedDuringRun.exit()) {
+                verdict.put("reason", refusedDuringRun.getMessage());
+                exit = verdict.finish(refusedDuringRun.exit(), arguments.verdictOut());
+            }
         }
         int code = exit.code();
         return SpringApplication.exit(context, () -> code);
+    }
+
+    /**
+     * The ordinary service start (PR #295 review N10). The recovery-replay profile, from whatever
+     * source activates it ({@code SPRING_PROFILES_INCLUDE}, a lower-case variable, a config file,
+     * a profile group), never reaches an ordinary start: it would drop the web security
+     * configuration and move the ACK consumer to the recovery group. Refused (20) once the
+     * environment is prepared, before any context exists. Returns the exit code when refused.
+     */
+    public static OptionalInt startOrdinary(Class<?> application, String[] args) {
+        SpringApplication app = new SpringApplication(application);
+        app.addListeners(new OrdinaryStartGuard());
+        try {
+            app.run(args);
+            return OptionalInt.empty();
+        } catch (SpringApplication.AbandonedRunException ex) {
+            return OptionalInt.of(RecoveryReplayExit.REFUSED.code());
+        }
+    }
+
+    /** Abandons an ordinary start whose prepared environment has the recovery-replay profile. */
+    static final class OrdinaryStartGuard implements ApplicationListener<ApplicationEnvironmentPreparedEvent>, Ordered {
+
+        @Override
+        public void onApplicationEvent(ApplicationEnvironmentPreparedEvent event) {
+            if (event.getEnvironment().matchesProfiles(PROFILE)) {
+                System.err.println("auth-service refused to start: the '" + PROFILE + "' profile is active; it is"
+                        + " only for the one-shot recovery-replay command (SPRING_PROFILES_ACTIVE with its options)");
+                throw new SpringApplication.AbandonedRunException();
+            }
+        }
+
+        @Override
+        public int getOrder() {
+            return Ordered.LOWEST_PRECEDENCE;
+        }
     }
 
     private static int refused(String reason) {

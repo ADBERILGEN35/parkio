@@ -4,7 +4,6 @@ import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Properties;
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
@@ -22,7 +21,10 @@ public class AuthServiceApplication {
         if (recovery.isPresent()) {
             System.exit(recovery.getAsInt());
         }
-        SpringApplication.run(AuthServiceApplication.class, args);
+        OptionalInt refused = RecoveryReplayLaunch.startOrdinary(AuthServiceApplication.class, args);
+        if (refused.isPresent()) {
+            System.exit(refused.getAsInt());
+        }
     }
 
     /**

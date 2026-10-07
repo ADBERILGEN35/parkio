@@ -25,6 +25,23 @@ public interface OutboxEventJpaRepository extends JpaRepository<OutboxEventEntit
     List<OutboxEventEntity> findUnpublishedBatchForUpdate(@Param("limit") int limit);
 
     /**
+     * The recovery-replay command's relay batch: only the unpublished rows of {@code eventType}
+     * whose payload names {@code recoveryAttemptId} (PR #295 review N11). Every other row of the
+     * restored copy is left alone.
+     */
+    @Query(value = """
+            SELECT * FROM outbox_events
+            WHERE published = false AND dead_lettered = false
+              AND event_type = :eventType AND payload::jsonb ->> 'recoveryAttemptId' = :recoveryAttemptId
+            ORDER BY created_at, id
+            LIMIT :limit
+            FOR UPDATE SKIP LOCKED
+            """, nativeQuery = true)
+    List<OutboxEventEntity> findUnpublishedAttemptBatchForUpdate(@Param("eventType") String eventType,
+                                                                 @Param("recoveryAttemptId") String recoveryAttemptId,
+                                                                 @Param("limit") int limit);
+
+    /**
      * Backlog size for the {@code parkio.outbox.unpublished.count} gauge (cheap COUNT).
      * Excludes dead-lettered rows — those are no longer relayable and are tracked
      * separately by {@code parkio.outbox.deadlettered.count}.

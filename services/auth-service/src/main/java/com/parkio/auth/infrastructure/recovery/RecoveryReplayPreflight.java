@@ -13,10 +13,15 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;
 
 /**
@@ -30,6 +35,8 @@ import org.springframework.core.env.Environment;
  *   <li>the restore-replay flag (20) and every durable-store writer off (20): a restored copy must
  *       never write into the real evidence store;</li>
  *   <li>a positive poll interval (20);</li>
+ *   <li>no setting that points a connection anywhere but {@code spring.datasource.url}, which must
+ *       be one plain PostgreSQL host and database (22);</li>
  *   <li>the trust document and the trusted-set file, re-verified from the embedded bundle (21);</li>
  *   <li>the attempt and dataset against the file (23);</li>
  *   <li>the connected database: readable, unambiguous, not on the production cluster pinned in
@@ -50,6 +57,22 @@ final class RecoveryReplayPreflight {
     static final String POLL_INTERVAL = "parkio.privacy.account-erasure.recovery-replay.poll-interval";
     static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(5);
     static final String WEB_APPLICATION_TYPE = "spring.main.web-application-type";
+    /** Settings that would give a connection of the command context another target (B6). */
+    static final List<String> REDIRECTS = List.of(
+            "spring.flyway.url", "spring.flyway.user", "spring.flyway.password", "spring.flyway.driver-class-name",
+            "spring.datasource.hikari.jdbc-url", "spring.datasource.hikari.username",
+            "spring.datasource.hikari.password", "spring.datasource.hikari.data-source-class-name",
+            "spring.datasource.hikari.data-source-j-n-d-i", "spring.datasource.jndi-name",
+            "spring.datasource.xa.data-source-class-name");
+    static final List<String> REDIRECT_MAPS = List.of(
+            "spring.datasource.hikari.data-source-properties", "spring.datasource.xa.properties");
+    /** {@code jdbc:postgresql://<one host[:port]>/<database>[?parameters]}: no host list, no service. */
+    private static final Pattern SINGLE_POSTGRES_URL =
+            Pattern.compile("jdbc:postgresql://([^/?#,\\s]+)/([^/?#\\s]+)(?:\\?([^#\\s]*))?");
+    /** URL parameters that cannot change which server or database is reached (lower case). */
+    static final Set<String> URL_PARAMETERS = Set.of(
+            "ssl", "sslmode", "sslrootcert", "connecttimeout", "sockettimeout", "logintimeout", "applicationname",
+            "tcpkeepalive");
 
     /** What the checks established; the command context runs only with this. */
     record Plan(RecoveryReplayArguments arguments, TrustedErasureSet set, String connectedIdentity,
@@ -91,6 +114,7 @@ final class RecoveryReplayPreflight {
                     "a durable-store writer is enabled; a restored copy must not write evidence: " + enabledWriters);
         }
         Duration pollInterval = pollInterval(environment);
+        checkDatasourceSettings(environment);
 
         EvidenceTrust trust = trust(arguments.trust());
         TrustedErasureSetDocument document;
@@ -109,11 +133,60 @@ final class RecoveryReplayPreflight {
                     "the attempt or dataset does not match the trusted-set file");
         }
 
-        RecoveryReplayTarget target = targets.apply(environment);
-        String connected = connectedIdentity(target);
-        checkTarget(connected, arguments.targetIdentity(), document.targetIdentity(), trust.databaseIdentity());
-        checkAnchor(target, set);
-        return new Plan(arguments, set, connected, pollInterval);
+        try (RecoveryReplayTarget target = targets.apply(environment)) {
+            String connected = connectedIdentity(target);
+            checkTarget(connected, arguments.targetIdentity(), document.targetIdentity(), trust.databaseIdentity());
+            checkAnchor(target, set);
+            return new Plan(arguments, set, connected, pollInterval);
+        }
+    }
+
+    /**
+     * The preflight checks the database named by {@code spring.datasource.url}; nothing in the
+     * command context may connect anywhere else (PR #295 review B6, layer 1). Every setting that
+     * can point a connection elsewhere is refused (22), whatever its value: Flyway's own
+     * connection, the pool's own URL, credentials or data-source properties, JNDI and XA data
+     * sources. The URL itself must name one PostgreSQL host and one database, with only the
+     * parameters in {@link #URL_PARAMETERS}. The command context re-checks every connection it
+     * actually opens (layer 2, {@link RecoveryReplayConnectionGuard}).
+     */
+    static void checkDatasourceSettings(Environment environment) {
+        Binder binder = Binder.get(environment);
+        for (String property : REDIRECTS) {
+            if (binder.bind(property, Bindable.of(String.class)).isBound()) {
+                throw refuse(RecoveryReplayExit.TARGET_REFUSED, property
+                        + " is set; the command connects only to the checked spring.datasource.url");
+            }
+        }
+        for (String map : REDIRECT_MAPS) {
+            if (binder.bind(map, Bindable.mapOf(String.class, String.class)).isBound()) {
+                throw refuse(RecoveryReplayExit.TARGET_REFUSED, map
+                        + " is set; the command connects only to the checked spring.datasource.url");
+            }
+        }
+        String url = environment.getProperty("spring.datasource.url");
+        if (!singlePostgresUrl(url)) {
+            throw refuse(RecoveryReplayExit.TARGET_REFUSED,
+                    "spring.datasource.url is not a single-host PostgreSQL URL with allowed parameters only");
+        }
+    }
+
+    static boolean singlePostgresUrl(String url) {
+        Matcher matcher = url == null ? null : SINGLE_POSTGRES_URL.matcher(url);
+        if (matcher == null || !matcher.matches()) {
+            return false;
+        }
+        String query = matcher.group(3);
+        if (query == null) {
+            return true;
+        }
+        for (String parameter : query.split("&", -1)) {
+            String name = parameter.contains("=") ? parameter.substring(0, parameter.indexOf('=')) : parameter;
+            if (!URL_PARAMETERS.contains(name.toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String connectedIdentity(RecoveryReplayTarget target) {

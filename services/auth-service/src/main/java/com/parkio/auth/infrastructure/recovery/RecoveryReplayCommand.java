@@ -4,6 +4,7 @@ import com.parkio.auth.application.ErasureRestoreReplayService;
 import com.parkio.auth.application.RestoreReplayVerdict;
 import com.parkio.auth.application.port.ErasureRestoreRepository;
 import com.parkio.auth.application.port.ErasureRestoreRepository.RestoreAttempt;
+import com.parkio.auth.infrastructure.messaging.RecoveryReplayOutboxScope;
 import com.parkio.auth.infrastructure.persistence.PostgresDatabaseIdentity;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component;
  *   <li>re-reads the connected database's identity through the context's datasource and refuses
  *       anything other than the database the preflight checked (22);</li>
  *   <li>refuses an attempt id already used for another dataset or erasure set (23);</li>
+ *   <li>limits the outbox relay to this attempt's replay commands (N11);</li>
  *   <li>starts the replay and waits, bounded by {@code --timeout-seconds}, for the verdict: COMPLETE
  *       (0) only when every participant and auth acknowledged every user, BLOCKED (24) on a FAILED
  *       acknowledgement, TIMEOUT (25) otherwise.</li>
@@ -44,18 +46,20 @@ public class RecoveryReplayCommand {
 
     private final ErasureRestoreReplayService replay;
     private final ErasureRestoreRepository restores;
+    private final RecoveryReplayOutboxScope outboxScope;
     private final Supplier<String> connectedIdentity;
 
     @Autowired
     public RecoveryReplayCommand(ErasureRestoreReplayService replay, ErasureRestoreRepository restores,
-                                 JdbcTemplate jdbc) {
-        this(replay, restores, () -> PostgresDatabaseIdentity.of(jdbc));
+                                 RecoveryReplayOutboxScope outboxScope, JdbcTemplate jdbc) {
+        this(replay, restores, outboxScope, () -> PostgresDatabaseIdentity.of(jdbc));
     }
 
     RecoveryReplayCommand(ErasureRestoreReplayService replay, ErasureRestoreRepository restores,
-                          Supplier<String> connectedIdentity) {
+                          RecoveryReplayOutboxScope outboxScope, Supplier<String> connectedIdentity) {
         this.replay = replay;
         this.restores = restores;
+        this.outboxScope = outboxScope;
         this.connectedIdentity = connectedIdentity;
     }
 
@@ -96,6 +100,8 @@ public class RecoveryReplayCommand {
                     "recovery attempt was started for another dataset or erasure set");
         }
 
+        // The relay publishes this attempt's replay commands only, and nothing else of the copy (N11).
+        outboxScope.limitTo(arguments.attempt());
         replay.startRestoreReplay(arguments.attempt(), arguments.dataset(), plan.set().entries());
         log.info("recovery replay started attempt={} users={} {}", arguments.attempt(), plan.set().entries().size(),
                 plan.set().statement());

@@ -29,6 +29,8 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -66,15 +68,43 @@ public class AuthOutboxRelay {
     private final Counter publishSuccessCounter;
     private final Timer publishTimer;
     private final DistributionSummary batchSizeSummary;
+    /** Present only in the recovery-replay command context (N11). */
+    private final RecoveryReplayOutboxScope recoveryScope;
+
+    @Autowired
+    public AuthOutboxRelay(OutboxEventJpaRepository outbox,
+                           KafkaTemplate<String, Object> kafkaTemplate,
+                           ObjectMapper objectMapper,
+                           MeterRegistry registry,
+                           ObjectProvider<RecoveryReplayOutboxScope> recoveryScope,
+                           @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
+                           @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
+                           @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
+        this(outbox, kafkaTemplate, objectMapper, registry, recoveryScope.getIfAvailable(), batchSize, sendTimeoutMs,
+                maxAttempts);
+    }
 
     public AuthOutboxRelay(OutboxEventJpaRepository outbox,
                            KafkaTemplate<String, Object> kafkaTemplate,
                            ObjectMapper objectMapper,
                            MeterRegistry registry,
-                           @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
-                           @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
-                           @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
+                           int batchSize,
+                           long sendTimeoutMs,
+                           int maxAttempts) {
+        this(outbox, kafkaTemplate, objectMapper, registry, (RecoveryReplayOutboxScope) null, batchSize, sendTimeoutMs,
+                maxAttempts);
+    }
+
+    AuthOutboxRelay(OutboxEventJpaRepository outbox,
+                           KafkaTemplate<String, Object> kafkaTemplate,
+                           ObjectMapper objectMapper,
+                           MeterRegistry registry,
+                           RecoveryReplayOutboxScope recoveryScope,
+                           int batchSize,
+                           long sendTimeoutMs,
+                           int maxAttempts) {
         this.outbox = outbox;
+        this.recoveryScope = recoveryScope;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         this.batchSize = batchSize;
@@ -100,7 +130,7 @@ public class AuthOutboxRelay {
     @Scheduled(fixedDelayString = "${parkio.kafka.relay.poll-interval-ms:1000}")
     @Transactional
     public void publishPending() {
-        List<OutboxEventEntity> batch = outbox.findUnpublishedBatchForUpdate(batchSize);
+        List<OutboxEventEntity> batch = claim();
         if (batch.isEmpty()) {
             return;
         }
@@ -163,6 +193,20 @@ public class AuthOutboxRelay {
                 recordFailure(f.row(), reasonOf(e));
             }
         }
+    }
+
+    /**
+     * The rows this poll publishes. In the recovery-replay command context only the named
+     * attempt's replay commands, and nothing before the command names it (N11).
+     */
+    private List<OutboxEventEntity> claim() {
+        if (recoveryScope == null) {
+            return outbox.findUnpublishedBatchForUpdate(batchSize);
+        }
+        return recoveryScope.attempt()
+                .map(attempt -> outbox.findUnpublishedAttemptBatchForUpdate(
+                        UserErasureRestoreReplayRequestedEvent.TYPE, attempt.toString(), batchSize))
+                .orElse(List.of());
     }
 
     /** A dispatched send awaiting its broker ack, paired with its row and dispatch time. */

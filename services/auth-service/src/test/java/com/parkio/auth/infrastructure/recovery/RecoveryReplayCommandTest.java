@@ -21,6 +21,7 @@ import com.parkio.auth.application.ErasureRestoreReplayService;
 import com.parkio.auth.application.RestoreReplayVerdict;
 import com.parkio.auth.application.port.ErasureRestoreRepository;
 import com.parkio.auth.application.port.ErasureRestoreRepository.RestoreAttempt;
+import com.parkio.auth.infrastructure.messaging.RecoveryReplayOutboxScope;
 import com.parkio.auth.infrastructure.recovery.RecoveryFixtures.Target;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +59,7 @@ class RecoveryReplayCommandTest {
 
     private final ErasureRestoreReplayService replay = mock(ErasureRestoreReplayService.class);
     private final ErasureRestoreRepository restores = mock(ErasureRestoreRepository.class);
+    private final RecoveryReplayOutboxScope outboxScope = new RecoveryReplayOutboxScope();
     private MockEnvironment environment;
     private Path evidence;
     private Path trust;
@@ -118,6 +120,26 @@ class RecoveryReplayCommandTest {
         acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
 
         assertThat(enabled().execute(plan, verdict())).isEqualTo(RecoveryReplayExit.COMPLETE);
+    }
+
+    @Test
+    void theRelayIsLimitedToThisAttemptBeforeTheReplayStarts() {
+        acks(Map.of(), RestoreReplayVerdict.Status.COMPLETE);
+        when(replay.startRestoreReplay(any(), anyString(), anyList())).thenAnswer(invocation -> {
+            assertThat(outboxScope.attempt()).contains(UUID.fromString(ATTEMPT));
+            return null;
+        });
+        assertThat(outboxScope.attempt()).isEmpty();
+
+        assertThat(enabled().execute(plan(validArgs()), verdict())).isEqualTo(RecoveryReplayExit.COMPLETE);
+        verify(replay).startRestoreReplay(any(), anyString(), anyList());
+    }
+
+    @Test
+    void aRefusedRunNeverOpensTheRelay() {
+        command(() -> "postgresql:7000000000000000123:parkio_auth").execute(plan(validArgs()), verdict());
+
+        assertThat(outboxScope.attempt()).isEmpty();
     }
 
     @Test
@@ -223,6 +245,6 @@ class RecoveryReplayCommandTest {
     }
 
     private RecoveryReplayCommand command(Supplier<String> identity) {
-        return new RecoveryReplayCommand(replay, restores, identity);
+        return new RecoveryReplayCommand(replay, restores, outboxScope, identity);
     }
 }

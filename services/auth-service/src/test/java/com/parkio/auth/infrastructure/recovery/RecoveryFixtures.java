@@ -33,6 +33,7 @@ final class RecoveryFixtures {
     static final String DATASET = "backup-stamp-2026-09-29T08-00-00Z";
     static final String TARGET = "postgresql:7000000000000000099:parkio_auth";
     static final int USERS = 4;
+    static final String DATASOURCE_URL = "jdbc:postgresql://parkio-iso-0123456789ab-pg:5432/parkio_auth";
 
     private RecoveryFixtures() {
     }
@@ -114,6 +115,7 @@ final class RecoveryFixtures {
         environment.setActiveProfiles(RecoveryReplayLaunch.PROFILE);
         environment.setProperty(RecoveryReplayPreflight.FLAG, "true");
         environment.setProperty(RecoveryReplayPreflight.POLL_INTERVAL, "PT0.1S");
+        environment.setProperty("spring.datasource.url", DATASOURCE_URL);
         return environment;
     }
 
@@ -123,6 +125,7 @@ final class RecoveryFixtures {
         final Supplier<List<UUID>> recorded;
         int identityReads;
         int anchorReads;
+        boolean closed;
 
         Target(Supplier<String> identity, Supplier<List<UUID>> recorded) {
             this.identity = identity;
@@ -143,6 +146,11 @@ final class RecoveryFixtures {
         public List<UUID> durablyRecordedUsers() {
             anchorReads++;
             return recorded.get();
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 

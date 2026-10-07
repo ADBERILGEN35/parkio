@@ -144,10 +144,15 @@ restore path, with no network endpoint (`com.parkio.auth.infrastructure.recovery
 `parkio.privacy.account-erasure.restore-replay.enabled=true`.
 - The profile comes from the environment (`SPRING_PROFILES_ACTIVE=recovery-replay`, or
   `-Dspring.profiles.active`). The command line takes **only the command's own options**: any
-  `--spring.*` or `--logging.*` argument is refused (20), so no option can reach Spring, override
-  the web application type or redirect the datasource.
+  `--spring.*` or `--logging.*` argument is refused (20), so no command-line option reaches Spring.
+  Settings that would redirect a connection are refused by the preflight (see below).
 - Recovery options without the profile, and a `--spring.profiles.active=recovery-replay` argument,
   are refused before Spring starts.
+- **An ordinary start never runs with the profile** (PR #295 review N10). Whatever activates it
+  (`SPRING_PROFILES_INCLUDE`, a lower-case variable, `SPRING_APPLICATION_JSON`, a config file, a
+  profile group), an ordinary start with the profile active is refused (20) once the environment is
+  prepared, before any context exists. It would otherwise drop the web security configuration and
+  move the ACK consumer to the recovery group.
 - An ordinary start, with neither the profile nor the options, is unchanged.
 
 ```
@@ -163,8 +168,8 @@ java -jar auth-service.jar \
 Only these options are accepted, each once, as `--name=value`. There is **no cutoff and no receipt
 option** (see Coverage below).
 
-**Nothing touches the target before the checks pass** (PR #295 review B1, B2, B5). The launch runs
-in two steps:
+**Nothing touches the target before the checks pass, and nothing touches any other database**
+(PR #295 review B1, B2, B5, B6). The launch runs in two steps:
 
 1. **Preflight, before any application context exists.** Spring prepares the environment
    (configuration files, environment variables, profiles) and the preflight runs every check that
@@ -179,6 +184,17 @@ in two steps:
    - The ACK consumer joins its own group, `parkio.auth.erasure.recovery-replay`, never the live
      `parkio.auth.erasure` group.
    - If the restored schema is older than the image, Flyway migrates it here, after the checks.
+   - **Every connection is re-checked** (B6, layer 2). Every `DataSource` bean is wrapped so each
+     connection it hands out re-reads `pg_control_system()` and `current_database()` before the
+     caller runs a statement. Flyway's migration strategy reads the identity through the data source
+     Flyway actually uses before `migrate()`. Any other database is refused (22): the connection is
+     closed and nothing is migrated or written. A refusal during the run overrides the command's
+     result.
+   - **The outbox relay publishes only this attempt's replay commands** (N11). Until the command
+     names its attempt it publishes nothing; then only the unpublished
+     `UserErasureRestoreReplayRequested` rows of that attempt. Every other unpublished row of the
+     restored copy (registrations, live erasure requests, anything copied from the past) stays
+     unpublished and untouched.
 
 **Checks, in order.** Each one stops the run before the next. Steps 1 to 7 are the preflight:
 
@@ -188,6 +204,17 @@ in two steps:
 2. **Flag and durable-store writers.** The flag must be on. If durable recording, its retry worker,
    the object-lock store or the checkpoint producer is enabled, the command refuses: a restored copy
    must never write into the real evidence store. The poll interval must be a positive duration.
+   **Connection settings** (B6, layer 1; refused with 22, whatever their value):
+   - any setting that gives a connection its own target: `spring.flyway.url`, `.user`, `.password`
+     and `.driver-class-name`; `spring.datasource.hikari.jdbc-url`, `.username`, `.password`,
+     `.data-source-class-name`, `.data-source-j-n-d-i` and `.data-source-properties.*`;
+     `spring.datasource.jndi-name`; `spring.datasource.xa.data-source-class-name` and
+     `.xa.properties.*`. A managed environment that sets `SPRING_FLYWAY_USER`/`PASSWORD` for a
+     migrator role must drop them for a recovery run;
+   - a `spring.datasource.url` that is not `jdbc:postgresql://<one host[:port]>/<database>`: no host
+     list (failover or load balancing), no `service`, and only these parameters: `ssl`, `sslmode`,
+     `sslrootcert`, `connectTimeout`, `socketTimeout`, `loginTimeout`, `ApplicationName`,
+     `tcpKeepAlive`.
 3. **Evidence.** The trusted-set file (`parkio-trusted-erasure-set`, written by the isolated restore)
    embeds the evidence bundle. The command loads its own trust document, re-derives the trusted set
    from the bundle, and refuses any difference from the coverage, set and ignored frontier versions
@@ -224,10 +251,17 @@ in two steps:
    FAILED acknowledgement, or the bounded timeout (default 15 min, at most 60). The wait uses a
    monotonic clock, and no poll sleeps past the deadline.
 
-**Kafka is not verified.** The command's Kafka bootstrap must be the isolated recovery broker. The
-#296 isolation ticket and recovery overlay supply it; the command checks the database identity, not
-the broker. The recovery consumer group keeps it from taking the live group's partitions, but a
-non-isolated broker would still receive the replay commands. This is a documented limitation.
+**Kafka is not verified (a documented limitation).** The command's Kafka bootstrap must be the
+isolated recovery broker; the #296 isolation ticket and recovery overlay supply it. The command
+checks every database connection, not the broker. Against another broker:
+- the relay publishes this attempt's replay commands there (and nothing else, N11);
+- the ACK consumer joins `parkio.auth.erasure.recovery-replay`, a group with no committed offsets,
+  and reads with `auto-offset-reset: earliest`, so it consumes that broker's whole
+  `parkio.privacy.erasure` history into the restored copy;
+- `KafkaAdmin` creates auth's topics there if they are missing.
+
+The recovery group keeps the command off the live groups' partitions. Treat the broker as part of
+the isolation boundary.
 
 The command has no network endpoint, so it exposes nothing. Keeping the restored copy unexposed
 until the verdict is COMPLETE is the isolated restore's job (#296: an expose gate, CLOSED until a
@@ -238,9 +272,9 @@ COMPLETE verdict for the same attempt, dataset and digest, and no published port
 | Code | Status | Meaning |
 |---|---|---|
 | 0 | `COMPLETE` | every participant the attempt requires, auth included, acknowledged every user |
-| 20 | `REFUSED` | disabled (profile without the flag, or options without the profile), a `--spring.*` or `--logging.*` argument, a web application type other than none, a durable writer enabled, an invalid poll interval, or invalid arguments |
+| 20 | `REFUSED` | disabled (profile without the flag, or options without the profile), a `--spring.*` or `--logging.*` argument, a web application type other than none, a durable writer enabled, an invalid poll interval, invalid arguments, or an ordinary start with the profile active |
 | 21 | `INVALID_EVIDENCE` | the evidence, the trusted-set file, the trust document or the backup anchor does not verify, or the anchor cannot be read |
-| 22 | `TARGET_REFUSED` | the production cluster (any database name), an unreadable or ambiguous identity, not the ticket's target, or a command context connected elsewhere |
+| 22 | `TARGET_REFUSED` | the production cluster (any database name), an unreadable or ambiguous identity, not the ticket's target, a setting that redirects a connection or a URL that is not one plain PostgreSQL host, or any connection of the command context that reaches another database |
 | 23 | `ATTEMPT_MISMATCH` | attempt or dataset other than the file's, or an attempt already started for another dataset or set |
 | 24 | `BLOCKED` | a participant reported FAILED |
 | 25 | `TIMEOUT` | the bounded wait ended with acknowledgements missing |
