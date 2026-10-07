@@ -1,0 +1,26 @@
+# Disposable isolated writers for coordinator tests. Same allowlisted service
+# names as repository compose/systemd identities. Never the production project.
+# Image is a dummy sleeper; this is not Fluent Bit or Slack.
+name: parkio-writer-control-isolated
+
+services:
+  slack-biz-worker:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import time; time.sleep(3600)"]
+    restart: "no"
+  slack-biz-waitlist-consumer:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import time; time.sleep(3600)"]
+    restart: "no"
+  fluent-bit-nr-pilot:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import time; time.sleep(3600)"]
+    restart: "no"
+  nr-budget-gate:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import time; time.sleep(3600)"]
+    restart: "no"
+  nr-log-source:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import time; time.sleep(3600)"]
+    restart: "no"
