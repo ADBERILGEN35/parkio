@@ -355,7 +355,10 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
     clients and the gateway publishes no port; the gateway's transformer also ignores a
     client-supplied `Forwarded` header, which Spring would otherwise prefer and Caddy passes through
     (CL-F15; `docs/architecture/login-throttling.md`).
-  - For public prod with a managed LB, add the LB's egress range to `PARKIO_TRUSTED_PROXIES`.
+  - A managed LB in front of Caddy: adding its egress range to `PARKIO_TRUSTED_PROXIES` has no effect
+    under the framework strategy (the walk does not run), and configuring Caddy `trusted_proxies`
+    would let the client-controlled first entry through. Revisit the forwarding design before
+    adding such a hop (see docker/README.md, "Forwarded headers & proxy-aware rate limiting").
 - **Internal gateway-secret rotation.** *(Implemented.)* Rotate `PARKIO_GATEWAY_INTERNAL_SECRET`
   without downtime via a **dual-accept** window: set `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS`
   (comma-separated previous secrets) on the downstream services first so they accept old *or* new,
