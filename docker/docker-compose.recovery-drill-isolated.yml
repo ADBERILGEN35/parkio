@@ -1,0 +1,128 @@
+# U02 isolated recovery overlay (scripts/recovery-replay.sh, which scripts/recovery-drill.sh uses).
+# Use ONLY with a project named parkio-rd-* or parkio-recovery-*, after restore-hosted-beta.sh restored
+# a stamp into the targets of a destination-bound isolated ticket (scripts/restore-isolated-fixture.sh).
+#
+# The restored copy stays unexposed: every service joins ONLY the ticket's isolated network, which is
+# created --internal (no route out), and no port is published. Participants run with restore replay
+# on and read their restored databases in the ticket's PostgreSQL and the restored media bucket in its
+# MinIO. auth-service is never started as a service here: scripts/recovery-replay.sh runs it once as
+# the recovery-replay command (profile plus flag, no web server), with every durable-store writer off.
+# Start it with an explicit service list; the base files' other services are not part of a recovery.
+# The base networks are renamed per project so nothing here can attach to another stack's network.
+
+name: ${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME=parkio-rd-<run>-recovery}
+
+networks:
+  parkio-backend:
+    name: ${COMPOSE_PROJECT_NAME}-backend
+  parkio-observability:
+    name: ${COMPOSE_PROJECT_NAME}-observability
+  drill-isolated:
+    external: true
+    name: ${RECOVERY_NETWORK:?set RECOVERY_NETWORK to the ticket network}
+
+x-isolated: &isolated
+  networks: !override
+    - drill-isolated
+  ports: !reset []
+  depends_on: !reset {}
+
+x-replay-participant: &replay-participant
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  PARKIO_ACCOUNT_ERASURE_ENABLED: "true"
+  PARKIO_RESTORE_REPLAY_ENABLED: "true"
+
+services:
+  kafka:
+    <<: *isolated
+    container_name: ${COMPOSE_PROJECT_NAME}-kafka
+  redis:
+    <<: *isolated
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+
+  auth-service:
+    <<: *isolated
+    volumes:
+      - ${RECOVERY_DIR:?set RECOVERY_DIR}:/run/recovery
+      - ${RECOVERY_TRUST_FILE:?set RECOVERY_TRUST_FILE}:/run/recovery-trust/erasure-trust.json:ro
+    environment:
+      SPRING_PROFILES_ACTIVE: recovery-replay
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_auth
+      SPRING_DATASOURCE_USERNAME: parkio_auth
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_AUTH_PASSWORD:?}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
+      PARKIO_ACCOUNT_ERASURE_ENABLED: "true"
+      PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED: "true"
+      PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED: "false"
+      PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_RETRY_WORKER_ENABLED: "false"
+      PARKIO_ERASURE_STORE_OBJECT_LOCK_ENABLED: "false"
+      PARKIO_ERASURE_CHECKPOINT_ENABLED: "false"
+      PARKIO_PRIVACY_ACCOUNT_ERASURE_RECOVERY_REPLAY_POLL_INTERVAL: PT2S
+
+  user-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_user
+      SPRING_DATASOURCE_USERNAME: parkio_user
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_USER_PASSWORD:?}
+  parking-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_parking
+      SPRING_DATASOURCE_USERNAME: parkio_parking
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_PARKING_PASSWORD:?}
+      SPRING_DATA_REDIS_HOST: redis
+  media-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_media
+      SPRING_DATASOURCE_USERNAME: parkio_media
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_MEDIA_PASSWORD:?}
+      PARKIO_MEDIA_STORAGE_ENDPOINT: http://${RECOVERY_MINIO:?}:9000
+      PARKIO_MEDIA_BUCKET: ${RECOVERY_BUCKET:?}
+      PARKIO_MEDIA_STORAGE_ACCESS_KEY: ${RECOVERY_MINIO_USER:?}
+      PARKIO_MEDIA_STORAGE_SECRET_KEY: ${RECOVERY_MINIO_PASSWORD:?}
+      # The restored rows name the backup's bucket; the restore put its objects into the ticket's
+      # bucket. Recovery only, media only, from the ticket's minio.sourceBucket (option A).
+      PARKIO_MEDIA_STORAGE_RESTORED_SOURCE_BUCKET: ${RECOVERY_SOURCE_BUCKET:?set from the ticket's minio.sourceBucket}
+      PARKIO_MEDIA_ERASURE_WORKER_ENABLED: "true"
+  gamification-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_gamification
+      SPRING_DATASOURCE_USERNAME: parkio_gamification
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_GAMIFICATION_PASSWORD:?}
+      SPRING_DATA_REDIS_HOST: redis
+  notification-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_notification
+      SPRING_DATASOURCE_USERNAME: parkio_notification
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_NOTIFICATION_PASSWORD:?}
+  moderation-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_moderation
+      SPRING_DATASOURCE_USERNAME: parkio_moderation
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_MODERATION_PASSWORD:?}
+  ai-validation-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_aivalidation
+      SPRING_DATASOURCE_USERNAME: parkio_aivalidation
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_AIVALIDATION_PASSWORD:?}
+  analytics-service:
+    <<: *isolated
+    environment:
+      <<: *replay-participant
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RECOVERY_PG:?}:5432/parkio_analytics
+      SPRING_DATASOURCE_USERNAME: parkio_analytics
+      SPRING_DATASOURCE_PASSWORD: ${RECOVERY_ANALYTICS_PASSWORD:?}

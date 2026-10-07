@@ -55,6 +55,24 @@ Proposed targets awaiting operator review are in
 [backup-restore-readiness.md](backup-restore-readiness.md) §9; they are not commitments. RPO/RTO
 approval remains NOT APPROVED ([backup-restore.md](backup-restore.md)).
 
+**Measured disposable full-recovery drill (U02).** `scripts/recovery-drill.sh` (workflow
+`recovery-drill.yml`) runs, on disposable infrastructure with synthetic data: a backup, erasures
+after it, host loss, a fresh isolated environment and the stage-4 recovery
+([restore-safe-preflight.md](restore-safe-preflight.md), Stage-4 isolated recovery). Its report
+gives per-phase timings:
+- RTO: from the end of the host loss to the expose gate OPEN on a COMPLETE replay;
+- RPO (data): host loss minus the backup's stamp time;
+- RPO (erasures): durably recorded erasures the replay did not apply.
+
+| Measure | Value | Conditions |
+|---------|-------|------------|
+| RTO | _pending: from the final CI drill on the reviewed #296 head_ | |
+| RPO (data) | _pending_ | |
+| RPO (erasures) | _pending_ | |
+
+These numbers describe the isolated drill only. They are not a production commitment: production
+recovery stays BLOCKED, and Slack replay and the NR budget (#101/#103/#104, HOLD) are not covered.
+
 | Asset | Recovery on current code |
 |-------|--------------------------|
 | Postgres (10 service DBs) | BLOCKED (see Scenarios); isolated drill only |

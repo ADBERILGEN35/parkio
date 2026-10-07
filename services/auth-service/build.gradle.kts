@@ -99,3 +99,16 @@ tasks.named<Test>("integrationTest") {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
+
+// U02 recovery drill tool (scripts/recovery-drill.sh; coordinator decision D2). It runs from the
+// test classpath only, so it is never packaged in the service image and adds no production entry
+// point: it publishes one checkpoint with the real producer and exports the evidence store as a
+// bundle, both against the disposable drill environment. Settings come from DRILL_* variables.
+val recoveryDrillToolchain = extensions.getByType<JavaPluginExtension>().toolchain
+tasks.register<JavaExec>("recoveryDrillTool") {
+    group = "verification"
+    description = "U02 recovery drill tool (disposable drill environment only; never shipped)"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.parkio.auth.infrastructure.durable.RecoveryDrillTool")
+    javaLauncher.set(javaToolchains.launcherFor(recoveryDrillToolchain))
+}

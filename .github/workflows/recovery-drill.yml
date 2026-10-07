@@ -1,0 +1,110 @@
+# U02 measured disposable full-recovery drill (scripts/recovery-drill.sh) on a GitHub-hosted runner:
+# synthetic backup, erasures after the backup, host loss, a fresh isolated environment, the stage-4
+# recovery through the real restore entrypoint and the recovery-replay command, negative evidence
+# variants, attempt isolation and retry, expose gate and scoped cleanup, with per-phase timings.
+#
+# Synthetic data, disposable containers and credentials generated per run only. The nine service
+# images are built from this checkout and never pushed. No production host, backup, key or
+# notification is touched; the production restore refusal and verifiedCoverage=false are unchanged.
+# Dispatch or pull request paths only: not scheduled and not a required check. Only the secret-free
+# evidence directory (report, timings, verdicts, logs of the drill steps) is uploaded.
+
+name: Recovery drill
+
+on:
+  pull_request:
+    paths:
+      - "scripts/recovery-drill.sh"
+      - "scripts/recovery-replay.sh"
+      - "scripts/lib/recovery-drill.py"
+      - "scripts/lib/recovery-evidence.py"
+      - "scripts/lib/recovery-expose-gate.py"
+      - "scripts/lib/recovery_evidence_bundle.py"
+      - "scripts/lib/recovery_evidence_contract.py"
+      - "scripts/lib/recovery_persist_protocol.py"
+      - "scripts/restore-hosted-beta.sh"
+      - "scripts/restore-database.sh"
+      - "scripts/restore-isolated-fixture.sh"
+      - "scripts/lib/restore-*.py"
+      - "scripts/lib/restore-safe-preflight.sh"
+      - "scripts/backup-hosted-beta.sh"
+      - "scripts/backup-databases.sh"
+      - "scripts/backup-minio.sh"
+      - "scripts/lib/backup-common.sh"
+      - "scripts/lib/erasure-tombstones.sh"
+      - "docker/docker-compose.recovery-drill.yml"
+      - "docker/docker-compose.recovery-drill-isolated.yml"
+      - "services/auth-service/src/main/java/com/parkio/auth/infrastructure/recovery/**"
+      - "services/auth-service/src/main/java/com/parkio/auth/infrastructure/durable/**"
+      - "services/auth-service/src/main/java/com/parkio/auth/application/durable/**"
+      - "services/auth-service/src/main/java/com/parkio/auth/application/ErasureRestoreReplayService.java"
+      - "services/auth-service/src/test/java/com/parkio/auth/infrastructure/durable/RecoveryDrillTool.java"
+      - "services/media-service/src/main/java/com/parkio/media/infrastructure/storage/**"
+      - "services/*/src/main/java/**/AccountErasureHandler.java"
+      - ".github/workflows/recovery-drill.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: recovery-drill-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drill:
+    name: Disposable full-recovery drill (isolated stage 4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail closed on fork PRs needing private MinIO
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "Fork PRs cannot read private ghcr.io/adberilgen35/parkio/{minio,mc} with GITHUB_TOKEN."
+          echo "This is fail-closed, not a skip. Open the change from ADBERILGEN35/parkio."
+          exit 1
+
+      - name: Log in to GHCR for private MinIO pulls
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Run the drill
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew scripts/*.sh scripts/lib/*.sh scripts/lib/*.py
+          rc=0
+          scripts/recovery-drill.sh --confirm-disposable --build --evidence "$RUNNER_TEMP/recovery-drill" || rc=$?
+          if [ -f "$RUNNER_TEMP/recovery-drill/drill-report.json" ]; then
+            {
+              echo "### Recovery drill"
+              echo '```json'
+              jq '{result, facts: {gitSha: .facts.gitSha, runId: .facts.runId, coverage: .facts.coverage}, measured,
+                failed: [.checks[] | select(.result != "PASS")], phases: [.phases[] | {phase, seconds}]}' \
+                "$RUNNER_TEMP/recovery-drill/drill-report.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
+
+      - name: Keep the drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-drill-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/recovery-drill
+          if-no-files-found: warn
+          retention-days: 30

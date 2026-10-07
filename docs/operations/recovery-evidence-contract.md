@@ -572,8 +572,22 @@ use `sequence`.
    - **Tamper evidence.** `ignoredFrontierVersions` (frontier versions that failed
      verification) is written into the trusted-set file and the verdict, and the command
      refuses a file that states another count.
-   - **Next: the restore-script integration** (verify before decrypt in isolated
-     mode), the expose gate and the disposable full-recovery drill (#296).
+   - **Implemented (isolated only, #296): the restore integration, the expose gate and
+     the drill.**
+     - `restore-hosted-beta.sh --erasure-evidence --erasure-trust --recovery-attempt
+       --recovery-dir`, with an isolated ticket only. It verifies the bundle before anything
+       is decrypted: missing, corrupt, gap or frontier-less evidence exits 3 with nothing
+       applied. Trusted evidence writes the trusted-set file and a CLOSED expose gate.
+     - `scripts/recovery-replay.sh` starts the eight participants on the ticket's internal
+       network (restore replay on, no published port) and runs the recovery-replay command
+       once. The media participant maps the backup's bucket onto the ticket's bucket for
+       erasure only (`docs/architecture/erasure-restore-replay-contract.md`).
+     - `scripts/lib/recovery-expose-gate.py open` records OPEN only on a COMPLETE verdict
+       of the same attempt, dataset and set. OPEN starts no service and publishes no port.
+     - `scripts/recovery-drill.sh` (workflow `recovery-drill.yml`, dispatch and pull
+       request paths) runs the whole path on disposable infrastructure and measures it:
+       see `docs/operations/disaster-recovery-runbook.md`, RPO / RTO.
+     - The production path stays refused, and `verifiedCoverage` stays false.
    - **Coverage semantics (owner decision D1, 2026-10-06).** Recovery proceeds only when:
      - the frontier is the highest verified version, gap-free and ACCEPT_ISOLATED;
      - every erasure the restored auth database marks `DURABLY_RECORDED`, whatever the

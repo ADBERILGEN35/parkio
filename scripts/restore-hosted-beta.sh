@@ -14,8 +14,9 @@
 #   --erasure-evidence BUNDLE --erasure-trust TRUST --recovery-attempt UUID --recovery-dir DIR
 # The off-host evidence bundle is verified before anything is decrypted: missing, corrupt or
 # gap evidence exits 3 with nothing applied. On trust it writes DIR/trusted-erasure-set.json for
-# the recovery-replay command and a CLOSED expose gate (scripts/recovery-expose.sh opens it only
-# on a COMPLETE replay verdict). Coverage is reported only as the verified sequence.
+# the recovery-replay command (scripts/recovery-replay.sh) and a CLOSED expose gate, which
+# scripts/lib/recovery-expose-gate.py opens only on a COMPLETE replay verdict. Coverage is reported
+# only as the verified sequence.
 # Production path is BLOCKED before decrypt or apply: a manifest timestamp
 # is not verified coverage. --isolated-fixture plus a destination-bound
 # ticket from restore-isolated-fixture.sh is the only supported synthetic
@@ -62,7 +63,7 @@ while [ "$#" -gt 0 ]; do
     --erasure-trust) ERASURE_TRUST="${2:-}"; shift 2 ;;
     --recovery-attempt) RECOVERY_ATTEMPT="${2:-}"; shift 2 ;;
     --recovery-dir) RECOVERY_DIR="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -379,6 +380,6 @@ echo "Restore completed."
 echo "Applications, publishers, schedulers, Slack and Fluent Bit were not started."
 echo "A successful data restore is not authorization to expose applications."
 if [ "${STAGE4_RECOVERY}" -eq 1 ]; then
-  echo "Expose gate CLOSED in ${RECOVERY_DIR}: run the recovery-replay command (scripts/recovery-replay.sh);"
-  echo "scripts/recovery-expose.sh records OPEN only on its COMPLETE verdict."
+  echo "Expose gate CLOSED in ${RECOVERY_DIR}: run the recovery-replay command (scripts/recovery-replay.sh up, run);"
+  echo "scripts/lib/recovery-expose-gate.py open records OPEN only on its COMPLETE verdict."
 fi
