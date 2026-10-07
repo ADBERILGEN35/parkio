@@ -182,6 +182,46 @@ test('the explicit delivery-failure code is reported as a saved signup (CL-F19)'
   );
 });
 
+// CL-F18: the browser sends the consent flag and the registered consent text version with the signup,
+// and a gateway refusal of the consent is shown as the consent error.
+test('a signup sends consent=true and the registered consent text version (CL-F18)', async ({ page, baseURL }) => {
+  const bodies: Record<string, unknown>[] = [];
+  await page.route('https://api.parkio.dev/api/v1/waitlist**', async (route) => {
+    const cors = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type, accept',
+    };
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 202,
+      headers: { ...cors, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'accepted' }),
+    });
+  });
+  await submitWaitlist(page, baseURL);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({
+    email: 'synthetic-clf19@example.com',
+    consent: true,
+    consentTextVersion: 'waitlist-consent-v1',
+    source: 'parkio.dev-landing',
+  });
+  expect(typeof bodies[0].consentTimestamp).toBe('string');
+});
+
+for (const code of ['WAITLIST_CONSENT_REQUIRED', 'WAITLIST_CONSENT_VERSION_INVALID']) {
+  test(`a ${code} refusal is shown as the consent error (CL-F18)`, async ({ page, baseURL }) => {
+    await mockWaitlistApi(page, 400, JSON.stringify({ code }));
+    await submitWaitlist(page, baseURL);
+    await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute('data-feedback-key', 'waitlist.error.consent');
+  });
+}
+
 for (const lang of ['en', 'tr']) {
   test(`an invalid confirmation link says so without suggesting a retry (${lang}, CL-F19)`, async ({ page }) => {
     await mockWaitlistApi(page, 400, JSON.stringify({ code: 'WAITLIST_TOKEN_INVALID' }));
