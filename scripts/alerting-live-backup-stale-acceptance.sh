@@ -45,6 +45,7 @@ EVIDENCE_DIR="${PARKIO_LIVE_EVIDENCE_DIR:-$PWD/live-backup-stale-acceptance}"
 EVIDENCE="$EVIDENCE_DIR/events.jsonl"
 REAL_FILE="$TEXTFILE_DIR/parkio_backup.prom"
 SYNTHETIC_FILE="$TEXTFILE_DIR/parkio_backup_synthetic_stale.prom"
+ARMED_SCOPE_FILE="$EVIDENCE_DIR/armed-scope"
 MARKER="# parkio-live-backup-stale-acceptance synthetic series; remove with: scripts/alerting-live-backup-stale-acceptance.sh disarm --yes"
 CONFIRM_TOKEN="ALERTING-LIVE-BACKUP-STALE"
 PRODUCTION_SCOPES="invite-production hosted-beta azure-hosted-beta"
@@ -83,14 +84,24 @@ PY
 }
 
 http_get() { curl -fsS --max-time 10 "$@"; }
-prom_result() {  # prom_result EXPR -> JSON result array (or [] on error)
-  http_get "$PROM_URL/api/v1/query" --data-urlencode "query=$1" 2>/dev/null \
-    | "$PYTHON" -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("data",{}).get("result",[])))' 2>/dev/null || echo '[]'
+# A failed or malformed query is reported as "error", never as zero: a zero baseline from a
+# transient error would make the next good poll look like a delivery.
+prom_result() {  # prom_result EXPR -> JSON result array, or the word error
+  local body
+  body="$(http_get "$PROM_URL/api/v1/query" --data-urlencode "query=$1" 2>/dev/null)" || { echo error; return 0; }
+  printf '%s' "$body" | "$PYTHON" -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="success"; print(json.dumps(d.get("data",{}).get("result",[])))' 2>/dev/null || echo error
 }
-prom_sum() {  # prom_sum EXPR -> integer sum of sample values (0 when none)
-  prom_result "$1" | "$PYTHON" -c 'import json,sys; r=json.load(sys.stdin); print(int(sum(float(x["value"][1]) for x in r)))'
+prom_sum() {  # prom_sum EXPR -> integer sum of sample values (0 when none), or error
+  local r; r="$(prom_result "$1")"
+  [ "$r" != error ] || { echo error; return 0; }
+  printf '%s' "$r" | "$PYTHON" -c 'import json,sys; r=json.load(sys.stdin); print(int(sum(float(x["value"][1]) for x in r)))' 2>/dev/null || echo error
 }
-prom_count() { prom_result "$1" | "$PYTHON" -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+prom_count() {  # prom_count EXPR -> number of series, or error
+  local r; r="$(prom_result "$1")"
+  [ "$r" != error ] || { echo error; return 0; }
+  printf '%s' "$r" | "$PYTHON" -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo error
+}
+is_number() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 real_scopes() {
   [ -f "$REAL_FILE" ] || return 0
@@ -134,11 +145,14 @@ read -r -d '' PY_AM_STATE <<'PY' || true
 import json, sys
 alerts = json.loads(sys.argv[1])
 items = []
+details = []
 for a in alerts:
     state = (a.get("status") or {}).get("state", "?")
     receivers = "/".join(r.get("name", "?") for r in a.get("receivers", []))
     items.append(state + ":" + receivers)
+    details.append("%s@%s..%s" % (a.get("fingerprint", "?"), a.get("startsAt", "?"), a.get("endsAt", "?")))
 print(",".join(sorted(items)) or "absent")
+print(";".join(sorted(details)) or "-")
 PY
 
 read -r -d '' PY_OTHER_ACTIVE <<'PY' || true
@@ -180,14 +194,15 @@ preflight() {
   if http_get -o /dev/null "$AM_URL/-/ready" 2>/dev/null; then log "ok Alertmanager ready"; else log "FAIL Alertmanager not ready at $AM_URL"; failures=$((failures+1)); fi
   if rule_loaded; then log "ok BackupStale rule loaded"; else log "FAIL BackupStale rule is not loaded in Prometheus"; failures=$((failures+1)); fi
   local scrape_err; scrape_err="$(prom_sum 'node_textfile_scrape_error{job="node-exporter"}')"
-  if [ "$scrape_err" = 0 ]; then log "ok node_textfile_scrape_error is 0"; else log "FAIL node_textfile_scrape_error is $scrape_err"; failures=$((failures+1)); fi
+  if [ "$scrape_err" = 0 ]; then log "ok node_textfile_scrape_error is 0"; elif [ "$scrape_err" = error ]; then log "FAIL could not read node_textfile_scrape_error from Prometheus"; failures=$((failures+1)); else log "FAIL node_textfile_scrape_error is $scrape_err"; failures=$((failures+1)); fi
   local active; active="$(prom_count 'ALERTS{alertname=~"Backup.*"}')"
-  if [ "$active" = 0 ]; then log "ok no Backup* alert pending or firing"; else log "FAIL $active Backup* alert series active; the acceptance needs a quiet baseline"; failures=$((failures+1)); fi
+  if [ "$active" = 0 ]; then log "ok no Backup* alert pending or firing"; elif [ "$active" = error ]; then log "FAIL could not read the active Backup* alerts from Prometheus"; failures=$((failures+1)); else log "FAIL $active Backup* alert series active; the acceptance needs a quiet baseline"; failures=$((failures+1)); fi
   local recv; recv="$(receiver_summary)"; log "alertmanager: $recv"
   case "$recv" in *slack_blocks=0*webhook_blocks=0*|receivers=unknown) log "FAIL no operator receiver rendered (null config?)"; failures=$((failures+1)) ;; esac
   local sent failed
   sent="$(prom_sum 'alertmanager_notifications_total{integration=~"slack|webhook"}')"
   failed="$(prom_sum 'alertmanager_notifications_failed_total{integration=~"slack|webhook"}')"
+  if ! is_number "$sent" || ! is_number "$failed"; then log "FAIL could not read the Alertmanager notification counters from Prometheus"; failures=$((failures+1)); fi
   log "baseline counters: notifications_total=$sent notifications_failed_total=$failed"
   evidence preflight "host=$(hostname)" "textfile_dir=$TEXTFILE_DIR" "real_scopes=${real:-none}" "synthetic_scope=$scope" "receivers=$recv" "notifications_total=$sent" "notifications_failed_total=$failed" "failures=$failures"
   if [ "$failures" -ne 0 ]; then log "PREFLIGHT: FAIL ($failures)"; return 1; fi
@@ -227,16 +242,29 @@ arm() {
   preflight
   local scope; scope="$(choose_scope)"
   local stale; stale="$(write_synthetic "$scope")"
+  mkdir -p "$EVIDENCE_DIR"; printf '%s\n' "$scope" > "$ARMED_SCOPE_FILE"
   log "ARMED: $SYNTHETIC_FILE scope=$scope stale_timestamp=$stale (BackupStale needs > 90000 s of staleness, held 1h)"
   evidence arm "synthetic_scope=$scope" "stale_timestamp=$stale" "file=$SYNTHETIC_FILE"
   log "next: $0 observe --until firing   (about 61 to 65 minutes), then record the Slack message, then: $0 disarm --yes"
 }
 
 poll_once() {  # poll_once SCOPE -> prints one summary line, appends evidence, sets globals
-  local scope="$1" body
-  P_STATE="$(prom_result "ALERTS{alertname=\"BackupStale\",scope=\"$scope\"}" | "$PYTHON" -c 'import json,sys; r=json.load(sys.stdin); print(",".join(sorted(x["metric"].get("alertstate","?") for x in r)) or "inactive")')"
+  local scope="$1" body r
+  r="$(prom_result "ALERTS{alertname=\"BackupStale\",scope=\"$scope\"}")"
+  if [ "$r" = error ]; then
+    P_STATE=error
+  else
+    P_STATE="$(printf '%s' "$r" | "$PYTHON" -c 'import json,sys; r=json.load(sys.stdin); print(",".join(sorted(x["metric"].get("alertstate","?") for x in r)) or "inactive")' 2>/dev/null || echo error)"
+  fi
+  AM_DETAIL="-"
   if body="$(http_get "$AM_URL/api/v2/alerts?filter=alertname%3D%22BackupStale%22&filter=scope%3D%22$scope%22" 2>/dev/null)"; then
-    AM_STATE="$("$PYTHON" -c "$PY_AM_STATE" "$body" 2>/dev/null || echo unknown)"
+    local parsed
+    if parsed="$("$PYTHON" -c "$PY_AM_STATE" "$body" 2>/dev/null)"; then
+      AM_STATE="$(printf '%s\n' "$parsed" | sed -n '1p')"
+      AM_DETAIL="$(printf '%s\n' "$parsed" | sed -n '2p')"
+    else
+      AM_STATE=unknown
+    fi
   else
     AM_STATE=unknown
   fi
@@ -247,26 +275,43 @@ poll_once() {  # poll_once SCOPE -> prints one summary line, appends evidence, s
   fi
   SENT="$(prom_sum 'alertmanager_notifications_total{integration=~"slack|webhook"}')"
   FAILED="$(prom_sum 'alertmanager_notifications_failed_total{integration=~"slack|webhook"}')"
-  log "prometheus=$P_STATE alertmanager=$AM_STATE other_active=$OTHER_ACTIVE notifications_total=$SENT notifications_failed_total=$FAILED"
-  evidence poll "synthetic_scope=$scope" "prometheus=$P_STATE" "alertmanager=$AM_STATE" "other_active=$OTHER_ACTIVE" "notifications_total=$SENT" "notifications_failed_total=$FAILED"
+  POLL_OK=1
+  if [ "$P_STATE" = error ] || [ "$AM_STATE" = unknown ] || ! is_number "$SENT" || ! is_number "$FAILED"; then POLL_OK=0; fi
+  log "prometheus=$P_STATE alertmanager=$AM_STATE alert=$AM_DETAIL other_active=$OTHER_ACTIVE notifications_total=$SENT notifications_failed_total=$FAILED"
+  evidence poll "synthetic_scope=$scope" "prometheus=$P_STATE" "alertmanager=$AM_STATE" "alertmanager_alert=$AM_DETAIL" "other_active=$OTHER_ACTIVE" "notifications_total=$SENT" "notifications_failed_total=$FAILED" "poll_ok=$POLL_OK"
+}
+
+armed_scope() {  # the scope recorded at arm time, else the synthetic file's label, else the free scope
+  if [ -s "$ARMED_SCOPE_FILE" ]; then head -n 1 "$ARMED_SCOPE_FILE"; return 0; fi
+  if [ -f "$SYNTHETIC_FILE" ]; then grep -ohE 'scope="[^"]+"' "$SYNTHETIC_FILE" | head -n 1 | cut -d'"' -f2; return 0; fi
+  choose_scope
 }
 
 observe() {
-  local scope
-  if [ -f "$SYNTHETIC_FILE" ]; then scope="$(grep -ohE 'scope="[^"]+"' "$SYNTHETIC_FILE" | head -n 1 | cut -d'"' -f2)"; else scope="$(choose_scope)"; fi
+  local scope; scope="$(armed_scope)"
   case "$UNTIL" in firing|resolved) ;; *) echo "ERROR: --until must be firing or resolved" >&2; exit 2 ;; esac
   [ -n "$TIMEOUT" ] || { if [ "$UNTIL" = firing ]; then TIMEOUT=5400; else TIMEOUT=1500; fi; }
   local start; start="$(date +%s)"
   poll_once "$scope"
+  if [ "$POLL_OK" -ne 1 ]; then
+    log "FAIL the first poll could not read Prometheus or Alertmanager; no baseline, not observing"
+    evidence milestone "name=baseline_unreadable" "until=$UNTIL"
+    return 1
+  fi
   local base_sent="$SENT" base_failed="$FAILED"
   log "observe --until $UNTIL (timeout ${TIMEOUT}s, interval ${INTERVAL}s, baseline notifications_total=$base_sent)"
   while true; do
     sleep "$INTERVAL"
     poll_once "$scope"
+    if [ "$POLL_OK" -ne 1 ]; then
+      log "WARN poll could not read Prometheus or Alertmanager; nothing concluded from it"
+      if [ $(( $(date +%s) - start )) -ge "$TIMEOUT" ]; then log "TIMEOUT after ${TIMEOUT}s waiting for $UNTIL"; evidence milestone "name=timeout" "until=$UNTIL"; return 1; fi
+      continue
+    fi
     if [ "$FAILED" -gt "$base_failed" ]; then log "WARN notifications_failed_total rose from $base_failed to $FAILED: the receiver refused a delivery (AlertmanagerNotificationsFailing fires at two)"; fi
     if [ "$UNTIL" = firing ] && [ "$P_STATE" = firing ] && [ "$AM_STATE" != absent ] && [ "$AM_STATE" != unknown ] && [ "$SENT" -gt "$base_sent" ]; then
-      log "FIRING DELIVERED: BackupStale{scope=$scope} firing in Prometheus, held by Alertmanager, notifications_total $base_sent -> $SENT (other active alerts in the window: $OTHER_ACTIVE)"
-      evidence milestone "name=firing_delivered" "synthetic_scope=$scope" "notifications_total_before=$base_sent" "notifications_total_after=$SENT" "other_active=$OTHER_ACTIVE"
+      log "FIRING DELIVERED: BackupStale{scope=$scope} firing in Prometheus, held by Alertmanager ($AM_DETAIL), notifications_total $base_sent -> $SENT (other active alerts in the window: $OTHER_ACTIVE)"
+      evidence milestone "name=firing_delivered" "synthetic_scope=$scope" "alertmanager_alert=$AM_DETAIL" "notifications_total_before=$base_sent" "notifications_total_after=$SENT" "other_active=$OTHER_ACTIVE"
       log "now record the Slack message timestamp, then run: $0 disarm --yes && $0 observe --until resolved"
       return 0
     fi
@@ -285,7 +330,7 @@ observe() {
 
 disarm() {
   require_confirmation
-  if [ ! -f "$SYNTHETIC_FILE" ]; then log "nothing to disarm: $SYNTHETIC_FILE is absent"; evidence disarm "result=absent"; return 0; fi
+  if [ ! -f "$SYNTHETIC_FILE" ]; then log "nothing to disarm: $SYNTHETIC_FILE is absent (the armed scope record, if any, is kept for observe --until resolved)"; evidence disarm "result=absent"; return 0; fi
   if ! grep -qF "$MARKER" "$SYNTHETIC_FILE"; then
     echo "REFUSED: $SYNTHETIC_FILE does not carry this tool's marker; not removing a file this tool did not write" >&2; exit 3
   fi
@@ -296,7 +341,8 @@ disarm() {
 
 status() {
   local scope
-  if [ -f "$SYNTHETIC_FILE" ]; then scope="$(grep -ohE 'scope="[^"]+"' "$SYNTHETIC_FILE" | head -n 1 | cut -d'"' -f2)"; log "synthetic file present (scope $scope)"; else scope="$(choose_scope 2>/dev/null || echo '-')"; log "synthetic file absent"; fi
+  scope="$(armed_scope 2>/dev/null || echo '-')"
+  if [ -f "$SYNTHETIC_FILE" ]; then log "synthetic file present (scope $scope)"; else log "synthetic file absent (scope $scope)"; fi
   [ "$scope" != "-" ] && poll_once "$scope" || true
 }
 

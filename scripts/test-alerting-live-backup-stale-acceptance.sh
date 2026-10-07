@@ -29,12 +29,19 @@ case "$url" in
   */-/ready) [ "${FAKE_READY:-1}" = 1 ] || exit 22; if [ -n "$out" ]; then echo OK > "$out"; else echo OK; fi; exit 0 ;;
   */api/v1/rules*) echo '{"status":"success","data":{"groups":[{"name":"parkio-critical","rules":[{"name":"BackupFailed"},{"name":"'"${FAKE_RULE:-BackupStale}"'"}]}]}}' ;;
   */api/v1/query)
+    [ "${FAKE_QUERY_ERROR:-0}" = 1 ] && exit 22
     case "$query" in
       *node_textfile_scrape_error*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_SCRAPE_ERR:-0}"'"]}]}}' ;;
       *'ALERTS{alertname=~"Backup.*"}'*) if [ "${FAKE_BACKUP_ACTIVE:-0}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{"alertname":"BackupStale","alertstate":"pending"},"value":[0,"1"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *'ALERTS{alertname="BackupStale"'*) echo '{"status":"success","data":{"result":'"${FAKE_PROM_ALERTS:-[]}"'}}' ;;
       *notifications_failed_total*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_FAILED:-0}"'"]}]}}' ;;
-      *notifications_total*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_SENT:-7}"'"]}]}}' ;;
+      *notifications_total*)
+        val="${FAKE_SENT:-7}"
+        if [ -n "${FAKE_SENT_SEQ:-}" ]; then
+          n=$(cat "${FAKE_CALLS_FILE:?}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$FAKE_CALLS_FILE"
+          val=$(printf '%s' "$FAKE_SENT_SEQ" | tr ',' '\n' | sed -n "${n}p"); [ -n "$val" ] || val=$(printf '%s' "$FAKE_SENT_SEQ" | tr ',' '\n' | tail -n 1)
+        fi
+        echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"$val"'"]}]}}' ;;
       *) echo '{"status":"success","data":{"result":[]}}' ;;
     esac ;;
   */api/v2/status) printf '{"config":{"original":"global:\\n  resolve_timeout: 5m\\nroute:\\n  receiver: \\"warning\\"\\n  group_wait: 30s\\n  group_interval: 5m\\nreceivers:\\n  - name: \\"critical\\"\\n    slack_configs:\\n      - api_url: %s\\n        channel: %s\\n  - name: \\"warning\\"\\n    slack_configs:\\n      - api_url: %s\\n        channel: %s\\n"}}\n' "'https://hooks.slack.com/services/FAKE/NOT/ASECRET'" "'#parkio-alert'" "'https://hooks.slack.com/services/FAKE/NOT/ASECRET'" "'#parkio-alert'" ;;
@@ -85,6 +92,28 @@ AM='[{"status":{"state":"active"},"receivers":[{"name":"critical"}],"labels":{"a
 if run FAKE_PROM_ALERTS="$FIRING" FAKE_AM_ALERTS="$AM" FAKE_SENT=9 -- status; then grep -q 'prometheus=firing alertmanager=active:critical' "$TMP/out" && ok "status reports Prometheus and Alertmanager state" || { bad "status output"; cat "$TMP/out"; }; else bad "status failed"; cat "$TMP/out"; fi
 if run FAKE_PROM_ALERTS="$FIRING" FAKE_AM_ALERTS="$AM" FAKE_SENT=9 -- observe --until firing --timeout 3 --interval 1; then bad "observe declared delivery with no counter increase"; else grep -q 'TIMEOUT' "$TMP/out" && ok "observe does not count a firing alert as delivered without a notification increase" || bad "observe timeout output"; fi
 if run FAKE_PROM_ALERTS="$FIRING" FAKE_AM_ALERTS="$AM" -- observe --until bogus; then bad "bad --until accepted"; else ok "observe refuses an unknown --until"; fi
+
+AMD='[{"status":{"state":"active"},"receivers":[{"name":"critical"}],"labels":{"alertname":"BackupStale","scope":"invite-production"},"fingerprint":"abc123def456","startsAt":"2026-10-07T18:00:00.000Z","endsAt":"2026-10-07T19:05:00.000Z"}]'
+: > "$TMP/calls"
+if run FAKE_PROM_ALERTS="$FIRING" FAKE_AM_ALERTS="$AMD" FAKE_SENT_SEQ="7,9" FAKE_CALLS_FILE="$TMP/calls" -- observe --until firing --timeout 30 --interval 1; then
+  if grep -q 'FIRING DELIVERED' "$TMP/out" && grep -q 'abc123def456@2026-10-07T18:00:00.000Z..2026-10-07T19:05:00.000Z' "$TMP/out" && grep -q '"name":"firing_delivered"' "$TMP/evidence/events.jsonl" && grep -q '"alertmanager_alert":"abc123def456@' "$TMP/evidence/events.jsonl"; then ok "observe --until firing: a counter increase while firing and held is the delivery, with the alert fingerprint and times recorded"; else bad "observe firing output"; cat "$TMP/out"; fi
+else bad "observe --until firing did not conclude"; cat "$TMP/out"; fi
+: > "$TMP/calls"
+if run FAKE_PROM_ALERTS='[]' FAKE_AM_ALERTS='[]' FAKE_SENT_SEQ="9,10" FAKE_CALLS_FILE="$TMP/calls" -- observe --until resolved --timeout 30 --interval 1; then
+  grep -q 'RESOLVED DELIVERED' "$TMP/out" && ok "observe --until resolved: inactive, absent and a counter increase is the resolved delivery" || { bad "observe resolved output"; cat "$TMP/out"; }
+else bad "observe --until resolved did not conclude"; cat "$TMP/out"; fi
+if run FAKE_QUERY_ERROR=1 FAKE_PROM_ALERTS="$FIRING" FAKE_AM_ALERTS="$AMD" -- observe --until firing --timeout 5 --interval 1; then bad "observe started from an unreadable baseline"; else
+  grep -q 'no baseline, not observing' "$TMP/out" && grep -q '"name":"baseline_unreadable"' "$TMP/evidence/events.jsonl" && ok "observe refuses to start when the first poll cannot read Prometheus" || { bad "observe baseline refusal"; cat "$TMP/out"; }
+fi
+if run FAKE_QUERY_ERROR=1 -- preflight; then bad "preflight passed with query errors"; else grep -q 'could not read' "$TMP/out" && ok "preflight fails when Prometheus queries fail instead of reading zeros" || { bad "preflight query-error message"; cat "$TMP/out"; }; fi
+if run FAKE_READY=0 -- preflight; then bad "preflight passed with services not ready"; else grep -q 'FAIL Prometheus not ready' "$TMP/out" && ok "preflight refuses when Prometheus is not ready" || bad "readiness message"; fi
+rm -f "$TMP/textfile/parkio_backup_synthetic_stale.prom" "$TMP/evidence/armed-scope"
+if run PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE PARKIO_LIVE_SYNTHETIC_SCOPE=hosted-beta -- arm --yes; then
+  [ "$(cat "$TMP/evidence/armed-scope")" = hosted-beta ] && ok "arm records the armed scope in the evidence directory" || bad "armed-scope record"
+  rm -f "$TMP/textfile/parkio_backup_synthetic_stale.prom"
+  if run -- status; then grep -q 'synthetic file absent (scope hosted-beta)' "$TMP/out" && ok "status and observe keep the armed scope after the file is gone" || { bad "status scope after disarm"; cat "$TMP/out"; }; else bad "status failed"; fi
+else bad "arm with a forced free scope failed"; cat "$TMP/out"; fi
+rm -f "$TMP/evidence/armed-scope"
 
 echo "not mine" > "$TMP/textfile/parkio_backup_synthetic_stale.prom"
 if run PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE -- disarm --yes; then bad "disarm removed a file without the marker"; else grep -q 'does not carry this tool' "$TMP/out" && [ -f "$TMP/textfile/parkio_backup_synthetic_stale.prom" ] && ok "disarm refuses a file it did not write" || bad "disarm marker refusal"; fi

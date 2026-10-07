@@ -54,26 +54,36 @@ node-exporter accepts the second file: on `prom/node-exporter:v1.8.2` with both 
 `node_textfile_scrape_error` before arming and refuses if any `Backup*` alert is already pending
 or firing.
 
-The synthetic alert's Slack message names scope `invite-production`. The run is announced in
-`#parkio-alert` beforehand so nobody treats it as a real stale backup.
+The Slack message does **not** show the scope: the rendered template prints the summary
+("Hosted-beta backup is stale"), the environment, the runbook link and the alert name, so the
+synthetic FIRING and RESOLVED messages look exactly like a real `BackupStale`. The announcement in
+`#parkio-alert` before arming and after disarming is the only disambiguation; it is a required step,
+not a courtesy.
 
 ## Procedure (operator, on the host, under authorization)
 
 All commands run as the deploying user on `parkio-civo-prod`, from `/opt/parkio`, with
-`PARKIO_PROMETHEUS_TEXTFILE_DIR=/opt/parkio/docker/prometheus/textfile`. Prometheus and
-Alertmanager are read on loopback (`127.0.0.1:9090`, `127.0.0.1:9093`), so the operator either
-runs the script on the host or through the SSH tunnel with `PARKIO_LIVE_PROM_URL` /
-`PARKIO_LIVE_AM_URL`. The script never prints a webhook URL and never reads `docker/.env`.
+`PARKIO_PROMETHEUS_TEXTFILE_DIR=/opt/parkio/docker/prometheus/textfile` and
+`PARKIO_LIVE_EVIDENCE_DIR` pointing outside the checkout (for example
+`~/acceptance/<date>-backup-stale`). The user must be able to create a file in the textfile
+directory (`arm` fails closed at `mktemp` otherwise; the directory is the host bind the inventory
+recorded, owned by the deploying user). Prometheus and Alertmanager are read on loopback
+(`127.0.0.1:9090`, `127.0.0.1:9093`, the hosted-beta overlay's published ports), so the operator
+either runs the script on the host or through the SSH tunnel with `PARKIO_LIVE_PROM_URL` /
+`PARKIO_LIVE_AM_URL`; the preflight fails closed if either is unreachable. The script never prints
+a webhook URL and never reads `docker/.env`. A poll that cannot read Prometheus or Alertmanager is
+recorded as `poll_ok=0` and concludes nothing; a first poll that cannot read them refuses to start
+observing, so a transient error can never become a false baseline.
 
 1. **Announce** in `#parkio-alert`: synthetic `BackupStale` for scope `invite-production` for about 90 minutes; FIRING and RESOLVED messages are expected; the real backup is not affected.
 2. **Preflight** (read-only): `scripts/alerting-live-backup-stale-acceptance.sh preflight`. It records host, real scope, synthetic scope, readiness of both services, the loaded rule, `node_textfile_scrape_error`, the absence of active `Backup*` alerts, the receiver type and channel, and the notification counters as the baseline (`live-backup-stale-acceptance/events.jsonl`, type `preflight`). Stop on any `FAIL`.
 3. **Arm**: `PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE scripts/alerting-live-backup-stale-acceptance.sh arm --yes`. Records the arm time and the stale timestamp.
-4. **Observe to firing**: `scripts/alerting-live-backup-stale-acceptance.sh observe --until firing`. One JSON line every 30 s with the Prometheus state (`pending` after the first scrape, `firing` after the 1 h hold), the Alertmanager state and receiver, the other active alerts, and both notification counters. It stops when the alert is firing, held by Alertmanager, and `alertmanager_notifications_total` has increased since the baseline: that increase, within 15 s of the firing (`group_wait`), is the delivery. Expect about 61 to 66 minutes.
+4. **Observe to firing**: `scripts/alerting-live-backup-stale-acceptance.sh observe --until firing`. One JSON line every 30 s with the Prometheus state (`pending` after the first scrape, `firing` after the 1 h hold), the Alertmanager state, receiver, fingerprint and `startsAt`/`endsAt`, the other active alerts, and both notification counters. It stops when the alert is firing, held by Alertmanager, and `alertmanager_notifications_total` has increased since the baseline: that increase, within 15 s of the firing (`group_wait`), is the delivery. Expect about 61 to 66 minutes.
 5. **Record the Slack FIRING message**: time from the Slack client (screenshot without the webhook, and the message timestamp or permalink); if a Slack read credential is available to the session, read the `#parkio-alert` message timestamp with it and store it beside the evidence. Note any other alert that fired during the window (the script lists them as `other_active`), because each one also increments the counter.
 6. **Disarm**: `PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE scripts/alerting-live-backup-stale-acceptance.sh disarm --yes`. The file is removed; the series disappear at the next scrape; the alert turns inactive in Prometheus and Alertmanager sends RESOLVED at its next group flush (within `group_interval`, 5 min, plus `resolve_timeout`).
-7. **Observe to resolved**: `scripts/alerting-live-backup-stale-acceptance.sh observe --until resolved`. Stops when the alert is inactive in Prometheus, gone from Alertmanager, and the counter increased again. Record the Slack RESOLVED message as in step 5.
-8. **No duplicate**: over the whole window the counter must increase by exactly two for this alert group (FIRING once, RESOLVED once) once other alerts seen in `other_active` are accounted for. `repeat_interval` for critical is 1 h; disarming within an hour of the firing guarantees there is no repeat. If the window is extended past one hour, one repeat is expected and is not a duplicate.
-9. **Evidence**: `events.jsonl` (preflight, arm, polls, milestones, disarm), the Slack timestamps, the Alertmanager alert's `startsAt`/`endsAt` as logged, and the two SHA-256 manifests go into `agent-tools/parkio-u06-live-backup-stale-acceptance/`. Record the running image digests of Prometheus, Alertmanager and node-exporter (`docker inspect --format '{{.Image}}'`) with the date.
+7. **Observe to resolved**: `scripts/alerting-live-backup-stale-acceptance.sh observe --until resolved`. The tool reads the scope it armed from `armed-scope` in the evidence directory, so the file's removal does not change what it watches. Stops when the alert is inactive in Prometheus, gone from Alertmanager, and the counter increased again. Record the Slack RESOLVED message as in step 5.
+8. **No duplicate**: over the whole window the counter must increase by exactly two for this alert group (FIRING once, RESOLVED once) once other alerts seen in `other_active` are accounted for. Two caveats: the critical route groups by `alertname`, `service`, `severity` and `component`, not by `scope`, so a real `BackupStale` on the real scope in the same window would join the same group (the preflight refuses to arm while any `Backup*` alert is active); and `other_active` lists only alerts that are active at poll time, so a RESOLVED notification of another alert in the window also increments the counter without appearing there. Read `events.jsonl` with both in mind. `repeat_interval` for critical is 1 h; disarming within an hour of the firing guarantees there is no repeat. If the window is extended past one hour, one repeat is expected and is not a duplicate.
+9. **Evidence**: `events.jsonl` (preflight, arm, polls with the Alertmanager alert's fingerprint, `startsAt` and `endsAt` in the `alertmanager_alert` field, milestones, disarm), the Slack timestamps, and the SHA-256 manifest go into `agent-tools/parkio-u06-live-backup-stale-acceptance/`. The fingerprint is the alert ID the task asks for. Record the running image digests of Prometheus, Alertmanager and node-exporter (`docker inspect --format '{{.Image}}'`) with the date.
 
 Timing: the whole run takes about 90 minutes; the only live change is one extra file in the
 textfile directory. Do not run it between 03:00 and 04:00 UTC (backup window): not because of
@@ -90,7 +100,8 @@ itself only reaches the Prometheus and Alertmanager UIs (it travels the broken p
 - **A (recommended):** accept the isolated proof plus a live read-only check that the two
   delivery-failure rules are loaded and healthy on the host (`/api/v1/rules`), and rely on the
   heartbeat / dead-man's switch (`alerting.md#heartbeat`) as the independent path once the
-  owner picks the external monitor. No live outage window.
+  owner picks the external monitor (the heartbeat lands with #300; its `alerting.md#heartbeat`
+  section exists once that merges). No live outage window.
 - **B:** a scheduled live break: set `PARKIO_ALERT_SLACK_WEBHOOK_URL` to an unroutable
   `https://127.0.0.1:9/` in the host env, recreate Alertmanager, arm the synthetic alert as
   above, watch `alertmanager_notifications_failed_total{integration="slack"}` reach 2 and
