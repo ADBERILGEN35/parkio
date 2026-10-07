@@ -46,7 +46,7 @@ import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 /**
- * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V5,
+ * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V6,
  * Spring Boot's auto-configured JDBC transaction manager) of the confirmation /
  * ops-outbox coupling. H2 cannot prove savepoint recovery: PostgreSQL aborts the
  * whole transaction on any error unless it is rolled back to a savepoint.
@@ -139,12 +139,12 @@ class WaitlistOpsNotificationPostgresIT {
     }
 
     @Test
-    void runsOnRealPostgresWithFlywayV5AndJdbcTransactionManager() {
+    void runsOnRealPostgresWithFlywayV6AndJdbcTransactionManager() {
         String version = jdbcTemplate.queryForObject("SHOW server_version", String.class);
         assertThat(version).startsWith("16.");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("5");
+                String.class)).isEqualTo("6");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(transactionManager).isInstanceOf(JdbcTransactionManager.class);
@@ -181,6 +181,8 @@ class WaitlistOpsNotificationPostgresIT {
         service.submit(new SubmitWaitlistCommand(
                 "pg.named@example.test",
                 Instant.now(),
+                true,
+                "waitlist-consent-v1",
                 "Ayşe Yılmaz",
                 null,
                 null,
@@ -343,7 +345,8 @@ class WaitlistOpsNotificationPostgresIT {
     private String submit(String email) {
         token.set(null);
         service.submit(new SubmitWaitlistCommand(
-                email, Instant.now(), null, null, null, "parkio.dev-landing", "tr", "198.51.100.40", null)).block();
+                email, Instant.now(), true, "waitlist-consent-v1", null, null, null, "parkio.dev-landing", "tr",
+                "198.51.100.40", null)).block();
         assertThat(token.get()).isNotNull();
         return token.get();
     }

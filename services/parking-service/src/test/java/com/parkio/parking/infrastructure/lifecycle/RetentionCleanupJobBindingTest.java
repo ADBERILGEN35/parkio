@@ -20,8 +20,8 @@ class RetentionCleanupJobBindingTest {
     void bindsBothTimestamptzCutoffsAsJdbcTimestamps() {
         CapturingJdbcTemplate jdbc = new CapturingJdbcTemplate();
         RetentionCleanupJob job = new RetentionCleanupJob(
-                jdbc, Clock.fixed(NOW, ZoneOffset.UTC), true, true,
-                Duration.ofDays(7), Duration.ofDays(30), 37);
+                jdbc, Clock.fixed(NOW, ZoneOffset.UTC), true, true, false,
+                Duration.ofDays(7), Duration.ofDays(30), Duration.ofDays(30), 37);
 
         job.cleanup();
 
@@ -31,6 +31,24 @@ class RetentionCleanupJobBindingTest {
                 .containsExactly(Timestamp.from(NOW.minus(Duration.ofDays(7))), 37);
         assertThat(jdbc.invocations.get(1).sql()).contains("processed_at < ?");
         assertThat(jdbc.invocations.get(1).arguments())
+                .containsExactly(Timestamp.from(NOW.minus(Duration.ofDays(30))), 37);
+    }
+
+    @Test
+    void bindsTheLocationLogCutoffsWhenLocationLogCleanupIsEnabled() {
+        CapturingJdbcTemplate jdbc = new CapturingJdbcTemplate();
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, Clock.fixed(NOW, ZoneOffset.UTC), true, true, true,
+                Duration.ofDays(7), Duration.ofDays(30), Duration.ofDays(30), 37);
+
+        job.cleanup();
+
+        assertThat(jdbc.invocations).hasSize(4);
+        assertThat(jdbc.invocations.get(2).sql()).contains("DELETE FROM parking_spot_search_logs", "created_at < ?");
+        assertThat(jdbc.invocations.get(2).arguments())
+                .containsExactly(Timestamp.from(NOW.minus(Duration.ofDays(30))), 37);
+        assertThat(jdbc.invocations.get(3).sql()).contains("DELETE FROM parking_spot_view_logs", "created_at < ?");
+        assertThat(jdbc.invocations.get(3).arguments())
                 .containsExactly(Timestamp.from(NOW.minus(Duration.ofDays(30))), 37);
     }
 

@@ -26,6 +26,8 @@ class RetentionCleanupJobTest {
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("DROP TABLE IF EXISTS outbox_events");
         jdbc.execute("DROP TABLE IF EXISTS inbox_events");
+        jdbc.execute("DROP TABLE IF EXISTS parking_spot_search_logs");
+        jdbc.execute("DROP TABLE IF EXISTS parking_spot_view_logs");
         jdbc.execute("""
                 CREATE TABLE outbox_events (
                     id UUID PRIMARY KEY,
@@ -38,6 +40,25 @@ class RetentionCleanupJobTest {
                 CREATE TABLE inbox_events (
                     id UUID PRIMARY KEY,
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE parking_spot_search_logs (
+                    id UUID PRIMARY KEY,
+                    searcher_user_id UUID NOT NULL,
+                    latitude DOUBLE PRECISION NOT NULL,
+                    longitude DOUBLE PRECISION NOT NULL,
+                    radius_meters DOUBLE PRECISION NOT NULL,
+                    result_count INTEGER NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE parking_spot_view_logs (
+                    id UUID PRIMARY KEY,
+                    spot_id UUID NOT NULL,
+                    viewer_user_id UUID NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL
                 )
                 """);
     }
@@ -62,7 +83,8 @@ class RetentionCleanupJobTest {
         UUID secondOldest = insertOutbox(true, NOW.minus(Duration.ofDays(9)));
         UUID recent = insertOutbox(true, NOW.minus(Duration.ofDays(6)));
         RetentionCleanupJob job = new RetentionCleanupJob(
-                jdbc, fixedClock(), true, true, Duration.ofDays(7), Duration.ofDays(30), 1);
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 1);
 
         assertThat(job.cleanupOutbox()).isEqualTo(1);
         assertThat(ids("outbox_events")).containsExactlyInAnyOrder(secondOldest, recent);
@@ -85,7 +107,8 @@ class RetentionCleanupJobTest {
         UUID secondOldest = insertInbox(NOW.minus(Duration.ofDays(31)));
         UUID recent = insertInbox(NOW.minus(Duration.ofDays(29)));
         RetentionCleanupJob job = new RetentionCleanupJob(
-                jdbc, fixedClock(), true, true, Duration.ofDays(7), Duration.ofDays(30), 1);
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 1);
 
         assertThat(job.cleanupInbox()).isEqualTo(1);
         assertThat(ids("inbox_events")).containsExactlyInAnyOrder(secondOldest, recent);
@@ -96,18 +119,108 @@ class RetentionCleanupJobTest {
     void disabledCleanupDoesNotDeleteRows() {
         UUID oldPublished = insertOutbox(true, NOW.minus(Duration.ofDays(8)));
         UUID oldProcessed = insertInbox(NOW.minus(Duration.ofDays(31)));
+        UUID oldSearch = insertSearchLog(NOW.minus(Duration.ofDays(31)));
+        UUID oldView = insertViewLog(NOW.minus(Duration.ofDays(31)));
         RetentionCleanupJob job = new RetentionCleanupJob(
-                jdbc, fixedClock(), false, false, Duration.ofDays(7), Duration.ofDays(30), 100);
+                jdbc, fixedClock(), false, false, false, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 100);
 
         job.cleanup();
 
         assertThat(ids("outbox_events")).containsExactly(oldPublished);
         assertThat(ids("inbox_events")).containsExactly(oldProcessed);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(oldSearch);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(oldView);
+    }
+
+    // CL-F17 / PRIV-002: per-user location logs.
+
+    @Test
+    void locationLogCleanupDeletesOnlyRowsOlderThanTheRetention() {
+        UUID oldSearch = insertSearchLog(NOW.minus(Duration.ofDays(31)));
+        UUID recentSearch = insertSearchLog(NOW.minus(Duration.ofDays(29)));
+        UUID oldView = insertViewLog(NOW.minus(Duration.ofDays(31)));
+        UUID recentView = insertViewLog(NOW.minus(Duration.ofDays(29)));
+        RetentionCleanupJob job = enabledJob();
+
+        assertThat(job.cleanupSearchLogs()).isEqualTo(1);
+        assertThat(job.cleanupViewLogs()).isEqualTo(1);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(recentSearch);
+        assertThat(ids("parking_spot_search_logs")).doesNotContain(oldSearch);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(recentView);
+        assertThat(ids("parking_spot_view_logs")).doesNotContain(oldView);
+    }
+
+    @Test
+    void locationLogCleanupDeletesTheOldestRowsUpToTheBatchLimit() {
+        // Inserted out of chronological order so that a DELETE without ORDER BY created_at
+        // (insertion-order scan) would delete the wrong row first.
+        UUID olderSearch = insertSearchLog(NOW.minus(Duration.ofDays(35)));
+        UUID recentSearch = insertSearchLog(NOW.minus(Duration.ofDays(10)));
+        UUID oldestSearch = insertSearchLog(NOW.minus(Duration.ofDays(40)));
+        UUID olderView = insertViewLog(NOW.minus(Duration.ofDays(35)));
+        UUID oldestView = insertViewLog(NOW.minus(Duration.ofDays(40)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 1);
+
+        assertThat(job.cleanupSearchLogs()).isEqualTo(1);
+        assertThat(ids("parking_spot_search_logs")).containsExactlyInAnyOrder(olderSearch, recentSearch);
+        assertThat(ids("parking_spot_search_logs")).doesNotContain(oldestSearch);
+        assertThat(job.cleanupViewLogs()).isEqualTo(1);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(olderView);
+        assertThat(ids("parking_spot_view_logs")).doesNotContain(oldestView);
+        assertThat(job.cleanupSearchLogs()).isEqualTo(1);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(recentSearch);
+    }
+
+    @Test
+    void locationLogCleanupUsesItsOwnRetentionNotTheInboxOne() {
+        UUID search = insertSearchLog(NOW.minus(Duration.ofDays(20)));
+        UUID view = insertViewLog(NOW.minus(Duration.ofDays(20)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(14), 100);
+
+        job.cleanup();
+
+        assertThat(ids("parking_spot_search_logs")).doesNotContain(search);
+        assertThat(ids("parking_spot_view_logs")).doesNotContain(view);
+    }
+
+    @Test
+    void locationLogCleanupDisabledLeavesOldRowsWhileTransportCleanupRuns() {
+        UUID oldPublished = insertOutbox(true, NOW.minus(Duration.ofDays(8)));
+        UUID oldSearch = insertSearchLog(NOW.minus(Duration.ofDays(400)));
+        UUID oldView = insertViewLog(NOW.minus(Duration.ofDays(400)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, false, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 100);
+
+        job.cleanup();
+
+        assertThat(ids("outbox_events")).doesNotContain(oldPublished);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(oldSearch);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(oldView);
+    }
+
+    @Test
+    void aNonPositiveLocationLogRetentionIsRefusedAtConstruction() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new RetentionCleanupJob(
+                        jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                        Duration.ZERO, 100))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("location-log-retention");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new RetentionCleanupJob(
+                        jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                        Duration.ofDays(-1), 100))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private RetentionCleanupJob enabledJob() {
         return new RetentionCleanupJob(
-                jdbc, fixedClock(), true, true, Duration.ofDays(7), Duration.ofDays(30), 100);
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 100);
     }
 
     private Clock fixedClock() {
@@ -131,6 +244,25 @@ class RetentionCleanupJobTest {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO inbox_events (id, processed_at) VALUES (?, ?)",
                 id, Timestamp.from(processedAt));
+        return id;
+    }
+
+    private UUID insertSearchLog(Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO parking_spot_search_logs
+                    (id, searcher_user_id, latitude, longitude, radius_meters, result_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, id, UUID.randomUUID(), 38.42, 27.14, 500.0, 3, Timestamp.from(createdAt));
+        return id;
+    }
+
+    private UUID insertViewLog(Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO parking_spot_view_logs (id, spot_id, viewer_user_id, created_at)
+                VALUES (?, ?, ?, ?)
+                """, id, UUID.randomUUID(), UUID.randomUUID(), Timestamp.from(createdAt));
         return id;
     }
 

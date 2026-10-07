@@ -547,6 +547,8 @@ const strictRequests: Array<{ name: string; schema: ZodTypeAny; payload: Record<
     payload: {
       email: 'driver@parkio.dev',
       consentTimestamp: instant,
+      consent: true,
+      consentTextVersion: 'waitlist-consent-v1',
       city: 'Istanbul',
       role: 'driver',
       source: 'parkio.dev-landing',

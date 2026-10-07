@@ -22,6 +22,8 @@ export const submitWaitlistRequestSchema = z
     fullName: waitlistFullNameSchema.nullable().optional(),
     email: z.string().min(1).email().max(254),
     consentTimestamp: instantSchema,
+    consent: z.boolean().optional(),
+    consentTextVersion: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/).optional(),
     city: z.string().max(120).refine((value) => !coordinatesOnlyPattern.test(value)).nullable().optional(),
     role: z.enum(WAITLIST_ROLE_VALUES).nullable().optional(),
     source: z.literal(WAITLIST_SOURCE_VALUE),

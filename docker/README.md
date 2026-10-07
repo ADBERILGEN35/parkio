@@ -340,6 +340,12 @@ PARKIO_ALERT_WEBHOOK_SECRET=optional-shared-secret
 
 PARKIO_ALERT_REPEAT_CRITICAL=1h
 PARKIO_ALERT_REPEAT_WARNING=4h
+
+# Optional heartbeat to an external dead-man's switch (docs/operations/alerting.md#heartbeat).
+# Only the always-firing Watchdog goes there; the URL is a credential.
+PARKIO_ALERT_HEARTBEAT_URL=https://hc.example.com/ping/<uuid>
+PARKIO_ALERT_HEARTBEAT_SECRET=optional-bearer-token
+PARKIO_ALERT_HEARTBEAT_REPEAT=2m
 ```
 
 `render-config.sh` generates the runtime Alertmanager config inside the container, so the

@@ -34,19 +34,21 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         try {
             jdbcTemplate.update("""
                     INSERT INTO waitlist_interest (
-                        id, email, email_hash, consent_timestamp, client_consent_timestamp, full_name,
+                        id, email, email_hash, consent_timestamp, client_consent_timestamp,
+                        consent_text_version, full_name,
                         city, role, source, locale,
                         status, verification_token_hash, withdraw_token_hash, verification_expires_at,
                         verification_sent_at, resend_count, confirmed_at, withdrawn_at,
                         ip_hash, user_agent_hash, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     interest.id(),
                     interest.email(),
                     interest.emailHash(),
                     Timestamp.from(interest.consentTimestamp()),
                     toTimestamp(interest.clientConsentTimestamp()),
+                    interest.consentTextVersion(),
                     interest.fullName(),
                     interest.city(),
                     interest.role(),
@@ -178,7 +180,8 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                                                        WaitlistExportCursor after, int limit) {
         List<Object> args = new ArrayList<>();
         StringBuilder sql = new StringBuilder("""
-                SELECT id, confirmed_at, email, full_name, city, role, source, created_at, consent_timestamp
+                SELECT id, confirmed_at, email, full_name, city, role, source, created_at, consent_timestamp,
+                       consent_text_version
                 FROM waitlist_interest""");
         appendExportFilter(sql, args, confirmedFrom, confirmedTo);
         if (after != null) {
@@ -199,7 +202,8 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("role"),
                 rs.getString("source"),
                 rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("consent_timestamp").toInstant()), args.toArray());
+                rs.getTimestamp("consent_timestamp").toInstant(),
+                rs.getString("consent_text_version")), args.toArray());
     }
 
     /**
@@ -268,7 +272,8 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         pageArgs.add((long) safePage * safeSize);
         List<WaitlistAdminEntry> content = jdbcTemplate.query(
                 """
-                SELECT id, email, full_name, status, locale, source, created_at, confirmed_at, withdrawn_at
+                SELECT id, email, full_name, status, locale, source, created_at, confirmed_at, withdrawn_at,
+                       consent_timestamp, consent_text_version
                 FROM waitlist_interest
                 """ + where + """
                  ORDER BY created_at DESC, id DESC
@@ -283,7 +288,9 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                         rs.getString("source"),
                         rs.getTimestamp("created_at").toInstant(),
                         toInstant(rs.getTimestamp("confirmed_at")),
-                        toInstant(rs.getTimestamp("withdrawn_at"))),
+                        toInstant(rs.getTimestamp("withdrawn_at")),
+                        rs.getTimestamp("consent_timestamp").toInstant(),
+                        rs.getString("consent_text_version")),
                 pageArgs.toArray());
         return new WaitlistAdminPage(content, safePage, safeSize, totalElements, totalPages);
     }
@@ -326,6 +333,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("email_hash"),
                 rs.getTimestamp("consent_timestamp").toInstant(),
                 toInstant(rs.getTimestamp("client_consent_timestamp")),
+                rs.getString("consent_text_version"),
                 rs.getString("full_name"),
                 rs.getString("city"),
                 rs.getString("role"),

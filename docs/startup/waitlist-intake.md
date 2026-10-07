@@ -17,6 +17,7 @@ tracking users beyond consented beta communication, or creating a general CRM.
 | `email` | yes | Lowercase normalized email. Store as PII; restrict access. |
 | `emailHash` | yes | HMAC-SHA-256 or equivalent keyed hash for duplicate/rate checks without exposing raw email in logs. |
 | `consentTimestamp` | yes | Client-submitted timestamp may be accepted for UX, but server must stamp canonical receipt time. |
+| `consent` / `consentTextVersion` | yes (CL-F18) | `consent` must be `true`; `consentTextVersion` names the registered text shown (`waitlist-consent-v1`), stored as `consent_text_version`. See [waitlist-consent-text-versions.md](../architecture/waitlist-consent-text-versions.md). |
 | `city` | no | Free-text city/general area, trimmed and length-limited. No precise coordinates. |
 | `role` | no | One of `driver`, `tester`, `partner`. |
 | `source` | yes | Example: `parkio.dev-landing`. |
@@ -34,6 +35,8 @@ Request:
 {
   "email": "driver@example.com",
   "consentTimestamp": "2026-07-08T00:00:00.000Z",
+  "consent": true,
+  "consentTextVersion": "waitlist-consent-v1",
   "city": "Izmir",
   "role": "tester",
   "source": "parkio.dev-landing"
@@ -55,6 +58,7 @@ enumeration. Do not return whether an email was already present.
 
 - `email`: required, normalized, max 254 chars.
 - `consentTimestamp`: required ISO-8601 timestamp; server records canonical receipt time.
+- `consent`: required `true` (an explicit `false` is always refused); `consentTextVersion`: required registered id (400 `WAITLIST_CONSENT_REQUIRED` / `WAITLIST_CONSENT_VERSION_INVALID` otherwise). The gateway's `consent-required=false` compatibility mode accepts old clients and records `unversioned-client`.
 - `city`: optional, max 120 chars, no coordinates.
 - `role`: optional enum: `driver`, `tester`, `partner`.
 - `source`: required allow-list value, initially `parkio.dev-landing`.
@@ -69,8 +73,9 @@ enumeration. Do not return whether an email was already present.
 ## Admin Export
 
 Smallest safe path: authenticated admin-only CSV export from the service that owns
-the table, with audit logging and explicit date filters. Export columns should be:
-`email`, `city`, `role`, `source`, `createdAt`, `consentTimestamp`.
+the table, with audit logging and explicit date filters. Export columns are:
+`email`, `fullName`, `city`, `role`, `source`, `createdAt`, `consentTimestamp`, `consentTextVersion`, `confirmedAt`
+(the last two since CL-F18).
 
 Do not expose export to moderators. Do not include IP/user-agent hashes in normal export.
 

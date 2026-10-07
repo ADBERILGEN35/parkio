@@ -11,6 +11,10 @@ export interface SubmitWaitlistRequest {
   fullName?: string | null;
   email: string;
   consentTimestamp: string;
+  /** CL-F18: required by the gateway unless its `consent-required` compatibility flag is off. */
+  consent?: boolean;
+  /** CL-F18: id of the consent text shown, e.g. `waitlist-consent-v1`; only registered ids are accepted. */
+  consentTextVersion?: string;
   city?: string | null;
   role?: WaitlistRoleValue | null;
   source: typeof WAITLIST_SOURCE_VALUE;
@@ -31,6 +35,10 @@ export interface WaitlistAdminEntry {
   createdAt: string;
   confirmedAt: string | null;
   withdrawnAt: string | null;
+  /** CL-F18: gateway receipt time of the consented submission. */
+  consentTimestamp?: string;
+  /** CL-F18: consent text version, or `legacy-unversioned` / `unversioned-client`. */
+  consentTextVersion?: string;
 }
 
 export interface WaitlistAdminCounts {

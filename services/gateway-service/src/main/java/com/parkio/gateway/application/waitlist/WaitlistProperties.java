@@ -28,6 +28,16 @@ public class WaitlistProperties {
      */
     private boolean fullNameRequired = false;
 
+    /**
+     * CL-F18. When true (default), a submission must carry {@code consent=true} and a registered
+     * {@code consentTextVersion}, otherwise it is refused with a waitlist error code. False is a
+     * compatibility mode for the window in which a gateway that records consent versions runs in
+     * front of a marketing site that does not send them yet: such submissions are accepted and
+     * recorded as {@code unversioned-client}. An explicit {@code consent=false} is refused in both
+     * modes.
+     */
+    private boolean consentRequired = true;
+
     @NotBlank
     private String hashSecret;
 
@@ -91,6 +101,14 @@ public class WaitlistProperties {
 
     public void setFullNameRequired(boolean fullNameRequired) {
         this.fullNameRequired = fullNameRequired;
+    }
+
+    public boolean isConsentRequired() {
+        return consentRequired;
+    }
+
+    public void setConsentRequired(boolean consentRequired) {
+        this.consentRequired = consentRequired;
     }
 
     public String getHashSecret() {

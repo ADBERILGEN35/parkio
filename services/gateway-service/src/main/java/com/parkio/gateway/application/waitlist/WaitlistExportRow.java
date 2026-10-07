@@ -5,7 +5,8 @@ import java.util.UUID;
 
 /**
  * One confirmed subscription in the CSV export. {@code id} and {@code confirmedAt} position the
- * export's keyset paging; the CSV columns are the remaining fields.
+ * export's keyset paging; the CSV columns are the remaining fields plus {@code consentTextVersion}
+ * and {@code confirmedAt} (CL-F18).
  */
 public record WaitlistExportRow(
         UUID id,
@@ -16,5 +17,6 @@ public record WaitlistExportRow(
         String role,
         String source,
         Instant createdAt,
-        Instant consentTimestamp) {
+        Instant consentTimestamp,
+        String consentTextVersion) {
 }

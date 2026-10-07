@@ -445,6 +445,10 @@ services:
       PARKIO_ALERT_WEBHOOK_SECRET: ${PARKIO_ALERT_WEBHOOK_SECRET:-}
       PARKIO_ALERT_REPEAT_CRITICAL: ${PARKIO_ALERT_REPEAT_CRITICAL:-1h}
       PARKIO_ALERT_REPEAT_WARNING: ${PARKIO_ALERT_REPEAT_WARNING:-4h}
+      # Heartbeat to an external dead-man's switch (docs/operations/alerting.md#heartbeat). Empty: off.
+      PARKIO_ALERT_HEARTBEAT_URL: ${PARKIO_ALERT_HEARTBEAT_URL:-}
+      PARKIO_ALERT_HEARTBEAT_SECRET: ${PARKIO_ALERT_HEARTBEAT_SECRET:-}
+      PARKIO_ALERT_HEARTBEAT_REPEAT: ${PARKIO_ALERT_HEARTBEAT_REPEAT:-2m}
     entrypoint: ["/bin/sh", "/etc/alertmanager/render-config.sh"]
     ports: ["127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"]
     volumes:

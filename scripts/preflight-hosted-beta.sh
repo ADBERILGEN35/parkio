@@ -329,6 +329,22 @@ else
   fail "PARKIO_ALERT_SLACK_WEBHOOK_URL" "no alert webhook configured — critical alerts would go nowhere" "set the Slack webhook (or PARKIO_ALERT_WEBHOOK_URL), or acknowledge with PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK=1"
 fi
 
+# Heartbeat to an external dead-man's switch (U06). Empty is allowed but visible: a silent
+# Prometheus, Alertmanager or host is then not detected from outside the failure domain.
+HEARTBEAT_URL=$(env_get PARKIO_ALERT_HEARTBEAT_URL)
+if [ "$DEPLOYMENT_PROFILE" = "azure-hosted-beta" ]; then
+  ok
+elif [ -z "$HEARTBEAT_URL" ]; then
+  warn "heartbeat" "PARKIO_ALERT_HEARTBEAT_URL is empty — no external dead-man's switch; a silent Prometheus, Alertmanager or host is not detected (docs/operations/alerting.md#heartbeat)"
+elif is_placeholder "$HEARTBEAT_URL"; then
+  fail "PARKIO_ALERT_HEARTBEAT_URL" "is a placeholder" "paste the real heartbeat ping URL from the external monitor, or clear it"
+else
+  case "$HEARTBEAT_URL" in
+    https://*) ok ;;
+    *) fail "PARKIO_ALERT_HEARTBEAT_URL" "must be HTTPS" "the heartbeat receiver must be an https:// URL" ;;
+  esac
+fi
+
 # --------------------------------------------------------------------------- #
 category "Domains & URLs"
 # --------------------------------------------------------------------------- #

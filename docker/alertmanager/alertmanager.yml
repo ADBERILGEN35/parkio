@@ -8,6 +8,16 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # Heartbeat (U06): never a page. render-config.sh points this route at the heartbeat
+    # receiver when PARKIO_ALERT_HEARTBEAT_URL is set; here, and whenever it is unset, the
+    # always-firing Watchdog ends at "null" and never reaches the operator routes below.
+    - matchers:
+        - alertname="Watchdog"
+      receiver: "null"
+      group_by: ["alertname"]
+      group_wait: 0s
+      group_interval: 30s
+      repeat_interval: 2m
     - matchers:
         - severity="critical"
       receiver: "null"
