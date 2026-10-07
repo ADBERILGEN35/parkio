@@ -3,6 +3,7 @@
 # accepted, after checking every artifact against that run's manifest. It never builds.
 #
 # Three independent gates, all owner-controlled:
+#   0. the run must be a successful workflow_dispatch of candidate-images.yml on api (checked);
 #   1. the `candidate-publication` environment (create it with a required reviewer so every run
 #      waits for an explicit approval; see docs/releases/CANDIDATE-IMAGES.md);
 #   2. the repository variable PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA must equal the source SHA;
@@ -76,8 +77,21 @@ jobs:
       - name: Download the manifest and the candidate images from the accepted run
         run: |
           set -euo pipefail
-          run_sha="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.head_sha + " " + .name + " " + .conclusion')"
-          echo "run: $run_sha"
+          # The run must be a successful workflow_dispatch of candidate-images.yml on api; nothing else may
+          # supply artifacts to this job (a look-alike artifact set from another workflow is refused here).
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > "$RUNNER_TEMP/run.json"
+          python3 - "$RUNNER_TEMP/run.json" <<'PY'
+          import json, sys
+          run = json.load(open(sys.argv[1]))
+          problems = []
+          if run.get("path") != ".github/workflows/candidate-images.yml": problems.append(f"workflow path {run.get('path')}")
+          if run.get("event") != "workflow_dispatch": problems.append(f"event {run.get('event')}")
+          if run.get("head_branch") != "api": problems.append(f"branch {run.get('head_branch')}")
+          if run.get("status") != "completed" or run.get("conclusion") != "success": problems.append(f"{run.get('status')}/{run.get('conclusion')}")
+          if problems:
+              print("::error::run is not an accepted Candidate images run: " + "; ".join(problems)); sys.exit(1)
+          print(f"run {run['id']}: {run['name']} on {run['head_branch']} ({run['event']}) {run['conclusion']}, workflow revision {run['head_sha']}")
+          PY
           gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "candidate-manifest-${sha12}" -D manifest
           (cd manifest && sha256sum -c SHA256SUMS --quiet)
           python3 - "$SHA" "$RUN_ID" <<'PY'
@@ -124,7 +138,7 @@ jobs:
               d = Path("candidates") / f"candidate-image-{service}-{sha12}"
               if not d.is_dir():
                   print(f"::error::artifact for {service} missing"); sys.exit(1)
-              run("sha256sum", "-c", "SHA256SUMS", "--quiet", check=True) if False else subprocess.run(["sha256sum", "-c", "SHA256SUMS", "--quiet"], cwd=d, check=True)
+              subprocess.run(["sha256sum", "-c", "SHA256SUMS", "--quiet"], cwd=d, check=True)
               inspect = json.load(open(d / "inspect.json"))[0]
               if inspect["Id"] != record["image_id"]:
                   print(f"::error::{service}: artifact id {inspect['Id']} != manifest {record['image_id']}"); sys.exit(1)
@@ -168,3 +182,4 @@ jobs:
           name: candidate-published-${{ env.sha12 }}
           path: published/
           retention-days: 90
+          overwrite: true

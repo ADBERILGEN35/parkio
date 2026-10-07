@@ -45,7 +45,9 @@
 # Exit status: 0 when every suite passed, 1 when a suite failed, 2 on a bake, build or start failure,
 # 3 when the checksum manifest could not be written.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# PARKIO_CANDIDATE_SOURCE_ROOT lets candidate-images.yml run this script from its own revision against a
+# source checkout at another revision (prebuilt mode); the frontend, bake and git facts come from ROOT.
+ROOT="${PARKIO_CANDIDATE_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 OUT_ARG="${1:-$ROOT/web-candidate-evidence}"
 if [ -d "$OUT_ARG" ] && [ -n "$(ls -A "$OUT_ARG")" ]; then
   echo "FAIL: $OUT_ARG is not empty; the evidence and its SHA256SUMS need a fresh directory" >&2

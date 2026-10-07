@@ -65,24 +65,35 @@ capture_status() { # service artifact url
 check() { # name expected actual
   if [ "$2" = "$3" ]; then printf 'PASS\t%s\t%s\n' "$1" "$3"; else printf 'FAIL\t%s\texpected %s got %s\n' "$1" "$2" "$3"; return 1; fi
 }
-rc=0
+# Every check prints one PASS or FAIL line; the verdict is read from the recorded lines, so nothing
+# depends on a variable set inside the pipeline's subshell.
 {
   check gateway-protected-401 401 "$(capture_status gateway-service gateway-protected-401.json \
-    'http://localhost:8080/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')" || rc=1
+    'http://localhost:8080/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')" || true
   check gateway-geocoding-401 401 "$(capture_status gateway-service gateway-geocoding-401.json \
-    'http://localhost:8080/api/v1/parking/geocode/reverse?latitude=41.0&longitude=29.0')" || rc=1
+    'http://localhost:8080/api/v1/parking/geocode/reverse?latitude=41.0&longitude=29.0')" || true
   check direct-parking-gateway-auth-required 401 "$(capture_status parking-service direct-parking-gateway-auth-required.json \
-    'http://localhost:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')" || rc=1
-  grep -q GATEWAY_AUTH_REQUIRED "$OUT/direct-parking-gateway-auth-required.json" \
-    && echo "PASS	direct-parking-code	GATEWAY_AUTH_REQUIRED" || { echo "FAIL	direct-parking-code	GATEWAY_AUTH_REQUIRED missing"; rc=1; }
+    'http://localhost:8083/api/v1/parking/spots/nearby?latitude=41.0&longitude=29.0&radiusMeters=1000')" || true
+  if grep -q GATEWAY_AUTH_REQUIRED "$OUT/direct-parking-gateway-auth-required.json"; then
+    printf 'PASS\tdirect-parking-code\tGATEWAY_AUTH_REQUIRED\n'
+  else
+    printf 'FAIL\tdirect-parking-code\tGATEWAY_AUTH_REQUIRED missing\n'
+  fi
   check gateway-traversal-400 400 "$(capture_status gateway-service gateway-traversal-400.json \
-    'http://localhost:8080/api/v1/analytics/users/../overview')" || rc=1
-  grep -q INVALID_REQUEST_PATH "$OUT/gateway-traversal-400.json" \
-    && echo "PASS	gateway-traversal-code	INVALID_REQUEST_PATH" || { echo "FAIL	gateway-traversal-code	INVALID_REQUEST_PATH missing"; rc=1; }
+    'http://localhost:8080/api/v1/analytics/users/../overview')" || true
+  if grep -q INVALID_REQUEST_PATH "$OUT/gateway-traversal-400.json"; then
+    printf 'PASS\tgateway-traversal-code\tINVALID_REQUEST_PATH\n'
+  else
+    printf 'FAIL\tgateway-traversal-code\tINVALID_REQUEST_PATH missing\n'
+  fi
   check gateway-encoded-traversal-400 400 "$(capture_status gateway-service gateway-encoded-traversal-400.json \
-    'http://localhost:8080/api/v1/parking/%2e%2e/%2e%2e/internal')" || rc=1
+    'http://localhost:8080/api/v1/parking/%2e%2e/%2e%2e/internal')" || true
   check gateway-jwks-200 200 "$(capture_status gateway-service gateway-valid-route.json \
-    'http://localhost:8080/api/v1/auth/.well-known/jwks.json')" || rc=1
+    'http://localhost:8080/api/v1/auth/.well-known/jwks.json')" || true
 } | tee "$OUT/checks.tsv"
-grep -q '^FAIL' "$OUT/checks.tsv" && rc=1
-exit "$rc"
+expected_checks=9
+if grep -q '^FAIL' "$OUT/checks.tsv" || [ "$(grep -c '^PASS' "$OUT/checks.tsv")" -ne "$expected_checks" ]; then
+  echo "::error::candidate stack checks failed (see $OUT/checks.tsv)"
+  exit 1
+fi
+echo "All $expected_checks stack checks passed."

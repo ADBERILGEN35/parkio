@@ -35,7 +35,7 @@ mk() { # dir service id revision gate
   mkdir -p "$1/$2"; cat > "$1/$2/inspect.json" <<JSON
 [{"Id":"$3","RepoTags":["parkio/x:candidate-abc123def456"],"Os":"linux","Architecture":"amd64","Size":1,"Created":"2026-10-07T00:00:00Z","Config":{"Labels":{"org.opencontainers.image.revision":"$4","org.opencontainers.image.version":"candidate-abc123def456"}},"RootFS":{"Layers":["sha256:a"]}}]
 JSON
-  printf '{"gate":"%s","high_critical":0,"fixed_high_critical":0}\n' "$5" > "$1/$2/trivy-summary.json"
+  printf '{"gate":"%s","critical_gate":"%s","library_gate":"pass","fixed_critical":0,"fixed_high":0}\n' "$5" "$5" > "$1/$2/trivy-summary.json"
   printf '%s  image.tar.gz\n' "$(printf 'x' | sha256sum | cut -d' ' -f1)" > "$1/$2/SHA256SUMS"
 }
 SHA=1111111111111111111111111111111111111111
@@ -60,21 +60,44 @@ else
   echo "SKIP: docker compose not available for the acceptance compose render"
 fi
 
-# 6. the workflows parse and the publish job keeps its three gates
+# 6. the workflows and the composite action parse; the publish job keeps its gates; builds never push
 python3 - "$ROOT" <<'PY' && ok "workflows parse with the gates in place" || ko "workflows parse with the gates in place"
-import sys, yaml
+import json, sys, yaml
 root = sys.argv[1]
 ci = yaml.safe_load(open(f"{root}/.github/workflows/candidate-images.yml"))
 pub = yaml.safe_load(open(f"{root}/.github/workflows/candidate-publish.yml"))
+act = yaml.safe_load(open(f"{root}/.github/actions/candidate-image-build/action.yml"))
 assert ci["permissions"] == {"contents": "read"}
-assert set(ci[True].keys()) == {"workflow_dispatch"}, ci[True].keys()  # dispatch only
-assert ci["jobs"]["build"]["steps"][4]["with"]["push"] is False
+assert set(ci[True].keys()) == {"workflow_dispatch", "pull_request"}, ci[True].keys()
+for name in ("resolve", "build", "build_web", "acceptance-stack", "acceptance-auth-gateway", "acceptance-web", "manifest"):
+    assert "workflow_dispatch" in ci["jobs"][name]["if"], name   # dispatch-only jobs
+assert "if" not in ci["jobs"]["script-tests"]                      # runs on pull requests too
+assert ci["jobs"]["build_web"]["environment"] == "release"
+assert "environment" not in ci["jobs"]["build"]
+build_step = [st for st in act["runs"]["steps"] if "build-push-action" in str(st.get("uses"))][0]
+assert build_step["with"]["push"] is False and build_step["with"]["load"] is True
+scan = [st for st in act["runs"]["steps"] if st.get("name", "").startswith("Scan")][0]["run"]
+assert "--severity CRITICAL --ignore-unfixed" in scan and "--pkg-types library --severity HIGH,CRITICAL --ignore-unfixed" in scan
+assert "--ignorefile .trivyignore.yaml" in scan
 job = pub["jobs"]["publish"]
 assert job["environment"] == "candidate-publication"
 assert "PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA" in job["if"]
-assert "packages" in job["permissions"] and job["permissions"]["packages"] == "write"
-assert pub["permissions"] == {"contents": "read"}
+assert job["permissions"]["packages"] == "write" and pub["permissions"] == {"contents": "read"}
+download = [st for st in job["steps"] if st.get("name", "").startswith("Download")][0]["run"]
+for needle in ('.github/workflows/candidate-images.yml', '"workflow_dispatch"', '"api"', '"success"'):
+    assert needle in download, needle                                # the run must be an accepted candidate run
+policy = json.load(open(f"{root}/.github/ci-gate-policy.json"))
+skips = {e["job"] for e in policy["allowed_skips"] if e["workflow"] == "candidate-images.yml"}
+names = {ci["jobs"][j]["name"] for j in ci["jobs"] if j != "script-tests"}
+assert skips == names, skips ^ names                                 # every dispatch-only job is an allowed skip
 PY
+
+# 7. manifest: a missing expected service and a missing scan summary are refused
+E="$TMP/expect"; mk "$E" candidate-image-auth-service-abc123def456-meta sha256:aaa "$SHA" pass
+if python3 "$ROOT/scripts/ci/candidate-manifest.py" --source-sha "$SHA" --artifacts "$E" --out "$TMP/expect-out" --expect-services auth-service,web >/dev/null; then ko "manifest requires every expected service"; else
+  grep -q 'web: no identity record' "$TMP/expect-out/candidate-manifest.json" && ok "manifest requires every expected service" || ko "manifest requires every expected service"; fi
+rm -f "$E/candidate-image-auth-service-abc123def456-meta/trivy-summary.json"
+if python3 "$ROOT/scripts/ci/candidate-manifest.py" --source-sha "$SHA" --artifacts "$E" --out "$TMP/expect-out2" --expect-services auth-service >/dev/null; then ko "manifest requires a scan summary"; else ok "manifest requires a scan summary"; fi
 
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

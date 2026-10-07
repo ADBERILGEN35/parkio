@@ -2,8 +2,8 @@
 #
 # One dispatch builds the production images (ten services and web) from one api commit, exactly
 # as .github/workflows/release.yml builds them (same Dockerfiles, build arguments, pinned Buildx
-# and build-push actions, OCI labels), scans them, keeps every image as a workflow artifact, and
-# accepts them in this run on disposable stacks:
+# and build-push actions, OCI labels), scans them with Security CI's container policy, keeps every
+# image as a workflow artifact, and accepts them in this run on disposable stacks:
 #   - the full Compose stack (docker-compose.images.yml tags) with the runtime-validation checks:
 #     every container runs the candidate image id, healthchecks, readiness, gateway/ingress 401/400;
 #   - the U03 auth+gateway artifact acceptance (privileged-token revocation within the configured
@@ -15,8 +15,12 @@
 # against this run's manifest. Artifacts, not a rebuild at publication time, because service jars
 # are not byte-reproducible: the accepted image and the published image must be the same bytes.
 #
-# Prerequisites: the WEB_MAPTILER_KEY secret (release-equivalent web image; the Dockerfile refuses an
-# empty key), read access to the private MinIO image for the full stack (GITHUB_TOKEN).
+# The helper scripts run from this workflow's own revision (checked out under tools/), so an older
+# source_sha that predates them can still be built. The source is checked out at source_sha.
+#
+# Prerequisites: the WEB_MAPTILER_KEY secret on the `release` environment (release-equivalent web
+# image; the Dockerfile refuses an empty key), read access to the private MinIO image for the full
+# stack (GITHUB_TOKEN). On pull requests only the script tests run.
 
 name: Candidate images
 
@@ -37,12 +41,22 @@ on:
         required: false
         default: true
         type: boolean
+  pull_request:
+    branches: [api]
+    paths:
+      - ".github/workflows/candidate-images.yml"
+      - ".github/workflows/candidate-publish.yml"
+      - ".github/actions/candidate-image-build/**"
+      - "scripts/ci/candidate-*"
+      - "scripts/ci/candidate-acceptance/**"
+      - "scripts/ci/test-candidate-scripts.sh"
+      - "scripts/web-candidate-evidence.sh"
 
 permissions:
   contents: read
 
 concurrency:
-  group: candidate-images-${{ inputs.source_sha }}
+  group: candidate-images-${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -50,16 +64,36 @@ env:
   TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
 
 jobs:
+  script-tests:
+    name: Candidate helper script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run the helper script tests
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/test-candidate-scripts.sh
+          scripts/ci/test-candidate-scripts.sh
+
   resolve:
     name: Resolve the pinned api revision
+    needs: script-tests
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       sha12: ${{ steps.resolve.outputs.sha12 }}
       created: ${{ steps.resolve.outputs.created }}
-      matrix: ${{ steps.resolve.outputs.matrix }}
+      service_matrix: ${{ steps.resolve.outputs.service_matrix }}
+      services_selected: ${{ steps.resolve.outputs.services_selected }}
+      web_selected: ${{ steps.resolve.outputs.web_selected }}
       all_selected: ${{ steps.resolve.outputs.all_selected }}
+      selected_csv: ${{ steps.resolve.outputs.selected_csv }}
     steps:
       - name: Checkout api history
         uses: actions/checkout@v4
@@ -104,11 +138,14 @@ jobs:
           unknown = [s for s in selected if s not in known]
           if unknown:
               print(f"::error::unknown services: {', '.join(unknown)}", file=sys.stderr); sys.exit(2)
-          matrix = [{"service": s, "dockerfile": known[s]} for s in selected]
+          service_matrix = [{"service": s, "dockerfile": known[s]} for s in selected if s != "web"]
           print(f"sha={sha}")
           print(f"sha12={sha[:12]}")
-          print(f"matrix={json.dumps(matrix)}")
+          print(f"service_matrix={json.dumps(service_matrix)}")
+          print(f"services_selected={'true' if service_matrix else 'false'}")
+          print(f"web_selected={'true' if 'web' in selected else 'false'}")
           print(f"all_selected={'true' if set(selected) == set(known) else 'false'}")
+          print(f"selected_csv={','.join(selected)}")
           PY
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "Candidate source $SOURCE_SHA (api ancestor), services: ${SERVICES:-all}"
@@ -116,6 +153,7 @@ jobs:
   build:
     name: Build ${{ matrix.service }}
     needs: resolve
+    if: github.event_name == 'workflow_dispatch' && needs.resolve.outputs.services_selected == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 70
     permissions:
@@ -124,13 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.resolve.outputs.matrix) }}
-    env:
-      SHA: ${{ needs.resolve.outputs.sha }}
-      SHA12: ${{ needs.resolve.outputs.sha12 }}
-      CREATED: ${{ needs.resolve.outputs.created }}
-      SERVICE: ${{ matrix.service }}
-      TAG: parkio/${{ matrix.service }}:candidate-${{ needs.resolve.outputs.sha12 }}
+        include: ${{ fromJSON(needs.resolve.outputs.service_matrix) }}
     steps:
       - name: Checkout the pinned revision
         uses: actions/checkout@v4
@@ -138,171 +170,89 @@ jobs:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
-      - name: Verify the source
-        run: |
-          set -euo pipefail
-          head="$(git rev-parse HEAD)"
-          test "$head" = "$SHA" || { echo "::error::checked out $head, expected $SHA"; exit 1; }
-          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-            echo "::error::Working tree is dirty; refusing to build $SERVICE."; exit 1
-          fi
-          echo "Building $SERVICE from $SHA as $TAG"
+      - name: Checkout this workflow's tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          persist-credentials: false
 
-      # The builder release.yml uses (job images): the same pinned action, docker-container driver.
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Build, scan and save the candidate image
+        uses: ./tools/.github/actions/candidate-image-build
+        with:
+          service: ${{ matrix.service }}
+          dockerfile: ${{ matrix.dockerfile }}
+          source_sha: ${{ needs.resolve.outputs.sha }}
+          sha12: ${{ needs.resolve.outputs.sha12 }}
+          created: ${{ needs.resolve.outputs.created }}
+          trivy_image: ${{ env.TRIVY_IMAGE }}
+          trivy_cache_dir: ${{ env.TRIVY_CACHE_DIR }}
+          ghcr_token: ${{ secrets.GITHUB_TOKEN }}
+
+  build_web:
+    name: Build web
+    needs: resolve
+    if: github.event_name == 'workflow_dispatch' && needs.resolve.outputs.web_selected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # WEB_MAPTILER_KEY lives on the `release` environment (release.yml, job images). The key is
+    # baked into the public bundle, so this is not a server secret; release.yml says the same.
+    environment: release
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout the pinned revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Checkout this workflow's tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          persist-credentials: false
 
       # release.yml's web build arguments, derived from the hosted-beta release bake with the same
-      # contract check. Empty for the services. The MapTiler key is added from the secret below.
+      # contract check. The MapTiler key is added from the environment secret below; an empty
+      # secret must reach the Dockerfile so the build fails loudly instead of baking "" (I11).
       - name: Web build arguments
         id: webargs
-        if: matrix.service == 'web'
+        env:
+          WEB_MAPTILER_KEY: ${{ secrets.WEB_MAPTILER_KEY }}
         run: |
           set -euo pipefail
-          chmod +x scripts/ci/candidate-web-build-args.sh
+          if [ -z "${WEB_MAPTILER_KEY}" ]; then
+            echo "::error::WEB_MAPTILER_KEY is empty: set it on the release environment (release.yml needs it too)"; exit 1
+          fi
+          chmod +x tools/scripts/ci/candidate-web-build-args.sh
           {
             echo 'args<<ARGS_EOF'
-            scripts/ci/candidate-web-build-args.sh
+            PARKIO_WEB_BAKE=docker/web-hosted-beta.release-bake.env tools/scripts/ci/candidate-web-build-args.sh
+            echo "VITE_MAPTILER_KEY=${WEB_MAPTILER_KEY}"
             echo 'ARGS_EOF'
           } >> "$GITHUB_OUTPUT"
-          scripts/ci/candidate-web-build-args.sh
+          PARKIO_WEB_BAKE=docker/web-hosted-beta.release-bake.env tools/scripts/ci/candidate-web-build-args.sh
 
-      - name: Build the candidate image (release-equivalent, not pushed)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - name: Build, scan and save the candidate web image
+        uses: ./tools/.github/actions/candidate-image-build
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: ${{ env.TAG }}
-          # VITE_MAPTILER_KEY is passed unconditionally for web so an empty secret fails the build
-          # loudly instead of baking "" (release.yml defect I11 note).
-          build-args: |
-            IMAGE_VERSION=candidate-${{ needs.resolve.outputs.sha12 }}
-            IMAGE_REVISION=${{ needs.resolve.outputs.sha }}
-            IMAGE_CREATED=${{ needs.resolve.outputs.created }}
-            ${{ steps.webargs.outputs.args }}
-            ${{ matrix.service == 'web' && format('VITE_MAPTILER_KEY={0}', secrets.WEB_MAPTILER_KEY) || '' }}
-          provenance: false
-
-      - name: Record the image identity
-        run: |
-          set -euo pipefail
-          mkdir -p out meta
-          docker image inspect "$TAG" > out/inspect.json
-          cp out/inspect.json meta/inspect.json
-          python3 - "$TAG" "$SHA" <<'PY'
-          import json, sys
-          tag, sha = sys.argv[1:3]
-          image = json.load(open("out/inspect.json"))[0]
-          labels = (image.get("Config") or {}).get("Labels") or {}
-          problems = []
-          if image.get("Os") != "linux" or image.get("Architecture") != "amd64":
-              problems.append(f"platform {image.get('Os')}/{image.get('Architecture')}")
-          if labels.get("org.opencontainers.image.revision") != sha:
-              problems.append(f"revision label {labels.get('org.opencontainers.image.revision')!r} != {sha}")
-          print(f"image id {image['Id']} platform {image.get('Os')}/{image.get('Architecture')} "
-                f"revision {labels.get('org.opencontainers.image.revision')} version {labels.get('org.opencontainers.image.version')}")
-          if problems:
-              print("::error::" + "; ".join(problems)); sys.exit(1)
-          PY
-
-      # Authenticated ghcr pull avoids anonymous trivy-db rate limits (as in security-ci.yml).
-      - name: Log in to ghcr.io (Trivy database pulls)
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Trivy database cache day
-        id: trivy-day
-        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Trivy database
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.TRIVY_CACHE_DIR }}/db
-          key: trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-${{ steps.trivy-day.outputs.day }}
-          restore-keys: |
-            trivy-db-${{ runner.os }}-${{ env.TRIVY_IMAGE }}-
-
-      # The same policy as Security CI's container scan: HIGH/CRITICAL, the repository's expiring
-      # exceptions, and a gate on findings that have a fix. The full report is kept either way.
-      - name: Scan the candidate image
-        run: |
-          set -euo pipefail
-          mkdir -p "$TRIVY_CACHE_DIR"
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
-            -v "${GITHUB_WORKSPACE}:/work" -w /work \
-            "${TRIVY_IMAGE}" image --scanners vuln --severity HIGH,CRITICAL \
-            --ignorefile .trivyignore.yaml --format json --output /work/out/trivy.json --exit-code 0 \
-            --cache-dir /root/.cache/trivy "$TAG"
-          gate=pass
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
-            -v "${GITHUB_WORKSPACE}:/work" -w /work \
-            "${TRIVY_IMAGE}" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile .trivyignore.yaml --format table --output /work/out/trivy-fixed.txt --exit-code 1 \
-            --cache-dir /root/.cache/trivy "$TAG" || gate=fail
-          python3 - "$gate" <<'PY'
-          import json, sys
-          gate = sys.argv[1]
-          report = json.load(open("out/trivy.json"))
-          total = fixed = 0
-          for result in report.get("Results") or []:
-              for v in result.get("Vulnerabilities") or []:
-                  if v.get("Severity") in ("HIGH", "CRITICAL"):
-                      total += 1
-                      if v.get("FixedVersion"):
-                          fixed += 1
-          summary = {"scanner": "aquasec/trivy:0.64.1", "severity": "HIGH,CRITICAL", "ignorefile": ".trivyignore.yaml",
-                     "high_critical": total, "fixed_high_critical": fixed, "gate": gate}
-          json.dump(summary, open("out/trivy-summary.json", "w"), indent=2)
-          json.dump(summary, open("meta/trivy-summary.json", "w"), indent=2)
-          print(json.dumps(summary))
-          if gate != "pass":
-              print("::warning::Trivy gate failed for the candidate; the manifest will not accept it")
-          PY
-
-      - name: Save the image
-        run: |
-          set -euo pipefail
-          docker save "$TAG" | gzip -1 > out/image.tar.gz
-          (cd out && sha256sum inspect.json trivy.json trivy-summary.json trivy-fixed.txt image.tar.gz > SHA256SUMS)
-          cp out/SHA256SUMS meta/SHA256SUMS
-          ls -l out
-          echo "### $SERVICE candidate" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          python3 -c 'import json; i=json.load(open("out/inspect.json"))[0]; print("id", i["Id"]); print("platform", i["Os"]+"/"+i["Architecture"]); print("labels", json.dumps((i.get("Config") or {}).get("Labels") or {}))' >> "$GITHUB_STEP_SUMMARY"
-          cat out/trivy-summary.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload the candidate image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: candidate-image-${{ matrix.service }}-${{ needs.resolve.outputs.sha12 }}
-          path: out/
-          retention-days: 90
-          compression-level: 0
-          if-no-files-found: error
-
-      - name: Upload the identity record
-        uses: actions/upload-artifact@v4
-        with:
-          name: candidate-image-${{ matrix.service }}-${{ needs.resolve.outputs.sha12 }}-meta
-          path: meta/
-          retention-days: 90
-          if-no-files-found: error
+          service: web
+          dockerfile: frontend/apps/web/Dockerfile
+          source_sha: ${{ needs.resolve.outputs.sha }}
+          sha12: ${{ needs.resolve.outputs.sha12 }}
+          created: ${{ needs.resolve.outputs.created }}
+          extra_build_args: ${{ steps.webargs.outputs.args }}
+          trivy_image: ${{ env.TRIVY_IMAGE }}
+          trivy_cache_dir: ${{ env.TRIVY_CACHE_DIR }}
+          ghcr_token: ${{ secrets.GITHUB_TOKEN }}
 
   acceptance-stack:
     name: Full stack acceptance (candidate images)
-    needs: [resolve, build]
-    if: ${{ inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
+    needs: [resolve, build, build_web]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -322,6 +272,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Checkout this workflow's tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: tools
           persist-credentials: false
 
       - name: Log in to GHCR for the private MinIO pull
@@ -350,27 +307,27 @@ jobs:
             test "$actual" = "$expected" || { echo "::error::$tag loaded as $actual, artifact says $expected"; exit 1; }
             echo "$tag $actual" | tee -a acceptance-stack/loaded-images.txt
           done
+          test "$(wc -l < acceptance-stack/loaded-images.txt)" -eq 11 || { echo "::error::expected 11 candidate images"; exit 1; }
 
       - name: Prepare the CI-only env and start the stack from the loaded images only
         run: |
           set -euo pipefail
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/jwt.pem"
-          python3 scripts/ci/candidate-stack-env.py --image-tag "candidate-$SHA12" --git-sha "$SHA" \
+          python3 tools/scripts/ci/candidate-stack-env.py --image-tag "candidate-$SHA12" --git-sha "$SHA" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --jwt-pem "$RUNNER_TEMP/jwt.pem" --out "$COMPOSE_ENV_FILE"
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --quiet
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json > "$RUNNER_TEMP/compose-model.json"
-          python3 scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
+          python3 tools/scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
             --expect-revision "$SHA" --out acceptance-stack/image-identity.json \
             --override "$RUNNER_TEMP/compose-pull-never.json"
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES -f "$RUNNER_TEMP/compose-pull-never.json" up -d --no-build
-          python3 scripts/ci/compose_image_identity.py verify acceptance-stack/image-identity.json
+          python3 tools/scripts/ci/compose_image_identity.py verify acceptance-stack/image-identity.json
 
       - name: Healthchecks, readiness and ingress protection
-        id: checks
         run: |
           set -euo pipefail
-          chmod +x scripts/ci/candidate-stack-checks.sh
-          if scripts/ci/candidate-stack-checks.sh acceptance-stack; then
+          chmod +x tools/scripts/ci/candidate-stack-checks.sh
+          if tools/scripts/ci/candidate-stack-checks.sh acceptance-stack; then
             echo '{"status": "pass", "detail": "every container runs the candidate image id; healthchecks, readiness and gateway/ingress checks passed"}' > acceptance-stack/result.json
           else
             echo '{"status": "fail", "detail": "see checks.tsv and health.tsv"}' > acceptance-stack/result.json
@@ -381,7 +338,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > acceptance-stack/ps.txt || true
+          docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > acceptance-stack/ps.txt 2>&1 || true
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES logs --no-color --tail 400 > acceptance-stack/compose-logs.txt 2>&1 || true
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES down -v --remove-orphans || true
           [ -f acceptance-stack/result.json ] || echo '{"status": "fail", "detail": "stack did not start"}' > acceptance-stack/result.json
@@ -393,23 +350,25 @@ jobs:
           name: candidate-acceptance-stack
           path: acceptance-stack/
           retention-days: 90
+          overwrite: true
 
   acceptance-auth-gateway:
     name: Auth+gateway artifact acceptance (U03, 22 checks)
-    needs: [resolve, build]
-    if: ${{ inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
+    needs: [resolve, build, build_web]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
       SHA12: ${{ needs.resolve.outputs.sha12 }}
       AUTH_IMAGE: parkio/auth-service:candidate-${{ needs.resolve.outputs.sha12 }}
       GATEWAY_IMAGE: parkio/gateway-service:candidate-${{ needs.resolve.outputs.sha12 }}
-      COMPOSE_FILE: scripts/ci/candidate-acceptance/docker-compose.yml
+      COMPOSE_FILE: tools/scripts/ci/candidate-acceptance/docker-compose.yml
     steps:
-      - name: Checkout the pinned revision
+      - name: Checkout this workflow's tooling
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ github.sha }}
+          path: tools
           persist-credentials: false
 
       - name: Download the auth and gateway candidates
@@ -429,7 +388,6 @@ jobs:
           docker image inspect -f '{{.Id}}' "$AUTH_IMAGE" "$GATEWAY_IMAGE" | tee acceptance-auth-gateway/loaded-image-ids.txt
 
       - name: Start the disposable stack and run the acceptance
-        id: run
         run: |
           set -euo pipefail
           PARKIO_JWT_PRIVATE_KEY_PEM="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | awk 'BEGIN{ORS="\\n"}{print}')"
@@ -443,15 +401,17 @@ jobs:
             test "$running" = "$expected" || { echo "::error::$svc runs $running, candidate is $expected"; exit 1; }
           done
           rc=0
-          CANDIDATE_ACCEPTANCE_OUT="$PWD/acceptance-auth-gateway" python3 scripts/ci/candidate-acceptance/run-acceptance.py || rc=$?
+          CANDIDATE_ACCEPTANCE_OUT="$PWD/acceptance-auth-gateway" python3 tools/scripts/ci/candidate-acceptance/run-acceptance.py || rc=$?
           python3 - "$rc" <<'PY'
           import json, sys
           rc = int(sys.argv[1])
           results = json.load(open("acceptance-auth-gateway/acceptance-image-results.json"))
-          status = "pass" if rc == 0 and results.get("failed") == 0 else "fail"
-          json.dump({"status": status, "detail": f"passed {results.get('passed')}, failed {results.get('failed')} (fixture PARKIO_SESSION_EPOCH_CACHE_TTL=PT3S)"},
+          passed, failed = results.get("passed", 0), results.get("failed", 1)
+          # The runner records 22 checks (September package: 22/22); fewer means a check did not run.
+          status = "pass" if rc == 0 and failed == 0 and passed >= 22 else "fail"
+          json.dump({"status": status, "detail": f"passed {passed}, failed {failed} (fixture PARKIO_SESSION_EPOCH_CACHE_TTL=PT3S; 22 expected)"},
                     open("acceptance-auth-gateway/result.json", "w"))
-          print(status, results.get("passed"), results.get("failed"))
+          print(status, passed, failed)
           sys.exit(0 if status == "pass" else 1)
           PY
 
@@ -470,11 +430,12 @@ jobs:
           name: candidate-acceptance-auth-gateway
           path: acceptance-auth-gateway/
           retention-days: 90
+          overwrite: true
 
   acceptance-web:
     name: Web suites against the candidate web image (a11y, CX-F11)
-    needs: [resolve, build]
-    if: ${{ inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
+    needs: [resolve, build, build_web]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -485,6 +446,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Checkout this workflow's tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: tools
           persist-credentials: false
 
       - name: Set up pnpm
@@ -519,13 +487,15 @@ jobs:
           gunzip -c candidates/web/image.tar.gz | docker load
           docker image inspect -f '{{.Id}}' "$WEB_IMAGE"
 
+      # The script comes from this workflow's revision; the source root (frontend, bake, git) is the
+      # pinned checkout, so the provenance records source_sha and the prebuilt revision check holds.
       - name: Run the suites against the prebuilt candidate image
-        id: suites
         run: |
           set -euo pipefail
           mkdir -p acceptance-web
           rc=0
-          PARKIO_CANDIDATE_PREBUILT_TAG="$WEB_IMAGE" bash scripts/web-candidate-evidence.sh acceptance-web/evidence || rc=$?
+          PARKIO_CANDIDATE_SOURCE_ROOT="$GITHUB_WORKSPACE" PARKIO_CANDIDATE_PREBUILT_TAG="$WEB_IMAGE" \
+            bash tools/scripts/web-candidate-evidence.sh acceptance-web/evidence || rc=$?
           python3 - "$rc" <<'PY'
           import json, sys
           rc = int(sys.argv[1])
@@ -549,18 +519,19 @@ jobs:
           name: candidate-acceptance-web
           path: acceptance-web/
           retention-days: 90
+          overwrite: true
 
   manifest:
     name: Candidate manifest
-    needs: [resolve, build, acceptance-stack, acceptance-auth-gateway, acceptance-web]
-    if: ${{ always() && needs.resolve.result == 'success' }}
+    needs: [resolve, build, build_web, acceptance-stack, acceptance-auth-gateway, acceptance-web]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout the pinned revision (scripts)
+      - name: Checkout this workflow's tooling
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download the identity records and acceptance results
@@ -572,13 +543,15 @@ jobs:
       - name: Assemble the manifest
         env:
           SHA: ${{ needs.resolve.outputs.sha }}
+          SELECTED: ${{ needs.resolve.outputs.selected_csv }}
           ACCEPTANCE: ${{ inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
         run: |
           set -euo pipefail
           flag=()
           [ "$ACCEPTANCE" = "true" ] && flag=(--acceptance-required)
           rc=0
-          python3 scripts/ci/candidate-manifest.py --source-sha "$SHA" --artifacts records --out manifest "${flag[@]}" || rc=$?
+          python3 scripts/ci/candidate-manifest.py --source-sha "$SHA" --artifacts records --out manifest \
+            --expect-services "$SELECTED" "${flag[@]}" || rc=$?
           (cd manifest && sha256sum candidate-manifest.json SUMMARY.md > SHA256SUMS)
           cat manifest/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -592,3 +565,4 @@ jobs:
           name: candidate-manifest-${{ needs.resolve.outputs.sha12 }}
           path: manifest/
           retention-days: 90
+          overwrite: true

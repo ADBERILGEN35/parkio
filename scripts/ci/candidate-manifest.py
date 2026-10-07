@@ -27,6 +27,7 @@ def main() -> int:
     ap.add_argument("--artifacts", required=True, help="directory holding one sub-directory per downloaded artifact")
     ap.add_argument("--out", required=True)
     ap.add_argument("--acceptance-required", action="store_true")
+    ap.add_argument("--expect-services", default="", help="comma-separated services that must have an identity record")
     args = ap.parse_args()
     root = Path(args.artifacts)
     out = Path(args.out)
@@ -69,7 +70,16 @@ def main() -> int:
         acceptance[name] = result if result is not None else {"status": "absent"}
 
     problems = []
+    expected = [s for s in (args.expect_services or "").split(",") if s.strip()]
+    found = {image["service"] for image in images}
+    for service in expected:
+        if service not in found:
+            problems.append(f"{service}: no identity record (build missing or failed)")
+    if not images:
+        problems.append("no candidate image records at all")
     for image in images:
+        if not image["trivy"]:
+            problems.append(f"{image['service']}: no Trivy summary")
         if not image["revision_matches_source"]:
             problems.append(f"{image['service']}: revision label {image['revision_label']} != {args.source_sha}")
         if image["platform"] != "linux/amd64":
@@ -99,11 +109,11 @@ def main() -> int:
     (out / "candidate-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     lines = [f"# Candidate images for `{args.source_sha}`", "", f"Verdict: **{manifest['verdict']}**", "",
-             "| Service | Image id | Platform | Revision label ok | Trivy (fixed H/C) | tar.gz sha256 |", "|---|---|---|---|---|---|"]
+             "| Service | Image id | Platform | Revision label ok | Trivy fixed (gate) | tar.gz sha256 |", "|---|---|---|---|---|---|"]
     for image in images:
         trivy = image["trivy"]
         lines.append(f"| {image['service']} | `{image['image_id']}` | {image['platform']} | {image['revision_matches_source']} | "
-                     f"{trivy.get('fixed_high_critical', '?')} ({trivy.get('gate', '?')}) | `{image['image_tar_gz_sha256']}` |")
+                     f"C {trivy.get('fixed_critical', '?')} / H {trivy.get('fixed_high', '?')} ({trivy.get('gate', '?')}) | `{image['image_tar_gz_sha256']}` |")
     lines += ["", "## Acceptance", ""]
     for name, result in acceptance.items():
         lines.append(f"- {name}: {result.get('status')}" + (f" — {result.get('detail')}" if result.get("detail") else ""))

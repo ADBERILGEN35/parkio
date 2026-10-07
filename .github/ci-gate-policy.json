@@ -11,7 +11,14 @@
     {"workflow": "web-build-image-acceptance.yml", "job": "web-image", "reason": "runs only for pull requests #87 and #91"},
     {"workflow": "registry-pull-recovery.yml", "job": "Fresh-runner pull with the recovery credential", "reason": "runs only on a workflow_dispatch; it needs the recovery registry credential from the repository secrets"},
     {"workflow": "security-ci.yml", "job": "CodeQL (${{ matrix.language }})", "reason": "off while the repository variable CODEQL_ENABLED is not true"},
-    {"workflow": "security-ci.yml", "job": "Container scan (${{ matrix.service }})", "reason": "a pull request whose changed files reach no image; the Security CI summary fails unless the selection succeeded and chose none"}
+    {"workflow": "security-ci.yml", "job": "Container scan (${{ matrix.service }})", "reason": "a pull request whose changed files reach no image; the Security CI summary fails unless the selection succeeded and chose none"},
+    {"workflow": "candidate-images.yml", "job": "Resolve the pinned api revision", "reason": "runs only on a workflow_dispatch; pull requests run the script tests"},
+    {"workflow": "candidate-images.yml", "job": "Build ${{ matrix.service }}", "reason": "runs only on a workflow_dispatch"},
+    {"workflow": "candidate-images.yml", "job": "Build web", "reason": "runs only on a workflow_dispatch"},
+    {"workflow": "candidate-images.yml", "job": "Full stack acceptance (candidate images)", "reason": "runs only on a workflow_dispatch with acceptance"},
+    {"workflow": "candidate-images.yml", "job": "Auth+gateway artifact acceptance (U03, 22 checks)", "reason": "runs only on a workflow_dispatch with acceptance"},
+    {"workflow": "candidate-images.yml", "job": "Web suites against the candidate web image (a11y, CX-F11)", "reason": "runs only on a workflow_dispatch with acceptance"},
+    {"workflow": "candidate-images.yml", "job": "Candidate manifest", "reason": "runs only on a workflow_dispatch"}
   ],
   "evidence": [
     {"workflow": "backend-ci.yml", "job": "Build & unit tests", "label": "unit tests", "pattern": "Unit test evidence: (\\d+) tests", "min": 1},
