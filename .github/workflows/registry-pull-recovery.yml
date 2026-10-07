@@ -1,0 +1,110 @@
+# Registry pull recovery (U14, CL-N03). A fresh runner pulls every private digest that the
+# production file set pins, using only the recovery credential kept outside the host, and a
+# token without read:packages is refused. Never publishes, deploys or restores.
+name: Registry pull recovery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/registry-pull-recovery.yml"
+      - "scripts/registry-recovery-images.sh"
+      - "scripts/test-registry-recovery-images.sh"
+      - "scripts/ci/ghcr-minio-login.sh"
+      - "docker/compose.production.files"
+      - "docker/docker-compose.*release-pin*.yml"
+      - "docker/docker-compose.gmp-release-pins.yml"
+      - "docker/.env.example"
+      - "docs/operations/registry-pull-recovery.md"
+
+# Deliberately no packages permission: GITHUB_TOKEN must not be what makes recovery work.
+permissions:
+  contents: read
+
+concurrency:
+  # Superseded pull request runs are cancelled; other events get a unique group.
+  group: registry-pull-recovery-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  script-tests:
+    name: Inventory and pull-check script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Script tests (fixtures and a fake docker; no network)
+        run: bash scripts/test-registry-recovery-images.sh
+
+      - name: Inventory from this checkout
+        run: |
+          set -euo pipefail
+          bash scripts/registry-recovery-images.sh list | tee inventory.txt
+          {
+            echo "## Private images a fresh host must pull"
+            echo
+            sed 's/^/- `/; s/$/`/' inventory.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  scope-less-token-denied:
+    name: Token without read:packages is refused
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Log in with the job's GITHUB_TOKEN, which has no packages permission
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if printf '%s' "${GITHUB_TOKEN}" | docker login ghcr.io -u "${ACTOR}" --password-stdin >/dev/null 2>&1; then
+            echo "login accepted with a packages-less token; every pull below must still be denied"
+          else
+            echo "login refused for a packages-less token; the pulls below run anonymously and must be denied"
+          fi
+
+      - name: Every pinned private digest pull must be denied
+        run: bash scripts/registry-recovery-images.sh pull --expect-denied
+
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
+  custody-credential-pull:
+    name: Fresh-runner pull with the recovery credential
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Log in with the recovery credential only (values never printed)
+        env:
+          GHCR_USERNAME: ${{ secrets.PARKIO_REGISTRY_READONLY_USER }}
+          GHCR_TOKEN: ${{ secrets.PARKIO_REGISTRY_READONLY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GHCR_USERNAME}" ] || [ -z "${GHCR_TOKEN}" ]; then
+            echo "BLOCKED — RECOVERY REGISTRY CREDENTIAL NOT CONFIGURED (repository secrets PARKIO_REGISTRY_READONLY_USER and PARKIO_REGISTRY_READONLY_TOKEN)"
+            exit 2
+          fi
+          bash scripts/ci/ghcr-minio-login.sh
+
+      - name: Pull and verify every pinned private digest
+        run: bash scripts/registry-recovery-images.sh pull
+
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
