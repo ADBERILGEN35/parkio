@@ -116,6 +116,7 @@ class RecoveryReplayLaunchTest {
         // Review N10: an include or a profile group reaches the profile without SPRING_PROFILES_ACTIVE.
         for (String[] args : List.of(
                 new String[] {"--spring.profiles.include=recovery-replay"},
+                new String[] {"--spring.profiles.default=recovery-replay"},
                 new String[] {"--spring.profiles.active=prod", "--spring.profiles.group.prod=recovery-replay"})) {
             assertThat(RecoveryReplayLaunch.startOrdinary(Object.class, args)).as(String.join(" ", args)).hasValue(20);
         }

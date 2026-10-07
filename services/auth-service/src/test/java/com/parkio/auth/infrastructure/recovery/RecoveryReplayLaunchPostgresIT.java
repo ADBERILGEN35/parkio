@@ -283,6 +283,20 @@ class RecoveryReplayLaunchPostgresIT {
     }
 
     @Test
+    void anOrdinaryStartWithTheProfileAsTheDefaultIsRefusedAndTouchesNothing() throws Exception {
+        // Review N16 (Y5): a default profile is active when no other profile is.
+        Map<String, String> env = env();
+        env.remove("SPRING_PROFILES_ACTIVE");
+        env.put("SPRING_PROFILES_DEFAULT", RecoveryReplayLaunch.PROFILE);
+
+        Launch launch = launch(env, List.of());
+
+        assertThat(launch.exit).as(launch.log()).isEqualTo(RecoveryReplayExit.REFUSED.code());
+        assertThat(launch.log()).contains("auth-service refused to start");
+        assertUntouched(launch);
+    }
+
+    @Test
     void anAcceptedRunServesNothingJoinsOnlyTheRecoveryGroupAndRunsNoRetention() throws Exception {
         migrate(null);
         UUID retained = UUID.randomUUID();

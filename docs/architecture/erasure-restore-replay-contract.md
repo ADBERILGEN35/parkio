@@ -168,8 +168,10 @@ java -jar auth-service.jar \
 Only these options are accepted, each once, as `--name=value`. There is **no cutoff and no receipt
 option** (see Coverage below).
 
-**Nothing touches the target before the checks pass, and nothing touches any other database**
-(PR #295 review B1, B2, B5, B6). The launch runs in two steps:
+**Nothing touches the target before the checks pass, and nothing is migrated or written to any other
+database** (PR #295 review B1, B2, B5, B6). A redirect setting is refused before any connection
+exists. Should one get past that, the pool may open a connection to the other database and run the
+identity query on it, and then refuses it. The launch runs in two steps:
 
 1. **Preflight, before any application context exists.** Spring prepares the environment
    (configuration files, environment variables, profiles) and the preflight runs every check that
@@ -258,7 +260,11 @@ checks every database connection, not the broker. Against another broker:
 - the ACK consumer joins `parkio.auth.erasure.recovery-replay`, a group with no committed offsets,
   and reads with `auto-offset-reset: earliest`, so it consumes that broker's whole
   `parkio.privacy.erasure` history into the restored copy;
-- `KafkaAdmin` creates auth's topics there if they are missing.
+- `KafkaAdmin` creates auth's topics there if they are missing;
+- the ACK consumer's error handler (the listener factory's `DefaultErrorHandler`) republishes a
+  record it cannot process, after two retries and with exception headers, to `parkio.dlt.auth` on
+  that broker. This is not a restored outbox row, but it is written to whatever broker is
+  configured (PR #295 review N15).
 
 The recovery group keeps the command off the live groups' partitions. Treat the broker as part of
 the isolation boundary.
