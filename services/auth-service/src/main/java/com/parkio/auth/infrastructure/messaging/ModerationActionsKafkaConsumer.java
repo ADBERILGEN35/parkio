@@ -6,9 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkio.auth.application.AuthApplicationService;
 import com.parkio.auth.application.event.UserRestoredEvent;
 import com.parkio.auth.application.event.UserSuspendedEvent;
+import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.messaging.handler.annotation.Header;
@@ -27,6 +29,9 @@ import org.springframework.stereotype.Component;
  * handler ({@code authKafkaListenerContainerFactory} → {@code parkio.dlt.auth}).
  */
 @Component
+// Not in the recovery-replay command context (PR #295 review B5): a live consumer; the replay
+// needs only the ACK consumer.
+@Profile("!" + RecoveryReplayLaunch.PROFILE)
 public class ModerationActionsKafkaConsumer {
 
     public static final String MODERATION_ACTION_TOPIC = "parkio.moderation.action";

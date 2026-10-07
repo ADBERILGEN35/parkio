@@ -1,0 +1,13 @@
+{
+  "bundleDigest": "a8e65f2b23a5657f9cdf04188f76a057dec2cd9a59a1bffe2bd3d7e601bd6017",
+  "format": "parkio-erasure-evidence-bundle",
+  "frontierVersions": [
+    {
+      "data": "eyJkYXRhYmFzZUlkZW50aXR5IjoicG9zdGdyZXNxbDo3MDAwMDAwMDAwMDAwMDAwMDAxOnBhcmtpb19hdXRoIiwiZXhwZWN0ZWRUaHJvdWdoIjowLCJmcm9udGllckRpZ2VzdCI6ImI2ZGYzMjVmMTI4N2M3Y2NiZTE4OTQzMjZhYTg3MTM3ZjgwMTcwZjVkNjQ2NTc5YTJiOWU5OWNhMjI1ODhhMTgiLCJoaWdoZXN0UmVzZXJ2ZWQiOjAsImtleUlkIjoiaW50ZXJvcC1maXh0dXJlLWtleS0yMDI2YSIsImtpbmQiOiJlcmFzdXJlLWV4cGVjdGVkLWZyb250aWVyIiwicHJvZHVjZXJJZCI6ImludGVyb3AtZml4dHVyZS1wcm9kdWNlciIsInNjaGVtYVZlcnNpb24iOjIsInNpZ25hdHVyZSI6ImJiZmIxZDJhNzQ0YzdkZTAyYWMyNjA3ZTQxNDQ3ZTQwYWYwZjBhZWYzMDUzODFmNGM0YzM0YjQwNzliMmRkYWUifQ==",
+      "versionId": "v-0001"
+    }
+  ],
+  "objects": {},
+  "source": "fixture",
+  "version": 1
+}

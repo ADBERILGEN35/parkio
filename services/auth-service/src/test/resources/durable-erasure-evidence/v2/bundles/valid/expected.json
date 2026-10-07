@@ -1,0 +1,38 @@
+{
+  "description": "Three records and their frontier, no checkpoint: the set is the three records, verified through sequence 3.",
+  "result": {
+    "entries": [
+      {
+        "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a1",
+        "erasedAt": "2026-09-29T08:15:30.123456Z"
+      },
+      {
+        "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a2",
+        "erasedAt": "2026-09-29T08:16:00Z"
+      },
+      {
+        "authUserId": "0f0e0d0c-0000-4000-8000-0000000000a3",
+        "erasedAt": "2026-09-29T08:17:45.120Z"
+      }
+    ],
+    "erasureSetDigest": "f9fd2912961e67d830228049670162b4d498c45d7ce55f74ae6eb25d9dc7ffbe",
+    "frontierVersion": "sha256:d2af84a038fc8c92259436b185c8775d5c186fea2a7215caee971d08ef756afe",
+    "ignoredFrontierVersions": 0,
+    "latestTrustedCheckpoint": null,
+    "statement": "erasure coverage verified through sequence 3 (frontier version sha256:d2af84a038fc8c92259436b185c8775d5c186fea2a7215caee971d08ef756afe)",
+    "verifiedThroughSequence": 3
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

@@ -85,6 +85,10 @@ def checkpoint_key(sequence):
 
 
 def signed_subset(body, fields):
+    for key in fields:
+        if key not in body:
+            # A missing signed field is a verification failure, as in auth-service (sign()).
+            raise ContractError(f"missing signed field {key}")
     return {key: body[key] for key in fields}
 
 
@@ -360,7 +364,47 @@ def verify_frontier(store, trust, at=None):
     raw = store.get_optional(FRONTIER_KEY)
     if raw is None:
         return None
-    body = json.loads(raw.decode("utf-8"))
+    return _verify_frontier_body(json.loads(raw.decode("utf-8")), trust, at)
+
+
+def verify_frontier_versions(versions, trust, at=None):
+    """The frontier as the highest of its verified versions.
+
+    Mirrors auth-service DurableErasureEvidenceVerifier.verifyFrontierVersions
+    (#183): the frontier is the one object that is rewritten, a versioned store
+    keeps every version and may list them out of write order, and its contents
+    only grow. ``versions`` is a list of ``(version_id, raw_bytes)`` in store
+    order. Versions that fail verification are ignored while another version
+    verifies and counted; if none verifies, the first failure is raised.
+    Returns ``(body or None, version_id or None, ignored_count)``.
+    """
+    highest = None
+    highest_id = None
+    first_failure = None
+    ignored = 0
+    for version_id, raw in versions:
+        try:
+            try:
+                body = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeError) as exc:
+                raise ContractError("unreadable evidence object") from exc
+            if not isinstance(body, dict):
+                raise ContractError("evidence object is not a JSON object")
+            body = _verify_frontier_body(body, trust, at)
+        except ContractError as error:
+            ignored += 1
+            if first_failure is None:
+                first_failure = error
+            continue
+        order = (int(body["expectedThrough"]), int(body["highestReserved"]))
+        if highest is None or order > (int(highest["expectedThrough"]), int(highest["highestReserved"])):
+            highest, highest_id = body, version_id
+    if highest is None and first_failure is not None:
+        raise first_failure
+    return highest, highest_id, ignored
+
+
+def _verify_frontier_body(body, trust, at):
     verify_signed_object(body, KIND_FRONTIER, "not an expected-boundary frontier", SIGNED_FRONTIER,
                          trust, at, "frontier signature mismatch")
     expected = frontier_digest(body["expectedThrough"], body["highestReserved"])
@@ -631,6 +675,29 @@ class IsolatedErasureCoordinator:
         }
 
 
+def _signed_sequence(body):
+    sequence = body.get("sequence")
+    if type(sequence) is not int:
+        raise ContractError("sequence must be an integer")
+    return sequence
+
+
+def _bind_record_key(key, body):
+    """A record is read only under its own key: records/<erasureRequestId>.json, as signed."""
+    _signed_sequence(body)
+    request_id = body.get("erasureRequestId")
+    if (not isinstance(request_id, str) or key != erasure_record_id(request_id)
+            or body.get("erasureRecordId") != key):
+        raise ContractError("evidence object key does not match its body")
+
+
+def _bind_checkpoint_key(key, body):
+    """A checkpoint is read only under its own key: checkpoints/<sequence>.json, as signed."""
+    sequence = _signed_sequence(body)
+    if sequence < 1 or key != checkpoint_key(sequence):
+        raise ContractError("evidence object key does not match its body")
+
+
 def _abandoned_reservations(store, published):
     abandoned = []
     for key in store.list_prefix("sequences/"):
@@ -653,12 +720,29 @@ def recover_latest_trusted(store, trust, required_through_sequence=None, at=None
     pending = []
     at = at or utc_now()
     for key in store.list_prefix("records/"):
-        pending.append(verify_pending(store, key, trust, at=at))
+        body = verify_pending(store, key, trust, at=at)
+        _bind_record_key(key, body)
+        pending.append(body)
     checkpoints = []
     for key in store.list_prefix("checkpoints/"):
-        checkpoints.append(verify_checkpoint(store, key, trust, at=at))
-    published = {item["sequence"] for item in pending + checkpoints}
-    frontier = verify_frontier(store, trust, at=at)
+        body = verify_checkpoint(store, key, trust, at=at)
+        _bind_checkpoint_key(key, body)
+        checkpoints.append(body)
+    published = set()
+    for item in pending + checkpoints:
+        if item["sequence"] in published:
+            raise ContractError("duplicate sequence in published evidence")
+        published.add(item["sequence"])
+    get_versions = getattr(store, "get_versions", None)
+    if get_versions is not None:
+        frontier, frontier_version, ignored_frontier = verify_frontier_versions(
+            get_versions(FRONTIER_KEY), trust, at=at)
+    else:
+        frontier = verify_frontier(store, trust, at=at)
+        frontier_version = None
+        if frontier is not None:
+            frontier_version = "sha256:" + sha256_hex(store.get(FRONTIER_KEY))
+        ignored_frontier = 0
     abandoned = _abandoned_reservations(store, published)
     listed_max = max(published) if published else None
 
@@ -687,6 +771,8 @@ def recover_latest_trusted(store, trust, required_through_sequence=None, at=None
             "pending": trusted,
             "expose": False,
             "reason": reason,
+            "frontierVersion": frontier_version,
+            "ignoredFrontierVersions": ignored_frontier,
         }
         if required_through_sequence is not None and verdict != "ACCEPT_ISOLATED":
             raise ContractError(

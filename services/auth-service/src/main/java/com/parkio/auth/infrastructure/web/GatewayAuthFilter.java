@@ -1,6 +1,7 @@
 package com.parkio.auth.infrastructure.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +17,7 @@ import java.util.Map;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -35,6 +37,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
+// Not in the recovery-replay command context (PR #295 review B5): the command context has no web server.
+@Profile("!" + RecoveryReplayLaunch.PROFILE)
 public class GatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String GATEWAY_AUTH_HEADER = "X-Gateway-Auth";

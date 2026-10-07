@@ -1,0 +1,19 @@
+{
+  "description": "A second correctly signed and keyed record claims record 2's sequence: a sequence has one owner, so it is refused.",
+  "result": {
+    "error": "duplicate sequence in published evidence"
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

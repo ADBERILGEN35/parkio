@@ -1,22 +1,11 @@
 {
   "checks": [
     {
-      "abandonedReservations": [
-        2
-      ],
-      "expectedThrough": 3,
-      "gaps": [
-        2
-      ],
-      "latestTrustedCheckpoint": null,
-      "latestTrustedSequence": null,
-      "listedMaximumSequence": 3,
-      "pendingRequestIds": [],
-      "requiredThrough": null,
-      "verdict": "BLOCKED"
+      "error": "evidence object key does not match its body",
+      "requiredThrough": null
     }
   ],
-  "description": "Record 1's bytes were copied over record 2's key. Both verify (the key is not signed), so sequence 2 is a gap: BLOCKED.",
+  "description": "Record 1's bytes were copied over record 2's key. A record is read only under its own key (records/<erasureRequestId>.json, as signed), so the copy is refused (PR #295 B4; until then this case was BLOCKED by the gap at sequence 2).",
   "trust": {
     "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
     "keys": [

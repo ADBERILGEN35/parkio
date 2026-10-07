@@ -4,9 +4,13 @@ import com.parkio.platform.messaging.EventEnvelope;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -176,5 +180,38 @@ class AuthOutboxRelayTest {
     private static String headerValue(ProducerRecord<String, Object> record, String key) {
         Header header = record.headers().lastHeader(key);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+    }
+
+    // PR #295 review N11: in the recovery-replay command context the relay publishes only the
+    // named attempt's replay commands, and nothing before the command names the attempt.
+
+    @Test
+    void underTheRecoveryProfileNothingIsPublishedBeforeTheAttemptIsNamed() {
+        AuthOutboxRelay recovery = new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(),
+                new RecoveryReplayOutboxScope(), 100, 5000L, 3);
+
+        recovery.publishPending();
+
+        verify(outbox, never()).findUnpublishedBatchForUpdate(anyInt());
+        verify(outbox, never()).findUnpublishedAttemptBatchForUpdate(anyString(), anyString(), anyInt());
+        verifyNoInteractions(kafkaTemplate);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void underTheRecoveryProfileOnlyTheAttemptsReplayCommandsAreClaimed() {
+        RecoveryReplayOutboxScope scope = new RecoveryReplayOutboxScope();
+        java.util.UUID attempt = java.util.UUID.randomUUID();
+        scope.limitTo(attempt);
+        AuthOutboxRelay recovery = new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(),
+                scope, 100, 5000L, 3);
+        when(outbox.findUnpublishedAttemptBatchForUpdate("UserErasureRestoreReplayRequested", attempt.toString(), 100))
+                .thenReturn(List.of());
+
+        recovery.publishPending();
+
+        verify(outbox).findUnpublishedAttemptBatchForUpdate("UserErasureRestoreReplayRequested", attempt.toString(), 100);
+        verify(outbox, never()).findUnpublishedBatchForUpdate(anyInt());
+        verifyNoInteractions(kafkaTemplate);
     }
 }

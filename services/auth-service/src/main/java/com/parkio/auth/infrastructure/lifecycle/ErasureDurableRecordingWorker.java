@@ -4,6 +4,7 @@ import com.parkio.auth.application.AccountErasureApplicationService;
 import com.parkio.auth.application.ErasureDurableWorkerClaim;
 import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.infrastructure.persistence.ErasureDurableWorkerRepository;
+import com.parkio.auth.infrastructure.recovery.RecoveryReplayLaunch;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -13,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +26,9 @@ import org.springframework.stereotype.Component;
  * instance cannot overwrite a newer claim or terminal state.
  */
 @Component
+// Not in the recovery-replay command context (PR #295 review B5): a restored copy never writes
+// into the real evidence store.
+@Profile("!" + RecoveryReplayLaunch.PROFILE)
 public class ErasureDurableRecordingWorker {
 
     private static final Logger log = LoggerFactory.getLogger(ErasureDurableRecordingWorker.class);

@@ -1,0 +1,25 @@
+{
+  "description": "A signed frontier at 0 and no objects: an empty set, verified through sequence 0.",
+  "result": {
+    "entries": [],
+    "erasureSetDigest": "5c9870509d74ef48fdc2ca09a3a9429b3f4797e2dd960036e641244a31e21655",
+    "frontierVersion": "v-0001",
+    "ignoredFrontierVersions": 0,
+    "latestTrustedCheckpoint": null,
+    "statement": "erasure coverage verified through sequence 0 (frontier version v-0001)",
+    "verifiedThroughSequence": 0
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}

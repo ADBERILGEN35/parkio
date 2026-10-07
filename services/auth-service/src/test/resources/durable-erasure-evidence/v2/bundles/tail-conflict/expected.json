@@ -1,0 +1,19 @@
+{
+  "description": "Record 4 above the checkpoint names a user the checkpoint already holds with another erasure time: refused.",
+  "result": {
+    "error": "conflicting erasedAt for one user in the trusted erasure set"
+  },
+  "trust": {
+    "databaseIdentity": "postgresql:7000000000000000001:parkio_auth",
+    "keys": [
+      {
+        "keyId": "interop-fixture-key-2026a",
+        "notAfter": null,
+        "notBefore": "2026-01-01T00:00:00Z",
+        "producerId": "interop-fixture-producer",
+        "retired": false
+      }
+    ]
+  },
+  "verifiedAt": "2026-10-01T00:00:00Z"
+}
