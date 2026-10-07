@@ -102,6 +102,34 @@ class ClientIpResolverTest {
         assertThat(ip).isEqualTo("172.18.0.5");
     }
 
+    /**
+     * CL-F15. Under server.forward-headers-strategy=framework (hosted-beta) Spring's
+     * ForwardedHeaderTransformer replaces the peer with an unresolved address built from the first
+     * X-Forwarded-For entry and removes the header. The resolver must read that host string as an IP
+     * literal; before the fix it returned null and every client shared the "unknown" bucket.
+     */
+    @Test
+    void unresolvedPeerFromTheForwardedHeaderTransformerIsTheClient() {
+        MockServerHttpRequest original = request("172.18.0.2", "198.51.100.7");
+        var transformed = new org.springframework.web.server.adapter.ForwardedHeaderTransformer().apply(original);
+        assertThat(transformed.getRemoteAddress()).isNotNull();
+        assertThat(transformed.getRemoteAddress().isUnresolved()).isTrue();
+
+        assertThat(resolver.resolve(transformed)).isEqualTo("198.51.100.7");
+        assertThat(new ClientIpResolver(List.of()).resolve(transformed)).isEqualTo("198.51.100.7");
+    }
+
+    @Test
+    void unresolvedPeerIsParsedAsALiteralNeverLookedUp() {
+        MockServerHttpRequest ipv6 = MockServerHttpRequest.post("/api/v1/auth/login")
+                .remoteAddress(InetSocketAddress.createUnresolved("2001:db8::1", 443)).build();
+        assertThat(resolver.resolve(ipv6)).isEqualTo("2001:db8:0:0:0:0:0:1");
+
+        MockServerHttpRequest hostname = MockServerHttpRequest.post("/api/v1/auth/login")
+                .remoteAddress(InetSocketAddress.createUnresolved("evil.example.com", 443)).build();
+        assertThat(resolver.resolve(hostname)).isNull();
+    }
+
     private static MockServerHttpRequest request(String remoteIp, String forwardedFor) {
         return MockServerHttpRequest
                 .post("/api/v1/auth/login")

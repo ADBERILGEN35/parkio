@@ -174,9 +174,15 @@ public class AuthApplicationService {
 
     public AuthResult login(LoginCommand command) {
         String email = AuthUser.normalizeEmail(command.email());
+        String clientKey = command.clientKey() == null || command.clientKey().isBlank()
+                ? LoginFailureTracker.UNKNOWN_CLIENT
+                : command.clientKey();
         Instant now = clock.instant();
-        if (loginFailures.isLocked(email, now)) {
-            log.warn("Login blocked by account lockout; emailHash={}", Integer.toHexString(email.hashCode()));
+        Duration wait = loginFailures.retryAfter(email, clientKey, now);
+        if (!wait.isZero()) {
+            log.warn("Login throttled; emailHash={}, clientHash={}, retryAfterSeconds={}",
+                    Integer.toHexString(email.hashCode()), Integer.toHexString(clientKey.hashCode()),
+                    wait.toSeconds());
             throw new LoginLockedException();
         }
 
@@ -191,19 +197,21 @@ public class AuthApplicationService {
             passwordMatches = passwordHasher.matches(command.rawPassword(), user.passwordHash());
         }
         if (!passwordMatches) {
-            LoginFailureTracker.LoginFailureOutcome outcome = loginFailures.recordFailure(email, now);
-            if (outcome.lockoutApplied()) {
+            LoginFailureTracker.LoginFailureOutcome outcome = loginFailures.recordFailure(email, clientKey, now);
+            if (outcome.throttled()) {
                 log.warn(
-                        "Login account lockout applied; emailHash={}, failures={}, lockedUntil={}",
+                        "Login throttle applied; emailHash={}, clientHash={}, pairFailures={}, accountFailures={}, retryAt={}",
                         Integer.toHexString(email.hashCode()),
-                        outcome.failureCount(),
-                        outcome.lockedUntil());
+                        Integer.toHexString(clientKey.hashCode()),
+                        outcome.pairFailures(),
+                        outcome.accountFailures(),
+                        outcome.retryAt());
                 throw new LoginLockedException();
             }
             throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
         }
         user.ensureCanAuthenticate();
-        loginFailures.reset(email);
+        loginFailures.clearAfterSuccess(email, clientKey);
 
         return issueTokens(user, null);
     }
@@ -306,6 +314,9 @@ public class AuthApplicationService {
         passwordResetTokens.save(resetToken);
         int revoked = refreshTokens.revokeAllActiveForUser(
                 user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
+        // The account's owner proved control of the mailbox and chose a new password: the
+        // failures counted against the old one, from every client, no longer say anything (CL-F15).
+        loginFailures.clearAccount(user.email());
         log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
     }

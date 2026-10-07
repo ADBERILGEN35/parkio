@@ -425,14 +425,21 @@ out on deploy.
 
 ## Auth brute-force and password hardening
 
-Sprint 2 adds auth-service account-level brute-force protection on top of the
-gateway's Redis token-bucket limits. Failed login attempts are tracked in Redis
-by normalized email so protection works across multiple auth-service instances:
-5 failures locks the account key for 30 seconds, 10 failures for 5 minutes, and
-20 failures for 1 hour. Successful login clears the account counter. Client
-responses for wrong password, unknown email and lockout stay the same generic
-`INVALID_CREDENTIALS` shape; logs and Micrometer counters distinguish failures
-and lockouts internally.
+Sprint 2 added auth-service brute-force protection on top of the gateway's Redis
+token-bucket limits; CL-F15 (2026-10-07) replaced its e-mail-only hard lock with
+client-keyed throttling, see [login-throttling.md](login-throttling.md). Failed
+login attempts are tracked in Redis per (normalized email, client) so protection
+works across auth-service instances and so that an attacker who knows an e-mail
+cannot lock its owner out: 5 failures from one client delay that client 30 seconds,
+10 failures 5 minutes, 20 failures 1 hour, while other clients of the same account
+are unaffected. Once 50 failures from any clients accumulate within an hour, every
+client of the account waits a short 10-second soft delay per further failure, never
+more. The client is the gateway-resolved IP (`X-Parkio-Client-Ip`), trusted only on
+gateway-authenticated requests. A successful login clears that client's counter and
+the account-wide one; a password reset clears every client's. Client responses for
+wrong password, unknown email and a throttled attempt stay the same generic
+`INVALID_CREDENTIALS` shape; logs and the `login_lockouts` counter (now counting
+throttled attempts) distinguish them internally.
 
 Registration now enforces a 12-character minimum with at least one lowercase
 letter, one uppercase letter and one digit, plus a maintainable deny-list for

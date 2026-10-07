@@ -42,6 +42,7 @@ import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.domain.event.UserRegisteredEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.config.RegistrationProperties;
 import java.time.Clock;
 import java.time.Duration;
@@ -78,6 +79,11 @@ class AuthApplicationServiceTest {
     private FakeInboxEventRepository inbox;
     private FakePasswordHasher passwordHasher;
     private FakeRefreshTokenHasher refreshTokenHasher;
+    /** The gateway-resolved client IP the legitimate user logs in from. */
+    private static final String CLIENT = "198.51.100.7";
+    /** Another client: an attacker, or the same user on another network. */
+    private static final String OTHER_CLIENT = "203.0.113.9";
+
     private FakeLoginFailureTracker loginFailures;
     private FakeVerificationResendLimiter verificationResendLimiter;
     private FakePasswordResetLimiter passwordResetLimiter;
@@ -214,7 +220,7 @@ class AuthApplicationServiceTest {
     void loginSucceedsWithCorrectPassword() {
         registerVerified("user@example.com");
 
-        AuthResult result = service.login(new LoginCommand("USER@example.com", VALID_PASSWORD));
+        AuthResult result = service.login(new LoginCommand("USER@example.com", VALID_PASSWORD, CLIENT));
         RefreshToken token = refreshTokens.findByTokenHash(refreshTokenHasher.hash(result.refreshToken()))
                 .orElseThrow();
 
@@ -229,7 +235,7 @@ class AuthApplicationServiceTest {
     void loginRejectsWrongPassword() {
         registerVerified("user@example.com");
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", CLIENT)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
@@ -237,7 +243,7 @@ class AuthApplicationServiceTest {
 
     @Test
     void loginRejectsUnknownEmail() {
-        assertThatThrownBy(() -> service.login(new LoginCommand("nobody@example.com", VALID_PASSWORD)))
+        assertThatThrownBy(() -> service.login(new LoginCommand("nobody@example.com", VALID_PASSWORD, CLIENT)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
@@ -246,54 +252,168 @@ class AuthApplicationServiceTest {
     }
 
     @Test
-    void loginLocksAccountAfterFiveFailuresWithGenericError() {
+    void loginThrottlesTheClientAfterFiveFailuresWithGenericError() {
         registerVerified("user@example.com");
 
         for (int i = 0; i < 4; i++) {
-            assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password")))
+            assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password", CLIENT)))
                     .isInstanceOf(AuthException.class)
                     .extracting(e -> ((AuthException) e).errorCode())
                     .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password")))
-                .isInstanceOf(AuthException.class)
+        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", "wrong-password", CLIENT)))
+                .isInstanceOf(LoginLockedException.class)
                 .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
-        assertThat(loginFailures.isLocked("user@example.com", NOW)).isTrue();
+        assertThat(loginFailures.retryAfter("user@example.com", CLIENT, NOW)).isEqualTo(Duration.ofSeconds(30));
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", VALID_PASSWORD)))
-                .isInstanceOf(AuthException.class)
+        // Even the right password is refused while the pair waits, with the same generic shape.
+        assertThatThrownBy(() -> service.login(new LoginCommand("USER@example.com", VALID_PASSWORD, CLIENT)))
+                .isInstanceOf(LoginLockedException.class)
                 .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        // The refused attempt is not another failure: retrying during the wait does not escalate the tier.
+        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isEqualTo(5);
+    }
+
+    /** CL-F15 acceptance: attacker failures from one client do not lock the user on another client. */
+    @Test
+    void failuresFromAnotherClientDoNotThrottleTheUser() {
+        registerVerified("user@example.com");
+        for (int i = 0; i < 20; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofHours(1));
+
+        AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
+
+        assertThat(result.accessToken()).isNotBlank();
+        // The user's success clears the account-wide counter, not the attacker's own pair.
+        assertThat(loginFailures.accountFailureCount("user@example.com")).isZero();
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofHours(1));
+    }
+
+    /** CL-F15 acceptance: brute force from one client is still throttled, progressively. */
+    @Test
+    void bruteForceFromOneClientIsThrottledProgressively() {
+        registerVerified("user@example.com");
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofSeconds(30));
+        for (int i = 5; i < 10; i++) {
+            clock.advance(Duration.ofSeconds(31));
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, clock.instant()))
+                .isEqualTo(Duration.ofMinutes(5));
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD, OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+    }
+
+    /** Clients behind one shared address share a pair per account, and only per account. */
+    @Test
+    void sharedNatClientsShareOneBucketPerAccountOnly() {
+        registerVerified("user@example.com");
+        registerVerified("neighbour@example.com");
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", CLIENT)))
+                    .isInstanceOf(AuthException.class);
+        }
+
+        // Same account from the same address: throttled together (accepted residual, P3).
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+        // Another account from the same address: unaffected.
+        assertThat(service.login(new LoginCommand("neighbour@example.com", VALID_PASSWORD, CLIENT)).accessToken())
+                .isNotBlank();
+    }
+
+    /** The account-wide soft cap delays every client briefly; it never locks. */
+    @Test
+    void accountSoftCapDelaysEveryClientBrieflyButNeverLocks() {
+        registerVerified("user@example.com");
+        // 50 failures spread over 13 clients: no single client reaches its 5-failure tier.
+        for (int i = 0; i < 50; i++) {
+            String client = "203.0.113." + (10 + i / 4);
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", CLIENT, clock.instant()))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY);
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+
+        clock.advance(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY.plusSeconds(1));
+
+        assertThat(service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)).accessToken()).isNotBlank();
+    }
+
+    /** CL-F15 acceptance: a password reset clears every client's counters for the account. */
+    @Test
+    void passwordResetClearsEveryClientsCounters() {
+        registerVerified("reset@example.com");
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("reset@example.com", "wrong-password", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(loginFailures.retryAfter("reset@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ofSeconds(30));
+
+        service.forgotPassword(new ForgotPasswordCommand("reset@example.com"));
+        String rawToken = passwordResetEmailSender.tokenFor("reset@example.com");
+        service.resetPassword(new ResetPasswordCommand(rawToken, "FreshStrong123"));
+
+        assertThat(loginFailures.retryAfter("reset@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ZERO);
+        assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isZero();
+        assertThat(loginFailures.accountFailureCount("reset@example.com")).isZero();
+        assertThat(service.login(new LoginCommand("reset@example.com", "FreshStrong123", OTHER_CLIENT)).accessToken())
+                .isNotBlank();
+    }
+
+    /** A request without a client key uses the shared unknown-client pair. */
+    @Test
+    void missingClientKeyFallsBackToTheSharedUnknownBucket() {
+        registerVerified("user@example.com");
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", null)))
+                .isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", " ")))
+                .isInstanceOf(AuthException.class);
+
+        assertThat(loginFailures.failureCount("user@example.com", LoginFailureTracker.UNKNOWN_CLIENT)).isEqualTo(2);
     }
 
     @Test
-    void loginLockExpires() {
+    void loginThrottleDelayExpires() {
         registerVerified("user@example.com");
         for (int i = 0; i < 5; i++) {
-            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
+            assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", CLIENT)))
                     .isInstanceOf(AuthException.class);
         }
 
         clock.advance(Duration.ofSeconds(31));
 
-        AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
         assertThat(result.accessToken()).isNotBlank();
     }
 
     @Test
-    void successfulLoginResetsFailureCounter() {
+    void successfulLoginResetsThisClientsFailureCounter() {
         registerVerified("user@example.com");
-        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password")))
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", CLIENT)))
                 .isInstanceOf(AuthException.class);
-        assertThat(loginFailures.failureCount("user@example.com")).isEqualTo(1);
+        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isEqualTo(1);
+        assertThat(loginFailures.accountFailureCount("user@example.com")).isEqualTo(1);
 
-        service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
 
-        assertThat(loginFailures.failureCount("user@example.com")).isZero();
+        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isZero();
+        assertThat(loginFailures.accountFailureCount("user@example.com")).isZero();
     }
 
     @Test
@@ -312,7 +432,7 @@ class AuthApplicationServiceTest {
     void loginBeforeEmailVerificationIsBlockedWithoutIssuingTokens() {
         service.register(new RegisterCommand("pending@example.com", VALID_PASSWORD));
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("pending@example.com", VALID_PASSWORD)))
+        assertThatThrownBy(() -> service.login(new LoginCommand("pending@example.com", VALID_PASSWORD, CLIENT)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.ACCOUNT_NOT_VERIFIED);
@@ -335,7 +455,7 @@ class AuthApplicationServiceTest {
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_VERIFICATION_TOKEN);
-        assertThat(service.login(new LoginCommand("verify@example.com", VALID_PASSWORD)).accessToken()).isNotBlank();
+        assertThat(service.login(new LoginCommand("verify@example.com", VALID_PASSWORD, CLIENT)).accessToken()).isNotBlank();
     }
 
     @Test
@@ -528,7 +648,7 @@ class AuthApplicationServiceTest {
                 passwordHasher.hash(VALID_PASSWORD), AuthUserStatus.SUSPENDED, null, Set.of(USER_ROLE), NOW, 0L);
         authUsers.save(suspended);
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("banned@example.com", VALID_PASSWORD)))
+        assertThatThrownBy(() -> service.login(new LoginCommand("banned@example.com", VALID_PASSWORD, CLIENT)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
@@ -777,7 +897,7 @@ class AuthApplicationServiceTest {
     @Test
     void logoutAllRevokesEveryFamilyAndBumpsSessionEpoch() {
         AuthResult first = registerVerifiedAndLogin("user@example.com");
-        AuthResult second = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        AuthResult second = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
         UUID userId = first.user().id();
         long before = service.sessionEpoch(userId);
 
@@ -807,7 +927,7 @@ class AuthApplicationServiceTest {
     @Test
     void userSuspendedEventSetsStatusSuspendedAndRevokesActiveRefreshTokens() {
         AuthResult session = registerVerifiedAndLogin("user@example.com");
-        AuthResult secondSession = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        AuthResult secondSession = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
         UUID userId = session.user().id();
 
         UserSuspendedEvent suspend = suspendedEvent(userId, NOW);
@@ -830,7 +950,7 @@ class AuthApplicationServiceTest {
         AuthResult session = registerVerifiedAndLogin("user@example.com");
         service.handleUserSuspended(suspendedEvent(session.user().id(), NOW));
 
-        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD)))
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)))
                 .isInstanceOf(AuthException.class)
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.USER_NOT_ACTIVE);
@@ -877,7 +997,7 @@ class AuthApplicationServiceTest {
 
         assertThat(authUsers.findById(userId).orElseThrow().status()).isEqualTo(AuthUserStatus.ACTIVE);
         // Login works again...
-        AuthResult fresh = service.login(new LoginCommand("user@example.com", VALID_PASSWORD));
+        AuthResult fresh = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
         assertThat(fresh.accessToken()).isNotBlank();
         // ...but the pre-suspension refresh token stays revoked.
         assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(session.refreshToken())))
@@ -935,7 +1055,7 @@ class AuthApplicationServiceTest {
 
     private AuthResult registerVerifiedAndLogin(String email) {
         registerVerified(email);
-        return service.login(new LoginCommand(email, VALID_PASSWORD));
+        return service.login(new LoginCommand(email, VALID_PASSWORD, CLIENT));
     }
 
     // --- Fakes -----------------------------------------------------------
@@ -1282,56 +1402,66 @@ class AuthApplicationServiceTest {
         }
     }
 
-    private static final class FakeLoginFailureTracker implements LoginFailureTracker {
-        private final Map<String, Long> failures = new HashMap<>();
-        private final Map<String, Instant> lockedUntil = new HashMap<>();
+    /** In-memory tracker with the production tiers ({@link LoginThrottlePolicy}), keyed like the Redis one. */
+    static final class FakeLoginFailureTracker implements LoginFailureTracker {
+        private final Map<String, Long> pairFailures = new HashMap<>();
+        private final Map<String, Instant> pairWaitUntil = new HashMap<>();
+        private final Map<String, Long> accountFailures = new HashMap<>();
+        private final Map<String, Instant> accountWaitUntil = new HashMap<>();
 
         @Override
-        public boolean isLocked(String normalizedEmail, Instant now) {
-            Instant until = lockedUntil.get(normalizedEmail);
-            if (until == null) {
-                return false;
-            }
-            if (now.isBefore(until)) {
-                return true;
-            }
-            lockedUntil.remove(normalizedEmail);
-            return false;
+        public Duration retryAfter(String normalizedEmail, String clientKey, Instant now) {
+            return LoginThrottlePolicy.max(
+                    remaining(pairWaitUntil.get(pair(normalizedEmail, clientKey)), now),
+                    remaining(accountWaitUntil.get(normalizedEmail), now));
         }
 
         @Override
-        public LoginFailureOutcome recordFailure(String normalizedEmail, Instant now) {
-            long count = failures.merge(normalizedEmail, 1L, Long::sum);
-            Duration lockDuration = lockDurationFor(count);
-            if (lockDuration.isZero()) {
-                return new LoginFailureOutcome(count, false, null);
+        public LoginFailureOutcome recordFailure(String normalizedEmail, String clientKey, Instant now) {
+            long pairCount = pairFailures.merge(pair(normalizedEmail, clientKey), 1L, Long::sum);
+            long accountCount = accountFailures.merge(normalizedEmail, 1L, Long::sum);
+            Duration pairDelay = LoginThrottlePolicy.pairDelay(pairCount);
+            if (!pairDelay.isZero()) {
+                pairWaitUntil.put(pair(normalizedEmail, clientKey), now.plus(pairDelay));
             }
-            Instant until = now.plus(lockDuration);
-            lockedUntil.put(normalizedEmail, until);
-            return new LoginFailureOutcome(count, true, until);
+            Duration accountDelay = LoginThrottlePolicy.accountDelay(accountCount);
+            if (!accountDelay.isZero()) {
+                accountWaitUntil.put(normalizedEmail, now.plus(accountDelay));
+            }
+            Duration delay = LoginThrottlePolicy.max(pairDelay, accountDelay);
+            return new LoginFailureOutcome(pairCount, accountCount, delay, delay.isZero() ? null : now.plus(delay));
         }
 
         @Override
-        public void reset(String normalizedEmail) {
-            failures.remove(normalizedEmail);
-            lockedUntil.remove(normalizedEmail);
+        public void clearAfterSuccess(String normalizedEmail, String clientKey) {
+            pairFailures.remove(pair(normalizedEmail, clientKey));
+            pairWaitUntil.remove(pair(normalizedEmail, clientKey));
+            accountFailures.remove(normalizedEmail);
+            accountWaitUntil.remove(normalizedEmail);
         }
 
-        long failureCount(String normalizedEmail) {
-            return failures.getOrDefault(normalizedEmail, 0L);
+        @Override
+        public void clearAccount(String normalizedEmail) {
+            pairFailures.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
+            pairWaitUntil.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
+            accountFailures.remove(normalizedEmail);
+            accountWaitUntil.remove(normalizedEmail);
         }
 
-        private static Duration lockDurationFor(long failures) {
-            if (failures >= 20) {
-                return Duration.ofHours(1);
-            }
-            if (failures >= 10) {
-                return Duration.ofMinutes(5);
-            }
-            if (failures >= 5) {
-                return Duration.ofSeconds(30);
-            }
-            return Duration.ZERO;
+        long failureCount(String normalizedEmail, String clientKey) {
+            return pairFailures.getOrDefault(pair(normalizedEmail, clientKey), 0L);
+        }
+
+        long accountFailureCount(String normalizedEmail) {
+            return accountFailures.getOrDefault(normalizedEmail, 0L);
+        }
+
+        private static String pair(String normalizedEmail, String clientKey) {
+            return normalizedEmail + "|" + clientKey;
+        }
+
+        private static Duration remaining(Instant until, Instant now) {
+            return until == null || !now.isBefore(until) ? Duration.ZERO : Duration.between(now, until);
         }
     }
 

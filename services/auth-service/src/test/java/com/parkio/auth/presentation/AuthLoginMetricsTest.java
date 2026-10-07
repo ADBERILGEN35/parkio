@@ -19,6 +19,7 @@ import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
+import com.parkio.auth.infrastructure.web.ClientIdentityResolver;
 import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
 import com.parkio.auth.presentation.dto.LoginRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -39,7 +40,7 @@ class AuthLoginMetricsTest {
     private final AuthApplicationService authService = mock(AuthApplicationService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final AuthController controller = new AuthController(
-            authService, new AuthMetrics(registry), refreshCookieProperties(), Runnable::run);
+            authService, new AuthMetrics(registry), refreshCookieProperties(), Runnable::run, new ClientIdentityResolver());
 
     @Test
     void successfulLoginIncrementsSuccessCounter() {

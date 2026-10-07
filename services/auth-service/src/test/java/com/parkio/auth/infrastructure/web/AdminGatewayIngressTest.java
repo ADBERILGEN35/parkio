@@ -29,5 +29,8 @@ class AdminGatewayIngressTest {
         filter.doFilter(request, response, (ignoredRequest, ignoredResponse) -> reachedController.set(true));
         assertThat(reachedController.get()).isEqualTo(forwarded);
         if (!forwarded) assertThat(response.getStatus()).isEqualTo(401);
+        // CL-F15: only a request that passed the secret check is marked gateway-authenticated.
+        assertThat(Boolean.TRUE.equals(request.getAttribute(GatewayAuthFilter.GATEWAY_AUTHENTICATED_ATTRIBUTE)))
+                .isEqualTo(forwarded);
     }
 }
