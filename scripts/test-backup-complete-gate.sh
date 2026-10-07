@@ -151,6 +151,13 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   cmd="$*"
+  if [[ -n "${FAKE_PG_PREFIX:-}" && ( "${cmd}" == *to_regclass* || "${cmd}" == *json_agg* ) ]]; then
+    printf '%s\n' "${container}" >> "${FAKE_LEDGER_LOG:-/dev/null}"
+    if [[ "${container}" != "${FAKE_PG_PREFIX}-postgres-auth" ]]; then
+      echo "Error response from daemon: No such container: ${container}" >&2
+      exit 1
+    fi
+  fi
   if [[ "${cmd}" == *to_regclass* ]]; then
     case "${FAKE_LEDGER:-ok}" in
       absent) echo ""; exit 0 ;;
@@ -788,6 +795,22 @@ if [ "${rc}" -ne 0 ]; then
 else
   bad "standalone malformed ledger must not succeed"
 fi
+
+# --- a prefixed project exports the ledger from its own auth container ---
+# Outside production mode, a missing container used to give an empty ledger and a sealed stamp.
+reset_fakes
+export FAKE_PG_PREFIX=parkio-rd-test-primary PARKIO_PG_CONTAINER_PREFIX=parkio-rd-test-primary
+export FAKE_LEDGER_LOG="${WORK}/ledger-containers.log"
+case_dbprefix="${WORK}/db-only-prefix"
+rc=0
+BACKUP_PRODUCTION_MODE=0 run_db_only "${case_dbprefix}" || rc=$?
+read_from="$(sort -u "${FAKE_LEDGER_LOG}" 2>/dev/null | paste -sd, -)"
+if [ "${rc}" -eq 0 ] && [ "${read_from}" = "parkio-rd-test-primary-postgres-auth" ]; then
+  ok "a prefixed project reads the erasure ledger from its own auth container"
+else
+  bad "the ledger must come from the prefixed auth container (rc=${rc}, read from ${read_from:-nothing})"
+fi
+unset FAKE_PG_PREFIX PARKIO_PG_CONTAINER_PREFIX FAKE_LEDGER_LOG
 
 # --- offsite failure is not offsite success ---
 reset_fakes
