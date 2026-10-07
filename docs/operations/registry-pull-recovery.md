@@ -82,15 +82,16 @@ On the new host, before the "Full host rebuild" steps of the
 ```bash
 git clone https://github.com/ADBERILGEN35/parkio.git /opt/parkio && cd /opt/parkio
 git checkout <release SHA>                     # the pins of that release are the inventory
-umask 077 && printf '%s' '<token>' > /root/.parkio-ghcr-token   # from the secrets store, never on a command line
-docker login ghcr.io -u '<user>' --password-stdin < /root/.parkio-ghcr-token
-shred -u /root/.parkio-ghcr-token
+IFS= read -r -s -p "GHCR read token: " token   # typed or pasted from the secrets store; never an argument, never in history
+printf '%s' "$token" | docker login ghcr.io -u '<user>' --password-stdin
+unset token
 scripts/registry-recovery-images.sh pull       # every pin pulled, digest and linux/amd64 verified
 docker logout ghcr.io                          # the deployment wrapper does its own login if it needs one
 ```
 
-`pull` prints one line per image and a final `N/N images pulled with the pinned digest on
-linux/amd64` line; any failure makes it exit non-zero. It never prints the credential.
+`pull` prints one line per image (and the registry's reason when one fails) and a final `N/N images
+pulled with the pinned digest on linux/amd64` line; any failure makes it exit non-zero. It never
+prints the credential.
 
 ## Proof in CI
 
@@ -99,7 +100,7 @@ Workflow `.github/workflows/registry-pull-recovery.yml` has no `packages` permis
 | Job | Runs on | Proves |
 |---|---|---|
 | `script-tests` | pull requests touching the pins, the script or this document; dispatch | the inventory and the pull check behave (fixtures and a fake docker; mutable pins refused; wrong digest or platform refused; `--expect-denied` semantics) and prints the current inventory |
-| `scope-less-token-denied` | same | a `GITHUB_TOKEN` without `read:packages` cannot pull any inventory image (`pull --expect-denied` passes only when every pull is refused) |
+| `scope-less-token-denied` | same | a `GITHUB_TOKEN` without `read:packages` cannot pull any inventory image: after a public control pull proves the registry answers, `pull --expect-denied` passes only when the registry refuses every pull for lack of access (its error text says denied, unauthorized or forbidden); a network or daemon failure fails the job instead of passing as a denial |
 | `custody-credential-pull` | `workflow_dispatch` only | a fresh `ubuntu-latest` runner, logged in with nothing but the recovery credential, pulls every inventory digest and verifies digest and platform. Without the two secrets it stops with `BLOCKED — RECOVERY REGISTRY CREDENTIAL NOT CONFIGURED` (exit 2) |
 
 The dated acceptance for this document is a green `custody-credential-pull` run after the

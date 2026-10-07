@@ -7,6 +7,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/scripts/registry-recovery-images.sh"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/parkio-registry-recovery.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# Never write fixture rows into a real GitHub job summary.
+export GITHUB_STEP_SUMMARY="$TMP/summary.md"
 PASS=0
 FAIL=0
 ok() { echo "PASS $1"; PASS=$((PASS + 1)); }
@@ -67,7 +69,7 @@ FIX
 # ---- list ----
 make_fixture "$TMP/good"
 expected="$(printf '%s\n' "$AUTH" "$MC" "$MINIO" "$WEB" | sort -u)"
-actual="$("$SCRIPT" list --root "$TMP/good")"
+actual="$("$SCRIPT" list --root "$TMP/good" 2>"$TMP/good.err" || true)"
 if [ "$actual" = "$expected" ]; then ok "list: digest pins from the file set plus MinIO, deduplicated, comments and build-only services ignored"; else bad "list output differs"; printf '%s\n' "$actual"; fi
 if ! printf '%s\n' "$actual" | grep -q 9999999999; then ok "list: rollback digest in a comment is not inventory"; else bad "list: rollback comment digest leaked into the inventory"; fi
 
@@ -95,7 +97,8 @@ fi
 
 # ---- pull, against a fake docker ----
 # The fake reads its behaviour from FAKE_DOCKER_MODE: allow (pull ok, digest and platform right),
-# deny (every pull fails), wrongdigest (the pulled image carries another digest), arm64.
+# deny (every pull is refused by the registry), wrongdigest (the pulled image carries another
+# digest), arm64, network (every pull fails without a denial), noinspect (pull ok, inspect fails).
 FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/docker" <<'FAKE'
@@ -105,9 +108,11 @@ mode="${FAKE_DOCKER_MODE:-allow}"
 echo "$*" >> "${FAKE_DOCKER_LOG:?}"
 case "$1 $2" in
   "pull --quiet")
-    [ "$mode" = deny ] && { echo "Error response from daemon: denied" >&2; exit 1; }
+    [ "$mode" = deny ] && { echo "Error response from daemon: Head \"https://ghcr.io/v2/x/manifests/sha256:0\": denied: denied" >&2; exit 1; }
+    [ "$mode" = network ] && { echo "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host" >&2; exit 1; }
     exit 0 ;;
   "image inspect")
+    [ "$mode" = noinspect ] && { echo "Error: No such image" >&2; exit 1; }
     fmt="$4"; ref="$5"
     case "$fmt" in
       *RepoDigests*)
@@ -148,16 +153,27 @@ if run_pull deny --expect-denied; then
   if [ "$(grep -c '^OK denied' "$TMP/pull.out")" = 4 ] && grep -q '4/4 pulls denied' "$TMP/pull.out"; then ok "pull --expect-denied: every refused pull passes"; else bad "pull --expect-denied: unexpected output"; cat "$TMP/pull.out"; fi
 else bad "pull --expect-denied failed with a denying registry"; cat "$TMP/pull.out"; fi
 
+if run_pull network --expect-denied; then bad "pull --expect-denied: a network failure passed as a denial"; else
+  if grep -q 'not because access was denied' "$TMP/pull.out" && grep -q 'no such host' "$TMP/pull.out"; then ok "pull --expect-denied: a failure that is not a denial fails the check and names the reason"; else bad "pull --expect-denied: unexpected network output"; cat "$TMP/pull.out"; fi
+fi
+
+if run_pull network; then bad "pull: a network failure reported success"; else
+  if grep -q 'could not pull .*no such host' "$TMP/pull.out"; then ok "pull: a failed pull prints the registry's reason"; else bad "pull: network reason missing"; cat "$TMP/pull.out"; fi
+fi
+
+if run_pull noinspect; then bad "pull: an uninspectable image was accepted"; else
+  if grep -q 'could not inspect it' "$TMP/pull.out" && grep -q '0/4 images pulled' "$TMP/pull.out"; then ok "pull: an inspect failure fails the image and keeps the final count"; else bad "pull: inspect failure output"; cat "$TMP/pull.out"; fi
+fi
+
 if run_pull allow --expect-denied; then bad "pull --expect-denied: a successful pull passed"; else
   if grep -q 'although this credential must have no read access' "$TMP/pull.out"; then ok "pull --expect-denied: a credential that can pull fails the check"; else bad "pull --expect-denied: unexpected output"; cat "$TMP/pull.out"; fi
 fi
 
-export GITHUB_STEP_SUMMARY="$TMP/summary.md"
 : > "$GITHUB_STEP_SUMMARY"
 if run_pull allow && [ "$(grep -c 'pulled, digest verified' "$GITHUB_STEP_SUMMARY")" = 4 ]; then ok "pull: the job summary table lists every image"; else bad "pull: job summary missing rows"; fi
-unset GITHUB_STEP_SUMMARY
 
 if "$SCRIPT" 2>/dev/null; then bad "usage: no command was accepted"; else ok "usage: a missing command exits non-zero"; fi
+if "$SCRIPT" list --root 2>"$TMP/root.err"; then bad "usage: --root without a directory was accepted"; else grep -q -- '--root needs a directory' "$TMP/root.err" && ok "usage: --root without a directory is a usage error" || bad "usage: --root message"; fi
 
 echo
 echo "=== registry-recovery-images tests: pass=$PASS fail=$FAIL ==="

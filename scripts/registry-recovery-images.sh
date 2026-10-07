@@ -14,8 +14,9 @@
 #   registry-recovery-images.sh pull [--root DIR] [--expect-denied]
 #       `docker pull` every listed reference with the current docker login, then verify that the
 #       pulled image carries exactly that digest and is linux/amd64. With --expect-denied every
-#       pull must be refused instead (a credential without read access to the packages); exit 0
-#       only when all of them are.
+#       pull must be refused by the registry for lack of access (its error text says denied,
+#       unauthorized or forbidden); any other failure (network, daemon, unknown manifest) fails
+#       the check, so an outage cannot pass as a denial. Exit 0 only when all of them are denied.
 #
 # Reads only. Never prints a credential: it does not log in and does not read the docker config.
 set -euo pipefail
@@ -32,7 +33,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECT_DENIED=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --root) ROOT="$(cd "$2" && pwd)"; shift 2 ;;
+    --root) [ -n "${2:-}" ] || { echo "ERROR: --root needs a directory" >&2; usage; }; ROOT="$(cd "$2" && pwd)"; shift 2 ;;
     --expect-denied) EXPECT_DENIED=1; shift ;;
     -h|--help) usage ;;
     *) echo "ERROR: unknown argument '$1'" >&2; usage ;;
@@ -42,6 +43,8 @@ done
 FILE_SET="$ROOT/docker/compose.production.files"
 ENV_EXAMPLE="$ROOT/docker/.env.example"
 REGISTRY_RE='ghcr\.io/adberilgen35/parkio/[a-z0-9._-]+@sha256:[0-9a-f]{64}'
+# What a registry says when the credential may not read the package. Anything else is not a denial.
+DENIED_RE='denied|unauthorized|forbidden|permission_denied|authentication required'
 
 # strip_comment LINE -> the line without a trailing "# ..." comment.
 strip_comment() {
@@ -114,27 +117,37 @@ pull_images() {
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     total=$((total + 1))
+    local pull_err
     if [ "$EXPECT_DENIED" -eq 1 ]; then
-      if docker pull --quiet "$ref" >/dev/null 2>&1; then
+      if pull_err="$(docker pull --quiet "$ref" </dev/null 2>&1 >/dev/null)"; then
         echo "FAIL: pulled $ref although this credential must have no read access" >&2
         summary_row "$ref" "PULLED (unexpected)" "credential has read access"
         failed=$((failed + 1))
-      else
+      elif printf '%s\n' "$pull_err" | grep -qiE "$DENIED_RE"; then
         echo "OK denied: $ref"
         summary_row "$ref" "denied" "as expected"
         ok=$((ok + 1))
+      else
+        echo "FAIL: $ref was not pulled, but not because access was denied: $(printf '%s' "$pull_err" | tail -n 1)" >&2
+        summary_row "$ref" "FAILED for another reason" "$(printf '%s' "$pull_err" | tail -n 1 | cut -c1-120)"
+        failed=$((failed + 1))
       fi
       continue
     fi
-    if ! docker pull --quiet "$ref" >/dev/null 2>&1; then
-      echo "FAIL: could not pull $ref" >&2
-      summary_row "$ref" "pull FAILED" "-"
+    if ! pull_err="$(docker pull --quiet "$ref" </dev/null 2>&1 >/dev/null)"; then
+      echo "FAIL: could not pull $ref: $(printf '%s' "$pull_err" | tail -n 1)" >&2
+      summary_row "$ref" "pull FAILED" "$(printf '%s' "$pull_err" | tail -n 1 | cut -c1-120)"
       failed=$((failed + 1))
       continue
     fi
     local digests platform
-    digests="$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$ref")"
-    platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$ref")"
+    if ! digests="$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$ref" 2>/dev/null)" \
+       || ! platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$ref" 2>/dev/null)"; then
+      echo "FAIL: pulled $ref but could not inspect it" >&2
+      summary_row "$ref" "inspect FAILED" "-"
+      failed=$((failed + 1))
+      continue
+    fi
     if ! printf '%s\n' "$digests" | grep -qxF "$ref"; then
       echo "FAIL: pulled image does not carry the pinned digest: $ref (RepoDigests: $(printf '%s' "$digests" | tr '\n' ' '))" >&2
       summary_row "$ref" "digest MISMATCH" "$platform"

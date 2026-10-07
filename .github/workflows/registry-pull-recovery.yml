@@ -12,6 +12,7 @@ on:
       - "scripts/test-registry-recovery-images.sh"
       - "scripts/ci/ghcr-minio-login.sh"
       - "docker/compose.production.files"
+      - "docker/docker-compose.yml"
       - "docker/docker-compose.*release-pin*.yml"
       - "docker/docker-compose.gmp-release-pins.yml"
       - "docker/.env.example"
@@ -72,7 +73,12 @@ jobs:
             echo "login refused for a packages-less token; the pulls below run anonymously and must be denied"
           fi
 
-      - name: Every pinned private digest pull must be denied
+      - name: Registry reachable (public control image)
+        # A denial is only meaningful when the registry answers. This public image is a reachability
+        # probe, not an artifact; the private pulls below are judged by the registry's denial text.
+        run: docker pull --quiet ghcr.io/aquasecurity/trivy:latest >/dev/null
+
+      - name: Every pinned private digest pull must be denied by the registry
         run: bash scripts/registry-recovery-images.sh pull --expect-denied
 
       - name: Log out
