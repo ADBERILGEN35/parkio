@@ -11,7 +11,7 @@ import java.util.Set;
  * Registry of the consent texts a waitlist subscriber can accept (CL-F18). A submission names the
  * version it showed; the gateway accepts only versions registered here and stores the id with the
  * row, so the wording behind every recorded consent is reproducible. The texts are the marketing
- * site's checkbox labels verbatim; the marketing validation pins the same SHA-256 values, so the
+ * site's checkbox labels verbatim; the marketing node tests (web/marketing/waitlist.consent-version.test.mjs) pins the same SHA-256 values, so the
  * site and this registry cannot drift apart unnoticed. Registering a text here is not legal approval
  * of its wording.
  */
@@ -56,7 +56,7 @@ public final class WaitlistConsentText {
         return byLocale == null ? null : byLocale.get(locale);
     }
 
-    /** SHA-256 of the UTF-8 text, lower-case hex; the marketing validation pins the same values. */
+    /** SHA-256 of the UTF-8 text, lower-case hex; the marketing node tests (web/marketing/waitlist.consent-version.test.mjs) pins the same values. */
     public static String sha256(String text) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

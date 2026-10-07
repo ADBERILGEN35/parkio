@@ -180,7 +180,7 @@ All paths are relative to the base URL (which already contains `/api/v1`). 🔑 
 `GET /admin/dashboard` · `GET /admin/users` (+filters) · `GET /admin/users/{id}` · `POST /admin/users/{id}/suspend|reactivate|revoke-sessions|resend-verification` `{reason}` · `GET /admin/users/{id}/sessions` · `DELETE /admin/users/{id}/sessions/{sessionId}` · `POST /admin/users/{id}/roles` `{role, action: 'GRANT'\|'REVOKE', reason}` · `GET /admin/audit-events` (+filters) · `GET /admin/security/summary`
 
 ### Waitlist (public)
-`POST /waitlist` `{email, city?, role?: 'driver'|'tester'|'partner', consentTimestamp, source: 'parkio.dev-landing'}` → `{status: 'accepted'}`
+`POST /waitlist` `{email, fullName?, city?, role?: 'driver'|'tester'|'partner', consentTimestamp, consent: true, consentTextVersion: 'waitlist-consent-v1', source: 'parkio.dev-landing', locale?}` → `{status: 'accepted'}` (CL-F18: `consent` and a registered `consentTextVersion` are required unless the gateway runs `PARKIO_WAITLIST_CONSENT_REQUIRED=false`; 400 `WAITLIST_CONSENT_REQUIRED` / `WAITLIST_CONSENT_VERSION_INVALID`)
 
 ## 7. Key DTO shapes (exact field names)
 
@@ -433,7 +433,7 @@ export class ParkioClient {
   // ---------- waitlist (public) ----------
   joinWaitlist = (email: string, city?: string, role?: 'driver'|'tester'|'partner') =>
     this.send<{ status: string }>('POST', '/waitlist', {
-      body: { email, city, role, consentTimestamp: new Date().toISOString(), source: 'parkio.dev-landing' },
+      body: { email, city, role, consentTimestamp: new Date().toISOString(), consent: true, consentTextVersion: 'waitlist-consent-v1', source: 'parkio.dev-landing' },
     });
 }
 

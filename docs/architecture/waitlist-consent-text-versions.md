@@ -9,7 +9,9 @@ wording, and nothing here decides what may be sent to whom; those decisions stay
 - The marketing form sends `consent: true` and `consentTextVersion` (the id below) with the
   submission. The gateway accepts only ids registered here.
 - `waitlist_interest.consent_text_version` stores the id; `consent_timestamp` is the gateway's
-  receipt time of the consented submission (the authoritative consent time);
+  receipt time of the consented submission (the authoritative consent time) for every row recorded
+  since migration V3; rows older than V3 kept the client-asserted value there, so for
+  `legacy-unversioned` rows that predate V3 the exported time is the client's assertion.
   `client_consent_timestamp` keeps the client's skew-checked assertion.
 - `parkio.waitlist.consent-required` (default `true`) refuses a submission without `consent=true`
   and a registered version (`400 WAITLIST_CONSENT_REQUIRED` / `400 WAITLIST_CONSENT_VERSION_INVALID`).
@@ -30,7 +32,8 @@ wording, and nothing here decides what may be sent to whom; those decisions stay
 
 The same texts and hashes are in `WaitlistConsentText` (gateway) and are pinned against
 `web/marketing/i18n.js` by `web/marketing/waitlist.consent-version.test.mjs`, so a wording change
-without a new version fails the marketing validation and the gateway tests. A new wording gets a new
+without a new version fails the marketing node tests (`node --test web/marketing/*.test.mjs`, run by
+Frontend CI) and the gateway tests. A new wording gets a new
 id (`waitlist-consent-v2`, ...), a new row here, and the marketing form switches to it; old rows keep
 their id.
 
