@@ -96,9 +96,11 @@ LABEL org.opencontainers.image.title="parkio-web" \
       org.opencontainers.image.created="${IMAGE_CREATED}"
 
 # CVE-2026-93990: Alpine v3.24 main has expat/libexpat 2.8.5-r0; this nginx
-# digest still installs 2.8.4-r0. Smallest runtime-layer remediation on the
-# same nginx 1.30.5 / Alpine 3.24 line. Not a framework or base-image bump.
-RUN apk add --no-cache --upgrade 'libexpat>=2.8.5-r0'
+# digest still installs 2.8.4-r0. CVE-2026-103111: Alpine v3.24 main has pcre2
+# 10.49-r0; this digest still installs 10.48-r0 (nginx links libpcre2). Smallest
+# runtime-layer remediation on the same nginx 1.30.5 / Alpine 3.24 line. Not a
+# framework or base-image bump.
+RUN apk add --no-cache --upgrade 'libexpat>=2.8.5-r0' 'pcre2>=10.49-r0'
 
 # The CSP connect-src is rendered at container start from the deployment's origins (B9):
 # the entrypoint sources 15-parkio-web-csp.envsh, then renders only PARKIO_WEB_CSP_* into the
