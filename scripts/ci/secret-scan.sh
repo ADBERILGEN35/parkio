@@ -190,8 +190,12 @@ git -C "$REPO" show "$CONFIG_REV:.gitleaks.toml" > "$CONFIG_DIR/.gitleaks.toml" 
 # audit applies the exceptions merged into the scanned tip.
 EXCEPTIONS=0
 if git -C "$REPO" cat-file -e "$CONFIG_REV:.gitleaksignore" 2>/dev/null; then
-  git -C "$REPO" show "$CONFIG_REV:.gitleaksignore" > "$CONFIG_DIR/.gitleaksignore"
+  git -C "$REPO" show "$CONFIG_REV:.gitleaksignore" | tr -d '\r' > "$CONFIG_DIR/.gitleaksignore"
   chmod 0644 "$CONFIG_DIR/.gitleaksignore"
+  # Only the full form is accepted: a 40-hex commit, a file, a rule id and a line. gitleaks would also
+  # honour `file:rule:line` (every commit) or a bare pattern; such a line fails the scan instead.
+  BAD=$(grep -nvE '^[[:space:]]*(#|$)|^[0-9a-f]{40}:[^[:space:]:]+(:[^[:space:]:]+)*:[a-z0-9-]+:[0-9]+[[:space:]]*$' "$CONFIG_DIR/.gitleaksignore" || true)
+  [ -z "$BAD" ] || fail "invalid fingerprint exception at $CONFIG_REV:.gitleaksignore (commit:file:rule:line expected): $(echo "$BAD" | head -3 | cut -c1-120 | tr '\n' ' ')"
   EXCEPTIONS=$(grep -cvE '^[[:space:]]*(#|$)' "$CONFIG_DIR/.gitleaksignore" || true)
 fi
 chmod 0755 "$CONFIG_DIR"; chmod 0644 "$CONFIG_DIR/.gitleaks.toml"; chmod 0777 "$OUT_DIR"

@@ -113,6 +113,12 @@ expect_fail "a pull request's own fingerprint exception does not apply (base con
 expect_pass "  the same exception applies to the push that follows the merge (tip config)" --event push --before "$E1" --after "$E3"
 printf '%s:x.env:github-pat:2\n' "$E2" > "$R/.gitleaksignore";   E4=$(commit "e4 fingerprint for another line")
 expect_fail "a fingerprint for another line does not suppress the finding" 'leaks found: 1' --full "$E4"
+printf 'x.env:github-pat:1\n' > "$R/.gitleaksignore";               E5=$(commit "e5 commit-less entry")
+expect_fail "a commit-less 'file:rule:line' entry fails the scan instead of suppressing every commit" 'invalid fingerprint exception' --full "$E5"
+printf 'x.env\n' > "$R/.gitleaksignore";                              E6=$(commit "e6 bare path entry")
+expect_fail "a bare path entry fails the scan" 'invalid fingerprint exception' --full "$E6"
+printf '# comment\r\n\r\n%s:x.env:github-pat:1  \r\n' "$E2" > "$R/.gitleaksignore"; E7=$(commit "e7 CRLF, blank and trailing-space lines")
+expect_pass "comment, blank and CRLF lines around a valid entry are tolerated" --full "$E7"
 R=$R0
 
 # Log assessment: the exact output of the broken step, and other malformed outputs.

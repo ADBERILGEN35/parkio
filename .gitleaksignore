@@ -2,8 +2,8 @@
 # Scope rules (owner decision 2026-10-08 item 8): only findings independently proven synthetic and
 # non-production; uncertain or real credentials stay findings; no path or rule exclusions. The scanner
 # reads this file from the base revision of a pull request and from the scanned tip of a push or audit,
-# so a pull request cannot exempt its own commits. Evidence and the per-finding proof:
-# agent-tools/parkio-secret-scan-fix/classification/ (CLASSIFICATION.md, HISTORY-SEARCH.md).
+# so a pull request cannot exempt its own commits. Evidence and the per-finding proof are kept with the
+# task evidence outside the repository (agent-tools/parkio-secret-scan-fix/classification/, not committed).
 
 # A. Preflight validator fixtures (scripts/preflight-fixtures/*.env): synthetic filler values shared by all fixture variants; PEM bodies are not parseable keys
 6cd34ab0d44f7d4ef11a31357d723874dfd85d7b:scripts/preflight-fixtures/valid.env:generic-api-key:26
@@ -87,7 +87,7 @@ f56aa9b4e32b6a45dc838d7ce7ea8a1f71b2a827:services/auth-service/src/test/java/com
 84a38d526388e91101098621b5776f4c52700d2d:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:58
 84a38d526388e91101098621b5776f4c52700d2d:services/auth-service/src/test/java/com/parkio/auth/infrastructure/persistence/RefreshTokenSecurityIntegrationTest.java:generic-api-key:89
 
-# G. Other test and fixture constants (unit tests, e2e specs, test scripts, a k6 script default, a synthetic log line)
+# G. Other test and fixture constants (unit tests, e2e specs, test scripts, a synthetic log line)
 a0d4897f4f3ef8f7682eaae2867ad1ad717ff3ce:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:370
 2ee52e51d308299ce9652e8fed1e3aecb2d80298:frontend/apps/web/scripts/verify-bundle-env.test.mjs:generic-api-key:258
 0ab41bed210462b87454a59860f6ec3b4c5bdbab:services/auth-service/src/test/java/com/parkio/auth/presentation/AccountExistenceTimingPostgresIT.java:generic-api-key:72
@@ -97,7 +97,6 @@ a0d4897f4f3ef8f7682eaae2867ad1ad717ff3ce:services/auth-service/src/test/java/com
 6aaca115e8ea4efd94dc184a2fac8c73b0fdbcf1:scripts/test-recovery-evidence-contract.py:generic-api-key:269
 2119ffe4bc558ec4f7df19d5255afbed52568f13:scripts/test-guard-web-synthetic-map-deploy.sh:generic-api-key:21
 47d3b73cff2b22f5f6a1a7d8b3aae4df0eeac229:scripts/newrelic_log_pilot/run_isolated_validation.py:generic-api-key:260
-0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/k6/http-load-multiuser.js:generic-api-key:13
 fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:generic-api-key:8
 0bc4c11159f98eb90d3918b6cfedf463bc443190:frontend/apps/web/src/pages/ProfilePage.test.tsx:generic-api-key:191
 0bc4c11159f98eb90d3918b6cfedf463bc443190:frontend/apps/web/src/pages/ProfilePage.test.tsx:generic-api-key:191
@@ -105,3 +104,8 @@ fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:gen
 0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:350
 0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:371
 0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:400
+
+# H. A synthetic test password in an open pull request's earlier commit (#311, login throttle policy v2):
+# the literal was replaced in that branch's later commit, but the pull-request range still scans the
+# earlier commit. Test code only; policy-shaped test value; never used outside the test.
+a845371e504c22aa8c682627631be8e1c279c0ef:services/auth-service/src/test/java/com/parkio/auth/presentation/LoginThrottleClientKeyHttpTest.java:generic-api-key:47

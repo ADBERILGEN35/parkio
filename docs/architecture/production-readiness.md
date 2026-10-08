@@ -592,7 +592,8 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
   empty tree; a pull request uses its base's config). Historical findings proven synthetic and
   non-production are excepted one by one in `.gitleaksignore` (fingerprint `commit:file:rule:line`;
   never a path or rule exclusion), read from the same revision as the config: a pull request cannot
-  exempt its own commits, and the full-history audit (dispatch or schedule) keeps failing on every
+  exempt its own commits, and the full-history audit (a manual dispatch, or the master scheduler's
+  daily dispatch onto api) keeps failing on every
   finding that is uncertain or real until it is rotated or removed.
 - **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning
   (gated behind the `CODEQL_ENABLED` repository variable — see below).
