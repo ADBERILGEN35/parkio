@@ -149,7 +149,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare env
-        run: cp docker/.env.example docker/.env
+        run: |
+          cp docker/.env.example docker/.env
+          # CL-F15 v3: a throwaway login-throttle key for this isolated stack, never the example placeholder.
+          sed -i '/^PARKIO_LOGIN_THROTTLE_HMAC_KEY=/d' docker/.env
+          echo "PARKIO_LOGIN_THROTTLE_HMAC_KEY=$(openssl rand -base64 48)" >> docker/.env
 
       - name: Start database stack
         run: |

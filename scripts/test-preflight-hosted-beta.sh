@@ -93,6 +93,33 @@ expect "empty Redis password reported"  "REDIS_PASSWORD: required secret is empt
 expect "empty Expo token reported"      "PARKIO_EXPO_ACCESS_TOKEN: missing or placeholder"
 expect "blocked verdict printed"        "PREFLIGHT: FAIL"
 
+# ---- login-throttle HMAC key rules (CL-F15 v3) ------------------------------
+THROTTLE_SAME="${TMPDIR:-/tmp}/preflight-test-$$-throttle-same.env"
+python3 - "$FIXTURES/valid.env" "$THROTTLE_SAME" <<'PYS'
+import re, sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+waitlist = re.search(r"^PARKIO_WAITLIST_HASH_SECRET=(.*)$", src, re.M).group(1)
+Path(sys.argv[2]).write_text(re.sub(r"^PARKIO_LOGIN_THROTTLE_HMAC_KEY=.*$", "PARKIO_LOGIN_THROTTLE_HMAC_KEY=" + waitlist, src, flags=re.M))
+PYS
+run_case "throttle key equal to the waitlist secret exits 1" "$THROTTLE_SAME" 1
+expect "throttle key distinctness reported" "PARKIO_LOGIN_THROTTLE_HMAC_KEY: must be distinct from PARKIO_WAITLIST_HASH_SECRET"
+THROTTLE_PREV="${TMPDIR:-/tmp}/preflight-test-$$-throttle-previous.env"
+python3 - "$FIXTURES/valid.env" "$THROTTLE_PREV" <<'PYS'
+import re, sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+current = re.search(r"^PARKIO_LOGIN_THROTTLE_HMAC_KEY=(.*)$", src, re.M).group(1)
+Path(sys.argv[2]).write_text(re.sub(r"^PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS=.*$", "PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS=" + current, src, flags=re.M))
+PYS
+run_case "previous throttle key equal to the current one exits 1" "$THROTTLE_PREV" 1
+expect "previous-equals-current reported" "PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS: equals PARKIO_LOGIN_THROTTLE_HMAC_KEY"
+THROTTLE_MISSING="${TMPDIR:-/tmp}/preflight-test-$$-throttle-missing.env"
+sed 's/^PARKIO_LOGIN_THROTTLE_HMAC_KEY=.*$/PARKIO_LOGIN_THROTTLE_HMAC_KEY=/' "$FIXTURES/valid.env" > "$THROTTLE_MISSING"
+run_case "missing throttle key exits 1" "$THROTTLE_MISSING" 1
+expect "missing throttle key reported" "PARKIO_LOGIN_THROTTLE_HMAC_KEY: required secret is empty or unset"
+rm -f "$THROTTLE_SAME" "$THROTTLE_PREV" "$THROTTLE_MISSING"
+
 # ---- CHANGE_ME placeholders fail -------------------------------------------
 run_case "change-me.env exits 1" change-me.env 1
 expect "whole-file CHANGE_ME sweep"     "CHANGE_ME placeholder(s) remain"

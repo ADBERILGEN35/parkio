@@ -71,6 +71,8 @@ services:
       PARKIO_OPENAPI_ENABLED: "false"
       PARKIO_GATEWAY_INTERNAL_SECRET: disposable-gateway-internal-secret-u03u04
       PARKIO_JWT_PRIVATE_KEY_PEM: ${PARKIO_JWT_PRIVATE_KEY_PEM}
+      # CL-F15 v3: required outside the dev profile; the workflow exports a throwaway value.
+      PARKIO_LOGIN_THROTTLE_HMAC_KEY: ${PARKIO_LOGIN_THROTTLE_HMAC_KEY}
       PARKIO_JWT_KEY_ID: parkio-auth-rs256-disposable
       PARKIO_JWT_ISSUER: parkio-auth
       PARKIO_JWT_AUDIENCE: parkio-api

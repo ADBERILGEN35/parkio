@@ -248,7 +248,7 @@ public class AccountErasureApplicationService {
      * Removes the login-throttle state of the account (counters and known clients, CL-F15 v2) once the
      * erasure request has committed. Registered after the durable-recording step and never throws: a
      * failing afterCommit callback would stop the callbacks registered after it. Best effort; the state
-     * expires on its own (at most 30 days for known clients).
+     * expires on its own (at most 14 days for known clients).
      */
     private void forgetLoginThrottleAfterCommit(String email, UUID requestId) {
         if (loginFailures == null) {

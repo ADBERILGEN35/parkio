@@ -93,6 +93,8 @@ runtime = {
     "jwt-private-key-pem": jwt_path.read_text(),
     "gateway-internal-secret": token(),
     "waitlist-hash-secret": token(),
+    # CL-F15 v3: the login throttle's keyed-hashing secret (separately managed).
+    "login-throttle-hmac-key": token(),
     "redis-password": token(48),
     "kafka-cluster-id": base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="),
     "minio-root-password": token(48),

@@ -474,6 +474,8 @@ class RecoveryReplayLaunchPostgresIT {
         env.put("PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED", "true");
         env.put("PARKIO_PRIVACY_ACCOUNT_ERASURE_RECOVERY_REPLAY_POLL_INTERVAL", "PT0.5S");
         env.put("PARKIO_SECURITY_JWT_GENERATE_EPHEMERAL_KEY", "true");
+        // CL-F15 v3: the launched auth-service refuses to start without the login-throttle key.
+        env.put("PARKIO_LOGIN_THROTTLE_HMAC_KEY", com.parkio.auth.application.LoginThrottleTestKeys.SECRET_A);
         env.put("PARKIO_GATEWAY_INTERNAL_SECRET", "launch-it-synthetic-gateway-secret");
         env.put("PARKIO_TRACING_ENABLED", "false");
         return env;

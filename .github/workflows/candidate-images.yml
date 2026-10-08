@@ -405,6 +405,8 @@ jobs:
           set -euo pipefail
           PARKIO_JWT_PRIVATE_KEY_PEM="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | awk 'BEGIN{ORS="\\n"}{print}')"
           export PARKIO_JWT_PRIVATE_KEY_PEM
+          PARKIO_LOGIN_THROTTLE_HMAC_KEY="$(openssl rand -base64 48)"
+          export PARKIO_LOGIN_THROTTLE_HMAC_KEY
           docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 300
           docker compose -f "$COMPOSE_FILE" ps --format '{{.Name}}\t{{.Image}}\t{{.Status}}' | tee acceptance-auth-gateway/ps.txt
           for svc in auth-service gateway-service; do
