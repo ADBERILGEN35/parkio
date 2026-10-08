@@ -176,7 +176,7 @@ What the script does:
    - **Prerequisite:** create the directory once, writable by every user who deploys or rolls back, for example `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. A live deploy refuses (exit 3) before it builds anything when it cannot write there.
 6. `docker compose up -d` (Flyway migrates on startup). With the default hosted-beta profile it runs with `--no-build`.
 7. Waits for readiness healthchecks
-8. Runs `scripts/smoke-hosted-beta.sh`
+8. Runs `scripts/smoke-hosted-beta.sh` (needs `PARKIO_REAL_USER_PASSWORD` exported; the wrapper checks this before any build or `up`, and `--skip-smoke` is the explicit opt-out)
 9. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
    (includes `images`, `composeFiles`, `migrationVersions`, `rollbackCommand`)
 10. Prints the rollback command

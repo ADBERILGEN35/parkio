@@ -5,7 +5,7 @@
 # database through the postgres-auth container: no password hash, token or personal data is printed;
 # the three documented e-mail addresses are test addresses on a .local domain. Exit code: 0 when none
 # of the accounts exists, 10 when at least one exists (then follow docs/operations/real-e2e-account-rotation.md),
-# 2 on a usage error.
+# 2 on a usage error, 1 when the query itself fails (compose or psql error: nothing can be concluded).
 #
 # Usage: PARKIO_ENV_FILE=docker/.env scripts/ops/verify-real-e2e-accounts.sh [-f docker/docker-compose.yml ...]
 set -euo pipefail
@@ -14,7 +14,9 @@ ENV_FILE="${PARKIO_ENV_FILE:-docker/.env}"
 [ -f "$ENV_FILE" ] || { echo "ERROR: env file '$ENV_FILE' not found (set PARKIO_ENV_FILE)" >&2; exit 2; }
 COMPOSE_FILES=("$@")
 [ ${#COMPOSE_FILES[@]} -gt 0 ] || COMPOSE_FILES=(-f docker/docker-compose.yml)
-env_get() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
+# A key missing from the env file is not an error (the defaults below apply): grep's exit 1 must not
+# end the script under `set -o pipefail`.
+env_get() { { grep -E "^$1=" "$ENV_FILE" || true; } | tail -1 | cut -d= -f2- | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
 DB="$(env_get POSTGRES_AUTH_DB)"; DB="${DB:-parkio_auth}"
 USER_NAME="$(env_get POSTGRES_AUTH_USER)"; USER_NAME="${USER_NAME:-parkio_auth}"
 

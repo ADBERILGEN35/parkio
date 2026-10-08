@@ -179,8 +179,12 @@ jobs:
 
       - name: Generate a per-run password for the disposable performance user
         run: |
-          # Policy-shaped (12+ chars, upper/lower/digit), never a committed value.
-          echo "PERF_SMOKE_PASSWORD=Perf$(openssl rand -hex 8)aA1" >> "$GITHUB_ENV"
+          set -euo pipefail
+          # Policy-shaped (12+ chars, upper/lower/digit), never a committed value. Masked first, so the
+          # later steps' env listings and logs of this public repository print it as ***.
+          password="Perf$(openssl rand -hex 8)aA1"
+          echo "::add-mask::$password"
+          echo "PERF_SMOKE_PASSWORD=$password" >> "$GITHUB_ENV"
 
       - name: Seed performance user
         env:

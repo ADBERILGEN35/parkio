@@ -36,7 +36,7 @@ PARKIO_SMOKE_REQUEST_DELAY_MS=150 \
 Optional hook from general smoke:
 
 ```bash
-PARKIO_SMOKE_PARKING_SESSION=1 ./scripts/smoke-hosted-beta.sh
+PARKIO_REAL_USER_PASSWORD='<from the secret store>' PARKIO_SMOKE_PARKING_SESSION=1 ./scripts/smoke-hosted-beta.sh
 ```
 
 ## Exit codes

@@ -356,10 +356,14 @@ job, which is what prevents indefinite pending.
 | `PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE` | Optional | unset | No |
 | `PARKIO_PREFLIGHT_ALLOW_NO_ALERT_WEBHOOK` | Optional | unset | No |
 
-Smoke/seed credentials are optional but recommended for full authenticated smoke:
-`PARKIO_REAL_USER_EMAIL`, `PARKIO_REAL_USER_PASSWORD`,
-`PARKIO_REAL_MODERATOR_EMAIL`, `PARKIO_REAL_MODERATOR_PASSWORD`,
-`PARKIO_REAL_ADMIN_EMAIL`, `PARKIO_REAL_ADMIN_PASSWORD`.
+Smoke credentials: `PARKIO_REAL_USER_PASSWORD` is required for the post-deploy / post-rollback smoke on
+the hosted-beta profiles (seeded-positive login; no default since 2026-10-08, take it from the secret
+store, never from a runbook); `PARKIO_REAL_USER_EMAIL` defaults to `user@real-e2e.parkio.local`. The
+deploy and rollback wrappers refuse before building or starting anything when it is missing;
+`--skip-smoke` is the explicit opt-out. The GitHub deploy workflow takes it from the repository secret
+`HOSTED_BETA_REAL_USER_PASSWORD`. Seeding (`scripts/seed-real-e2e.sh`) needs `PARKIO_REAL_*_PASSWORD`
+for every account it creates (`PARKIO_REAL_MODERATOR_*` / `PARKIO_REAL_ADMIN_*` optional); the smoke
+uses only the user account.
 
 ### Image and Runtime Override Variables
 
@@ -578,6 +582,7 @@ exist locally or be pulled and tagged correctly.
 
    ```bash
    jq -r .gitSha deploy-artifacts/current.json
+   PARKIO_REAL_USER_PASSWORD='<from the secret store>' \
    PARKIO_GATEWAY_URL=https://<PARKIO_DOMAIN> \
    PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 \
    ./scripts/smoke-hosted-beta.sh
@@ -632,8 +637,8 @@ Estimated rollback time: 3-8 minutes if previous images exist locally.
 | Task | Command |
 |------|---------|
 | Validate env and compose | `PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh` |
-| Deploy | `PARKIO_ENV_FILE=docker/.env PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/deploy-hosted-beta.sh` |
-| Smoke only | `PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/smoke-hosted-beta.sh` |
+| Deploy | `PARKIO_ENV_FILE=docker/.env PARKIO_REAL_USER_PASSWORD='<from the secret store>' PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/deploy-hosted-beta.sh` |
+| Smoke only | `PARKIO_REAL_USER_PASSWORD='<from the secret store>' PARKIO_GATEWAY_URL=https://<api-host> PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1 ./scripts/smoke-hosted-beta.sh` |
 | ParkingSession smoke (R27) | See `docs/evidence/sprint-01/parking-session-hosted-beta/README.md`. Requires disposable-account confirmation and `./scripts/smoke-parking-session-hosted-beta.sh`. |
 | Spot moderation lifecycle validation | See `docs/operations/spot-moderation-lifecycle-runbook.md`. |
 | Backup | `PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh` |

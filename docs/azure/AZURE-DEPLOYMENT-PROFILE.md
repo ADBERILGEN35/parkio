@@ -64,7 +64,7 @@ export PARKIO_ENV_FILE=docker/.env.azure-hosted-beta
 ./scripts/validate-hosted-beta-compose.sh
 ./scripts/deploy-hosted-beta.sh --dry-run
 ./scripts/deploy-hosted-beta.sh --operator <OPERATOR>
-./scripts/smoke-hosted-beta.sh
+PARKIO_REAL_USER_PASSWORD='<from the secret store>' ./scripts/smoke-hosted-beta.sh
 ./scripts/backup-hosted-beta.sh --dry-run
 ./scripts/backup-hosted-beta.sh
 ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run
