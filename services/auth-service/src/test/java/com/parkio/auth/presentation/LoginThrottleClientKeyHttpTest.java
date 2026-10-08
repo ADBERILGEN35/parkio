@@ -46,7 +46,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class LoginThrottleClientKeyHttpTest {
 
     private static final String GATEWAY_SECRET = "test-only-parkio-gateway-internal-secret-0123456789";
-    private static final String PASSWORD = "StrongerPass123";
+    private static final String PASSWORD = "Testtest-testtest-1A";  // policy-valid, low-entropy test value
 
     @Autowired
     private MockMvc mockMvc;
