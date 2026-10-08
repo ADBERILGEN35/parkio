@@ -437,6 +437,51 @@ class AuthApplicationServiceTest {
                 .isNotBlank();
     }
 
+    /**
+     * #311 review B1 through the service: sixteen attempts from different addresses that arrive together
+     * when the account wait opens reach the password check once; the others are refused at admission.
+     */
+    @Test
+    void concurrentLoginsFromManyAddressesAreEvaluatedOncePerAccountWait() throws Exception {
+        registerVerified("owner@example.com");
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_THIRD_CAP; i++) {
+            String client = "203.0.113." + (i % 200);
+            Duration wait = loginFailures.retryAfter("owner@example.com", client, clock.instant());
+            if (!wait.isZero()) {
+                clock.advance(wait);
+            }
+            assertThatThrownBy(() -> service.login(new LoginCommand("owner@example.com", "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
+        clock.advance(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        long before = accountFailureCount("owner@example.com");
+        int threads = 16;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            java.util.List<java.util.concurrent.Future<Object>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                String client = "198.18.4." + i;
+                results.add(pool.submit(() -> {
+                    start.await();
+                    try {
+                        service.login(new LoginCommand("owner@example.com", "wrong-password", client));
+                    } catch (AuthException expected) {
+                        // refused at admission, or evaluated and wrong: both answer like a wrong password
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (java.util.concurrent.Future<Object> result : results) {
+                result.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(accountFailureCount("owner@example.com")).isEqualTo(before + 1);
+    }
+
     /** Inside a transaction the counters are cleared at commit, not before (and not on rollback). */
     @Test
     void passwordResetClearsTheCountersOnlyWhenTheTransactionCommits() {

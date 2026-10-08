@@ -6,10 +6,12 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.HexFormat;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,11 +24,16 @@ import org.springframework.stereotype.Component;
  * auth:login:v2:account:{email}:failures         counter, ACCOUNT_WINDOW
  * auth:login:v2:account:{email}:wait             marker, the account delay (unknown clients only)
  * auth:login:v2:account:{email}:clients          plain set of client digests that failed, PAIR_WINDOW
- * auth:login:v2:account:{email}:known            timed set of known client digests, KNOWN_CLIENT_TTL
+ * auth:login:v2:known:{email}:{client}           marker, KNOWN_CLIENT_TTL after the client's last login or reset
  * </pre>
  *
  * The first five keys keep the names and types of the CL-F15 v1 tracker, so state written before an
- * upgrade (or after a rollback) stays readable; {@code known} is new and ignored by v1.
+ * upgrade (or after a rollback) stays readable; {@code known:*} is new and ignored by v1.
+ *
+ * <p>Admission ({@link #admit}) claims the running waits atomically before the password is checked; the
+ * failure that follows sets the next wait from its own time. Below the first tier no wait applies, so
+ * attempts that arrive together there are all evaluated: the overshoot at a tier crossing is bounded by
+ * the number of attempts in flight.
  */
 @Component
 public class ThrottledLoginFailureTracker implements LoginFailureTracker {
@@ -37,6 +44,18 @@ public class ThrottledLoginFailureTracker implements LoginFailureTracker {
 
     public ThrottledLoginFailureTracker(LoginThrottleStore store) {
         this.store = store;
+    }
+
+    @Override
+    public Duration admit(String normalizedEmail, String clientKey, Instant now) {
+        String email = digest(normalizedEmail);
+        String client = digest(clientKey);
+        Map<String, Duration> waits = new LinkedHashMap<>();
+        waits.put(pairWaitKey(email, client), LoginThrottlePolicy.pairDelay(store.read(pairFailuresKey(email, client))));
+        if (!isKnown(email, clientKey, client)) {
+            waits.put(accountWaitKey(email), LoginThrottlePolicy.accountDelay(store.read(accountFailuresKey(email))));
+        }
+        return store.tryHold(waits);
     }
 
     @Override
@@ -109,17 +128,18 @@ public class ThrottledLoginFailureTracker implements LoginFailureTracker {
             keys.add(pairFailuresKey(email, client));
             keys.add(pairWaitKey(email, client));
         }
-        keys.addAll(List.of(clientsKey(email), accountFailuresKey(email), accountWaitKey(email), knownKey(email)));
+        keys.addAll(List.of(clientsKey(email), accountFailuresKey(email), accountWaitKey(email)));
+        keys.addAll(store.keysWithPrefix(knownPrefix(email)));
         store.delete(keys);
     }
 
     private boolean isKnown(String email, String clientKey, String client) {
-        return isIdentified(clientKey) && store.isTimedMember(knownKey(email), client);
+        return isIdentified(clientKey) && !store.remaining(knownKey(email, client)).isZero();
     }
 
     private void markKnown(String email, String clientKey, String client) {
         if (isIdentified(clientKey)) {
-            store.markTimed(knownKey(email), client, LoginThrottlePolicy.KNOWN_CLIENT_TTL);
+            store.hold(knownKey(email, client), LoginThrottlePolicy.KNOWN_CLIENT_TTL);
         }
     }
 
@@ -157,7 +177,11 @@ public class ThrottledLoginFailureTracker implements LoginFailureTracker {
         return PREFIX + "account:" + email + ":clients";
     }
 
-    static String knownKey(String email) {
-        return PREFIX + "account:" + email + ":known";
+    static String knownPrefix(String email) {
+        return PREFIX + "known:" + email + ":";
+    }
+
+    static String knownKey(String email, String client) {
+        return knownPrefix(email) + client;
     }
 }

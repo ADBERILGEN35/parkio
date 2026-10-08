@@ -9,7 +9,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,8 +107,9 @@ class ThrottledLoginFailureTrackerRedisIT {
     void accountTiersDelayUnknownClientsAndNotAKnownClient() {
         tracker.clearAfterSuccess(EMAIL, USER_CLIENT);
         String e = digest(EMAIL);
-        assertThat(redis.type(PREFIX + "account:" + e + ":known").code()).isEqualTo("zset");
-        assertThat(redis.getExpire(PREFIX + "account:" + e + ":known"))
+        String known = PREFIX + "known:" + e + ":" + digest(USER_CLIENT);
+        assertThat(redis.type(known).code()).isEqualTo("string");
+        assertThat(redis.getExpire(known))
                 .isBetween(LoginThrottlePolicy.KNOWN_CLIENT_TTL.minusMinutes(1).toSeconds(), LoginThrottlePolicy.KNOWN_CLIENT_TTL.toSeconds());
 
         for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_THIRD_CAP; i++) {
@@ -143,7 +151,7 @@ class ThrottledLoginFailureTrackerRedisIT {
         assertThat(redis.keys(PREFIX + "pair:*")).isEmpty();
         String e = digest(EMAIL);
         assertThat(redis.opsForValue().get(PREFIX + "account:" + e + ":failures")).isEqualTo("20");
-        assertThat(redis.opsForZSet().score(PREFIX + "account:" + e + ":known", digest(USER_CLIENT))).isNotNull();
+        assertThat(redis.hasKey(PREFIX + "known:" + e + ":" + digest(USER_CLIENT))).isTrue();
     }
 
     /** State written by the v1 tracker (same key names and types) stays usable after the upgrade. */
@@ -163,6 +171,63 @@ class ThrottledLoginFailureTrackerRedisIT {
 
         assertThat(redis.keys(PREFIX + "pair:*")).isEmpty();
         assertThat(tracker.retryAfter(EMAIL, ATTACKER_CLIENT, NOW)).isEqualTo(Duration.ZERO);
+    }
+
+    /** The admission script against a real Redis: many concurrent attempts, one evaluation per wait (#311 review B1). */
+    @Test
+    void concurrentAdmissionsAdmitExactlyOneAttemptPerAccountWait() throws Exception {
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_THIRD_CAP; i++) {
+            tracker.recordFailure(EMAIL, "203.0.113." + (i % 200), NOW);
+        }
+        redis.delete(PREFIX + "account:" + digest(EMAIL) + ":wait");
+        int threads = 32;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Duration>> results = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                String client = "198.18.2." + i;
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return tracker.admit(EMAIL, client, NOW);
+                }));
+            }
+            start.countDown();
+            long admitted = 0;
+            for (Future<Duration> result : results) {
+                Duration wait = result.get(30, TimeUnit.SECONDS);
+                if (wait.isZero()) {
+                    admitted++;
+                } else {
+                    assertThat(wait).isBetween(Duration.ofMinutes(4), LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+                }
+            }
+            assertThat(admitted).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Rollback direction: everything v1 reads or writes keeps v1's type (v1 never touches known:*). */
+    @Test
+    void keysV1UsesKeepTheirTypesAfterV2Operations() {
+        tracker.clearAfterSuccess(EMAIL, USER_CLIENT);
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_FIRST_CAP; i++) {
+            tracker.recordFailure(EMAIL, ATTACKER_CLIENT, NOW);
+        }
+        tracker.admit(EMAIL, "198.18.3.1", NOW);
+        String e = digest(EMAIL);
+        String c = digest(ATTACKER_CLIENT);
+        assertThat(redis.type(PREFIX + "pair:" + e + ":" + c + ":failures").code()).isEqualTo("string");
+        assertThat(Long.parseLong(redis.opsForValue().get(PREFIX + "pair:" + e + ":" + c + ":failures"))).isEqualTo(50);
+        assertThat(redis.type(PREFIX + "pair:" + e + ":" + c + ":wait").code()).isEqualTo("string");
+        assertThat(redis.type(PREFIX + "account:" + e + ":failures").code()).isEqualTo("string");
+        assertThat(redis.type(PREFIX + "account:" + e + ":wait").code()).isEqualTo("string");
+        assertThat(redis.type(PREFIX + "account:" + e + ":clients").code()).isEqualTo("set");
+        // v1's operations on those keys still work: INCR, SADD, PTTL.
+        assertThat(redis.opsForValue().increment(PREFIX + "account:" + e + ":failures")).isEqualTo(51);
+        assertThat(redis.opsForSet().add(PREFIX + "account:" + e + ":clients", "v1-client")).isEqualTo(1);
+        assertThat(redis.getExpire(PREFIX + "account:" + e + ":wait", TimeUnit.MILLISECONDS)).isPositive();
     }
 
     @Test

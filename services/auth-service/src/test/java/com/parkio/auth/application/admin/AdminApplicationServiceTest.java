@@ -610,6 +610,11 @@ class AdminApplicationServiceTest {
 
     private static final class FakeLoginFailureTracker implements LoginFailureTracker {
         @Override
+        public java.time.Duration admit(String normalizedEmail, String clientKey, Instant now) {
+            return java.time.Duration.ZERO;
+        }
+
+        @Override
         public java.time.Duration retryAfter(String normalizedEmail, String clientKey, Instant now) {
             return java.time.Duration.ZERO;
         }

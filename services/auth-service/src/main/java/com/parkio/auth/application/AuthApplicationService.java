@@ -180,7 +180,8 @@ public class AuthApplicationService {
                 ? LoginFailureTracker.UNKNOWN_CLIENT
                 : command.clientKey();
         Instant now = clock.instant();
-        Duration wait = loginFailures.retryAfter(email, clientKey, now);
+        // Claims the running waits before the password is checked, so concurrent attempts get one evaluation per wait.
+        Duration wait = loginFailures.admit(email, clientKey, now);
         if (!wait.isZero()) {
             log.warn("Login throttled; emailHash={}, clientHash={}, retryAfterSeconds={}",
                     Integer.toHexString(email.hashCode()), Integer.toHexString(clientKey.hashCode()),

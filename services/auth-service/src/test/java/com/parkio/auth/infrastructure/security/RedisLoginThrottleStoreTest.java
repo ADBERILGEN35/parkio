@@ -2,24 +2,25 @@ package com.parkio.auth.infrastructure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.data.redis.core.ZSetOperations;
 
 /**
  * The Redis commands behind each throttle primitive (CL-F15 v2). The behaviour against a real Redis,
@@ -27,12 +28,9 @@ import org.springframework.data.redis.core.ZSetOperations;
  */
 class RedisLoginThrottleStoreTest {
 
-    private static final Instant NOW = Instant.parse("2026-10-08T12:00:00Z");
-
     private StringRedisTemplate redis;
     private ValueOperations<String, String> values;
     private SetOperations<String, String> sets;
-    private ZSetOperations<String, String> zsets;
     private RedisLoginThrottleStore store;
 
     @BeforeEach
@@ -41,11 +39,9 @@ class RedisLoginThrottleStoreTest {
         redis = mock(StringRedisTemplate.class);
         values = mock(ValueOperations.class);
         sets = mock(SetOperations.class);
-        zsets = mock(ZSetOperations.class);
         when(redis.opsForValue()).thenReturn(values);
         when(redis.opsForSet()).thenReturn(sets);
-        when(redis.opsForZSet()).thenReturn(zsets);
-        store = new RedisLoginThrottleStore(redis, Clock.fixed(NOW, ZoneOffset.UTC));
+        store = new RedisLoginThrottleStore(redis);
     }
 
     @Test
@@ -85,18 +81,40 @@ class RedisLoginThrottleStoreTest {
     }
 
     @Test
-    void timedSetsScoreMembersByExpiryAndPruneExpiredOnes() {
-        long now = NOW.toEpochMilli();
-        store.markTimed("z", "client", Duration.ofDays(30));
-        verify(zsets).add("z", "client", (double) (now + Duration.ofDays(30).toMillis()));
-        verify(zsets).removeRangeByScore("z", Double.NEGATIVE_INFINITY, (double) now);
-        verify(redis).expire("z", Duration.ofDays(30));
+    void readParsesTheCounterAndTreatsAMissingOneAsZero() {
+        when(values.get("c")).thenReturn("42");
+        assertThat(store.read("c")).isEqualTo(42L);
+        when(values.get("missing")).thenReturn(null);
+        assertThat(store.read("missing")).isZero();
+    }
 
-        when(zsets.score("z", "fresh")).thenReturn((double) (now + 1));
-        when(zsets.score("z", "expired")).thenReturn((double) now);
-        assertThat(store.isTimedMember("z", "fresh")).isTrue();
-        assertThat(store.isTimedMember("z", "expired")).isFalse();
-        assertThat(store.isTimedMember("z", "absent")).isFalse();
+    @Test
+    @SuppressWarnings("unchecked")
+    void tryHoldRunsOneScriptWithTheMarkersAndTheirMilliseconds() {
+        Map<String, Duration> waits = new LinkedHashMap<>();
+        waits.put("pair", Duration.ofSeconds(30));
+        waits.put("account", Duration.ZERO);
+        when(redis.execute(eq(RedisLoginThrottleStore.TRY_HOLD), eq(List.of("pair", "account")), eq("30000"), eq("0")))
+                .thenReturn(0L, 12_345L);
+
+        assertThat(store.tryHold(waits)).isZero();
+        assertThat(store.tryHold(waits)).isEqualTo(Duration.ofMillis(12_345));
+        assertThat(store.tryHold(Map.of())).isZero();
+        assertThat(RedisLoginThrottleStore.TRY_HOLD.getScriptAsString())
+                .contains("PTTL").contains("'SET', KEYS[i], '1', 'PX', ms").doesNotContain("NX");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void keysWithPrefixScansIncrementallyAndClosesTheCursor() {
+        Cursor<String> cursor = mock(Cursor.class);
+        when(cursor.hasNext()).thenReturn(true, true, false);
+        when(cursor.next()).thenReturn("auth:login:v2:known:e:a", "auth:login:v2:known:e:b");
+        when(redis.scan(any(ScanOptions.class))).thenReturn(cursor);
+
+        assertThat(store.keysWithPrefix("auth:login:v2:known:e:"))
+                .containsExactlyInAnyOrder("auth:login:v2:known:e:a", "auth:login:v2:known:e:b");
+        verify(cursor).close();
     }
 
     @Test

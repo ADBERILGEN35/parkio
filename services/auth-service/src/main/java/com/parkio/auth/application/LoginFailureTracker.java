@@ -14,9 +14,19 @@ public interface LoginFailureTracker {
     String UNKNOWN_CLIENT = "unknown";
 
     /**
-     * @return how long this (account, client) pair must still wait before an attempt is evaluated,
-     *     {@link Duration#ZERO} when it may proceed. Includes the account-wide delay unless the client is
+     * Admission of a login attempt, before its password is checked: atomically claims the waits that
+     * apply to this (account, client) pair, so that however many attempts arrive at once, only one of them
+     * is evaluated per running wait.
+     *
+     * @return {@link Duration#ZERO} when the attempt may be evaluated (the waits are now claimed for it),
+     *     otherwise how long the pair must still wait. Includes the account-wide wait unless the client is
      *     known for the account.
+     */
+    Duration admit(String normalizedEmail, String clientKey, Instant now);
+
+    /**
+     * Read-only view of the same waits (claims nothing): how long this pair must still wait before an
+     * attempt can be admitted, {@link Duration#ZERO} when it can.
      */
     Duration retryAfter(String normalizedEmail, String clientKey, Instant now);
 

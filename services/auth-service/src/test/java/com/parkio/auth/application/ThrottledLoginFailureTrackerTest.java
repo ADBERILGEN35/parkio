@@ -4,6 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,8 +87,79 @@ class ThrottledLoginFailureTrackerTest {
         assertThat(ThrottledLoginFailureTracker.accountFailuresKey(email)).isEqualTo("auth:login:v2:account:" + email + ":failures");
         assertThat(ThrottledLoginFailureTracker.accountWaitKey(email)).isEqualTo("auth:login:v2:account:" + email + ":wait");
         assertThat(ThrottledLoginFailureTracker.clientsKey(email)).isEqualTo("auth:login:v2:account:" + email + ":clients");
-        assertThat(ThrottledLoginFailureTracker.knownKey(email)).isEqualTo("auth:login:v2:account:" + email + ":known");
+        assertThat(ThrottledLoginFailureTracker.knownKey(email, client)).isEqualTo("auth:login:v2:known:" + email + ":" + client);
         assertThat(ThrottledLoginFailureTracker.digest("other@example.com")).isNotEqualTo(email);
+    }
+
+    @Test
+    void admissionLetsOneUnknownAttemptThroughEachAccountWaitAndClaimsIt() {
+        tracker.clearAfterSuccess(EMAIL, HOME);
+        failFromDistinctClients(LoginThrottlePolicy.ACCOUNT_SECOND_CAP);
+        advance(LoginThrottlePolicy.ACCOUNT_SECOND_DELAY);
+        assertThat(tracker.retryAfter(EMAIL, "198.18.0.1", now())).isZero();
+
+        assertThat(tracker.admit(EMAIL, "198.18.0.1", now())).isZero();
+        // The wait is claimed for the admitted attempt: the next unknown client waits, the known one does not.
+        assertThat(tracker.admit(EMAIL, "198.18.0.2", now())).isEqualTo(LoginThrottlePolicy.ACCOUNT_SECOND_DELAY);
+        assertThat(tracker.retryAfter(EMAIL, "198.18.0.3", now())).isEqualTo(LoginThrottlePolicy.ACCOUNT_SECOND_DELAY);
+        assertThat(tracker.admit(EMAIL, HOME, now())).isZero();
+    }
+
+    @Test
+    void admissionClaimsThePairWaitSoParallelAttemptsFromOneClientGetOneEvaluation() {
+        for (int i = 0; i < 5; i++) {
+            tracker.recordFailure(EMAIL, ATTACKER, now());
+        }
+        advance(Duration.ofSeconds(30));
+        assertThat(tracker.admit(EMAIL, ATTACKER, now())).isZero();
+        assertThat(tracker.admit(EMAIL, ATTACKER, now())).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void belowTheFirstTierAdmissionClaimsNothing() {
+        assertThat(tracker.admit(EMAIL, ATTACKER, now())).isZero();
+        assertThat(tracker.admit(EMAIL, ATTACKER, now())).isZero();
+        assertThat(store.keys()).noneMatch(key -> key.endsWith(":wait"));
+    }
+
+    @Test
+    void retryAfterClaimsNothing() {
+        failFromDistinctClients(LoginThrottlePolicy.ACCOUNT_FIRST_CAP);
+        advance(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
+        for (int i = 0; i < 3; i++) {
+            assertThat(tracker.retryAfter(EMAIL, "198.18.0." + i, now())).isZero();
+        }
+        assertThat(tracker.admit(EMAIL, "198.18.0.9", now())).isZero();
+    }
+
+    /** B1 of the #311 review: concurrent attempts from many addresses get one evaluation per account wait. */
+    @Test
+    void concurrentAdmissionsFromManyAddressesAdmitExactlyOnePerWait() throws Exception {
+        failFromDistinctClients(LoginThrottlePolicy.ACCOUNT_THIRD_CAP);
+        advance(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        int threads = 32;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Duration>> results = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                String client = "198.18.1." + i;
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return tracker.admit(EMAIL, client, now());
+                }));
+            }
+            start.countDown();
+            long admitted = 0;
+            for (Future<Duration> result : results) {
+                if (result.get(10, TimeUnit.SECONDS).isZero()) {
+                    admitted++;
+                }
+            }
+            assertThat(admitted).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -92,7 +170,7 @@ class ThrottledLoginFailureTrackerTest {
 
         assertThat(tracker.retryAfter(EMAIL, LoginFailureTracker.UNKNOWN_CLIENT, now()))
                 .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
-        assertThat(store.keys()).noneMatch(key -> key.endsWith(":known"));
+        assertThat(store.keys()).noneMatch(key -> key.contains(":known:"));
     }
 
     @Test
@@ -152,7 +230,7 @@ class ThrottledLoginFailureTrackerTest {
     void resetWithoutAClientMarksNothingKnown() {
         tracker.recordFailure(EMAIL, HOME, now());
         tracker.clearAfterPasswordReset(EMAIL, null);
-        assertThat(store.keys()).noneMatch(key -> key.endsWith(":known"));
+        assertThat(store.keys()).noneMatch(key -> key.contains(":known:"));
         assertThat(store.keys()).noneMatch(key -> key.startsWith(ThrottledLoginFailureTracker.PREFIX + "pair:"));
     }
 

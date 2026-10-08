@@ -14,9 +14,11 @@ import java.time.Duration;
  *       counted too (the counter lives 1 h after the last failure). From the 50th, each further failure
  *       makes the account's unknown clients wait 10 s; from the 100th, 60 s; from the 200th, 5 min. A
  *       distributed attack on one account therefore gets about 150 guesses in its first hour and 12 per
- *       hour once it passes 200, however many addresses it has ({@code LoginThrottleSimulationTest}).</li>
+ *       hour once it passes 200, however many addresses it has and however many attempts it sends at once:
+ *       admission claims each wait atomically before the password is checked
+ *       ({@code LoginThrottleSimulationTest}).</li>
  *   <li><b>Known clients</b> logged into the account, or completed its password reset, within the last
- *       30 days. They are exempt from the account wait, so a distributed attacker cannot keep the owner
+ *       30 days (one marker per client, expiring 30 days after that client's last login or reset). They are exempt from the account wait, so a distributed attacker cannot keep the owner
  *       out of a network the owner used before; their own pair tiers still apply. (NIST SP 800-63B
  *       5.2.2 lists this allowlist of previously authenticated addresses among the measures against
  *       lockout.)</li>

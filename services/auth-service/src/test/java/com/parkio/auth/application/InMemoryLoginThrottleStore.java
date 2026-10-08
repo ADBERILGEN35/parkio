@@ -14,7 +14,8 @@ import java.util.function.Supplier;
 
 /**
  * In-memory {@link LoginThrottleStore} with the Redis semantics the throttle relies on (INCR + EXPIRE,
- * SET with a lifetime, SADD + EXPIRE, sorted set scored by member expiry), driven by a test clock.
+ * SET with a lifetime, SADD + EXPIRE, an atomic check-and-set of markers), driven by a test clock. Every
+ * operation is synchronized, so concurrency tests see the same atomicity as the Redis script.
  * {@link #failing} simulates the store being unavailable.
  */
 final class InMemoryLoginThrottleStore implements LoginThrottleStore {
@@ -23,9 +24,8 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
     private final Map<String, Long> counters = new HashMap<>();
     private final Set<String> markers = new HashSet<>();
     private final Map<String, Set<String>> sets = new HashMap<>();
-    private final Map<String, Map<String, Instant>> timedSets = new HashMap<>();
     private final Map<String, Instant> expiresAt = new HashMap<>();
-    boolean failing;
+    volatile boolean failing;
 
     InMemoryLoginThrottleStore(Clock clock) {
         this(clock::instant);
@@ -36,7 +36,7 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
     }
 
     @Override
-    public long increment(String key, Duration window) {
+    public synchronized long increment(String key, Duration window) {
         live(key);
         long value = counters.merge(key, 1L, Long::sum);
         expiresAt.put(key, now.get().plus(window));
@@ -44,67 +44,86 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
     }
 
     @Override
-    public void hold(String key, Duration duration) {
+    public synchronized long read(String key) {
+        live(key);
+        return counters.getOrDefault(key, 0L);
+    }
+
+    @Override
+    public synchronized void hold(String key, Duration duration) {
         live(key);
         markers.add(key);
         expiresAt.put(key, now.get().plus(duration));
     }
 
     @Override
-    public Duration remaining(String key) {
+    public synchronized Duration remaining(String key) {
         live(key);
         Instant at = expiresAt.get(key);
         return markers.contains(key) && at != null ? Duration.between(now.get(), at) : Duration.ZERO;
     }
 
     @Override
-    public void addToSet(String key, String member, Duration keyTtl) {
+    public synchronized Duration tryHold(Map<String, Duration> waits) {
+        Duration longest = Duration.ZERO;
+        for (String key : waits.keySet()) {
+            Duration left = remaining(key);
+            if (left.compareTo(longest) > 0) {
+                longest = left;
+            }
+        }
+        if (!longest.isZero()) {
+            return longest;
+        }
+        waits.forEach((key, duration) -> {
+            if (duration.compareTo(Duration.ZERO) > 0) {
+                hold(key, duration);
+            }
+        });
+        return Duration.ZERO;
+    }
+
+    @Override
+    public synchronized void addToSet(String key, String member, Duration keyTtl) {
         live(key);
         sets.computeIfAbsent(key, k -> new LinkedHashSet<>()).add(member);
         expiresAt.put(key, now.get().plus(keyTtl));
     }
 
     @Override
-    public Set<String> setMembers(String key) {
+    public synchronized Set<String> setMembers(String key) {
         live(key);
         return Set.copyOf(sets.getOrDefault(key, Set.of()));
     }
 
     @Override
-    public void markTimed(String key, String member, Duration ttl) {
-        live(key);
-        Instant current = now.get();
-        Map<String, Instant> members = timedSets.computeIfAbsent(key, k -> new HashMap<>());
-        members.put(member, current.plus(ttl));
-        members.values().removeIf(at -> !current.isBefore(at));
-        expiresAt.put(key, current.plus(ttl));
+    public synchronized Set<String> keysWithPrefix(String prefix) {
+        Set<String> found = new TreeSet<>();
+        for (String key : keys()) {
+            if (key.startsWith(prefix)) {
+                found.add(key);
+            }
+        }
+        return found;
     }
 
     @Override
-    public boolean isTimedMember(String key, String member) {
-        live(key);
-        Instant at = timedSets.getOrDefault(key, Map.of()).get(member);
-        return at != null && now.get().isBefore(at);
-    }
-
-    @Override
-    public void delete(Collection<String> keys) {
+    public synchronized void delete(Collection<String> keys) {
         available();
         keys.forEach(this::drop);
     }
 
-    long counter(String key) {
-        live(key);
-        return counters.getOrDefault(key, 0L);
+    synchronized long counter(String key) {
+        return read(key);
     }
 
     /** Keys that hold something right now. */
-    Set<String> keys() {
+    synchronized Set<String> keys() {
+        available();
         Set<String> all = new TreeSet<>();
         all.addAll(counters.keySet());
         all.addAll(markers);
         all.addAll(sets.keySet());
-        all.addAll(timedSets.keySet());
         all.removeIf(key -> {
             Instant at = expiresAt.get(key);
             return at != null && !now.get().isBefore(at);
@@ -130,7 +149,6 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
         counters.remove(key);
         markers.remove(key);
         sets.remove(key);
-        timedSets.remove(key);
         expiresAt.remove(key);
     }
 }

@@ -26,10 +26,12 @@ import org.junit.jupiter.api.Test;
  * lockout and recovery of the account owner, IPv6 rotation and shared NAT. Each scenario runs against
  * policy v2 ({@link ThrottledLoginFailureTracker}, {@link LoginClientKeys}) and against a replica of the
  * v1 rules merged in #306 ({@link V1Replica}), on a virtual clock. The attacker is optimal: it knows the
- * policy and times every attempt so that it is evaluated (an upper bound; real attackers cannot see the
- * waits, because a throttled attempt is answered like a wrong password). The login control flow is that
- * of {@code AuthApplicationService.login}. The table is printed and written to
- * {@code build/login-throttle-simulation.md}; the assertions pin the v2 bounds.
+ * policy, times its attempts to the opening of every wait and, in the in-flight scenarios, sends several
+ * attempts at that instant from different addresses, all admitted or refused before any of their failures
+ * is recorded (the race between the check and the failure; v1 checked without claiming, v2 claims the waits
+ * atomically). The login control flow is that of {@code AuthApplicationService.login}: admit, then record
+ * the failure or the success. The table is printed and written to {@code build/login-throttle-simulation.md};
+ * the assertions pin the v2 bounds.
  */
 class LoginThrottleSimulationTest {
 
@@ -67,16 +69,23 @@ class LoginThrottleSimulationTest {
 
         /** The control flow of {@code AuthApplicationService.login}. */
         Result login(String email, String ip, boolean rightPassword) {
-            String key = clientKey.apply(ip);
-            if (!tracker.retryAfter(email, key, now()).isZero()) {
+            if (!admit(email, ip)) {
                 return Result.REFUSED;
             }
             if (rightPassword) {
-                tracker.clearAfterSuccess(email, key);
+                tracker.clearAfterSuccess(email, clientKey.apply(ip));
                 return Result.SUCCESS;
             }
-            tracker.recordFailure(email, key, now());
+            fail(email, ip);
             return Result.FAILED;
+        }
+
+        boolean admit(String email, String ip) {
+            return tracker.admit(email, clientKey.apply(ip), now()).isZero();
+        }
+
+        void fail(String email, String ip) {
+            tracker.recordFailure(email, clientKey.apply(ip), now());
         }
 
         void reset(String email, String ip) {
@@ -90,6 +99,7 @@ class LoginThrottleSimulationTest {
         int legitRefused;
         int legitSucceeded;
         Duration firstSuccessAfterReset;
+        Result firstResultAfterReset;
 
         long guessesIn(Duration from, Duration to) {
             return guesses.stream().filter(at -> at.compareTo(from) >= 0 && at.compareTo(to) < 0).count();
@@ -105,6 +115,12 @@ class LoginThrottleSimulationTest {
      * {@code pool}, used round-robin) interleaved with the scheduled legitimate {@code steps}.
      */
     static Outcome run(Sim sim, String victim, IntFunction<String> attacker, int pool, Duration span, List<Step> steps) {
+        return run(sim, victim, attacker, pool, 1, span, steps);
+    }
+
+    /** As above, with {@code inFlight} attempts sent at every opening from consecutive addresses of the pool. */
+    static Outcome run(Sim sim, String victim, IntFunction<String> attacker, int pool, int inFlight, Duration span,
+            List<Step> steps) {
         Outcome out = new Outcome();
         Instant end = START.plus(span);
         PriorityQueue<Step> queue = new PriorityQueue<>(Comparator.comparing(Step::at));
@@ -142,6 +158,9 @@ class LoginThrottleSimulationTest {
                 }
                 out.legitAttempts++;
                 Result result = sim.login(step.email(), step.ip(), step.kind() == Kind.RIGHT_PASSWORD);
+                if (resetAt != null && out.firstResultAfterReset == null) {
+                    out.firstResultAfterReset = result;
+                }
                 if (result == Result.REFUSED) {
                     out.legitRefused++;
                 } else if (result == Result.SUCCESS) {
@@ -156,10 +175,19 @@ class LoginThrottleSimulationTest {
                 return out;
             }
             sim.now.set(attackAt);
-            if (sim.login(victim, attacker.apply(chosen), false) == Result.FAILED) {
+            // All in-flight attempts pass admission (or not) before any of their failures is recorded.
+            List<String> admitted = new ArrayList<>();
+            for (int j = 0; j < Math.min(inFlight, pool); j++) {
+                String ip = attacker.apply((chosen + j) % pool);
+                if (sim.admit(victim, ip)) {
+                    admitted.add(ip);
+                }
+            }
+            for (String ip : admitted) {
+                sim.fail(victim, ip);
                 out.guesses.add(Duration.between(START, sim.now()));
             }
-            next = (chosen + 1) % pool;
+            next = (chosen + Math.min(inFlight, pool)) % pool;
         }
     }
 
@@ -217,6 +245,30 @@ class LoginThrottleSimulationTest {
         assertThat(v1.legitRefused).isGreaterThanOrEqualTo(140);
     }
 
+    /** #311 review B1: attempts in flight at every opening, from different addresses. */
+    @Test
+    void a2_distributedAttackWithAttemptsInFlight() {
+        Outcome[][] outcomes = new Outcome[2][2];
+        int[] inFlight = {8, 32};
+        for (int v = 0; v < 2; v++) {
+            for (int k = 0; k < inFlight.length; k++) {
+                outcomes[v][k] = run(new Sim(v == 1), OWNER, LoginThrottleSimulationTest::ipv4Pool, 1000, inFlight[k], DAY, List.of());
+            }
+        }
+        row("A6", "Distributed attack, 1,000 addresses, 8 attempts in flight at every opening: guesses in 24 h",
+                outcomes[0][0].guesses.size(), outcomes[1][0].guesses.size());
+        row("A7", "same with 32 attempts in flight: guesses in 24 h", outcomes[0][1].guesses.size(), outcomes[1][1].guesses.size());
+        row("A8", "same with 32 in flight: guesses per hour, hours 3-24 (max)", maxHour(outcomes[0][1], 3, 24),
+                maxHour(outcomes[1][1], 3, 24));
+        // v2 claims each wait atomically: concurrency adds at most the attempts in flight at the first tier crossing.
+        assertThat(outcomes[1][0].guesses.size()).isLessThanOrEqualTo(480 + 8);
+        assertThat(outcomes[1][1].guesses.size()).isLessThanOrEqualTo(480 + 32);
+        assertThat(maxHour(outcomes[1][1], 3, 24)).isLessThanOrEqualTo(12);
+        // The v1 replica checks without claiming: attempts in flight multiply its throughput (the race of #306
+        // review N5), until each address's own pair tiers bind.
+        assertThat(outcomes[0][0].guesses.size()).isGreaterThan(4 * 8000);
+    }
+
     @Test
     void b_distributedAttack_ownerOnANewDeviceRecoversByPasswordReset() {
         Outcome[] outcomes = new Outcome[2];
@@ -232,13 +284,14 @@ class LoginThrottleSimulationTest {
         Outcome v2 = outcomes[1];
         row("B1", "Same attack, owner on a new device: logins refused (144 tries, password reset from the device at 12 h)",
                 v1.legitRefused + "/" + v1.legitAttempts, v2.legitRefused + "/" + v2.legitAttempts);
-        row("B2", "same: time from the reset to the owner's first successful login",
-                format(v1.firstSuccessAfterReset), format(v2.firstSuccessAfterReset));
+        row("B2", "same: the owner's first login after the reset (next scheduled try, 31.7 s later)",
+                describe(v1.firstResultAfterReset), describe(v2.firstResultAfterReset));
         row("B3", "same: attacker guesses in 24 h", v1.guesses.size(), v2.guesses.size());
 
         assertThat(v2.legitRefused).isEqualTo(72);
         assertThat(v2.legitSucceeded).isEqualTo(72);
-        assertThat(v2.firstSuccessAfterReset).isLessThan(Duration.ofMinutes(1));
+        assertThat(v2.firstResultAfterReset).isEqualTo(Result.SUCCESS);
+        assertThat(v1.firstResultAfterReset).isEqualTo(Result.REFUSED);
     }
 
     @Test
@@ -348,8 +401,7 @@ class LoginThrottleSimulationTest {
 
     @Test
     void i_forgottenPasswordWithoutAnAttack() {
-        Duration[] laptopIn = new Duration[2];
-        int[] refused = new int[2];
+        Result[] laptop = new Result[2];
         for (int v = 0; v < 2; v++) {
             Sim sim = new Sim(v == 1);
             List<Step> steps = new ArrayList<>(every(Duration.ofSeconds(1), Duration.ofSeconds(40), 25, OWNER, "192.0.2.77",
@@ -357,12 +409,11 @@ class LoginThrottleSimulationTest {
             steps.add(new Step(Duration.ofMinutes(20), OWNER, MOBILE, Kind.RESET));
             steps.add(new Step(Duration.ofMinutes(20).plusSeconds(30), OWNER, "192.0.2.77", Kind.RIGHT_PASSWORD));
             Outcome out = run(sim, OWNER, i -> "unused", 0, DAY, steps);
-            laptopIn[v] = out.firstSuccessAfterReset;
-            refused[v] = out.legitRefused;
+            laptop[v] = out.firstResultAfterReset;
         }
-        row("I1", "No attack: owner mistypes 25 times on a laptop, resets from the phone: laptop login after the reset",
-                format(laptopIn[0]), format(laptopIn[1]));
-        assertThat(laptopIn[1]).isEqualTo(Duration.ofSeconds(30));
+        row("I1", "No attack: owner mistypes 25 times on a laptop, resets from the phone: the laptop's next login, 30 s after the reset",
+                describe(laptop[0]), describe(laptop[1]));
+        assertThat(laptop[1]).isEqualTo(Result.SUCCESS);
     }
 
     @AfterAll
@@ -386,8 +437,12 @@ class LoginThrottleSimulationTest {
         return max;
     }
 
-    private static String format(Duration duration) {
-        return duration == null ? "never" : duration.toSeconds() + " s";
+    private static String describe(Result result) {
+        return result == null ? "no attempt" : switch (result) {
+            case SUCCESS -> "succeeded";
+            case REFUSED -> "refused";
+            case FAILED -> "evaluated, wrong password";
+        };
     }
 
     private static void row(String id, String scenario, Object v1, Object v2) {
@@ -401,6 +456,12 @@ class LoginThrottleSimulationTest {
 
         V1Replica(InMemoryLoginThrottleStore store) {
             this.store = store;
+        }
+
+        /** v1 checked the waits without claiming them. */
+        @Override
+        public Duration admit(String email, String client, Instant now) {
+            return retryAfter(email, client, now);
         }
 
         @Override

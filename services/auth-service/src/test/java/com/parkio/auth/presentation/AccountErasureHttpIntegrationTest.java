@@ -113,6 +113,39 @@ class AccountErasureHttpIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    /** CL-F15 v2: the erasure request removes the account's login-throttle state (the Spring-wired hook). */
+    @Test
+    void deletionForgetsTheLoginThrottleStateOfTheAccount() throws Exception {
+        String email = registerAndVerify("erase-throttle-" + UUID.randomUUID() + "@example.com");
+        String access = accessToken(email);
+
+        mockMvc.perform(delete("/api/v1/account")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Authorization", "Bearer " + access)
+                        .contentType("application/json")
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(loginFailureTracker).forgetAccount(email);
+    }
+
+    /** Best effort: a failing throttle store does not fail or change the erasure request. */
+    @Test
+    void aFailingThrottleStoreDoesNotFailTheDeletion() throws Exception {
+        String email = registerAndVerify("erase-throttle-down-" + UUID.randomUUID() + "@example.com");
+        String access = accessToken(email);
+        org.mockito.Mockito.doThrow(new IllegalStateException("throttle store unavailable"))
+                .when(loginFailureTracker).forgetAccount(org.mockito.ArgumentMatchers.anyString());
+
+        mockMvc.perform(delete("/api/v1/account")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Authorization", "Bearer " + access)
+                        .contentType("application/json")
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
     @Test
     void deletionLocksLoginUntilAllParticipantsAckThenCompletes() throws Exception {
         String email = registerAndVerify("erase-" + UUID.randomUUID() + "@example.com");
