@@ -18,3 +18,25 @@ vulnerabilities:
       there is no untrusted input path. Owner: Parkio release engineering. Remediation:
       drop when eslint's transitive minimatch reaches >= 10, or when a 1.x backport ships.
     expired_at: 2026-08-31
+  - id: CVE-2026-47884
+    paths:
+      - "app/app.jar/BOOT-INF/lib/spring-webmvc-6.2.19.jar"
+    statement: >-
+      spring-webmvc 6.2.19 (GHSA-pc63-qcmh-9cmg, "Improper Path Limitation in XsltView") in the
+      app.jar of the nine servlet services: auth, user, parking, media, moderation, gamification,
+      notification, analytics and ai-validation. Spring rates it MEDIUM
+      (https://spring.io/security/cve-2026-47884); GHSA and Trivy rate it CRITICAL (CVSS 9.8).
+      It needs XsltView, a "/**" mapping that renders views, and no explicit view name. At
+      master 67c187e8 (as at api 520acbfd) no service source references XsltView, XsltViewResolver, a ViewResolver,
+      configureViewResolvers, ModelAndView or TransformerFactory. No service ships a template
+      engine, no service's source or resources contain an .xsl/.xslt file, and every controller
+      is a @RestController. The only shipped .xsl (spring-security.xsl in auth-service's
+      spring-security-config jar) is not used as a view. In each shipped app.jar, only
+      spring-webmvc itself references the XsltView classes. Spring Boot does not
+      auto-configure XsltView. There is no OSS 6.2.x fix: 6.2.20 is Enterprise Support only,
+      and the OSS fix, 7.0.9, needs Spring Framework 7 / Spring Boot 4.
+      The path pins version 6.2.19, so any other spring-webmvc version reports again.
+      Owner: Parkio release engineering. Remediation: the Spring Framework 7 migration (a
+      separate decision), or an OSS 6.2.x fix if one ships (none expected: 6.2.x OSS support
+      ended 2026-06-30).
+    expired_at: 2026-11-05

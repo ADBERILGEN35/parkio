@@ -334,6 +334,7 @@ jobs:
             --scanners vuln \
             --severity CRITICAL \
             --ignore-unfixed \
+            --ignorefile .trivyignore.yaml \
             --format sarif \
             --output trivy-image-${{ matrix.service }}.sarif \
             --exit-code 1 \
