@@ -65,7 +65,7 @@ Owner decision 2026-10-08: "Approve #5/#6 false-positive dismissal only if the i
 evidence matches the exact current alert paths. Record that evidence in the disposition."
 
 Independent check (`agent-tools/parkio-queue-integration-20261002/reviews/CODEQL-5-6-EVIDENCE-CHECK.md`,
-verdict **MATCHES**): the live alerts' most recent instances are on master a2be151c (the current master
+task evidence kept outside the repository; verdict **MATCHES**): the live alerts' most recent instances are on master a2be151c (the current master
 tip) at `frontend/apps/web/src/pages/UploadPage.tsx` 433 (#5) and 879 (#6) — the same file blob (a601d295)
 as master 8d0ee2b4 and api 6b285f2c analysed above, so the cited lines are the current lines byte for
 byte. The api instances at c3477eb5 (the current api tip) are at 437 and 883: the file's blob there
