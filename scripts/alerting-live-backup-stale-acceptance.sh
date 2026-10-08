@@ -183,66 +183,79 @@ sys.exit(0 if "BackupStale" in names else 1)' 2>/dev/null
 }
 
 # Option A for "receiver failure surfaces" (docs/operations/alerting-live-backup-stale-acceptance.md):
-# the delivery-failure rules on the live host, read-only. One line per rule:
-# "<name> loaded=<yes|no> health=<..> state=<..> evaluated_s_ago=<n|?> last_error=<none|present>".
+# the delivery-failure rules on the live host, read-only. Reads the rules answer on stdin and prints one
+# tab-separated line per rule: name, loaded (yes|no), health, state, evaluated_s_ago (seconds|never|?),
+# last_error (none|present), copies (how many groups define the name), group, query.
 PY_DELIVERY_RULES=""
 read -r -d '' PY_DELIVERY_RULES <<'PY' || true
-import json, sys
-from datetime import datetime, timezone
-body, now = sys.argv[1], datetime.now(timezone.utc)
-rules = {}
-for group in json.loads(body).get("data", {}).get("groups", []):
+import json, re, sys
+from datetime import datetime, timedelta, timezone
+now = datetime.now(timezone.utc)
+STAMP = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+def age(stamp):
+    m = STAMP.match(stamp or "")
+    if not m:
+        return "?"
+    y, mo, d, h, mi, s, tz = m.groups()
+    if int(y) < 2000:
+        return "never"
+    when = datetime(int(y), int(mo), int(d), int(h), int(mi), int(s), tzinfo=timezone.utc)
+    if tz != "Z":
+        offset = timedelta(hours=int(tz[1:3]), minutes=int(tz[4:6]))
+        when = when - offset if tz[0] == "+" else when + offset
+    return str(max(0, int((now - when).total_seconds())))
+def clean(text):
+    # Never empty: the shell splits on tabs, and empty fields would collapse.
+    return " ".join(str(text).split()) or "-"
+found = {}
+for group in json.load(sys.stdin).get("data", {}).get("groups", []):
     for rule in group.get("rules", []):
-        rules[rule.get("name")] = rule
+        found.setdefault(rule.get("name"), []).append((group.get("name", "-"), rule))
 for name in ("AlertmanagerNotificationsFailing", "PrometheusNotificationsFailing"):
-    rule = rules.get(name)
-    if rule is None:
-        print(f"{name} loaded=no health=- state=- evaluated_s_ago=? last_error=none")
+    copies = found.get(name, [])
+    if not copies:
+        print("\t".join([name, "no", "-", "-", "?", "none", "0", "-", "-"]))
         continue
-    age = "?"
-    stamp = rule.get("lastEvaluation") or ""
-    try:
-        head = stamp.rstrip("Z").partition(".")[0]
-        when = datetime.strptime(head, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-        age = str(max(0, int((now - when).total_seconds())))
-    except ValueError:
-        pass
-    print(f"{name} loaded=yes health={rule.get('health', '-')} state={rule.get('state', '-')} "
-          f"evaluated_s_ago={age} last_error={'present' if rule.get('lastError') else 'none'}")
+    group, rule = copies[-1]
+    print("\t".join([name, "yes", clean(rule.get("health", "-")), clean(rule.get("state", "-")),
+                     age(rule.get("lastEvaluation")), "present" if rule.get("lastError") else "none",
+                     str(len(copies)), clean(group), clean(rule.get("query", "-"))]))
 PY
 
 delivery_rules() {
-  local failures=0 body lines line name age state
-  log "delivery-rules: read-only check of the delivery-failure rules on $(hostname) (option A)"
-  if ! body="$(http_get "$PROM_URL/api/v1/rules?type=alert" 2>/dev/null)"; then
-    log "FAIL could not read the rules from Prometheus at $PROM_URL"; evidence delivery_rules "result=unreadable"; log "DELIVERY RULES: FAIL (1)"; return 1
+  local failures=0 body lines name loaded health state age last_error copies group query host version
+  host="$(hostname)"
+  log "delivery-rules: read-only check of the delivery-failure rules on $host (option A)"
+  # Only the two rules: the full rules answer grows with every active alert.
+  if ! body="$(http_get "$PROM_URL/api/v1/rules?type=alert&rule_name%5B%5D=AlertmanagerNotificationsFailing&rule_name%5B%5D=PrometheusNotificationsFailing" 2>/dev/null)"; then
+    log "FAIL could not read the rules from Prometheus (PARKIO_LIVE_PROM_URL)"; evidence delivery_rules "host=$host" "result=unreadable"; log "DELIVERY RULES: FAIL (1)"; return 1
   fi
-  if ! lines="$("$PYTHON" -c "$PY_DELIVERY_RULES" "$body" 2>/dev/null)"; then
-    log "FAIL could not parse the rules answer"; evidence delivery_rules "result=unparsable"; log "DELIVERY RULES: FAIL (1)"; return 1
+  if ! lines="$(printf '%s' "$body" | "$PYTHON" -c "$PY_DELIVERY_RULES" 2>/dev/null)"; then
+    log "FAIL could not parse the rules answer"; evidence delivery_rules "host=$host" "result=unparsable"; log "DELIVERY RULES: FAIL (1)"; return 1
   fi
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    name="${line%% *}"
-    state="${line##*state=}"; state="${state%% *}"
-    age="${line##*evaluated_s_ago=}"; age="${age%% *}"
-    if [[ "$line" == *"loaded=no"* ]]; then
-      log "FAIL $name is not loaded"; failures=$((failures+1))
+  while IFS=$'\t' read -r name loaded health state age last_error copies group query; do
+    [ -n "$name" ] || continue
+    if [ "$loaded" = no ]; then
+      log "FAIL $name is not loaded (deploy the current docker/prometheus/alerts.yml first; see the prerequisite in the plan)"; failures=$((failures+1))
     else
-      if [[ "$line" != *"health=ok"* ]]; then log "FAIL $name is not healthy: $line"; failures=$((failures+1)); fi
-      if [[ "$line" == *"last_error=present"* ]]; then log "FAIL $name has an evaluation error"; failures=$((failures+1)); fi
+      if [ "$copies" != 1 ]; then log "FAIL $name is defined $copies times; the live rule is ambiguous"; failures=$((failures+1)); fi
+      if [ "$health" != ok ]; then log "FAIL $name is not healthy: health=$health"; failures=$((failures+1)); fi
+      if [ "$last_error" = present ]; then log "FAIL $name has an evaluation error"; failures=$((failures+1)); fi
       if [ "$state" != inactive ]; then log "FAIL $name is $state: a delivery failure is happening now; investigate before any acceptance"; failures=$((failures+1)); fi
-      if ! is_number "$age"; then log "FAIL $name has no readable last evaluation time"; failures=$((failures+1));
+      if [ "$age" = never ]; then log "FAIL $name has never been evaluated (Prometheus just started? re-run in a minute)"; failures=$((failures+1));
+      elif ! is_number "$age"; then log "FAIL $name has no readable last evaluation time"; failures=$((failures+1));
       elif [ "$age" -gt 600 ]; then log "FAIL $name was last evaluated ${age}s ago (over 10 minutes)"; failures=$((failures+1)); fi
     fi
-    log "rule: $line"
-    evidence delivery_rule "line=$line"
+    log "rule: $name loaded=$loaded health=$health state=$state evaluated_s_ago=$age last_error=$last_error group=$group"
+    evidence delivery_rule "host=$host" "name=$name" "loaded=$loaded" "health=$health" "state=$state" "evaluated_s_ago=$age" "last_error=$last_error" "copies=$copies" "group=$group" "query=$query"
   done <<< "$lines"
   local am_series prom_series
   am_series="$(prom_count 'alertmanager_notifications_failed_total')"
   prom_series="$(prom_count 'prometheus_notifications_errors_total')"
-  if is_number "$am_series" && [ "$am_series" -gt 0 ]; then log "ok alertmanager_notifications_failed_total present ($am_series series)"; else log "FAIL alertmanager_notifications_failed_total is not readable (series: $am_series)"; failures=$((failures+1)); fi
+  if is_number "$am_series" && [ "$am_series" -gt 0 ]; then log "ok alertmanager_notifications_failed_total present ($am_series series)"; else log "FAIL alertmanager_notifications_failed_total is not readable (series: $am_series; is the alertmanager scrape job deployed?)"; failures=$((failures+1)); fi
   if is_number "$prom_series" && [ "$prom_series" -gt 0 ]; then log "ok prometheus_notifications_errors_total present ($prom_series series)"; else log "FAIL prometheus_notifications_errors_total is not readable (series: $prom_series)"; failures=$((failures+1)); fi
-  evidence delivery_rules "am_failed_series=$am_series" "prom_errors_series=$prom_series" "failures=$failures"
+  version="$(http_get "$PROM_URL/api/v1/status/buildinfo" 2>/dev/null | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["data"]["version"])' 2>/dev/null || echo unknown)"
+  evidence delivery_rules "host=$host" "prometheus_version=$version" "am_failed_series=$am_series" "prom_errors_series=$prom_series" "failures=$failures"
   if [ "$failures" -ne 0 ]; then log "DELIVERY RULES: FAIL ($failures)"; return 1; fi
   log "DELIVERY RULES: PASS (configuration only; a live receiver failure was not observed)"
 }
@@ -269,12 +282,16 @@ preflight() {
   if [ "$active" = 0 ]; then log "ok no Backup* alert pending or firing"; elif [ "$active" = error ]; then log "FAIL could not read the active Backup* alerts from Prometheus"; failures=$((failures+1)); else log "FAIL $active Backup* alert series active; the acceptance needs a quiet baseline"; failures=$((failures+1)); fi
   local recv; recv="$(receiver_summary)"; log "alertmanager: $recv"
   case "$recv" in *slack_blocks=0*webhook_blocks=0*|receivers=unknown) log "FAIL no operator receiver rendered (null config?)"; failures=$((failures+1)) ;; esac
-  local sent failed
+  local sent failed sent_series
+  # An empty result would read as a zero baseline and the live run could never see a delivery (no
+  # alertmanager scrape job on the host): require the series to exist.
+  sent_series="$(prom_count 'alertmanager_notifications_total{integration=~"slack|webhook"}')"
+  if ! is_number "$sent_series" || [ "$sent_series" -eq 0 ]; then log "FAIL Prometheus has no alertmanager_notifications_total series for slack/webhook (series: $sent_series; is the alertmanager scrape job deployed? see the prerequisite in the plan)"; failures=$((failures+1)); fi
   sent="$(prom_sum 'alertmanager_notifications_total{integration=~"slack|webhook"}')"
   failed="$(prom_sum 'alertmanager_notifications_failed_total{integration=~"slack|webhook"}')"
   if ! is_number "$sent" || ! is_number "$failed"; then log "FAIL could not read the Alertmanager notification counters from Prometheus"; failures=$((failures+1)); fi
   log "baseline counters: notifications_total=$sent notifications_failed_total=$failed"
-  evidence preflight "host=$(hostname)" "textfile_dir=$TEXTFILE_DIR" "real_scopes=${real:-none}" "synthetic_scope=$scope" "receivers=$recv" "notifications_total=$sent" "notifications_failed_total=$failed" "failures=$failures"
+  evidence preflight "host=$(hostname)" "textfile_dir=$TEXTFILE_DIR" "real_scopes=${real:-none}" "synthetic_scope=$scope" "receivers=$recv" "notifications_total=$sent" "notifications_total_series=$sent_series" "notifications_failed_total=$failed" "failures=$failures"
   if [ "$failures" -ne 0 ]; then log "PREFLIGHT: FAIL ($failures)"; return 1; fi
   log "PREFLIGHT: PASS"
 }

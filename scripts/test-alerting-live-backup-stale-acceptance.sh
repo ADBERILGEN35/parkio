@@ -29,19 +29,37 @@ case "$url" in
   */-/ready) [ "${FAKE_READY:-1}" = 1 ] || exit 22; if [ -n "$out" ]; then echo OK > "$out"; else echo OK; fi; exit 0 ;;
   */api/v1/rules*)
     [ "${FAKE_RULES_ERROR:-0}" = 1 ] && exit 22
-    eval_at="$(date -u -d "@$(( $(date +%s) - ${FAKE_DR_AGE:-15} ))" +%Y-%m-%dT%H:%M:%S.123456789Z)"
-    dr='{"name":"AlertmanagerNotificationsFailing","health":"'"${FAKE_DR_HEALTH:-ok}"'","state":"'"${FAKE_DR_STATE:-inactive}"'","lastError":"'"${FAKE_DR_ERROR:-}"'","lastEvaluation":"'"$eval_at"'"},{"name":"PrometheusNotificationsFailing","health":"ok","state":"inactive","lastError":"","lastEvaluation":"'"$eval_at"'"}'
-    [ "${FAKE_DR_MISSING:-0}" = 1 ] && dr='{"name":"PrometheusNotificationsFailing","health":"ok","state":"inactive","lastError":"","lastEvaluation":"'"$eval_at"'"}'
-    echo '{"status":"success","data":{"groups":[{"name":"parkio-critical","rules":[{"name":"BackupFailed"},{"name":"'"${FAKE_RULE:-BackupStale}"'"}]},{"name":"parkio-alerting","rules":['"$dr"']}]}}' ;;
+    ago=$(( $(date +%s) - ${FAKE_DR_AGE:-15} ))
+    if [ -n "${FAKE_DR_TZ:-}" ]; then
+      # The same instant written with a UTC offset, e.g. +03:00 (FAKE_DR_TZ_SECONDS=10800).
+      eval_at="$(date -u -d "@$(( ago + ${FAKE_DR_TZ_SECONDS:?} ))" +%Y-%m-%dT%H:%M:%S.123456789)${FAKE_DR_TZ}"
+    else
+      eval_at="$(date -u -d "@$ago" +%Y-%m-%dT%H:%M:%S.123456789Z)"
+    fi
+    am_eval="$eval_at"; am_health="${FAKE_DR_HEALTH:-ok}"; am_err=',"lastError":"'"${FAKE_DR_ERROR:-}"'"'
+    if [ "${FAKE_DR_NEVER:-0}" = 1 ]; then am_eval="0001-01-01T00:00:00Z"; am_health=unknown; am_err=""; fi
+    am='{"name":"AlertmanagerNotificationsFailing","query":"sum by (integration) (increase(alertmanager_notifications_failed_total[15m])) >= 2","health":"'"$am_health"'","state":"'"${FAKE_DR_STATE:-inactive}"'"'"$am_err"',"lastEvaluation":"'"$am_eval"'"}'
+    pr='{"name":"PrometheusNotificationsFailing","query":"increase(prometheus_notifications_errors_total[15m]) > 0","health":"ok","state":"inactive","lastError":"","lastEvaluation":"'"$eval_at"'"}'
+    dr="$am,$pr"
+    [ "${FAKE_DR_MISSING:-0}" = 1 ] && dr="$pr"
+    extra=""
+    [ "${FAKE_DR_DUPLICATE:-0}" = 1 ] && extra=',{"name":"stale-extra","rules":['"$am"']}'
+    if [ -n "${FAKE_DR_PAD:-}" ]; then
+      pad="$(head -c "$FAKE_DR_PAD" /dev/zero | tr '\0' x)"
+      extra="$extra"',{"name":"padding","rules":[{"name":"Padding","query":"'"$pad"'","health":"ok","state":"inactive"}]}'
+    fi
+    echo '{"status":"success","data":{"groups":[{"name":"parkio-critical","rules":[{"name":"BackupFailed"},{"name":"'"${FAKE_RULE:-BackupStale}"'"}]},{"name":"parkio-alert-delivery","rules":['"$dr"']}'"$extra"']}}' ;;
+  */api/v1/status/buildinfo) echo '{"status":"success","data":{"version":"2.54.1"}}' ;;
   */api/v1/query)
     [ "${FAKE_QUERY_ERROR:-0}" = 1 ] && exit 22
     case "$query" in
       *node_textfile_scrape_error*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_SCRAPE_ERR:-0}"'"]}]}}' ;;
       *'ALERTS{alertname=~"Backup.*"}'*) if [ "${FAKE_BACKUP_ACTIVE:-0}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{"alertname":"BackupStale","alertstate":"pending"},"value":[0,"1"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *'ALERTS{alertname="BackupStale"'*) echo '{"status":"success","data":{"result":'"${FAKE_PROM_ALERTS:-[]}"'}}' ;;
-      *notifications_failed_total*) echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_FAILED:-0}"'"]}]}}' ;;
+      *notifications_failed_total*) if [ "${FAKE_AM_FAILED_SERIES:-1}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{},"value":[0,"'"${FAKE_FAILED:-0}"'"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *prometheus_notifications_errors_total*) if [ "${FAKE_PROM_ERR_SERIES:-1}" = 1 ]; then echo '{"status":"success","data":{"result":[{"metric":{"alertmanager":"http://alertmanager:9093/api/v2/alerts"},"value":[0,"0"]}]}}'; else echo '{"status":"success","data":{"result":[]}}'; fi ;;
       *notifications_total*)
+        if [ "${FAKE_AM_SENT_SERIES:-1}" = 0 ]; then echo '{"status":"success","data":{"result":[]}}'; exit 0; fi
         val="${FAKE_SENT:-7}"
         if [ -n "${FAKE_SENT_SEQ:-}" ]; then
           n=$(cat "${FAKE_CALLS_FILE:?}" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$FAKE_CALLS_FILE"
@@ -134,6 +152,19 @@ if run FAKE_DR_ERROR=boom FAKE_DR_HEALTH=err -- delivery-rules; then bad "delive
 if run FAKE_PROM_ERR_SERIES=0 -- delivery-rules; then bad "delivery-rules passed without the Prometheus error counter"; else grep -q 'prometheus_notifications_errors_total is not readable' "$TMP/out" && ok "delivery-rules refuses when a counter the rules read is absent" || { bad "counter message"; cat "$TMP/out"; }; fi
 if run FAKE_RULES_ERROR=1 -- delivery-rules; then bad "delivery-rules passed with unreadable rules"; else grep -q 'could not read the rules' "$TMP/out" && ok "delivery-rules fails when the rules cannot be read" || { bad "unreadable rules message"; cat "$TMP/out"; }; fi
 if run -- delivery-rules && ! grep -qE 'https?://' "$TMP/out"; then ok "delivery-rules prints no URL"; else bad "delivery-rules printed a URL"; fi
+if run FAKE_AM_FAILED_SERIES=0 -- delivery-rules; then bad "delivery-rules passed without the Alertmanager failure counter"; else grep -q 'alertmanager_notifications_failed_total is not readable' "$TMP/out" && ok "delivery-rules refuses when the Alertmanager failure counter has no series (no scrape job)" || { bad "Alertmanager counter message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_NEVER=1 -- delivery-rules; then bad "delivery-rules passed a never-evaluated rule"; else grep -q 'AlertmanagerNotificationsFailing has never been evaluated' "$TMP/out" && ! grep -q 'over 10 minutes' "$TMP/out" && ok "delivery-rules names a never-evaluated rule plainly" || { bad "never-evaluated message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_TZ=+03:00 FAKE_DR_TZ_SECONDS=10800 -- delivery-rules; then ok "delivery-rules reads a recent evaluation written with a UTC offset"; else bad "offset timestamp refused"; cat "$TMP/out"; fi
+if run FAKE_DR_TZ=+03:00 FAKE_DR_TZ_SECONDS=10800 FAKE_DR_AGE=900 -- delivery-rules; then bad "stale offset timestamp accepted"; else grep -q 'over 10 minutes' "$TMP/out" && ok "delivery-rules applies the UTC offset (a stale +03:00 evaluation is refused)" || { bad "offset stale message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_DUPLICATE=1 -- delivery-rules; then bad "duplicated rule accepted"; else grep -q 'AlertmanagerNotificationsFailing is defined 2 times' "$TMP/out" && ok "delivery-rules refuses a rule defined in two groups" || { bad "duplicate message"; cat "$TMP/out"; }; fi
+if run FAKE_DR_PAD=150000 -- delivery-rules; then ok "delivery-rules parses a rules answer over 128 KiB (stdin, not argv)"; else bad "large rules answer refused"; cat "$TMP/out"; fi
+: > "$TMP/evidence/events.jsonl"
+if run -- delivery-rules && grep -q '"type":"delivery_rule".*"host":"parkio-civo-prod".*"group":"parkio-alert-delivery".*"query":"sum by (integration) (increase(alertmanager_notifications_failed_total\[15m\])) >= 2"' "$TMP/evidence/events.jsonl" \
+  && grep -q '"type":"delivery_rules","host":"parkio-civo-prod","prometheus_version":"2.54.1"' "$TMP/evidence/events.jsonl"; then
+  ok "delivery-rules evidence records host, group, loaded expression and Prometheus version"
+else bad "delivery-rules evidence fields"; cat "$TMP/evidence/events.jsonl"; fi
+if run FAKE_RULES_ERROR=1 -- delivery-rules; then bad "unreadable rules accepted"; elif grep -qE 'https?://' "$TMP/out"; then bad "delivery-rules failure path printed a URL"; else ok "delivery-rules failure path prints no URL"; fi
+if run FAKE_AM_SENT_SERIES=0 -- preflight; then bad "preflight accepted a missing notifications_total series"; else grep -q 'no alertmanager_notifications_total series for slack/webhook' "$TMP/out" && ok "preflight refuses a missing Alertmanager notification series (no zero baseline)" || { bad "preflight series message"; cat "$TMP/out"; }; fi
 
 echo "not mine" > "$TMP/textfile/parkio_backup_synthetic_stale.prom"
 if run PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE -- disarm --yes; then bad "disarm removed a file without the marker"; else grep -q 'does not carry this tool' "$TMP/out" && [ -f "$TMP/textfile/parkio_backup_synthetic_stale.prom" ] && ok "disarm refuses a file it did not write" || bad "disarm marker refusal"; fi
