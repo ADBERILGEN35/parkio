@@ -177,11 +177,16 @@ jobs:
             sleep 15
           done
 
+      - name: Generate a per-run password for the disposable performance user
+        run: |
+          # Policy-shaped (12+ chars, upper/lower/digit), never a committed value.
+          echo "PERF_SMOKE_PASSWORD=Perf$(openssl rand -hex 8)aA1" >> "$GITHUB_ENV"
+
       - name: Seed performance user
         env:
           PARKIO_ENV_FILE: docker/.env.performance-smoke
           PARKIO_REAL_USER_EMAIL: user@performance-smoke.parkio.local
-          PARKIO_REAL_USER_PASSWORD: StrongParkio123
+          PARKIO_REAL_USER_PASSWORD: ${{ env.PERF_SMOKE_PASSWORD }}
         run: ./scripts/seed-real-e2e.sh --target local
 
       - name: Verify CI result-integrity unit gates
@@ -191,7 +196,7 @@ jobs:
         env:
           PARKIO_BASE_URL: http://127.0.0.1:8080
           PARKIO_K6_EMAIL: user@performance-smoke.parkio.local
-          PARKIO_K6_PASSWORD: StrongParkio123
+          PARKIO_K6_PASSWORD: ${{ env.PERF_SMOKE_PASSWORD }}
           PARKIO_K6_VUS: "3"
           PARKIO_K6_DURATION: "45s"
           PARKIO_K6_AUTH_RATE: "1"

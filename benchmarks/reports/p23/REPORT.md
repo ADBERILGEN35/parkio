@@ -273,7 +273,7 @@ The existing read harness has an upload gate, but it must be extended or wrapped
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d --build
 
 PARKIO_K6_EMAIL=user@real-e2e.parkio.local \
-PARKIO_K6_PASSWORD=StrongParkio123 \
+PARKIO_K6_PASSWORD=<unique-password-from-your-secret-store> \
 PARKIO_K6_ENABLE_UPLOAD=true \
 PARKIO_K6_VUS=20 \
 PARKIO_K6_DURATION=5m \

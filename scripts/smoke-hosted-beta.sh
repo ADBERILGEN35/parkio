@@ -63,7 +63,7 @@ if [ "$PROFILE" = "invite-production" ]; then
 else
   LOGIN_MODE="seeded-positive"
   EMAIL="${EXPLICIT_EMAIL:-user@real-e2e.parkio.local}"
-  PASSWORD="${EXPLICIT_PASSWORD:-StrongParkio123}"
+  PASSWORD="${EXPLICIT_PASSWORD:?seeded-positive smoke needs EXPLICIT_PASSWORD (the seeded account password from the secret store; no default)}"
 fi
 EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}"
 CLIENT_HEADER="X-Parkio-Client: mobile"
