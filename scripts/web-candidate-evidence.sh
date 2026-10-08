@@ -179,7 +179,7 @@ suite() { # suite NAME ASSERT_ARGS... -- PLAYWRIGHT_ARGS...
 }
 
 rm -rf "${WEB:?}/test-results/a11y"
-A11Y_WEB_URL="$URL" suite a11y-web --project a11y-web --min 40 -- \
+A11Y_WEB_URL="$URL" suite a11y-web --project a11y-web --min 48 -- \
   -c playwright.a11y.config.ts --project a11y-web
 cp -r "$WEB/test-results/a11y" "$OUT/a11y-pages" 2>/dev/null || true
 CXF11_WEB_URL="$URL" suite cxf11-acceptance --project cxf11-acceptance --min 25 -- \

@@ -1,3 +1,4 @@
+import type { MunicipalFacility } from '@parkio/types';
 import { Icon, MapSearchSkeleton } from '@parkio/ui';
 import { haversineMeters, isValidLatLng } from '@parkio/geo';
 import { useQuery } from '@tanstack/react-query';
@@ -35,6 +36,8 @@ const PUBLIC_EXPLORE_QUERY_RETRIES = 1;
 
 /** Destination framing: enough context for nearby municipal markers without over-zoom. */
 const DESTINATION_ZOOM = DEFAULT_PICKER_ZOOM;
+/** The markers of a map whose style never loaded: none (stable, so the map's memoised layers do not churn). */
+const NO_MAP_FACILITIES: MunicipalFacility[] = [];
 
 interface SelectedDestination {
   id: string;
@@ -545,7 +548,9 @@ export function PublicExplorePage() {
                 center={mapCenter}
                 zoom={mapZoom}
                 spots={[]}
-                municipalFacilities={municipalFacilities}
+                // When the style never loaded (CL-F20) the list fallback replaces the map; markers left on the
+                // dead map would still take keyboard focus behind that list (WCAG 2.4.11, Asana 1219147334320125).
+                municipalFacilities={mapUnavailable ? NO_MAP_FACILITIES : municipalFacilities}
                 destinationMarker={destinationMarker}
                 discoveryFrame={{
                   anchor: discoveryOrigin,
