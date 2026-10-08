@@ -180,7 +180,8 @@ public class AuthController {
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request,
                                               HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
-        authService.resetPassword(new ResetPasswordCommand(request.token(), request.newPassword()));
+        authService.resetPassword(new ResetPasswordCommand(
+                request.token(), request.newPassword(), clientIdentity.clientKey(httpRequest)));
         return ResponseEntity.noContent()
                 .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
                 .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())

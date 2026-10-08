@@ -89,6 +89,8 @@ public class AccountErasureApplicationService {
     private final EntityManagerFactory entityManagerFactory;
     private final TransactionTemplate requiresNew;
     private final TransactionTemplate withoutTransaction;
+    /** Optional (CL-F15 v2): erasure removes what the login throttle keeps for the account. */
+    private LoginFailureTracker loginFailures;
 
     public AccountErasureApplicationService(
             AuthUserRepository users,
@@ -189,6 +191,11 @@ public class AccountErasureApplicationService {
                 transactionManagers.getIfAvailable());
     }
 
+    @Autowired(required = false)
+    void setLoginFailureTracker(LoginFailureTracker loginFailures) {
+        this.loginFailures = loginFailures;
+    }
+
     @Transactional
     public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password) {
         if (!enabled) {
@@ -233,7 +240,38 @@ public class AccountErasureApplicationService {
         if (durableRecordingEnabled) {
             schedulePersistAfterCommit(requestId);
         }
+        forgetLoginThrottleAfterCommit(user.email(), requestId);
         return new AccountDeletionStatusView(requestId, "IN_PROGRESS");
+    }
+
+    /**
+     * Removes the login-throttle state of the account (counters and known clients, CL-F15 v2) once the
+     * erasure request has committed. Registered after the durable-recording step and never throws: a
+     * failing afterCommit callback would stop the callbacks registered after it. Best effort; the state
+     * expires on its own (at most 30 days for known clients).
+     */
+    private void forgetLoginThrottleAfterCommit(String email, UUID requestId) {
+        if (loginFailures == null) {
+            return;
+        }
+        Runnable forget = () -> {
+            try {
+                loginFailures.forgetAccount(email);
+            } catch (RuntimeException ex) {
+                log.warn("erasure could not clear the login throttle state requestId={}; it expires on its own",
+                        requestId);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    forget.run();
+                }
+            });
+        } else {
+            forget.run();
+        }
     }
 
     @Transactional(readOnly = true)

@@ -316,22 +316,23 @@ public class AuthApplicationService {
         passwordResetTokens.save(resetToken);
         int revoked = refreshTokens.revokeAllActiveForUser(
                 user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
-        // The account's owner proved control of the mailbox and chose a new password: the
-        // failures counted against the old one, from every client, no longer say anything (CL-F15).
-        clearLoginThrottleAfterCommit(user.email(), user.id());
+        // The account's owner proved control of the mailbox and chose a new password: every client's
+        // pair is cleared and the resetting client becomes known, so the owner can log in from it at
+        // once, also while a distributed attack keeps the account's unknown clients waiting (CL-F15 v2).
+        clearLoginThrottleAfterCommit(user.email(), command.clientKey(), user.id());
         log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
     }
 
     /**
-     * Clears the account's login-throttle counters once the password reset has committed. Best effort:
+     * Clears the account's login-throttle pairs once the password reset has committed. Best effort:
      * the throttle store being unavailable must not undo or fail a completed reset, and the counters
      * expire on their own (CL-F15).
      */
-    private void clearLoginThrottleAfterCommit(String email, UUID userId) {
+    private void clearLoginThrottleAfterCommit(String email, String resettingClientKey, UUID userId) {
         Runnable clear = () -> {
             try {
-                loginFailures.clearAccount(email);
+                loginFailures.clearAfterPasswordReset(email, resettingClientKey);
             } catch (RuntimeException ex) {
                 log.warn("Login throttle counters not cleared after a password reset; they expire on their own; userId={}",
                         userId);

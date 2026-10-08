@@ -624,7 +624,11 @@ class AdminApplicationServiceTest {
         }
 
         @Override
-        public void clearAccount(String normalizedEmail) {
+        public void clearAfterPasswordReset(String normalizedEmail, String resettingClientKey) {
+        }
+
+        @Override
+        public void forgetAccount(String normalizedEmail) {
         }
     }
 

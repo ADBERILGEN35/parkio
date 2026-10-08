@@ -142,6 +142,41 @@ class AccountErasureApplicationServiceTest {
         verify(tombstones).save(any());
     }
 
+    /** CL-F15 v2: the erasure request removes what the login throttle keeps for the account (known clients too). */
+    @Test
+    void requestRemovesTheAccountsLoginThrottleState() {
+        InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(() -> NOW);
+        ThrottledLoginFailureTracker tracker = new ThrottledLoginFailureTracker(store);
+        tracker.clearAfterSuccess(user.email(), "198.51.100.7");
+        tracker.recordFailure(user.email(), "203.0.113.9", NOW);
+        tracker.recordFailure("neighbour@example.com", "203.0.113.9", NOW);
+        service.setLoginFailureTracker(tracker);
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+
+        service.requestDeletion(user.id(), "pw");
+
+        String account = ThrottledLoginFailureTracker.digest(user.email());
+        assertThat(store.keys()).noneMatch(key -> key.contains(account));
+        assertThat(store.keys()).anyMatch(key -> key.contains(ThrottledLoginFailureTracker.digest("neighbour@example.com")));
+    }
+
+    /** Best effort: an unavailable throttle store does not fail or change the erasure request. */
+    @Test
+    void anUnavailableThrottleStoreDoesNotFailTheErasureRequest() {
+        InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(() -> NOW);
+        store.failing = true;
+        service.setLoginFailureTracker(new ThrottledLoginFailureTracker(store));
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+
+        assertThat(service.requestDeletion(user.id(), "pw").status()).isEqualTo("IN_PROGRESS");
+        verify(outbox).append(any(UserErasureRequestedEvent.class));
+        verify(tombstones).save(any());
+    }
+
     @Test
     void repeatRequestIsIdempotent() {
         UUID requestId = UUID.randomUUID();

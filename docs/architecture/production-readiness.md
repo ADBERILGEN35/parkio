@@ -441,11 +441,14 @@ login attempts are tracked in Redis per (normalized email, client) so protection
 works across auth-service instances and so that an attacker who knows an e-mail
 cannot lock its owner out: 5 failures from one client delay that client 30 seconds,
 10 failures 5 minutes, 20 failures 1 hour, while other clients of the same account
-are unaffected. Once 50 failures from any clients accumulate within an hour, every
-client of the account waits a short 10-second soft delay per further failure, never
-more. The client is the gateway-resolved IP (`X-Parkio-Client-Ip`), trusted only on
-gateway-authenticated requests. A successful login clears that client's counter and
-the account-wide one; a password reset clears every client's. Client responses for
+are unaffected. Once 50 failures from any clients accumulate within an hour, the
+account's clients that are not known for it (no successful login or completed reset
+from them in 30 days) wait 10 seconds per further failure, 60 seconds from 100
+failures and 5 minutes from 200; known clients are not delayed (policy v2). The
+client is the gateway-resolved IP (`X-Parkio-Client-Ip`, IPv6 by /64), trusted only
+on gateway-authenticated requests. A successful login clears that client's counter
+and makes it known; a password reset clears every client's counter and makes the
+resetting client known. Client responses for
 wrong password, unknown email and a throttled attempt stay the same generic
 `INVALID_CREDENTIALS` shape; logs and the `login_lockouts` counter (now counting
 throttled attempts) distinguish them internally.

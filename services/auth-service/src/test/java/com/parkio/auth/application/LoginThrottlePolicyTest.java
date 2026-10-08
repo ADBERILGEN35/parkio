@@ -19,16 +19,24 @@ class LoginThrottlePolicyTest {
     }
 
     @Test
-    void accountSoftCapIsShortAndBounded() {
-        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_SOFT_CAP - 1)).isEqualTo(Duration.ZERO);
-        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_SOFT_CAP))
-                .isEqualTo(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY);
-        assertThat(LoginThrottlePolicy.accountDelay(100_000)).isEqualTo(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY);
-        assertThat(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY).isLessThan(LoginThrottlePolicy.pairDelay(5));
+    void accountTiersEscalateAndStayBounded() {
+        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_FIRST_CAP - 1)).isEqualTo(Duration.ZERO);
+        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_FIRST_CAP))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
+        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_SECOND_CAP - 1))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
+        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_SECOND_CAP))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_SECOND_DELAY);
+        assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_THIRD_CAP))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        assertThat(LoginThrottlePolicy.accountDelay(100_000)).isEqualTo(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        // The longest account wait is shorter than the account window, so the window restarts with every
+        // failure of a sustained attack and the tier holds; it ends 1 h after the attack stops.
+        assertThat(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY).isLessThan(LoginThrottlePolicy.ACCOUNT_WINDOW);
     }
 
     /**
-     * One client alone cannot trip the account cap: inside the account window its own pair
+     * One client alone cannot trip the first account cap: inside the account window its own pair
      * delays allow at most 5 + 5 + 10 failures before each further one costs an hour.
      */
     @Test
@@ -39,7 +47,7 @@ class LoginThrottlePolicyTest {
             failures++;
             elapsed = elapsed.plus(LoginThrottlePolicy.pairDelay(failures));
         }
-        assertThat(failures).isLessThan(LoginThrottlePolicy.ACCOUNT_SOFT_CAP);
+        assertThat(failures).isLessThan(LoginThrottlePolicy.ACCOUNT_FIRST_CAP);
     }
 
     @Test
