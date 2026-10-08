@@ -197,9 +197,9 @@ with the exact role set, hashing the password in-DB (pgcrypto BCrypt) so it is n
 printed or passed on a command line:
 
 ```bash
-export PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local      PARKIO_REAL_USER_PASSWORD='StrongParkio123'
-export PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123'
-export PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local    PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123'
+export PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local      PARKIO_REAL_USER_PASSWORD='<unique-password-from-your-secret-store>'
+export PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local PARKIO_REAL_MODERATOR_PASSWORD='<unique-password-from-your-secret-store>'
+export PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local    PARKIO_REAL_ADMIN_PASSWORD='<unique-password-from-your-secret-store>'
 PARKIO_ENV_FILE=docker/.env ./scripts/seed-real-e2e.sh --target hosted-beta
 ```
 

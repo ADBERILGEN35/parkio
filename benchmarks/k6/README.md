@@ -14,7 +14,7 @@ substitute for EXPLAIN on 100k ACTIVE rows.
 ```bash
 PARKIO_BASE_URL=http://localhost:8080 \
 PARKIO_K6_EMAIL=user@real-e2e.parkio.local \
-PARKIO_K6_PASSWORD='StrongParkio123' \
+PARKIO_K6_PASSWORD='<unique-password-from-your-secret-store>' \
 k6 run benchmarks/k6/parking-session-stale.js
 ```
 
@@ -29,7 +29,7 @@ Run against a local or Compose stack with seeded non-production credentials:
 ```bash
 PARKIO_BASE_URL=http://localhost:8080 \
 PARKIO_K6_EMAIL=user@real-e2e.parkio.local \
-PARKIO_K6_PASSWORD='StrongParkio123' \
+PARKIO_K6_PASSWORD='<unique-password-from-your-secret-store>' \
 k6 run --summary-export benchmarks/reports/http-load-summary.json benchmarks/k6/http-load.js
 ```
 
