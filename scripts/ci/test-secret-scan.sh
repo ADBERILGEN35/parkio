@@ -7,8 +7,9 @@
 # - each event maps to its intended range: a seeded commit inside the event's range is found, the logged
 #   range and count match, and an empty pull-request range fails;
 # - the scanned tree cannot weaken its own scan: a `.gitattributes` marking the file binary, a
-#   `.gitleaksignore` with the finding's fingerprint, and a pull request that allowlists its own secret
-#   in `.gitleaks.toml` all still fail;
+#   `.gitleaksignore` with the finding's fingerprint, an inline `gitleaks:allow` comment, and a pull
+#   request that allowlists its own secret in `.gitleaks.toml` all still fail;
+# - the seeded values never appear in the scan's log or output;
 # - the "commits scanned" count and gitleaks' executed `git log` range are checked;
 # - scanner and git errors fail the scan, including the ownership failure that made the old step pass
 #   with 0 commits scanned (reproduced by running the image as the old step did: root, with the HOME
@@ -37,7 +38,7 @@ commit() { git -C "$R" add -A && git -C "$R" commit -q -m "$1" && git -C "$R" re
 
 R="$TMP/repo"; new_repo "$R"
 echo "clean" > "$R/a.txt";                              C1=$(commit "c1 clean")
-mkdir -p "$R/canary"; echo "token=$(token)" > "$R/canary/one.txt"; C2=$(commit "c2 seeded token")
+mkdir -p "$R/canary"; T1=$(token); echo "token=$T1" > "$R/canary/one.txt"; C2=$(commit "c2 seeded token")
 echo "clean" > "$R/b.txt";                              C3=$(commit "c3 clean")
 pem > "$R/canary/two.pem";                              C4=$(commit "c4 seeded private key")
 echo "clean" > "$R/c.txt";                              C5=$(commit "c5 clean")
@@ -58,6 +59,7 @@ expect_fail "a seeded token at the start of the range fails" 'leaks found: 1' --
 expect_fail "a seeded private key at the end of the range fails" 'leaks found: 1' --range "$C3..$C4"
 grep -q 'rule=private-key' "$TMP/out" && ok "  the second rule type (private-key) is detected" || { bad "private-key rule"; cat "$TMP/out"; }
 expect_fail "both seeds in a wide range are found" 'leaks found: 2' --range "$C1..$C5"
+if grep -qF "$T1" "$TMP/log" "$TMP/out"; then bad "  a seeded value appears in the log or output"; else ok "  no seeded value appears in the log or output"; fi
 expect_pass "the root commit alone passes" --full "$C1"
 expect_fail "the full history finds both seeds" 'leaks found: 2' --full "$M"
 expect_pass "a merge commit is not counted and the merged clean branch passes" --range "$C5..$M"
@@ -83,6 +85,9 @@ expect_fail "a .gitattributes 'binary' mark does not hide a seeded file" 'leaks 
 printf '%s:x.env:github-pat:1\n' "$D3" > "$R/.gitleaksignore"
 expect_fail "a .gitleaksignore with the finding's fingerprint is not honoured" 'leaks found: 1' --range "$D2..$D3"
 rm -f "$R/.gitleaksignore"
+echo "TOKEN=$(token) # gitleaks:allow" > "$R/allowed.txt";        D3A=$(commit "d3a seeded token with an inline allow comment")
+expect_fail "an inline 'gitleaks:allow' comment does not suppress a finding" 'leaks found: 1' --range "$D3..$D3A"
+D3=$D3A
 python3 - "$R/.gitleaks.toml" <<'PY'
 import sys
 with open(sys.argv[1], "a", encoding="utf-8") as fh:

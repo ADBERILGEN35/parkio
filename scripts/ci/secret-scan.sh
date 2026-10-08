@@ -15,7 +15,8 @@
 #   history of the checked-out commit for a manual or scheduled run (audit);
 # - keeps the scanned tree from weakening its own scan: gitleaks sees only the repository's git directory
 #   (mounted read-only; gitleaks reads a `.gitleaksignore` from its scan path even when `-i` points
-#   elsewhere, so the working tree is not given to it), git attributes come from the empty tree (a
+#   elsewhere, so the working tree is not given to it) and writes its report to a separate directory,
+#   inline `gitleaks:allow` comments are ignored, git attributes come from the empty tree (a
 #   `.gitattributes` cannot mark files binary), and a pull request is scanned with its base commit's
 #   `.gitleaks.toml` (an allowlist takes effect only once merged);
 # - fails on a shallow clone, an unresolvable or empty pull-request range, any scanner or git error line,
@@ -43,6 +44,8 @@ IMAGE="${PARKIO_GITLEAKS_IMAGE:-zricethezav/gitleaks@sha256:cdbb7c955abce02001a9
 RUN_AS="${PARKIO_GITLEAKS_RUN_AS:-owner}"
 ZERO_SHA=0000000000000000000000000000000000000000
 EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+# The host-side counts read attributes from the same (empty) source as the container.
+export GIT_ATTR_SOURCE=$EMPTY_TREE
 
 usage() { sed -n '2,38p' "$0" >&2; exit 2; }
 fail() { echo "secret scan: FAIL: $*" >&2; exit 1; }
@@ -176,17 +179,18 @@ read -r MIN MAX <<< "$BOUNDS"
 [ "$MAX" -gt 0 ] || [ "$MODE" = range ] || fail "the history of $B holds no non-merge commit"
 
 CONFIG_DIR=$(mktemp -d)
-cleanup() { rm -rf "$CONFIG_DIR"; [ -n "${OWN_LOG:-}" ] && rm -f "$OWN_LOG"; }
+OUT_DIR=$(mktemp -d)
+cleanup() { rm -rf "$CONFIG_DIR" "$OUT_DIR" 2>/dev/null; [ -n "${OWN_LOG:-}" ] && rm -f "$OWN_LOG"; }
 trap cleanup EXIT
 CONFIG_REV=$(resolve "${CONFIG_REV:-$B}") || fail "cannot resolve the config revision"
 git -C "$REPO" show "$CONFIG_REV:.gitleaks.toml" > "$CONFIG_DIR/.gitleaks.toml" 2>/dev/null \
   || fail "no .gitleaks.toml at the config revision $CONFIG_REV"
-chmod 0755 "$CONFIG_DIR"; chmod 0644 "$CONFIG_DIR/.gitleaks.toml"
+chmod 0755 "$CONFIG_DIR"; chmod 0644 "$CONFIG_DIR/.gitleaks.toml"; chmod 0777 "$OUT_DIR"
 if [ -z "$LOG" ]; then LOG=$(mktemp); OWN_LOG=$LOG; fi
 
 # The git directory only (read-only) at /repo: no working-tree file can reach gitleaks. The report is
-# written through a separate mount of the repository directory.
-docker_args=(run --rm -v "$REPO/.git:/repo:ro" -v "$REPO:/work" -v "$CONFIG_DIR:/scan-config:ro" -w /tmp
+# written to a separate empty directory and copied into the repository afterwards.
+docker_args=(run --rm -v "$REPO/.git:/repo:ro" -v "$OUT_DIR:/out" -v "$CONFIG_DIR:/scan-config:ro" -w /tmp
   -e "GIT_ATTR_SOURCE=$EMPTY_TREE")
 case "$RUN_AS" in
   owner) docker_args+=(--user "$(stat -c '%u:%g' "$REPO")" -e HOME=/tmp
@@ -196,16 +200,22 @@ case "$RUN_AS" in
 esac
 echo "secret scan: $DESC ($MODE); config from $CONFIG_REV; expecting $MIN..$MAX scanned commits"
 docker "${docker_args[@]}" "$IMAGE" git --config /scan-config/.gitleaks.toml --gitleaks-ignore-path /scan-config \
-  --redact --no-banner --log-level debug --report-format sarif --report-path "/work/$REPORT" \
-  --log-opts="$LOG_OPTS" /repo > "$LOG" 2>&1
+  --ignore-gitleaks-allow --redact --no-banner --log-level debug --report-format sarif \
+  --report-path /out/report.sarif --log-opts="$LOG_OPTS" /repo > "$LOG" 2>&1
 rc=$?
+if [ -f "$OUT_DIR/report.sarif" ]; then
+  mkdir -p "$(dirname "$REPO/$REPORT")" && cp "$OUT_DIR/report.sarif" "$REPO/$REPORT"
+fi
 sed -E 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -E 'executing:|commits scanned|leaks|ERR|FTL|fatal' | head -20 || true
 if [ -s "$REPO/$REPORT" ]; then
   python3 - "$REPO/$REPORT" <<'PY' || true
 import json, sys
 runs = json.load(open(sys.argv[1], encoding="utf-8")).get("runs", [])
 for run in runs:
-    for r in run.get("results", [])[:100]:
+    results = run.get("results", [])
+    if len(results) > 100:
+        print(f"  ({len(results) - 100} more findings in the SARIF report)")
+    for r in results[:100]:
         loc = (r.get("locations") or [{}])[0].get("physicalLocation", {})
         path = loc.get("artifactLocation", {}).get("uri", "?")
         line = loc.get("region", {}).get("startLine", "?")

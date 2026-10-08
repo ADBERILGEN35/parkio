@@ -588,7 +588,8 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
   (until 2026-10-08 the step hit git's "dubious ownership" refusal and passed with 0 commits scanned).
   `scripts/ci/test-secret-scan.sh` runs first and proves that seeded disposable secrets fail, that each
   event scans its intended range, and that the scanned tree cannot weaken its own scan (gitleaks sees only
-  the read-only git directory; attributes come from the empty tree; a pull request uses its base's config).
+  the read-only git directory; inline `gitleaks:allow` comments are ignored; attributes come from the
+  empty tree; a pull request uses its base's config).
 - **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning
   (gated behind the `CODEQL_ENABLED` repository variable — see below).
 - **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL
