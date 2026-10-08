@@ -1,9 +1,11 @@
-# Parkio hosted-beta auth release pin — PR #78 Resend delivery readiness (2026-09-22)
-# Runtime source tip: b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449
-# Merge: 2b107967792b981f82d720a333c8fa2c52ebf6af
-# Local image ID == registry manifest digest for this single-arch push.
-# Rollback (PR #68 auth image):
-#   ghcr.io/adberilgen35/parkio/auth-service@sha256:c9875b416b9a9db9d597fa2e81ab9b5cc9858738b7bea7175c5fac5f00606ac1
+# Parkio hosted-beta auth release pin — hosted-beta release 2026-10-09
+# Source / OCI revision: a658edcb0e4152b760ecafa3ef02d7410f9b0ef8 (api after #326). Candidate images run
+# 37847459860 (accepted), published by candidate-publish run 37850081305; registry config digest = accepted
+# image id sha256:d33649be305cf8a8cd3ce0957172036d5150e0da55233ef1090407d2a2459ce3 (linux/amd64).
+# Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY in the host env (preflight refuses without it). Deploy after the
+# gateway and the web pins (CL-F15, route-specific CSRF #324); roll back before them.
+# Rollback (the previous live pin, source b10c1f7c):
+#   ghcr.io/adberilgen35/parkio/auth-service@sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e
 # Applied via docker/compose.production.files (after GMP pins, with web pin).
 # Recreate with:
 #   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
@@ -14,4 +16,4 @@ name: parkio
 
 services:
   auth-service:
-    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e
+    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:acc3669840ff47303e806725e3382331515af7d7cece3d3228c3135ad3462d2e
