@@ -37,7 +37,7 @@ See ../rollback-runbook.md and ../kill-switch-catalogue.md.
 
 - /actuator/health/readiness green for affected services
 - Error rate normalized 15m
-- Run smoke: scripts/smoke-hosted-beta.sh (hosted-beta)
+- Run smoke: scripts/smoke-hosted-beta.sh (hosted-beta; export PARKIO_REAL_USER_PASSWORD from the secret store first)
 
 ## Escalation
 

@@ -93,6 +93,19 @@ else
   PARKIO_COMPOSE_FILES="-f docker/docker-compose.yml -f docker/docker-compose.apps.yml -f docker/docker-compose.images.yml"
   export PARKIO_DEPLOYMENT_PROFILE PARKIO_COMPOSE_FILES
 fi
+# Owner decision 2026-10-08 item 7: the seeded-positive smoke has no default password any more. Ask the
+# smoke script now whether it has what it needs, before any build or `up`, instead of failing after the
+# stack has switched; --skip-smoke is the explicit opt-out.
+if [ "$SKIP_SMOKE" -ne 1 ] && [ "$DRY_RUN" -ne 1 ]; then
+  PARKIO_ENV_FILE="$ENV_FILE" \
+    PARKIO_DEPLOYMENT_PROFILE="$PARKIO_DEPLOYMENT_PROFILE" \
+    PARKIO_GATEWAY_URL="${PARKIO_GATEWAY_URL:-$(parkio_default_gateway_url)}" \
+    "$ROOT/scripts/smoke-hosted-beta.sh" --check-credentials || {
+    echo "ERROR: the post-deploy smoke would refuse to run (see above): export PARKIO_REAL_USER_PASSWORD from the" >&2
+    echo "       secret store, or pass --skip-smoke deliberately. Nothing was built or started." >&2
+    exit 2
+  }
+fi
 export PARKIO_IMAGE_TAG="$IMAGE_TAG"
 export PARKIO_GIT_SHA="$GIT_SHA"
 export PARKIO_IMAGE_CREATED="$CREATED"

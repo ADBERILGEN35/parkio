@@ -175,6 +175,9 @@ jobs:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_GATEWAY_URL: http://127.0.0.1:8080
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          # Seeded real-e2e account password for the smoke (secret store -> repository secret; no default
+          # since 2026-10-08). Empty -> the wrapper refuses before anything is built or started.
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.HOSTED_BETA_REAL_USER_PASSWORD }}
         run: |
           set -euo pipefail
           chmod +x scripts/deploy-hosted-beta.sh scripts/smoke-hosted-beta.sh
@@ -271,6 +274,9 @@ jobs:
           PARKIO_DEPLOY_OPERATOR: github-actions
           PARKIO_GATEWAY_URL: http://127.0.0.1:8080
           PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED: "1"
+          # Seeded real-e2e account password for the smoke (secret store -> repository secret; no default
+          # since 2026-10-08). Empty -> the wrapper refuses before anything is built or started.
+          PARKIO_REAL_USER_PASSWORD: ${{ secrets.HOSTED_BETA_REAL_USER_PASSWORD }}
           PARKIO_VERIFIED_MANIFEST: ${{ steps.manifest.outputs.manifest }}
         run: |
           set -euo pipefail

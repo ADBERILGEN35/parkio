@@ -79,7 +79,7 @@ PATH="$tmp/bin:$PATH" \
 
 grep -q 'PASS: clean-production login rejects unprovisioned credentials (401 INVALID_CREDENTIALS)' "$output"
 grep -q '=== smoke summary: pass=7 fail=0 ===' "$output"
-if grep -q 'user@real-e2e.parkio.local\|StrongParkio123' "$payload"; then
+if grep -q 'user@real-e2e.parkio.local' "$payload"; then
   echo 'FAIL: invite-production smoke inherited hosted-beta credentials' >&2
   exit 1
 fi

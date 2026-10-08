@@ -123,7 +123,7 @@ Or re-checkout the old commit and run `./scripts/deploy-hosted-beta.sh` (that is
 jq -r .gitSha deploy-artifacts/current.json
 docker inspect parkio-gateway-service-1 \
   --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
-./scripts/smoke-hosted-beta.sh
+PARKIO_REAL_USER_PASSWORD='<from the secret store>' ./scripts/smoke-hosted-beta.sh
 ```
 
 ## Related

@@ -104,7 +104,7 @@ unknown must stay unexposed; applying erasures after users are back on it is not
 
 1. Start stopped services through the deployment profile's scripts, not a hand-written `docker compose -f` list. This is an operator decision, not part of the restore. With the default hosted-beta profile, `deploy-hosted-beta.sh` and `rollback-hosted-beta.sh` render `docker/compose.production.files` (CL-F12).
 2. Wait for healthchecks (`docker compose ps`).
-3. `./scripts/smoke-hosted-beta.sh`
+3. `PARKIO_REAL_USER_PASSWORD='<from the secret store>' ./scripts/smoke-hosted-beta.sh`
 4. Verify Grafana dashboards and outbox/DLQ metrics.
 
 ## Isolated CI drill

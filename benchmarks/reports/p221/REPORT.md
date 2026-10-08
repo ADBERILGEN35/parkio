@@ -177,9 +177,9 @@ For a hosted beta on hardware comparable to or better than this host, with the c
 
 ```bash
 # stack already built; bring up: docker compose -f docker/docker-compose.yml -f docker/docker-compose.apps.yml up -d
-# seed users: 1 primary + loadtest+1..60@real-e2e.parkio.local (StrongParkio123)
+# seed users: 1 primary + loadtest+1..60@real-e2e.parkio.local (<redacted: the shared value was removed from the repository on 2026-10-08>)
 # single-user suite:
-PARKIO_K6_EMAIL=user@real-e2e.parkio.local PARKIO_K6_PASSWORD=StrongParkio123 \
+PARKIO_K6_EMAIL=user@real-e2e.parkio.local PARKIO_K6_PASSWORD=<unique-password-from-your-secret-store> \
   PARKIO_K6_VUS=10 k6 run benchmarks/k6/http-load.js
 # multi-user suite (real capacity):
 VUS=60 THINK=0.3 DUR=120s k6 run benchmarks/k6/http-load-multiuser.js

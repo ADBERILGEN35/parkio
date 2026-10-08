@@ -10,7 +10,10 @@ import { Trend, Rate } from 'k6/metrics';
 
 const BASE = (__ENV.PARKIO_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 const API = `${BASE}/api/v1`;
-const PW = __ENV.PARKIO_K6_PASSWORD || 'StrongParkio123';
+const PW = __ENV.PARKIO_K6_PASSWORD;
+if (!PW) {
+  throw new Error('PARKIO_K6_PASSWORD is required: the seeded account password, never a committed default');
+}
 const DOMAIN = __ENV.PARKIO_K6_USER_DOMAIN || 'real-e2e.parkio.local';
 const PREFIX = __ENV.PARKIO_K6_USER_PREFIX || 'loadtest+';
 const LAT = Number(__ENV.PARKIO_K6_LATITUDE || '41.0082');

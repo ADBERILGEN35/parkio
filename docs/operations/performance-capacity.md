@@ -56,7 +56,7 @@ Run:
 ```bash
 PARKIO_BASE_URL=http://localhost:8080 \
 PARKIO_K6_EMAIL=user@real-e2e.parkio.local \
-PARKIO_K6_PASSWORD='StrongParkio123' \
+PARKIO_K6_PASSWORD='<unique-password-from-your-secret-store>' \
 k6 run --summary-export benchmarks/reports/http-load-summary.json benchmarks/k6/http-load.js
 ```
 

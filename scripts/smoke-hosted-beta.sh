@@ -5,8 +5,15 @@
 # Usage:
 #   PARKIO_DEPLOYMENT_PROFILE=azure-hosted-beta ./scripts/smoke-hosted-beta.sh
 #
-# Optional credentials (seeded accounts recommended):
-#   PARKIO_REAL_USER_EMAIL / PARKIO_REAL_USER_PASSWORD
+# Credentials (hosted-beta and azure-hosted-beta run the seeded-positive login; no default since
+# 2026-10-08, owner decision item 7):
+#   PARKIO_REAL_USER_PASSWORD   required: the seeded real-e2e account's password, from the secret store
+#   PARKIO_REAL_USER_EMAIL      optional: default user@real-e2e.parkio.local
+# invite-production needs neither (clean-production negative probe) unless both are given.
+#
+# `--check-credentials` validates the inputs for the selected profile and exits (0 = the smoke could
+# run, 2 = it would refuse) without touching the network; the deploy/rollback wrappers call it before
+# they build or start anything.
 #
 # Optional:
 #   PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED=1  — expect direct :8083 access to fail (hosted-beta)
@@ -63,7 +70,15 @@ if [ "$PROFILE" = "invite-production" ]; then
 else
   LOGIN_MODE="seeded-positive"
   EMAIL="${EXPLICIT_EMAIL:-user@real-e2e.parkio.local}"
-  PASSWORD="${EXPLICIT_PASSWORD:-StrongParkio123}"
+  if [ -z "$EXPLICIT_PASSWORD" ]; then
+    echo "ERROR: seeded-positive smoke needs PARKIO_REAL_USER_PASSWORD (the seeded real-e2e account's password from the secret store; there is no default). Set PARKIO_REAL_USER_EMAIL too when the account is not user@real-e2e.parkio.local." >&2
+    exit 2
+  fi
+  PASSWORD="$EXPLICIT_PASSWORD"
+fi
+if [ "${1:-}" = "--check-credentials" ]; then
+  echo "smoke credentials OK for profile $PROFILE (login mode $LOGIN_MODE)"
+  exit 0
 fi
 EXPECT_DIRECT_BLOCKED="${PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED:-0}"
 CLIENT_HEADER="X-Parkio-Client: mobile"
