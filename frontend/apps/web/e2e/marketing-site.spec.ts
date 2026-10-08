@@ -244,9 +244,10 @@ test('an unsubscribe server error is not shown as an invalid link (CL-F19)', asy
 });
 
 test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
-  // Nothing may leave the machine: every request to another host is recorded and aborted, so the
-  // signup the bypass attempt sends never reaches the production API. The abort stands in for an
-  // unreachable API, which is the failure this test needs.
+  // Nothing may leave the machine: every request to another host that reaches the network is recorded
+  // and aborted, so the signup the bypass attempt sends never reaches the production API. (In Chromium,
+  // Playwright answers the CORS preflight itself once a route exists, so only the POST arrives here.)
+  // The abort stands in for an unreachable API, which is the failure this test needs.
   const external: string[] = [];
   await page.route(
     (url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost',
@@ -261,6 +262,8 @@ test('waitlist query mock bypass cannot fake success when meta remains api', asy
   await page.locator('#waitlist-consent').check();
   await page.locator('#waitlist-form button[type="submit"]').click();
   await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
+  // The failure is reported as the network error, not as any success-like message.
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute('data-feedback-key', 'waitlist.error.network');
   // The form really tried the API (meta stays api; ?waitlistMock=1 must not switch it to the mock)...
   expect(external.filter((request) => request.includes('/api/v1/waitlist'))).not.toEqual([]);
   // ...and only the API: no other external host was contacted.
