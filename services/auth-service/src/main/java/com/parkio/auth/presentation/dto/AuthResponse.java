@@ -27,7 +27,14 @@ public record AuthResponse(
         Instant accessTokenExpiresAt,
         Instant refreshTokenExpiresAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) String refreshToken,
-        UserResponse user) {
+        UserResponse user,
+        /** Web transport only: the CSRF token the client must send as X-XSRF-TOKEN on cookie refresh/logout. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) String csrfToken) {
+
+    /** The same response carrying the CSRF token (web login and refresh). */
+    public AuthResponse withCsrfToken(String token) {
+        return new AuthResponse(accessToken, tokenType, accessTokenExpiresAt, refreshTokenExpiresAt, refreshToken, user, token);
+    }
 
     /** Web response: refresh token carried by HttpOnly cookie only (never in body). */
     public static AuthResponse from(AuthResult result) {
@@ -37,7 +44,8 @@ public record AuthResponse(
                 result.accessTokenExpiresAt(),
                 result.refreshTokenExpiresAt(),
                 null,
-                UserResponse.from(result.user()));
+                UserResponse.from(result.user()),
+                null);
     }
 
     /** Mobile response: refresh token returned in the body for SecureStore persistence. */
@@ -48,7 +56,8 @@ public record AuthResponse(
                 result.accessTokenExpiresAt(),
                 result.refreshTokenExpiresAt(),
                 result.refreshToken(),
-                UserResponse.from(result.user()));
+                UserResponse.from(result.user()),
+                null);
     }
 
     public static AuthResponse pendingVerification(RegisterResult result) {
@@ -58,6 +67,7 @@ public record AuthResponse(
                 null,
                 null,
                 null,
-                UserResponse.from(result.user()));
+                UserResponse.from(result.user()),
+                null);
     }
 }
