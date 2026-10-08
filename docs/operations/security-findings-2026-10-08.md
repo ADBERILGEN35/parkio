@@ -22,8 +22,9 @@ CVE-2026-47890 in every Java image and CVE-2026-47892 in the gateway image.
 | Container scan: library gate (api only) | `HIGH,CRITICAL`, `--pkg-types library` | yes | `.trivyignore.yaml` |
 | Container scan: report step (artifact only) | `HIGH,CRITICAL`, exit 0 | yes | none: the report stays unfiltered |
 
-Only `.trivyignore.yaml` gains two entries. No workflow, threshold or scanner version changes. The existing CVE-2026-47884 entry
-is not modified or extended and keeps its own expiry (2026-11-05).
+`.trivyignore.yaml` gains two entries, and the platform build gains one lz4-java dependency constraint (§5). No workflow,
+threshold or scanner version changes. The existing CVE-2026-47884 entry is not modified or extended and keeps its own expiry
+(2026-11-05).
 
 ## Verification
 
@@ -90,17 +91,29 @@ UpdatedAt 2026-10-08T15:33:46Z and Java DB 16:14:37Z, with Security CI's flags:
 11. Advisory updates: new spring.io history entries, changed GHSA package lists, new NVD or CISA-ADP data.
 12. The expiry, 2026-11-07.
 
-## 5. Not covered by this change: CVE-2026-106451 (lz4-java, HIGH)
+## 5. CVE-2026-106451 (lz4-java, HIGH): remediated at source by upgrade to 1.11.4 (commit `df0f7ef9`), no exception
 
-With the current database the api library gate also reports CVE-2026-106451 / GHSA-mcr4-qmvw-px4g in all ten Java images:
-`at.yawk.lz4:lz4-java` 1.10.1 (via kafka-clients 3.9.2), PkgPath `app/app.jar/BOOT-INF/lib/lz4-java-1.10.1.jar`, HIGH (GHSA
-CVSS 4.0 7.3 `AV:L/AC:H/AT:P/PR:L/…`; Red Hat 7.0), fixed in 1.11.4 — a local temporary-file race in `Native.load()` that lets
-another local user with access to the same shared temporary directory replace the extracted JNI library. The owner's decision
-does not cover it; it is neither excepted nor waived here, and the api library gate stays red until it is remediated or decided.
-Master's Security CI has no library gate.
+With the current database the api library gate also reported CVE-2026-106451 / GHSA-mcr4-qmvw-px4g in all ten Java images of the
+accepted candidate: `at.yawk.lz4:lz4-java` 1.10.1 (via kafka-clients 3.9.2), PkgPath `app/app.jar/BOOT-INF/lib/lz4-java-1.10.1.jar`,
+HIGH (GHSA CVSS 4.0 7.3 `AV:L/AC:H/AT:P/PR:L/…`; Red Hat 7.0), fixed in 1.11.4 — a local temporary-file race in `Native.load()`
+that lets another local user with access to the same shared temporary directory replace the extracted JNI library. The same
+1.10.1 also carries five lower-severity CVEs (106450, 106452, 106453, 59949, 106449), all fixed in 1.11.4.
+
+Owner decision 2026-10-08 (option 1): upgrade with the smallest Gradle change, no exception. `platform/parkio-platform/build.gradle.kts`
+constrains `at.yawk.lz4:lz4-java` to 1.11.4; every service receives kafka-clients through this platform module, and no BOM
+manages the artifact. Verification: `dependencyInsight` selects 1.11.4 (1.10.1 → 1.11.4) for all ten services; each boot jar's
+`BOOT-INF/lib` differs from the accepted candidate image's only by `lz4-java-1.10.1.jar` → `lz4-java-1.11.4.jar`;
+`Lz4CompressionCompatibilityTest` proves the resolved artifact is 1.11.4, Kafka LZ4 record batches round-trip, and the native
+LZ4/xxHash implementations load and agree with the Java ones on linux/amd64. With this change the critical and library gates
+pass on all images.
+
+Consequence: the images of run 37788374271 still contain `lz4-java-1.10.1.jar` in all ten Java services, so they are not the
+release artifact for those services. A new candidate is built and accepted from a source that contains `df0f7ef9`.
 
 ## 6. What this does not do
 
-No image is rebuilt (the accepted candidate stays the release artifact); no gate threshold, scanner version or workflow changes;
+No exception for CVE-2026-106451 (it is fixed by the upgrade); the ten Java images are rebuilt in a new candidate after
+this change; the web image of run 37788374271 is reused only if its build inputs are verified unchanged and its original
+provenance is kept; no gate threshold, scanner version or workflow changes;
 the CVE-2026-47884 entry is untouched; the findings remain in the unfiltered report step; the exceptions end on 2026-11-07
 unless the owner re-decides with new evidence.
