@@ -41,7 +41,7 @@ def write_private(path, text):
 
 
 def env_file(args):
-    """The example env file with every non-empty *_PASSWORD / *_SECRET replaced by a random value."""
+    """The example env file with every non-empty *_PASSWORD / *_SECRET / *_HMAC_KEY replaced by a random value."""
     overrides = {}
     for item in args.set or []:
         key, _, value = item.partition("=")
@@ -64,7 +64,7 @@ def env_file(args):
         seen.add(key)
         if key in overrides:
             value = overrides[key]
-        elif (key.endswith("_PASSWORD") or key.endswith("_SECRET")) and value:
+        elif (key.endswith("_PASSWORD") or key.endswith("_SECRET") or key.endswith("_HMAC_KEY")) and value:
             value = secrets.token_hex(24)
         lines.append(f"{key}={value}")
     for key, value in overrides.items():

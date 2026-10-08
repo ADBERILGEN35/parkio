@@ -201,6 +201,10 @@ services:
       PARKIO_JWT_ISSUER: ${PARKIO_JWT_ISSUER:-parkio-auth}
       PARKIO_JWT_AUDIENCE: ${PARKIO_JWT_AUDIENCE:-parkio-api}
       PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON: ${PARKIO_JWT_ADDITIONAL_PUBLIC_KEYS_JSON:-}
+      # CL-F15 v3: keyed-hashing secret of the login throttle (separately managed; no default; the
+      # previous one only during a rotation's 14-day overlap). Local dev value: docker/.env.example.
+      PARKIO_LOGIN_THROTTLE_HMAC_KEY: ${PARKIO_LOGIN_THROTTLE_HMAC_KEY:-}
+      PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS: ${PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS:-}
       PARKIO_CORS_ALLOWED_ORIGINS: ${PARKIO_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       # Canonical public SPA origin: verification and password-reset links in
       # transactional email derive from it. Default is the local Vite dev server;

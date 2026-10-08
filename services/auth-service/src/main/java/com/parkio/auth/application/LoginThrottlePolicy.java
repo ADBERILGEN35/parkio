@@ -3,27 +3,64 @@ package com.parkio.auth.application;
 import java.time.Duration;
 
 /**
- * Login throttling tiers (CL-F15). Failures are counted per (account, client) pair and per
- * account. A pair that keeps failing waits progressively longer before the next attempt is
- * evaluated; the account as a whole gets only a short, bounded delay once many clients fail
- * against it, so one client can slow the others down but can never lock them out.
+ * Login throttling policy v2 (CL-F15 follow-up; owner decision 2026-10-08 item 6, approved as revised:
+ * keyed digests, 14-day retention, documented rotation and reset behaviour).
  *
- * <p>A single client cannot reach the account cap on its own: its pair delays allow at most
- * 20 failures in the first hour and one per hour after that, which stays below
- * {@link #ACCOUNT_SOFT_CAP} inside {@link #ACCOUNT_WINDOW}. Reaching the cap needs a
- * distributed attacker, and the residual cost to the legitimate user is then
- * {@link #ACCOUNT_SOFT_DELAY} per attempt while that attack lasts (the challenge, P3 item 4,
- * is the product-level answer and is deliberately not part of this change).
+ * <ul>
+ *   <li><b>Per client.</b> Failures are counted per (account, client) pair. The client is the
+ *       gateway-resolved IPv4 address or the IPv6 /64 network ({@link LoginClientKeys}), so rotating
+ *       addresses inside one /64 is one client. A pair waits 30 s from its 5th failure, 5 min from its
+ *       10th and 1 h from its 20th; its counter lives 24 h after the last failure.</li>
+ *   <li><b>Per account, for clients that are not known.</b> Failures from all clients of an account are
+ *       counted too (the counter lives 1 h after the last failure). From the 50th, each further failure
+ *       makes the account's unknown clients wait 10 s; from the 100th, 60 s; from the 200th, 5 min. A
+ *       distributed attack on one account therefore gets about 150 guesses in its first hour and 12 per
+ *       hour once it passes 200, however many addresses it has and however many attempts it sends at once:
+ *       admission claims each wait atomically before the password is checked
+ *       ({@code LoginThrottleSimulationTest}).</li>
+ *   <li><b>Known clients</b> logged into the account, completed its password reset, or rotated one of
+ *       its refresh tokens within the last 14 days (one marker per client, expiring 14 days after that
+ *       client's last login, reset or refresh). They are exempt from the account wait, so a distributed
+ *       attacker cannot keep the owner out of a network the owner used before; their own pair tiers
+ *       still apply. (NIST SP 800-63B 5.2.2 lists this allowlist of previously authenticated addresses
+ *       among the measures against lockout.) Only a successful authentication writes the marker.</li>
+ *   <li><b>Key space.</b> E-mails and clients are stored as HMAC-SHA256 digests under a separately
+ *       managed secret ({@link LoginThrottleKeys}), rotated every {@link #HMAC_KEY_ROTATION_INTERVAL}
+ *       with a {@link #HMAC_KEY_OVERLAP} in which the previous secret is read but not written.</li>
+ *   <li><b>Recovery.</b> Completing a password reset clears every pair of the account and marks the
+ *       resetting client known, so the owner can log in from that client at once, also during an
+ *       attack. The account counter stays, so neither a reset nor a successful login gives a
+ *       distributed attacker a fresh budget.</li>
+ * </ul>
  */
 public final class LoginThrottlePolicy {
 
-    /** Pair failure counters live this long after the last failure (unchanged from the lock era). */
+    /** Pair failure counters live this long after the last failure. */
     public static final Duration PAIR_WINDOW = Duration.ofHours(24);
     /** Account-wide failure counters live this long after the last failure. */
     public static final Duration ACCOUNT_WINDOW = Duration.ofHours(1);
-    /** Account-wide failures (all clients) from which every client waits {@link #ACCOUNT_SOFT_DELAY}. */
-    public static final long ACCOUNT_SOFT_CAP = 50;
-    public static final Duration ACCOUNT_SOFT_DELAY = Duration.ofSeconds(10);
+    /** Account failures from which unknown clients wait {@link #ACCOUNT_FIRST_DELAY} per further failure. */
+    public static final long ACCOUNT_FIRST_CAP = 50;
+    public static final Duration ACCOUNT_FIRST_DELAY = Duration.ofSeconds(10);
+    public static final long ACCOUNT_SECOND_CAP = 100;
+    public static final Duration ACCOUNT_SECOND_DELAY = Duration.ofSeconds(60);
+    public static final long ACCOUNT_THIRD_CAP = 200;
+    public static final Duration ACCOUNT_THIRD_DELAY = Duration.ofMinutes(5);
+    /**
+     * How long a successful login, a completed reset or a successful token refresh keeps a client known
+     * for the account (the retention of the account-to-client digest; owner decision 2026-10-08 item 6).
+     */
+    public static final Duration KNOWN_CLIENT_TTL = Duration.ofDays(14);
+    /** Scheduled rotation interval of the keyed-hashing secret (operations; not enforced by code). */
+    public static final Duration HMAC_KEY_ROTATION_INTERVAL = Duration.ofDays(180);
+    /**
+     * How long the previous secret stays configured (read-only) after a rotation: at least the longest
+     * lifetime of any entry written under it, so nothing written under the old secret is still needed
+     * when it is removed.
+     */
+    public static final Duration HMAC_KEY_OVERLAP = Duration.ofDays(14);
+    /** IPv6 clients are keyed by their network of this prefix length. */
+    public static final int IPV6_CLIENT_PREFIX_BITS = 64;
 
     private LoginThrottlePolicy() {
     }
@@ -42,9 +79,18 @@ public final class LoginThrottlePolicy {
         return Duration.ZERO;
     }
 
-    /** Delay every client of the account must wait after its {@code accountFailures}-th failure. */
+    /** Delay the account's unknown clients must wait after its {@code accountFailures}-th failure. */
     public static Duration accountDelay(long accountFailures) {
-        return accountFailures >= ACCOUNT_SOFT_CAP ? ACCOUNT_SOFT_DELAY : Duration.ZERO;
+        if (accountFailures >= ACCOUNT_THIRD_CAP) {
+            return ACCOUNT_THIRD_DELAY;
+        }
+        if (accountFailures >= ACCOUNT_SECOND_CAP) {
+            return ACCOUNT_SECOND_DELAY;
+        }
+        if (accountFailures >= ACCOUNT_FIRST_CAP) {
+            return ACCOUNT_FIRST_DELAY;
+        }
+        return Duration.ZERO;
     }
 
     public static Duration max(Duration a, Duration b) {

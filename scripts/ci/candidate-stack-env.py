@@ -10,6 +10,7 @@ usage: candidate-stack-env.py --image-tag TAG --git-sha SHA --created ISO --jwt-
 """
 from __future__ import annotations
 
+import secrets
 import argparse
 from pathlib import Path
 
@@ -39,6 +40,8 @@ def main() -> int:
         "PARKIO_CORS_ALLOWED_ORIGINS": "https://app.candidate.localhost",
         "PARKIO_JWT_PRIVATE_KEY_PEM": f'"{pem}"',
         "PARKIO_GATEWAY_INTERNAL_SECRET": "candidate-acceptance-gateway-secret",
+        # CL-F15 v3: a throwaway login-throttle keyed-hashing secret, never the example placeholder.
+        "PARKIO_LOGIN_THROTTLE_HMAC_KEY": secrets.token_urlsafe(48),
         "PARKIO_EMAIL_PROVIDER": "logging",
         "PARKIO_RESEND_API_KEY": "",
         "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",

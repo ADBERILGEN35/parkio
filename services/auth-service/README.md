@@ -96,6 +96,13 @@ default**, and auth-service fails to start without it. Supply a PKCS#8 PEM throu
 `PARKIO_JWT_PRIVATE_KEY_PEM`; optionally set `PARKIO_JWT_KEY_ID` (default
 `parkio-auth-rs256-1`). The private key is never returned by an API.
 
+The login throttle keys its Redis entries with HMAC-SHA256 digests under
+`PARKIO_LOGIN_THROTTLE_HMAC_KEY` (32+ characters, `openssl rand -base64 48`, managed
+separately from every other secret; no default, no fallback: auth-service fails to
+start without it outside the `dev` profile). During a rotation the old secret goes to
+`PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS` for 14 days; see
+`docs/architecture/login-throttling.md`.
+
 For local development, run
 `SPRING_PROFILES_ACTIVE=dev ./gradlew :services:auth-service:bootRun`. The dev
 profile explicitly generates an ephemeral 2048-bit RSA key on startup, so tokens

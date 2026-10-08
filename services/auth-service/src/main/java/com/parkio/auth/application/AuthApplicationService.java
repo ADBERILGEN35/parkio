@@ -180,7 +180,8 @@ public class AuthApplicationService {
                 ? LoginFailureTracker.UNKNOWN_CLIENT
                 : command.clientKey();
         Instant now = clock.instant();
-        Duration wait = loginFailures.retryAfter(email, clientKey, now);
+        // Claims the running waits before the password is checked, so concurrent attempts get one evaluation per wait.
+        Duration wait = loginFailures.admit(email, clientKey, now);
         if (!wait.isZero()) {
             log.warn("Login throttled; emailHash={}, clientHash={}, retryAfterSeconds={}",
                     Integer.toHexString(email.hashCode()), Integer.toHexString(clientKey.hashCode()),
@@ -316,36 +317,38 @@ public class AuthApplicationService {
         passwordResetTokens.save(resetToken);
         int revoked = refreshTokens.revokeAllActiveForUser(
                 user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
-        // The account's owner proved control of the mailbox and chose a new password: the
-        // failures counted against the old one, from every client, no longer say anything (CL-F15).
-        clearLoginThrottleAfterCommit(user.email(), user.id());
+        // The account's owner proved control of the mailbox and chose a new password: every client's
+        // pair is cleared and the resetting client becomes known, so the owner can log in from it at
+        // once, also while a distributed attack keeps the account's unknown clients waiting (CL-F15 v2).
+        String resettingClientKey = command.clientKey();
+        loginThrottleAfterCommit(() -> loginFailures.clearAfterPasswordReset(user.email(), resettingClientKey),
+                "counters not cleared after a password reset; they expire on their own", user.id());
         log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
     }
 
     /**
-     * Clears the account's login-throttle counters once the password reset has committed. Best effort:
-     * the throttle store being unavailable must not undo or fail a completed reset, and the counters
-     * expire on their own (CL-F15).
+     * Runs a login-throttle update once the surrounding transaction has committed (at once when there is
+     * none). Best effort: the throttle store being unavailable must not undo or fail a completed reset or
+     * refresh, and the throttle's entries expire on their own (CL-F15).
      */
-    private void clearLoginThrottleAfterCommit(String email, UUID userId) {
-        Runnable clear = () -> {
+    private void loginThrottleAfterCommit(Runnable update, String failureNote, UUID userId) {
+        Runnable guarded = () -> {
             try {
-                loginFailures.clearAccount(email);
+                update.run();
             } catch (RuntimeException ex) {
-                log.warn("Login throttle counters not cleared after a password reset; they expire on their own; userId={}",
-                        userId);
+                log.warn("Login throttle {}; userId={}", failureNote, userId);
             }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    clear.run();
+                    guarded.run();
                 }
             });
         } else {
-            clear.run();
+            guarded.run();
         }
     }
 
@@ -426,6 +429,14 @@ public class AuthApplicationService {
         // Rotate: the presented token is revoked and a fresh one is issued.
         existing.revoke(RefreshTokenRevocationReason.ROTATED, now);
         refreshTokens.save(existing);
+        // The presented token was valid, unexpired, unrevoked and within the family's lifetime: the
+        // client stays known for the account (exempt from the account wait) without a password login,
+        // once the rotation has committed (CL-F15 v3). Never reached on a failed refresh.
+        if (command.clientKey() != null && !command.clientKey().isBlank()) {
+            String clientKey = command.clientKey();
+            loginThrottleAfterCommit(() -> loginFailures.refreshKnownClient(user.email(), clientKey),
+                    "known-client marker not refreshed after a token rotation; it expires on its own", user.id());
+        }
 
         return issueTokens(user, existing);
     }

@@ -118,6 +118,9 @@ AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED",
     "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN",
     "PARKIO_REGISTRATION_INVITE_TTL",
+    # CL-F15 v3: login-throttle keyed-hashing secret (required, no default) and its rotation predecessor.
+    "PARKIO_LOGIN_THROTTLE_HMAC_KEY",
+    "PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS",
 }
 
 # Root-filesystem hardening (B8) is checked by scripts/assert-compose-hardening.sh, which records

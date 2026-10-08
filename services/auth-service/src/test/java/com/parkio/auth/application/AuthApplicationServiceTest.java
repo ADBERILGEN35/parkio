@@ -84,7 +84,8 @@ class AuthApplicationServiceTest {
     /** Another client: an attacker, or the same user on another network. */
     private static final String OTHER_CLIENT = "203.0.113.9";
 
-    private FakeLoginFailureTracker loginFailures;
+    private ThrottledLoginFailureTracker loginFailures;
+    private InMemoryLoginThrottleStore throttleStore;
     private FakeVerificationResendLimiter verificationResendLimiter;
     private FakePasswordResetLimiter passwordResetLimiter;
     private FakeEmailVerificationSender emailVerificationSender;
@@ -102,7 +103,8 @@ class AuthApplicationServiceTest {
         inbox = new FakeInboxEventRepository();
         passwordHasher = new FakePasswordHasher();
         refreshTokenHasher = new FakeRefreshTokenHasher();
-        loginFailures = new FakeLoginFailureTracker();
+        throttleStore = new InMemoryLoginThrottleStore(() -> clock.instant());
+        loginFailures = new ThrottledLoginFailureTracker(throttleStore, LoginThrottleTestKeys.CURRENT);
         verificationResendLimiter = new FakeVerificationResendLimiter();
         passwordResetLimiter = new FakePasswordResetLimiter();
         emailVerificationSender = new FakeEmailVerificationSender();
@@ -276,7 +278,7 @@ class AuthApplicationServiceTest {
                 .extracting(e -> ((AuthException) e).errorCode())
                 .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
         // The refused attempt is not another failure: retrying during the wait does not escalate the tier.
-        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isEqualTo(5);
+        assertThat(failureCount("user@example.com", CLIENT)).isEqualTo(5);
     }
 
     /** CL-F15 acceptance: attacker failures from one client do not lock the user on another client. */
@@ -285,15 +287,25 @@ class AuthApplicationServiceTest {
         registerVerified("user@example.com");
         // The attacker waits out every delay, so all 20 failures count and its pair reaches the 1 h tier.
         failWaitingOutEachDelay("user@example.com", OTHER_CLIENT, 20);
-        assertThat(loginFailures.failureCount("user@example.com", OTHER_CLIENT)).isEqualTo(20);
+        assertThat(failureCount("user@example.com", OTHER_CLIENT)).isEqualTo(20);
         assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, clock.instant())).isEqualTo(Duration.ofHours(1));
 
         AuthResult result = service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
 
         assertThat(result.accessToken()).isNotBlank();
-        // The user's success clears the account-wide counter, not the attacker's own pair.
-        assertThat(loginFailures.accountFailureCount("user@example.com")).isZero();
+        // v2: the user's success clears only the user's pair; the account counter and the attacker's pair stay,
+        // so the attacker gets no fresh budget from the owner's login.
+        assertThat(accountFailureCount("user@example.com")).isEqualTo(20);
         assertThat(loginFailures.retryAfter("user@example.com", OTHER_CLIENT, clock.instant())).isEqualTo(Duration.ofHours(1));
+    }
+
+    private long failureCount(String email, String client) {
+        return throttleStore.counter(loginFailures.pairFailuresKey(
+                loginFailures.digest(email), loginFailures.digest(client)));
+    }
+
+    private long accountFailureCount(String email) {
+        return throttleStore.counter(loginFailures.accountFailuresKey(loginFailures.digest(email)));
     }
 
     /** Wrong-password attempts from one client, each made only after that client's current delay has passed. */
@@ -346,10 +358,12 @@ class AuthApplicationServiceTest {
                 .isNotBlank();
     }
 
-    /** The account-wide soft cap delays every client briefly; it never locks. */
+    /** v2: the account tier delays the account's unknown clients; a client known for the account is not delayed. */
     @Test
-    void accountSoftCapDelaysEveryClientBrieflyButNeverLocks() {
+    void accountTierDelaysUnknownClientsButNotAKnownClient() {
         registerVerified("user@example.com");
+        String knownClient = "198.51.100.200";
+        service.login(new LoginCommand("user@example.com", VALID_PASSWORD, knownClient));
         // 50 failures spread over 13 clients: no single client reaches its 5-failure tier.
         for (int i = 0; i < 50; i++) {
             String client = "203.0.113." + (10 + i / 4);
@@ -357,16 +371,52 @@ class AuthApplicationServiceTest {
                     .isInstanceOf(AuthException.class);
         }
         assertThat(loginFailures.retryAfter("user@example.com", CLIENT, clock.instant()))
-                .isEqualTo(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY);
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
         assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
+        assertThat(service.login(new LoginCommand("user@example.com", VALID_PASSWORD, knownClient)).accessToken()).isNotBlank();
 
-        clock.advance(LoginThrottlePolicy.ACCOUNT_SOFT_DELAY.plusSeconds(1));
+        clock.advance(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY.plusSeconds(1));
 
         assertThat(service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT)).accessToken()).isNotBlank();
     }
 
-    /** CL-F15 acceptance: a password reset clears every client's counters for the account. */
+    /**
+     * v2 recovery: during a distributed attack that keeps the account's unknown clients waiting, the owner
+     * resets the password from a new device and logs in from it at once, while the attack goes on.
+     */
+    @Test
+    void passwordResetLetsTheOwnerInFromTheResettingDeviceDuringAnAttack() {
+        registerVerified("owner@example.com");
+        String newDevice = "2001:db8:77:1:0:0:0:0/64";
+        // 200 attacker failures, one per address, each made once the account wait has passed (optimal timing).
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_THIRD_CAP; i++) {
+            String client = "203.0.113." + (i % 200);
+            Duration wait = loginFailures.retryAfter("owner@example.com", client, clock.instant());
+            if (!wait.isZero()) {
+                clock.advance(wait);
+            }
+            assertThatThrownBy(() -> service.login(new LoginCommand("owner@example.com", "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
+        assertThat(accountFailureCount("owner@example.com")).isEqualTo(LoginThrottlePolicy.ACCOUNT_THIRD_CAP);
+        assertThatThrownBy(() -> service.login(new LoginCommand("owner@example.com", VALID_PASSWORD, newDevice)))
+                .isInstanceOf(LoginLockedException.class);
+
+        service.forgotPassword(new ForgotPasswordCommand("owner@example.com"));
+        service.resetPassword(new ResetPasswordCommand(
+                passwordResetEmailSender.tokenFor("owner@example.com"), "FreshStrong123", newDevice));
+        // The attack goes on and keeps the account wait set for unknown clients.
+        clock.advance(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        assertThatThrownBy(() -> service.login(new LoginCommand("owner@example.com", "wrong-password", "192.0.2.9")))
+                .isInstanceOf(LoginLockedException.class);
+        assertThat(loginFailures.retryAfter("owner@example.com", "192.0.2.10", clock.instant()))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+
+        assertThat(service.login(new LoginCommand("owner@example.com", "FreshStrong123", newDevice)).accessToken()).isNotBlank();
+    }
+
+    /** CL-F15 acceptance: a password reset clears every client's pair for the account (v2: the account counter stays). */
     @Test
     void passwordResetClearsEveryClientsCounters() {
         registerVerified("reset@example.com");
@@ -381,10 +431,55 @@ class AuthApplicationServiceTest {
         service.resetPassword(new ResetPasswordCommand(rawToken, "FreshStrong123"));
 
         assertThat(loginFailures.retryAfter("reset@example.com", OTHER_CLIENT, NOW)).isEqualTo(Duration.ZERO);
-        assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isZero();
-        assertThat(loginFailures.accountFailureCount("reset@example.com")).isZero();
+        assertThat(failureCount("reset@example.com", OTHER_CLIENT)).isZero();
+        assertThat(accountFailureCount("reset@example.com")).isEqualTo(5);
         assertThat(service.login(new LoginCommand("reset@example.com", "FreshStrong123", OTHER_CLIENT)).accessToken())
                 .isNotBlank();
+    }
+
+    /**
+     * #311 review B1 through the service: sixteen attempts from different addresses that arrive together
+     * when the account wait opens reach the password check once; the others are refused at admission.
+     */
+    @Test
+    void concurrentLoginsFromManyAddressesAreEvaluatedOncePerAccountWait() throws Exception {
+        registerVerified("owner@example.com");
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_THIRD_CAP; i++) {
+            String client = "203.0.113." + (i % 200);
+            Duration wait = loginFailures.retryAfter("owner@example.com", client, clock.instant());
+            if (!wait.isZero()) {
+                clock.advance(wait);
+            }
+            assertThatThrownBy(() -> service.login(new LoginCommand("owner@example.com", "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
+        clock.advance(LoginThrottlePolicy.ACCOUNT_THIRD_DELAY);
+        long before = accountFailureCount("owner@example.com");
+        int threads = 16;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            java.util.List<java.util.concurrent.Future<Object>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                String client = "198.18.4." + i;
+                results.add(pool.submit(() -> {
+                    start.await();
+                    try {
+                        service.login(new LoginCommand("owner@example.com", "wrong-password", client));
+                    } catch (AuthException expected) {
+                        // refused at admission, or evaluated and wrong: both answer like a wrong password
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (java.util.concurrent.Future<Object> result : results) {
+                result.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(accountFailureCount("owner@example.com")).isEqualTo(before + 1);
     }
 
     /** Inside a transaction the counters are cleared at commit, not before (and not on rollback). */
@@ -398,12 +493,12 @@ class AuthApplicationServiceTest {
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
             service.resetPassword(new ResetPasswordCommand(passwordResetEmailSender.tokenFor("reset@example.com"), "FreshStrong123"));
-            assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
+            assertThat(failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
 
             for (var synchronization : org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()) {
                 synchronization.afterCommit();
             }
-            assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isZero();
+            assertThat(failureCount("reset@example.com", OTHER_CLIENT)).isZero();
         } finally {
             org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
         }
@@ -415,13 +510,13 @@ class AuthApplicationServiceTest {
         registerVerified("reset@example.com");
         assertThatThrownBy(() -> service.login(new LoginCommand("reset@example.com", "wrong-password", OTHER_CLIENT)))
                 .isInstanceOf(AuthException.class);
-        loginFailures.failClearAccount = true;
+        throttleStore.failing = true;
 
         service.forgotPassword(new ForgotPasswordCommand("reset@example.com"));
         service.resetPassword(new ResetPasswordCommand(passwordResetEmailSender.tokenFor("reset@example.com"), "FreshStrong123"));
 
-        loginFailures.failClearAccount = false;
-        assertThat(loginFailures.failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
+        throttleStore.failing = false;
+        assertThat(failureCount("reset@example.com", OTHER_CLIENT)).isEqualTo(1);
         assertThat(service.login(new LoginCommand("reset@example.com", "FreshStrong123", CLIENT)).accessToken()).isNotBlank();
     }
 
@@ -434,7 +529,7 @@ class AuthApplicationServiceTest {
         assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", " ")))
                 .isInstanceOf(AuthException.class);
 
-        assertThat(loginFailures.failureCount("user@example.com", LoginFailureTracker.UNKNOWN_CLIENT)).isEqualTo(2);
+        assertThat(failureCount("user@example.com", LoginFailureTracker.UNKNOWN_CLIENT)).isEqualTo(2);
     }
 
     @Test
@@ -456,13 +551,14 @@ class AuthApplicationServiceTest {
         registerVerified("user@example.com");
         assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", CLIENT)))
                 .isInstanceOf(AuthException.class);
-        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isEqualTo(1);
-        assertThat(loginFailures.accountFailureCount("user@example.com")).isEqualTo(1);
+        assertThat(failureCount("user@example.com", CLIENT)).isEqualTo(1);
+        assertThat(accountFailureCount("user@example.com")).isEqualTo(1);
 
         service.login(new LoginCommand("user@example.com", VALID_PASSWORD, CLIENT));
 
-        assertThat(loginFailures.failureCount("user@example.com", CLIENT)).isZero();
-        assertThat(loginFailures.accountFailureCount("user@example.com")).isZero();
+        assertThat(failureCount("user@example.com", CLIENT)).isZero();
+        // v2: the account counter stays (it measures attacks on the account; known clients are exempt from it).
+        assertThat(accountFailureCount("user@example.com")).isEqualTo(1);
     }
 
     @Test
@@ -722,6 +818,40 @@ class AuthApplicationServiceTest {
         assertThat(child.tokenFamilyId()).isEqualTo(oldToken.tokenFamilyId());
         assertThat(child.parentTokenId()).isEqualTo(oldToken.id());
         assertThat(child.isRevoked()).isFalse();
+    }
+
+    /** CL-F15 v3: a valid refresh keeps the client known; nothing else on the refresh path does. */
+    @Test
+    void aSuccessfulRefreshMakesTheClientKnownAndAFailedOneDoesNot() {
+        AuthResult initial = registerVerifiedAndLogin("user@example.com");
+        String phone = "2001:db8:aa:bb:0:0:0:0/64";
+        String known = loginFailures.knownKey(loginFailures.digest("user@example.com"), loginFailures.digest(phone));
+        assertThat(throttleStore.keys()).doesNotContain(known);
+
+        // A refresh without an identified client marks nothing.
+        AuthResult second = service.refresh(new RefreshTokenCommand(initial.refreshToken()));
+        assertThat(throttleStore.keys()).noneMatch(key -> key.endsWith(":" + loginFailures.digest(phone)));
+
+        // A valid refresh from the phone makes it known: the account wait no longer applies to it.
+        AuthResult third = service.refresh(new RefreshTokenCommand(second.refreshToken(), phone));
+        assertThat(throttleStore.keys()).contains(known);
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_FIRST_CAP; i++) {
+            loginFailures.recordFailure("user@example.com", "203.0.113." + (i % 200), clock.instant());
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", phone, clock.instant())).isZero();
+        assertThat(loginFailures.retryAfter("user@example.com", "198.18.0.1", clock.instant()))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
+
+        // A reused (revoked) token, an unknown token and a wrong password never establish a client.
+        String laptop = "192.0.2.77";
+        String laptopKnown = loginFailures.knownKey(loginFailures.digest("user@example.com"), loginFailures.digest(laptop));
+        String reused = second.refreshToken();
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(reused, laptop))).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand("not-a-token", laptop))).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", laptop)))
+                .isInstanceOf(AuthException.class);
+        assertThat(throttleStore.keys()).doesNotContain(laptopKnown);
+        assertThat(third.refreshToken()).isNotEqualTo(second.refreshToken());
     }
 
     @Test
@@ -1448,75 +1578,6 @@ class AuthApplicationServiceTest {
         @Override
         public boolean tryAcquire(String normalizedEmail) {
             return true;
-        }
-    }
-
-    /** In-memory tracker with the production tiers ({@link LoginThrottlePolicy}), keyed like the Redis one. */
-    static final class FakeLoginFailureTracker implements LoginFailureTracker {
-        private final Map<String, Long> pairFailures = new HashMap<>();
-        private final Map<String, Instant> pairWaitUntil = new HashMap<>();
-        private final Map<String, Long> accountFailures = new HashMap<>();
-        private final Map<String, Instant> accountWaitUntil = new HashMap<>();
-
-        @Override
-        public Duration retryAfter(String normalizedEmail, String clientKey, Instant now) {
-            return LoginThrottlePolicy.max(
-                    remaining(pairWaitUntil.get(pair(normalizedEmail, clientKey)), now),
-                    remaining(accountWaitUntil.get(normalizedEmail), now));
-        }
-
-        @Override
-        public LoginFailureOutcome recordFailure(String normalizedEmail, String clientKey, Instant now) {
-            long pairCount = pairFailures.merge(pair(normalizedEmail, clientKey), 1L, Long::sum);
-            long accountCount = accountFailures.merge(normalizedEmail, 1L, Long::sum);
-            Duration pairDelay = LoginThrottlePolicy.pairDelay(pairCount);
-            if (!pairDelay.isZero()) {
-                pairWaitUntil.put(pair(normalizedEmail, clientKey), now.plus(pairDelay));
-            }
-            Duration accountDelay = LoginThrottlePolicy.accountDelay(accountCount);
-            if (!accountDelay.isZero()) {
-                accountWaitUntil.put(normalizedEmail, now.plus(accountDelay));
-            }
-            Duration delay = LoginThrottlePolicy.max(pairDelay, accountDelay);
-            return new LoginFailureOutcome(pairCount, accountCount, delay, delay.isZero() ? null : now.plus(delay));
-        }
-
-        @Override
-        public void clearAfterSuccess(String normalizedEmail, String clientKey) {
-            pairFailures.remove(pair(normalizedEmail, clientKey));
-            pairWaitUntil.remove(pair(normalizedEmail, clientKey));
-            accountFailures.remove(normalizedEmail);
-            accountWaitUntil.remove(normalizedEmail);
-        }
-
-        /** Simulates the throttle store being unavailable when a reset tries to clear the counters. */
-        boolean failClearAccount;
-
-        @Override
-        public void clearAccount(String normalizedEmail) {
-            if (failClearAccount) {
-                throw new IllegalStateException("throttle store unavailable");
-            }
-            pairFailures.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
-            pairWaitUntil.keySet().removeIf(key -> key.startsWith(normalizedEmail + "|"));
-            accountFailures.remove(normalizedEmail);
-            accountWaitUntil.remove(normalizedEmail);
-        }
-
-        long failureCount(String normalizedEmail, String clientKey) {
-            return pairFailures.getOrDefault(pair(normalizedEmail, clientKey), 0L);
-        }
-
-        long accountFailureCount(String normalizedEmail) {
-            return accountFailures.getOrDefault(normalizedEmail, 0L);
-        }
-
-        private static String pair(String normalizedEmail, String clientKey) {
-            return normalizedEmail + "|" + clientKey;
-        }
-
-        private static Duration remaining(Instant until, Instant now) {
-            return until == null || !now.isBefore(until) ? Duration.ZERO : Duration.between(now, until);
         }
     }
 

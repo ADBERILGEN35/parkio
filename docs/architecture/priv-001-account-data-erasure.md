@@ -15,6 +15,13 @@ Completed erasures are never reversed.
 bumped) → `ERASED` (email replaced with `erased-{uuid}@invalid.localhost`,
 password randomized) after **all** participant acks.
 
+After the erasure request commits, auth-service also removes the account's login-throttle state from
+Redis (failure counters, waits and known-client markers; CL-F15 v2, `docs/architecture/login-throttling.md`),
+best effort: the counters expire within 24 h and the markers within 14 days on their own. Failed logins
+during the pending window can recreate failure counters (at most 24 h); they cannot recreate known-client
+markers, because a login is refused before the success is recorded and a reset is refused for a
+non-active account.
+
 User-visible statuses: `IN_PROGRESS`, `COMPLETE`, `FAILED_RETRYING`.
 
 Coordinator: **auth-service**. It does not write other service databases.

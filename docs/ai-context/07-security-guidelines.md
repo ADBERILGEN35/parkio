@@ -175,12 +175,20 @@ Privilege boundaries / enforcement notes:
 
 - Rate-limit at `gateway-service` (per user/IP) and protect write/claim endpoints.
 - Protect login in `auth-service` with Redis-backed failed-attempt counters keyed
-  by (normalized email, client) with progressive per-client delays and a short
-  account-wide soft delay, never a hard account lock (CL-F15; see
-  `docs/architecture/login-throttling.md`). The client is the gateway-resolved IP
-  in `X-Parkio-Client-Ip`: the gateway strips any client-supplied copy, and
-  auth-service reads it only on gateway-authenticated requests. A successful login
-  and a password reset clear the counters. Wrong password, unknown email and
+  by (normalized email, client) with progressive per-client delays and an
+  account-wide delay that applies only to clients not known for the account, never
+  a hard account lock (CL-F15, policy v2; see `docs/architecture/login-throttling.md`).
+  The e-mail and client in the Redis keys are HMAC-SHA256 digests under
+  `PARKIO_LOGIN_THROTTLE_HMAC_KEY` (a secret generated for this purpose, managed
+  separately from every other secret, rotated with a 14-day overlap through
+  `PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS`); a client stays known for 14 days after
+  its last successful authentication, and only a successful authentication (login,
+  completed reset, refresh-token rotation) writes that marker.
+  The client is the gateway-resolved IP in `X-Parkio-Client-Ip` (IPv6 by /64): the
+  gateway strips any client-supplied copy, and auth-service reads it only on
+  gateway-authenticated requests. A successful login clears that client's counter
+  and makes it known; a password reset clears every client's and makes the
+  resetting client known. Wrong password, unknown email and
   throttled responses must remain indistinguishable to avoid account enumeration.
 - Registration passwords must be at least 12 characters, include lowercase,
   uppercase and a digit, and reject a maintainable common-password deny-list.

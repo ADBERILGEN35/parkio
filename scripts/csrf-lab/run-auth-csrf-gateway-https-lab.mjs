@@ -459,6 +459,8 @@ async function main() {
       SPRING_DATA_REDIS_HOST: '127.0.0.1',
       SPRING_DATA_REDIS_PORT: String(REDIS_PORT),
       PARKIO_GATEWAY_INTERNAL_SECRET: GATEWAY_SECRET,
+      // CL-F15 v3: the login throttle's keyed-hashing secret is required outside the dev profile.
+      PARKIO_LOGIN_THROTTLE_HMAC_KEY: 'test-only-login-throttle-hmac-key-aaaaaaaaaaaa',
       PARKIO_CORS_ALLOWED_ORIGINS: appOrigin,
       PARKIO_REFRESH_COOKIE_SECURE: 'true',
       PARKIO_EMAIL_PROVIDER: 'logging',
