@@ -224,9 +224,10 @@ reverse proxy the only public entrypoint and stops publishing all other ports.
 from Caddy (correct scheme/host behind TLS). This is safe **only because the gateway is
 reachable solely from Caddy** on the Docker network (it publishes no host port).
 
-WebFlux's forwarded-headers handling fixes scheme/host but **not** the socket peer, so the
-gateway derives the anonymous rate-limit client IP itself, in a **trusted-proxy-aware** way
-(`ClientIpResolver`):
+With that strategy WebFlux also replaces the **socket peer** with the first `X-Forwarded-For`
+entry and drops the forwarding headers before any gateway code runs; `ClientIpResolver` then
+reads that address (see the paragraph after the note below). Without the strategy, the resolver
+itself derives the anonymous rate-limit client IP in a **trusted-proxy-aware** way:
 
 - It consults `X-Forwarded-For` **only** when the socket peer is in
   **`PARKIO_TRUSTED_PROXIES`** (CIDRs/IPs). The hosted-beta overlay defaults this to the
@@ -241,9 +242,16 @@ gateway derives the anonymous rate-limit client IP itself, in a **trusted-proxy-
 > actual proxy/Docker ranges; do **not** add public ranges. Leaving it empty (the default
 > outside hosted-beta) means the gateway trusts nothing and keys on the socket peer.
 
-Caddy needs no extra config here: by default it sets `X-Forwarded-For` to the real client and
-does not trust client-supplied values. Only add Caddy `trusted_proxies` if Caddy itself runs
-behind another load balancer (not the case for a single VPS).
+Caddy sets `X-Forwarded-For` to the real client and does not trust client-supplied values; it
+does pass the RFC 7239 `Forwarded` header through, so the gateway block removes it
+(`header_up -Forwarded`) and the gateway ignores it too (`EdgeOwnedForwardedHeaderTransformer`).
+Under `SERVER_FORWARD_HEADERS_STRATEGY=framework` (hosted-beta) Spring sets the peer to the first
+`X-Forwarded-For` entry before the trusted-proxy walk above can run, which is why the edge must own
+that header. **Do not configure Caddy `trusted_proxies` while the gateway runs the framework
+strategy:** Caddy would then keep the incoming `X-Forwarded-For` chain, and Spring takes its first,
+client-controlled entry. If Caddy ever sits behind another load balancer, revisit the forwarding
+design first (for example have that balancer overwrite `X-Forwarded-For`, or run the gateway without
+the framework strategy so the trusted-proxy walk applies).
 
 ### DNS
 Point **three** records at the VPS public IP:
@@ -332,6 +340,12 @@ PARKIO_ALERT_WEBHOOK_SECRET=optional-shared-secret
 
 PARKIO_ALERT_REPEAT_CRITICAL=1h
 PARKIO_ALERT_REPEAT_WARNING=4h
+
+# Optional heartbeat to an external dead-man's switch (docs/operations/alerting.md#heartbeat).
+# Only the always-firing Watchdog goes there; the URL is a credential.
+PARKIO_ALERT_HEARTBEAT_URL=https://hc.example.com/ping/<uuid>
+PARKIO_ALERT_HEARTBEAT_SECRET=optional-bearer-token
+PARKIO_ALERT_HEARTBEAT_REPEAT=2m
 ```
 
 `render-config.sh` generates the runtime Alertmanager config inside the container, so the

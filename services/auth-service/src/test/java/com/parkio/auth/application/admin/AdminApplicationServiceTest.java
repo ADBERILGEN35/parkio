@@ -610,17 +610,21 @@ class AdminApplicationServiceTest {
 
     private static final class FakeLoginFailureTracker implements LoginFailureTracker {
         @Override
-        public boolean isLocked(String normalizedEmail, Instant now) {
-            return false;
+        public java.time.Duration retryAfter(String normalizedEmail, String clientKey, Instant now) {
+            return java.time.Duration.ZERO;
         }
 
         @Override
-        public LoginFailureOutcome recordFailure(String normalizedEmail, Instant now) {
-            return new LoginFailureOutcome(0, false, null);
+        public LoginFailureOutcome recordFailure(String normalizedEmail, String clientKey, Instant now) {
+            return new LoginFailureOutcome(0, 0, java.time.Duration.ZERO, null);
         }
 
         @Override
-        public void reset(String normalizedEmail) {
+        public void clearAfterSuccess(String normalizedEmail, String clientKey) {
+        }
+
+        @Override
+        public void clearAccount(String normalizedEmail) {
         }
     }
 

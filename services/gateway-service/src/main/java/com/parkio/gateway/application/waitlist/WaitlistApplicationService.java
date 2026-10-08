@@ -69,6 +69,12 @@ public class WaitlistApplicationService {
         } catch (WaitlistFullNameException ex) {
             return Mono.error(ex);
         }
+        String consentTextVersion;
+        try {
+            consentTextVersion = requireConsent(command.consent(), command.consentTextVersion());
+        } catch (WaitlistConsentException ex) {
+            return Mono.error(ex);
+        }
         String email = normalizeEmail(command.email());
         String locale = normalizeLocale(command.locale());
         String city = normalizeOptional(command.city());
@@ -89,6 +95,7 @@ public class WaitlistApplicationService {
                 emailHash,
                 now,
                 clientConsentAt,
+                consentTextVersion,
                 fullName,
                 city,
                 role,
@@ -117,6 +124,38 @@ public class WaitlistApplicationService {
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
                 .then();
+    }
+
+    /**
+     * CL-F18: the subscriber's consent and the version of the text they saw. An explicit
+     * {@code consent=false} is refused in every mode, and a version that is not registered in
+     * {@link WaitlistConsentText} is refused in every mode. With {@code consent-required} (the
+     * default) the submission must carry {@code consent=true} and a registered version. In
+     * compatibility mode ({@code consent-required=false}, for the window between a gateway deploy
+     * and the marketing deploy that sends the fields) a submission without them is accepted and
+     * recorded as {@link WaitlistConsentText#UNVERSIONED_CLIENT}, never as a registered version.
+     */
+    String requireConsent(Boolean consent, String consentTextVersion) {
+        if (Boolean.FALSE.equals(consent)) {
+            throw new WaitlistConsentException("WAITLIST_CONSENT_REQUIRED");
+        }
+        boolean hasVersion = consentTextVersion != null && !consentTextVersion.isBlank();
+        if (hasVersion && !WaitlistConsentText.isKnownVersion(consentTextVersion)) {
+            throw new WaitlistConsentException("WAITLIST_CONSENT_VERSION_INVALID");
+        }
+        if (properties.isConsentRequired()) {
+            if (!Boolean.TRUE.equals(consent)) {
+                throw new WaitlistConsentException("WAITLIST_CONSENT_REQUIRED");
+            }
+            if (!hasVersion) {
+                throw new WaitlistConsentException("WAITLIST_CONSENT_VERSION_INVALID");
+            }
+            return consentTextVersion;
+        }
+        if (Boolean.TRUE.equals(consent) && hasVersion) {
+            return consentTextVersion;
+        }
+        return WaitlistConsentText.UNVERSIONED_CLIENT;
     }
 
     /**

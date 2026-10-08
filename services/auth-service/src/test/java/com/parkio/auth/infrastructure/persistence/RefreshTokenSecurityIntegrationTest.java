@@ -248,7 +248,7 @@ class RefreshTokenSecurityIntegrationTest {
 
     private AuthResult registerVerifiedAndLogin(String email) {
         registerAndVerify(email);
-        return authService.login(new com.parkio.auth.application.command.LoginCommand(email, "StrongerPass123"));
+        return authService.login(new com.parkio.auth.application.command.LoginCommand(email, "StrongerPass123", null));
     }
 
     private void registerAndVerify(String email) {

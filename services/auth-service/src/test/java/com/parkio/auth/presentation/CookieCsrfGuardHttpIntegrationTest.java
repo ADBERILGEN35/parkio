@@ -369,7 +369,7 @@ class CookieCsrfGuardHttpIntegrationTest {
 
     private AuthResult registerVerifiedAndLogin(String email) {
         registerAndVerify(email);
-        return authService.login(new LoginCommand(email, PASSWORD));
+        return authService.login(new LoginCommand(email, PASSWORD, null));
     }
 
     private JsonNode mobileLogin(String email) throws Exception {

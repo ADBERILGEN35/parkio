@@ -167,9 +167,14 @@ Privilege boundaries / enforcement notes:
 ## Abuse & rate limiting
 
 - Rate-limit at `gateway-service` (per user/IP) and protect write/claim endpoints.
-- Protect login in `auth-service` with Redis-backed per-account failed-attempt
-  counters keyed by normalized email. Wrong password, unknown email and lockout
-  responses must remain indistinguishable to avoid account enumeration.
+- Protect login in `auth-service` with Redis-backed failed-attempt counters keyed
+  by (normalized email, client) with progressive per-client delays and a short
+  account-wide soft delay, never a hard account lock (CL-F15; see
+  `docs/architecture/login-throttling.md`). The client is the gateway-resolved IP
+  in `X-Parkio-Client-Ip`: the gateway strips any client-supplied copy, and
+  auth-service reads it only on gateway-authenticated requests. A successful login
+  and a password reset clear the counters. Wrong password, unknown email and
+  throttled responses must remain indistinguishable to avoid account enumeration.
 - Registration passwords must be at least 12 characters, include lowercase,
   uppercase and a digit, and reject a maintainable common-password deny-list.
 - Email verification resend is abuse-sensitive; throttle it in shared storage

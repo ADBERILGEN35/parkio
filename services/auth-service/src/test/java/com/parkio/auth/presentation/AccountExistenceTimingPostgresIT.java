@@ -120,9 +120,9 @@ class AccountExistenceTimingPostgresIT {
         if (roleEntities.findByName(RoleName.USER).isEmpty()) {
             roleEntities.save(new RoleEntity(UUID.randomUUID(), RoleName.USER));
         }
-        when(loginFailures.isLocked(anyString(), any())).thenReturn(false);
-        when(loginFailures.recordFailure(anyString(), any()))
-                .thenReturn(new LoginFailureTracker.LoginFailureOutcome(1, false, null));
+        when(loginFailures.retryAfter(anyString(), anyString(), any())).thenReturn(java.time.Duration.ZERO);
+        when(loginFailures.recordFailure(anyString(), anyString(), any()))
+                .thenReturn(new LoginFailureTracker.LoginFailureOutcome(1, 1, java.time.Duration.ZERO, null));
         when(verificationResendLimiter.tryAcquire(anyString())).thenReturn(true);
         when(passwordResetLimiter.tryAcquire(anyString())).thenReturn(true);
         doAnswer(invocation -> {

@@ -246,3 +246,4 @@ See [Known Issues](../releases/KNOWN-ISSUES.md) for the current blocker list.
 > (`docs/architecture/wp-07-*`, `frontend/architecture/sprint-3/WP-07-MOBILE.md`).
 > Municipal data packages use **DATA-WP-NN** / `wp-data-NN-*` and must not reopen
 > `wp-05-*`, ops `wp-06-*`, or mobile/session `wp-07-*`.
+- [login-throttling.md](login-throttling.md): CL-F15 login throttling keyed by account and client; trust model for `X-Parkio-Client-Ip`.

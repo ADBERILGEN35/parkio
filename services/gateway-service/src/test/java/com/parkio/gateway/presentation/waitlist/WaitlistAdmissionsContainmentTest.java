@@ -145,6 +145,8 @@ class WaitlistAdmissionsContainmentTest {
                 {
                   "email": "%s",
                   "consentTimestamp": "2026-07-08T00:00:00Z",
+                  "consent": true,
+                  "consentTextVersion": "waitlist-consent-v1",
                   "city": "Izmir",
                   "role": "tester",
                   "source": "parkio.dev-landing",

@@ -280,7 +280,7 @@ PARKIO_ENV_FILE=docker/.env.azure-hosted-beta ./scripts/smoke-hosted-beta.sh
 
 curl -sS -o /tmp/waitlist-response.json -w '%{http_code}\n' \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"<TEST_WAITLIST_EMAIL>\",\"consent\":true,\"consentTimestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"source\":\"parkio.dev-landing\"}" \
+  -d "{\"email\":\"<TEST_WAITLIST_EMAIL>\",\"consent\":true,\"consentTextVersion\":\"waitlist-consent-v1\",\"consentTimestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"source\":\"parkio.dev-landing\"}" \
   https://api.parkio.dev/api/v1/waitlist
 rm -f /tmp/waitlist-response.json
 

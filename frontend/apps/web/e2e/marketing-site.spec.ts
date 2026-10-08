@@ -182,6 +182,46 @@ test('the explicit delivery-failure code is reported as a saved signup (CL-F19)'
   );
 });
 
+// CL-F18: the browser sends the consent flag and the registered consent text version with the signup,
+// and a gateway refusal of the consent is shown as the consent error.
+test('a signup sends consent=true and the registered consent text version (CL-F18)', async ({ page, baseURL }) => {
+  const bodies: Record<string, unknown>[] = [];
+  await page.route('https://api.parkio.dev/api/v1/waitlist**', async (route) => {
+    const cors = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type, accept',
+    };
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 202,
+      headers: { ...cors, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'accepted' }),
+    });
+  });
+  await submitWaitlist(page, baseURL);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({
+    email: 'synthetic-clf19@example.com',
+    consent: true,
+    consentTextVersion: 'waitlist-consent-v1',
+    source: 'parkio.dev-landing',
+  });
+  expect(typeof bodies[0].consentTimestamp).toBe('string');
+});
+
+for (const code of ['WAITLIST_CONSENT_REQUIRED', 'WAITLIST_CONSENT_VERSION_INVALID']) {
+  test(`a ${code} refusal is shown as the consent error (CL-F18)`, async ({ page, baseURL }) => {
+    await mockWaitlistApi(page, 400, JSON.stringify({ code }));
+    await submitWaitlist(page, baseURL);
+    await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute('data-feedback-key', 'waitlist.error.consent');
+  });
+}
+
 for (const lang of ['en', 'tr']) {
   test(`an invalid confirmation link says so without suggesting a retry (${lang}, CL-F19)`, async ({ page }) => {
     await mockWaitlistApi(page, 400, JSON.stringify({ code: 'WAITLIST_TOKEN_INVALID' }));
@@ -204,13 +244,32 @@ test('an unsubscribe server error is not shown as an invalid link (CL-F19)', asy
 });
 
 test('waitlist query mock bypass cannot fake success when meta remains api', async ({ page, baseURL }) => {
+  // Nothing may leave the machine: every request to another host that reaches the network is recorded
+  // and aborted, so the signup the bypass attempt sends never reaches the production API. (In Chromium,
+  // Playwright answers the CORS preflight itself once a route exists, so only the POST arrives here.)
+  // The abort stands in for an unreachable API, which is the failure this test needs.
+  const external: string[] = [];
+  await page.route(
+    (url) => url.hostname !== '127.0.0.1' && url.hostname !== 'localhost',
+    async (route) => {
+      external.push(`${route.request().method()} ${route.request().url()}`);
+      await route.abort();
+    },
+  );
   await page.goto(`${baseURL ?? '/'}?waitlistMock=1#waitlist`);
   await page.locator('#waitlist-full-name').fill('Ayşe Yılmaz');
   await page.locator('#waitlist-email').fill('synthetic-w01a-bypass@example.com');
   await page.locator('#waitlist-consent').check();
   await page.locator('#waitlist-form button[type="submit"]').click();
   await expect(page.locator('[data-waitlist-feedback]')).toBeVisible();
-  // API call fails in static marketing harness — must not show mock success.
+  // The failure is reported as the network error, not as any success-like message.
+  await expect(page.locator('[data-waitlist-feedback]')).toHaveAttribute('data-feedback-key', 'waitlist.error.network');
+  // The form really tried the API (meta stays api; ?waitlistMock=1 must not switch it to the mock)...
+  expect(external.filter((request) => request.includes('/api/v1/waitlist'))).not.toEqual([]);
+  // ...and only the API: no other external host was contacted.
+  expect(external.filter((request) => !request.startsWith('POST https://api.parkio.dev/api/v1/waitlist')
+    && !request.startsWith('OPTIONS https://api.parkio.dev/api/v1/waitlist'))).toEqual([]);
+  // The API call failed, so the page must not show the mock success.
   await expect(page.locator('[data-waitlist-feedback]')).not.toContainText(/Teşekkürler|Thanks/i);
   await expect(page.locator('[data-waitlist-isolated-note]')).toBeHidden();
 });

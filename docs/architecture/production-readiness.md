@@ -349,7 +349,16 @@ Today: secrets live only in git-ignored `.env`. Good hygiene, but not a producti
     `X-Forwarded-For` may be trusted; empty = trust nothing (key on the socket peer);
   - the client is the **right-most non-proxy** hop, so a forged left-most value is never selected
     (spoofing-resistant even if the proxy appends); malformed input fails closed to the socket peer.
-  - For public prod with a managed LB, add the LB's egress range to `PARKIO_TRUSTED_PROXIES`.
+  - With `SERVER_FORWARD_HEADERS_STRATEGY=framework` (hosted-beta) the trusted-proxy walk above does
+    not run: Spring's transformer has already set the peer to the **first** `X-Forwarded-For` entry
+    and removed the header. That is safe only because Caddy replaces `X-Forwarded-For` for untrusted
+    clients and the gateway publishes no port; the gateway's transformer also ignores a
+    client-supplied `Forwarded` header, which Spring would otherwise prefer and Caddy passes through
+    (CL-F15; `docs/architecture/login-throttling.md`).
+  - A managed LB in front of Caddy: adding its egress range to `PARKIO_TRUSTED_PROXIES` has no effect
+    under the framework strategy (the walk does not run), and configuring Caddy `trusted_proxies`
+    would let the client-controlled first entry through. Revisit the forwarding design before
+    adding such a hop (see docker/README.md, "Forwarded headers & proxy-aware rate limiting").
 - **Internal gateway-secret rotation.** *(Implemented.)* Rotate `PARKIO_GATEWAY_INTERNAL_SECRET`
   without downtime via a **dual-accept** window: set `PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS`
   (comma-separated previous secrets) on the downstream services first so they accept old *or* new,
@@ -425,14 +434,21 @@ out on deploy.
 
 ## Auth brute-force and password hardening
 
-Sprint 2 adds auth-service account-level brute-force protection on top of the
-gateway's Redis token-bucket limits. Failed login attempts are tracked in Redis
-by normalized email so protection works across multiple auth-service instances:
-5 failures locks the account key for 30 seconds, 10 failures for 5 minutes, and
-20 failures for 1 hour. Successful login clears the account counter. Client
-responses for wrong password, unknown email and lockout stay the same generic
-`INVALID_CREDENTIALS` shape; logs and Micrometer counters distinguish failures
-and lockouts internally.
+Sprint 2 added auth-service brute-force protection on top of the gateway's Redis
+token-bucket limits; CL-F15 (2026-10-07) replaced its e-mail-only hard lock with
+client-keyed throttling, see [login-throttling.md](login-throttling.md). Failed
+login attempts are tracked in Redis per (normalized email, client) so protection
+works across auth-service instances and so that an attacker who knows an e-mail
+cannot lock its owner out: 5 failures from one client delay that client 30 seconds,
+10 failures 5 minutes, 20 failures 1 hour, while other clients of the same account
+are unaffected. Once 50 failures from any clients accumulate within an hour, every
+client of the account waits a short 10-second soft delay per further failure, never
+more. The client is the gateway-resolved IP (`X-Parkio-Client-Ip`), trusted only on
+gateway-authenticated requests. A successful login clears that client's counter and
+the account-wide one; a password reset clears every client's. Client responses for
+wrong password, unknown email and a throttled attempt stay the same generic
+`INVALID_CREDENTIALS` shape; logs and the `login_lockouts` counter (now counting
+throttled attempts) distinguish them internally.
 
 Registration now enforces a 12-character minimum with at least one lowercase
 letter, one uppercase letter and one digit, plus a maintainable deny-list for

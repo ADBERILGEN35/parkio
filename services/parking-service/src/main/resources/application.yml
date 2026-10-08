@@ -374,6 +374,11 @@ parkio:
       inbox-enabled: ${PARKIO_INBOX_RETENTION_ENABLED:true}
       outbox-retention: ${PARKIO_OUTBOX_RETENTION:P7D}
       inbox-retention: ${PARKIO_INBOX_RETENTION:P30D}
+      # CL-F17 / PRIV-002: per-user location logs (parking_spot_search_logs, parking_spot_view_logs).
+      # Off by default: the first enabled run deletes production rows older than the retention, so
+      # enabling is a release decision, not a code default.
+      location-logs-enabled: ${PARKIO_LOCATION_LOG_RETENTION_ENABLED:false}
+      location-log-retention: ${PARKIO_LOCATION_LOG_RETENTION:P30D}
       fixed-delay-ms: ${PARKIO_RETENTION_FIXED_DELAY_MS:3600000}
       batch-size: ${PARKIO_RETENTION_BATCH_SIZE:1000}
     municipal-occupancy-retention:

@@ -64,7 +64,7 @@ gateway_healthy() {
 new_subscriber() { # label → echoes token
   local label="$1" email="e2e.${1}@example.test" token="e2e-token-${1}-$RANDOM$RANDOM"
   local now; now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  local code; code="$(gw_post /api/v1/waitlist "{\"email\":\"$email\",\"consentTimestamp\":\"$now\",\"source\":\"parkio.dev-landing\",\"locale\":\"tr\",\"city\":\"E2E-City-$label\"}")"
+  local code; code="$(gw_post /api/v1/waitlist "{\"email\":\"$email\",\"consentTimestamp\":\"$now\",\"consent\":true,\"consentTextVersion\":\"waitlist-consent-v1\",\"source\":\"parkio.dev-landing\",\"locale\":\"tr\",\"city\":\"E2E-City-$label\"}")"
   [ "$code" = 202 ] || { log "submit $label failed http=$code"; return 1; }
   psql_q "UPDATE waitlist_interest SET verification_token_hash='$(hmac "$token")' WHERE email_hash='$(hmac "$email")'" >/dev/null
   echo "$token"

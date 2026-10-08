@@ -28,6 +28,13 @@ public final class GatewayHeaders {
      */
     public static final String GATEWAY_AUTH = PlatformHeaders.GATEWAY_AUTH;
 
+    /**
+     * Client IP as {@code ClientIpResolver} resolved it (CL-F15). Like the {@code X-User-*}
+     * headers it is gateway-set: {@code ClientIpHeaderGlobalFilter} strips any inbound copy
+     * and injects the resolved value, so auth-service can key login throttling per client.
+     */
+    public static final String CLIENT_IP = PlatformHeaders.CLIENT_IP;
+
     /** Request correlation id, forwarded or generated at the edge. */
     public static final String CORRELATION_ID = PlatformHeaders.CORRELATION_ID;
 

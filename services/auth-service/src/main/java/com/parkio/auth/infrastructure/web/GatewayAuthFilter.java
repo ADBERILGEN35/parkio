@@ -43,6 +43,13 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String GATEWAY_AUTH_HEADER = "X-Gateway-Auth";
 
+    /**
+     * Request attribute set once the shared secret matched. Consumers of gateway-set headers
+     * (for example {@link ClientIdentityResolver}) trust those headers only when it is present
+     * (CL-F15).
+     */
+    public static final String GATEWAY_AUTHENTICATED_ATTRIBUTE = "parkio.gatewayAuthenticated";
+
     private final List<byte[]> acceptedSecrets;
     private final ObjectMapper objectMapper;
 
@@ -93,6 +100,7 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
             writeUnauthorized(response);
             return;
         }
+        request.setAttribute(GATEWAY_AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
         chain.doFilter(request, response);
     }
 

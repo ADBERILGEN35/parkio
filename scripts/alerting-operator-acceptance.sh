@@ -26,6 +26,9 @@ export PARKIO_ALERT_RESOLVE_TIMEOUT="${PARKIO_ALERT_RESOLVE_TIMEOUT:-30s}"
 # Slack receiver takes precedence; do not also send to the catcher.
 unset PARKIO_ALERT_WEBHOOK_URL || true
 unset PARKIO_ALERT_WEBHOOK_SECRET || true
+# The heartbeat stays on the in-compose catcher (compose default); never a real switch from CI.
+unset PARKIO_ALERT_HEARTBEAT_URL || true
+unset PARKIO_ALERT_HEARTBEAT_SECRET || true
 
 mkdir -p "$(dirname "${EVIDENCE}")"
 : > "${EVIDENCE}"

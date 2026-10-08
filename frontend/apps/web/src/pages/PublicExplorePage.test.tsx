@@ -754,6 +754,10 @@ describe('PublicExplorePage', () => {
       expect(screen.getByRole('alert')).toHaveTextContent("The map couldn't load.");
       const list = screen.getByRole('list');
       expect(list).toHaveTextContent(facility.displayName);
+      // The dead map keeps no car park markers: they would take keyboard focus behind the list
+      // (WCAG 2.4.11; Asana 1219147334320125). The list is the only way to the facilities.
+      expect(screen.queryByTestId('municipal-facility-marker')).not.toBeInTheDocument();
+      expect(mapRenders.at(-1)?.municipalFacilities).toEqual([]);
       await user.click(within(list).getByRole('button', { name: facility.displayName }));
       expect(await screen.findByTestId('selected-municipal-facility-preview')).toBeInTheDocument();
     });
