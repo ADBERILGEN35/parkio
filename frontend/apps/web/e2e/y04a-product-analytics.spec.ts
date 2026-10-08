@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route, type Request } from '@playwright/test';
+import { E2E_PASSWORD } from './fixtures/credentials';
 
 /**
  * Y04A — actual web app analytics acceptance against a protocol-faithful local sink.
@@ -6,7 +7,7 @@ import { expect, test, type Page, type Route, type Request } from '@playwright/t
  */
 
 const FACILITY_ID = '70db58f2-4cca-4010-9315-fa46b30fba1e';
-const PASSWORD = 'StrongParkio123';
+const PASSWORD = E2E_PASSWORD;
 const USER_ID = '6f9619ff-8b86-4d01-b42d-00cf4fc964ff';
 const USER_B_ID = '7a0720aa-9c97-5e12-c53e-11dg5gd07500';
 
