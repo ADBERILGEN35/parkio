@@ -1,6 +1,15 @@
 import type { AxiosInstance } from 'axios';
-import { describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { setupServer } from 'msw/node';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createAuthApi, currentCsrfToken, resetCsrfToken } from './auth';
+import { createApiClient } from './client';
+import { ForbiddenError } from './sdk-errors';
+import { MemoryTokenStorage } from './token-storage';
+
+function apiError(code: string) {
+  return { code, message: `error ${code}`, traceId: 'trace-1', timestamp: '2026-10-08T00:00:00Z' };
+}
 
 function fakeClient() {
   return {
@@ -92,7 +101,8 @@ describe('cookie-transport CSRF token', () => {
   it('fetches a token and retries once when a cookie refresh is refused without one', async () => {
     resetCsrfToken();
     const client = fakeClient();
-    const forbidden = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    // What the client's response interceptor rejects with for 403 CSRF_TOKEN_REQUIRED.
+    const forbidden = new ForbiddenError(apiError('CSRF_TOKEN_REQUIRED'));
     client.post.mockImplementation(
       async (_path: string, _body: unknown, config: { headers?: Record<string, string> }) => {
         if (!config.headers?.['X-XSRF-TOKEN']) {
@@ -122,12 +132,68 @@ describe('cookie-transport CSRF token', () => {
     const auth = createAuthApi(client);
     await expect(auth.refresh()).rejects.toBe(unauthorized);
     expect(client.get).not.toHaveBeenCalled();
+    const plainForbidden = new ForbiddenError(apiError('FORBIDDEN'));
+    client.post.mockRejectedValueOnce(plainForbidden);
+    await expect(auth.logout()).rejects.toBe(plainForbidden);
+    expect(client.get).not.toHaveBeenCalled();
     client.post.mockResolvedValue({ data: { refreshToken: 'native-2', user: {} } });
     await auth.refresh('native-1');
     await auth.logout('native-2');
     expect(client.post).toHaveBeenLastCalledWith('/auth/logout', { refreshToken: 'native-2' }, {
       withCredentials: true,
     });
+    expect(currentCsrfToken()).toBeNull();
+  });
+});
+
+describe('cookie-transport CSRF through the real client (response interceptor)', () => {
+  const BASE = 'http://api.test';
+  const server = setupServer();
+  beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+  afterEach(() => server.resetHandlers());
+  afterAll(() => server.close());
+
+  function realClient() {
+    return createApiClient({ baseURL: BASE, tokenStorage: new MemoryTokenStorage(), onAuthFailure: vi.fn() });
+  }
+
+  it('recovers from CSRF_TOKEN_REQUIRED by reading /auth/csrf once and retrying with the header', async () => {
+    resetCsrfToken();
+    const seen: string[] = [];
+    server.use(
+      http.post(`${BASE}/auth/refresh-token`, ({ request }) => {
+        const header = request.headers.get('x-xsrf-token');
+        seen.push(`refresh:${header ?? '-'}`);
+        if (header !== 'tok-9') {
+          return HttpResponse.json(apiError('CSRF_TOKEN_REQUIRED'), { status: 403 });
+        }
+        return HttpResponse.json({ accessToken: 'a-9', csrfToken: 'tok-9', user: {} });
+      }),
+      http.get(`${BASE}/auth/csrf`, ({ request }) => {
+        seen.push(`csrf:${request.headers.get('authorization') ?? '-'}`);
+        return HttpResponse.json({ token: 'tok-9' });
+      }),
+    );
+    const auth = createAuthApi(realClient());
+    const result = await auth.refresh();
+    expect(result.accessToken).toBe('a-9');
+    expect(seen).toEqual(['refresh:-', 'csrf:-', 'refresh:tok-9']);
+    expect(currentCsrfToken()).toBe('tok-9');
+  });
+
+  it('surfaces a plain 403 as ForbiddenError without reading a token', async () => {
+    resetCsrfToken();
+    let csrfReads = 0;
+    server.use(
+      http.post(`${BASE}/auth/logout`, () => HttpResponse.json(apiError('FORBIDDEN'), { status: 403 })),
+      http.get(`${BASE}/auth/csrf`, () => {
+        csrfReads += 1;
+        return HttpResponse.json({ token: 'never-used' });
+      }),
+    );
+    const auth = createAuthApi(realClient());
+    await expect(auth.logout()).rejects.toBeInstanceOf(ForbiddenError);
+    expect(csrfReads).toBe(0);
     expect(currentCsrfToken()).toBeNull();
   });
 });

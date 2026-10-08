@@ -136,6 +136,17 @@ async function main() {
       throw new Error('web login did not hand out a CSRF token');
     }
     outcome.checks.csrfTokenInLogin = true;
+    // Reload-shaped: a web client that lost the token (page reload) has no access token either, so it
+    // reads GET /api/v1/auth/csrf through the gateway without a bearer; the handed-out token must
+    // authorise the cookie refresh below.
+    const csrfRead = await appPage.evaluate(async () =>
+      window.__parkio.call('/api/v1/auth/csrf', { method: 'GET' }),
+    );
+    outcome.checks.csrfReadThroughGateway = csrfRead.status;
+    const csrfReload = csrfRead.json?.token;
+    if (csrfRead.status !== 200 || typeof csrfReload !== 'string' || csrfReload.length === 0) {
+      throw new Error(`GET /api/v1/auth/csrf through the gateway must hand out the token without a bearer: ${JSON.stringify(csrfRead)}`);
+    }
     const cookiesAfterLogin = await appContext.cookies(`${apiOrigin}/api/v1/auth/refresh-token`);
     const refreshCookies = liveRefreshCookies(cookiesAfterLogin);
     outcome.checks.cookieCount = refreshCookies.length;
@@ -163,9 +174,9 @@ async function main() {
       throw new Error('a CSRF-refused refresh must not rotate or revoke the session');
     }
     const refreshOk = await appPage.evaluate(
-      async ({ csrf }) =>
-        window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, headers: { 'X-XSRF-TOKEN': csrf } }),
-      { csrf },
+      async ({ csrfReload }) =>
+        window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, headers: { 'X-XSRF-TOKEN': csrfReload } }),
+      { csrfReload },
     );
     outcome.checks.allowedRefresh = refreshOk;
     if (refreshOk.status !== 200) {

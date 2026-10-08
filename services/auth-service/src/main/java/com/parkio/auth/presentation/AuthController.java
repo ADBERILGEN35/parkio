@@ -18,6 +18,7 @@ import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.config.AuthRecoveryDispatchConfig;
 import com.parkio.auth.infrastructure.metrics.AuthMetrics;
 import com.parkio.auth.infrastructure.notification.EmailDeliveryException;
+import com.parkio.auth.infrastructure.security.CookieTransportCsrf;
 import com.parkio.auth.presentation.dto.AuthResponse;
 import com.parkio.auth.presentation.dto.ChangePasswordRequest;
 import com.parkio.auth.presentation.dto.ForgotPasswordRequest;
@@ -305,21 +306,21 @@ public class AuthController {
                 .orElseThrow(this::invalidRefreshToken);
     }
 
-    /**
-     * Whether the request comes from the native mobile app, signalled by the
-     * {@code X-Parkio-Client: mobile} header without browser Origin/Referer
-     * metadata. This keeps browser contexts on the cookie transport even if a
-     * script accidentally sends the mobile header.
-     */
+    /** The CSRF token Spring Security loaded for this (web-shaped) request, or null. */
     private static String csrfToken(HttpServletRequest request) {
         CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
         return token == null ? null : token.getToken();
     }
 
+    /**
+     * Whether the request comes from the native mobile app, signalled by the
+     * {@code X-Parkio-Client: mobile} header without browser Origin/Referer
+     * metadata. This keeps browser contexts on the cookie transport even if a
+     * script accidentally sends the mobile header. One definition, shared with
+     * the CSRF scope ({@link CookieTransportCsrf#isMobileShaped}).
+     */
     private boolean isMobileClient(HttpServletRequest request) {
-        return "mobile".equalsIgnoreCase(request.getHeader("X-Parkio-Client"))
-                && request.getHeader("Origin") == null
-                && request.getHeader("Referer") == null;
+        return CookieTransportCsrf.isMobileShaped(request);
     }
 
     private String mobileRefreshToken(MobileTokenRequest body) {

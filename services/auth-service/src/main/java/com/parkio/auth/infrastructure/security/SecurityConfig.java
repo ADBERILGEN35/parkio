@@ -18,7 +18,8 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 /**
  * Stateless JWT security. Authentication endpoints and actuator probes are
  * public; everything else (e.g. {@code /api/v1/auth/me}) requires a valid
- * bearer token. CSRF and sessions are disabled — this is a token API.
+ * bearer token. Sessions are disabled (token API); CSRF protection is route-specific for the
+ * cookie transport, see {@link CookieTransportCsrf}.
  */
 @Configuration
 @EnableWebSecurity

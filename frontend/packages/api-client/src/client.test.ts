@@ -124,6 +124,19 @@ describe('401 refresh behavior', () => {
     expect(authHeaders).toEqual(['Bearer stale-token', 'Bearer fresh-token']);
   });
 
+  it('never triggers a refresh for a 401 from the CSRF token read', async () => {
+    server.use(
+      http.get(`${BASE}/auth/csrf`, () => HttpResponse.json(apiErrorBody('MISSING_TOKEN'), { status: 401 })),
+    );
+    const { client, storage } = makeClient();
+    storage.setTokens({ accessToken: 'stale-token' });
+    const refresh = vi.fn(async () => 'fresh-token');
+    setRefreshHandler(refresh);
+
+    await expect(client.get('/auth/csrf')).rejects.toBeInstanceOf(UnauthorizedError);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it('shares a single in-flight refresh across concurrent 401s', async () => {
     let staleResponses = 0;
     server.use(

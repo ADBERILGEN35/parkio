@@ -12,6 +12,7 @@ import type {
   VerifyEmailRequest,
   RegistrationModeResponse,
 } from '@parkio/types';
+import { isParkioApiError } from './sdk-errors';
 
 const CSRF_HEADER = 'X-XSRF-TOKEN';
 
@@ -42,8 +43,8 @@ function rememberCsrf(response: AuthResponse): AuthResponse {
 }
 
 function isCsrfRejection(error: unknown): boolean {
-  const status = (error as { response?: { status?: number } })?.response?.status;
-  return status === 403;
+  // The client's response interceptor rejects with the SDK error, never the raw axios error.
+  return isParkioApiError(error) && error.status === 403 && error.code === 'CSRF_TOKEN_REQUIRED';
 }
 
 export function createAuthApi(client: AxiosInstance) {

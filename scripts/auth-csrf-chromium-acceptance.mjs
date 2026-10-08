@@ -161,6 +161,11 @@ async function main() {
       throw new Error(`pre-reject login failed HTTP ${loginForReject.status}`);
     }
     outcome.accessTokenBeforeRejects = loginForReject.json?.accessToken ?? null;
+    // clearCookies() dropped the XSRF-TOKEN cookie too: this login issued a fresh pair.
+    const csrfReject = loginForReject.json?.csrfToken;
+    if (typeof csrfReject !== 'string' || csrfReject.length === 0) {
+      throw new Error('pre-reject login did not hand out a CSRF token');
+    }
     outcome.refreshCookieValuesBeforeRejects = (
       await appContext.cookies(`${authBase}/api/v1/auth/refresh-token`)
     )
@@ -168,12 +173,12 @@ async function main() {
       .map((c) => c.value);
 
     const forgedMobile = await appPage.evaluate(
-      async ({ csrf }) =>
+      async ({ csrfReject }) =>
         window.__parkio.call('/api/v1/auth/refresh-token', {
           body: {},
-          headers: { 'X-Parkio-Client': 'mobile', 'X-XSRF-TOKEN': csrf },
+          headers: { 'X-Parkio-Client': 'mobile', 'X-XSRF-TOKEN': csrfReject },
         }),
-      { csrf },
+      { csrfReject },
     );
     outcome.checks.forgedMobileWithOrigin = forgedMobile.status;
     if (forgedMobile.status !== 200) {

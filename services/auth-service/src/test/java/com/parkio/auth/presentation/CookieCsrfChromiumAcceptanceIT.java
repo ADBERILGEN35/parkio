@@ -193,6 +193,7 @@ class CookieCsrfChromiumAcceptanceIT {
         assertThat(result.path("status").asText()).isEqualTo("passed");
         assertThat(result.path("checks").path("cookieSecure").asBoolean()).isTrue();
         assertThat(result.path("checks").path("cookieHttpOnly").asBoolean()).isTrue();
+        assertThat(result.path("checks").path("allowedOriginRefreshWithoutCsrf").asInt()).isEqualTo(403);
         assertThat(result.path("checks").path("allowedOriginRefresh").asInt()).isEqualTo(200);
         assertThat(result.path("checks").path("allowedOriginLogout").asInt()).isEqualTo(204);
         assertThat(result.path("checks").path("forgedMobileWithOrigin").asInt()).isEqualTo(200);
@@ -295,9 +296,11 @@ class CookieCsrfChromiumAcceptanceIT {
                 response.setHeader("Access-Control-Allow-Origin", origin);
                 response.setHeader("Access-Control-Allow-Credentials", "true");
                 response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+                // Stands in for the gateway, whose CORS policy allows every request header;
+                // X-XSRF-TOKEN is the CSRF double-submit header of the cookie transport.
                 response.setHeader(
                         "Access-Control-Allow-Headers",
-                        "Content-Type, X-Gateway-Auth, X-Parkio-Client, Authorization");
+                        "Content-Type, X-Gateway-Auth, X-Parkio-Client, X-XSRF-TOKEN, Authorization");
                 response.setHeader("Vary", "Origin");
                 if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
                     response.setStatus(HttpServletResponse.SC_OK);
