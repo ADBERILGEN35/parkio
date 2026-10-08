@@ -62,12 +62,25 @@ not a courtesy.
 
 ## Procedure (operator, on the host, under authorization)
 
+**Prerequisite (host change, separately authorized): the host must run the current alerting
+configuration.** The delivery-failure rules (`docker/prometheus/alerts.yml`, group
+`parkio-alert-delivery`) and the Prometheus `alertmanager` scrape job (`docker/prometheus/prometheus.yml`)
+were added on 2026-10-04 (`c87003e9`). The host's last recorded configuration predates both: the
+2026-09-30 inventory recorded `prometheus.yml` at `bf9cad51` (27 scrape targets, no `alertmanager` job,
+75 alert rules) and the 2026-10-01 apply kept the host `alerts.yml` unchanged. On that configuration
+`delivery-rules` fails (both rules not loaded, no `alertmanager_notifications_failed_total` series) and
+`preflight` fails (no `alertmanager_notifications_total` series, so a delivery could never be observed).
+Deploying those two files and recreating Prometheus is a host change that needs its own authorization;
+it is a release input, not part of this acceptance. Run `delivery-rules` first: it is the read-only check
+that the prerequisite holds.
+
 All commands run as the deploying user on `parkio-civo-prod`, from `/opt/parkio`, with
 `PARKIO_PROMETHEUS_TEXTFILE_DIR=/opt/parkio/docker/prometheus/textfile` and
 `PARKIO_LIVE_EVIDENCE_DIR` pointing outside the checkout (for example
 `~/acceptance/<date>-backup-stale`). The user must be able to create a file in the textfile
-directory (`arm` fails closed at `mktemp` otherwise; the directory is the host bind the inventory
-recorded, owned by the deploying user). Prometheus and Alertmanager are read on loopback
+directory (`arm` fails closed at `mktemp` otherwise). The inventory recorded the directory as a host
+bind but not its owner; check it with `stat -c '%U %a' /opt/parkio/docker/prometheus/textfile` before
+the window. Prometheus and Alertmanager are read on loopback
 (`127.0.0.1:9090`, `127.0.0.1:9093`, the hosted-beta overlay's published ports), so the operator
 either runs the script on the host or through the SSH tunnel with `PARKIO_LIVE_PROM_URL` /
 `PARKIO_LIVE_AM_URL`; the preflight fails closed if either is unreachable. The script never prints
@@ -75,6 +88,7 @@ a webhook URL and never reads `docker/.env`. A poll that cannot read Prometheus 
 recorded as `poll_ok=0` and concludes nothing; a first poll that cannot read them refuses to start
 observing, so a transient error can never become a false baseline.
 
+0. **Prerequisite check** (read-only): `scripts/alerting-live-backup-stale-acceptance.sh delivery-rules`. Stop on any `FAIL`: the host does not yet run the current alerting configuration (see the prerequisite above).
 1. **Announce** in `#parkio-alert`: synthetic `BackupStale` for scope `invite-production` for about 90 minutes; FIRING and RESOLVED messages are expected; the real backup is not affected.
 2. **Preflight** (read-only): `scripts/alerting-live-backup-stale-acceptance.sh preflight`. It records host, real scope, synthetic scope, readiness of both services, the loaded rule, `node_textfile_scrape_error`, the absence of active `Backup*` alerts, the receiver type and channel, and the notification counters as the baseline (`live-backup-stale-acceptance/events.jsonl`, type `preflight`). Stop on any `FAIL`.
 3. **Arm**: `PARKIO_LIVE_ALERT_ACCEPTANCE=ALERTING-LIVE-BACKUP-STALE scripts/alerting-live-backup-stale-acceptance.sh arm --yes`. Records the arm time and the stale timestamp.
@@ -97,12 +111,27 @@ where the catcher answers 503. Proving it live means breaking the real Slack rec
 host for 10 to 15 minutes, during which real alerts are not delivered and the failure alert
 itself only reaches the Prometheus and Alertmanager UIs (it travels the broken path). Options:
 
-- **A (recommended):** accept the isolated proof plus a live read-only check that the two
-  delivery-failure rules are loaded and healthy on the host (`/api/v1/rules`), and rely on the
-  heartbeat / dead-man's switch (`alerting.md#heartbeat`) as the independent path once the
-  owner picks the external monitor (the heartbeat lands with #300; its `alerting.md#heartbeat`
-  section exists once that merges). No live outage window.
-- **B:** a scheduled live break: set `PARKIO_ALERT_SLACK_WEBHOOK_URL` to an unroutable
+- **A (recommended, prepared 2026-10-08):** accept the isolated proof plus a live read-only check of
+  the delivery-failure rules, and rely on the heartbeat / dead-man's switch (`alerting.md#heartbeat`)
+  as the independent path once the owner activates it. No live outage window. **Prerequisite:** the
+  host runs the current alerting configuration (see the procedure's prerequisite: a separately
+  authorized host change); on the host's last recorded configuration this check fails. The live part
+  is then one read-only command on the host, run in the same authorized session as the acceptance:
+
+      PARKIO_LIVE_EVIDENCE_DIR=<evidence dir> scripts/alerting-live-backup-stale-acceptance.sh delivery-rules
+
+  It passes only when `AlertmanagerNotificationsFailing` and `PrometheusNotificationsFailing` are
+  loaded, healthy (no evaluation error), evaluated within the last 10 minutes and inactive, and the
+  counters they read (`alertmanager_notifications_failed_total`, `prometheus_notifications_errors_total`)
+  have series. It records the host, the Prometheus version and, per rule, its group and loaded
+  expression in the evidence, and prints no URL. The isolated half is the
+  alerting acceptance in CI (`scripts/alerting-acceptance.sh`: the catcher answers 503 and
+  `AlertmanagerNotificationsFailing` fires for `integration="webhook"`).
+  **Scope note:** A does not observe a receiver failure on the live host, so it does not satisfy the
+  original criterion "receiver failure surfaces" as written; accepting it is an owner scope decision.
+  Its independent path (the heartbeat) counts only once the heartbeat is activated.
+- **B (currently excluded by the owner's 2026-10-07 ruling "Do not interrupt the live alert receiver";
+  available only if the owner lifts it):** a scheduled live break: set `PARKIO_ALERT_SLACK_WEBHOOK_URL` to an unroutable
   `https://127.0.0.1:9/` in the host env, recreate Alertmanager, arm the synthetic alert as
   above, watch `alertmanager_notifications_failed_total{integration="slack"}` reach 2 and
   `AlertmanagerNotificationsFailing` fire in Prometheus, then restore the real URL and recreate
@@ -138,5 +167,8 @@ container or secret changes; the real backup telemetry is never modified.
 `scripts/test-alerting-live-backup-stale-acceptance.sh` runs the tool against a fake Prometheus,
 Alertmanager and host name: scope selection and refusals, confirmation token, the synthetic file
 content and the untouched real file, observe semantics (a firing alert without a counter increase
-is not a delivery), disarm's marker check, and that neither the output nor the evidence ever
-contains the receiver URL. It runs in the Observability validation workflow.
+is not a delivery), disarm's marker check, that neither the output nor the evidence ever
+contains the receiver URL, preflight's refusal of a missing notification series, and the
+`delivery-rules` refusals (missing, duplicated, unhealthy, firing, never or long-ago evaluated rules,
+UTC-offset timestamps, missing counters, an answer over 128 KiB). It runs in the Observability
+validation workflow.

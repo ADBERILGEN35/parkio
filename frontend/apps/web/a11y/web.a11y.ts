@@ -452,13 +452,80 @@ async function measureTopOverlay(page: Page) {
   });
 }
 
-async function openExplore(page: Page, viewport: { width: number; height: number }, answer: unknown) {
+/**
+ * A minimal map style with no tiles (the same stub the CX-F11 acceptance serves). A built image bakes a
+ * MapTiler key, so its map style comes from api.maptiler.com, which these tests never reach; aborting that
+ * request makes the map "unavailable" (CL-F20) and the page shows its list fallback instead of the map.
+ * The marker tests need the map as production shows it, so they answer the style request with this stub.
+ * The dev server uses the inline OpenStreetMap fallback style and never makes the request.
+ */
+const STUB_MAP_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#eef1f5' } }],
+};
+
+/**
+ * Opens /explore with `answer` as the facilities. `mapStyle: 'stub'` (the default) serves the built image's
+ * MapTiler style request with {@link STUB_MAP_STYLE}; `'abort'` keeps installMocks' abort, so a built image
+ * shows the map-unavailable fallback.
+ */
+async function openExplore(
+  page: Page,
+  viewport: { width: number; height: number },
+  answer: unknown,
+  { mapStyle = 'stub' }: { mapStyle?: 'stub' | 'abort' } = {},
+) {
   await page.setViewportSize(viewport);
   const unmocked: string[] = [];
   await installMocks(page, 'en', false, unmocked, { 'GET /public/explore/facilities': answer });
+  if (mapStyle === 'stub') {
+    // Registered after installMocks, so it takes precedence over its abort of api.maptiler.com.
+    await page.route(/^https:\/\/api\.maptiler\.com\/maps\/[^/]+\/style\.json/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STUB_MAP_STYLE) }),
+    );
+  }
   await page.goto('/explore');
   await page.waitForLoadState('networkidle');
   return unmocked;
+}
+
+interface ListFocusStop {
+  name: string;
+  /** The focused entry is the topmost element at its centre and at four inner points. */
+  onTop: boolean;
+}
+
+/** Tabs through the page and records each entry of the map-unavailable list that takes the focus, in order. */
+async function walkFallbackList(page: Page, limit = 80): Promise<ListFocusStop[]> {
+  await page.locator('body').click({ position: { x: 1, y: 1 } });
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const stops: ListFocusStop[] = [];
+  for (let index = 0; index < limit; index++) {
+    await page.keyboard.press('Tab');
+    const stop = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body || el === document.documentElement) return 'left';
+      if (el.getAttribute('data-testid') !== 'public-explore-list-item') return 'other';
+      el.scrollIntoView({ block: 'nearest' });
+      const box = el.getBoundingClientRect();
+      const points = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+      const onTop = points.every(([fx, fy]) => {
+        const hit = document.elementFromPoint(box.left + box.width * fx, box.top + box.height * fy);
+        return Boolean(hit) && (hit === el || el.contains(hit));
+      });
+      // The accessible text: decorative icons (aria-hidden ligatures such as "garage") are not part of it.
+      const label = el.cloneNode(true) as HTMLElement;
+      label.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+      return { name: (label.textContent ?? '').trim(), onTop };
+    });
+    if (stop === 'left') break;
+    if (stop !== 'other') {
+      if (stops.some((seen) => seen.name === stop.name)) break;
+      stops.push(stop);
+    }
+  }
+  return stops;
 }
 
 test.describe('explore: dense and coincident car parks (Asana 1219147334320125)', () => {
@@ -586,6 +653,41 @@ test.describe('explore: dense and coincident car parks (Asana 1219147334320125)'
     });
   }
 });
+
+/**
+ * The map-unavailable state of a built image (CL-F20, Asana 1219147334320125): the MapTiler style request is
+ * aborted, the page shows the list fallback, and the dead map keeps no car park markers that would take the
+ * keyboard focus behind that list (WCAG 2.4.11). Only a built image requests the style, so the dev server
+ * cannot reach this state: the block is defined only against a built image (A11Y_WEB_URL), where the
+ * candidate evidence requires all 48 tests, rather than skipped on the dev server (the report guard
+ * refuses skipped tests).
+ */
+if (process.env.A11Y_WEB_URL) {
+  test.describe('explore: map style unavailable in a built image (CL-F20)', () => {
+    for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 800 }]) {
+      const size = `${viewport.width}x${viewport.height}`;
+      test(`the list replaces the map and every car park is a visible keyboard stop at ${size}`, async ({ page }, testInfo) => {
+        const name = `explore-unavailable-${size}`;
+        const unmocked = await openExplore(page, viewport, DENSE_EXPLORE, { mapStyle: 'abort' });
+        await expect(page.getByTestId('public-explore-map-unavailable'), `${name}: the map-unavailable alert`).toBeVisible();
+        await expect(page.getByTestId('public-explore-list-item')).toHaveCount(DENSE_EXPLORE.facilities.length);
+        await expect(page.locator(FACILITY_MARKER), `${name}: no car park marker on the dead map`).toHaveCount(0);
+        const stops = await walkFallbackList(page);
+        await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+        writeReport(testInfo, `${testInfo.project.name}-${name}-list`, { page: name, stops });
+        expect
+          .soft(stops.map((stop) => stop.name), `${name}: Tab reaches every car park in the list, in the API's order`)
+          .toEqual(DENSE_EXPLORE.facilities.map((facility) => facility.displayName));
+        expect
+          .soft(stops.filter((stop) => !stop.onTop).map((stop) => stop.name), `${name}: focused list entries that something covers`)
+          .toEqual([]);
+        await keyboardWalk(page, testInfo, name, 'en', 150);
+        await measurePage(page, testInfo, name, 'en', 'en', 'explore');
+        expect(unmocked, `${name}: API calls without a populated mock`).toEqual([]);
+      });
+    }
+  });
+}
 
 /**
  * The focus-indicator rule itself (#229 review N1), on synthetic pages with no app code. A transparent
