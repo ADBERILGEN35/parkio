@@ -10,7 +10,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import com.parkio.auth.presentation.RefreshCookieProperties;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 /**
  * Stateless JWT security. Authentication endpoints and actuator probes are
@@ -26,9 +29,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtService jwtService,
-                                                   RestAuthenticationEntryPoint entryPoint) throws Exception {
+                                                   RestAuthenticationEntryPoint entryPoint,
+                                                   CsrfAccessDeniedHandler csrfAccessDeniedHandler,
+                                                   RefreshCookieProperties refreshCookie) throws Exception {
         http
-                .csrf(csrf -> csrf.disable())
+                // CSRF protection is route-specific: only the cookie-authenticated endpoints (refresh-token,
+                // logout) from browser-shaped clients need the double-submit token; everything else carries a
+                // bearer token or credentials in the body (CodeQL #7, CookieTransportCsrf).
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(CookieTransportCsrf.repository(refreshCookie))
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        .requireCsrfProtectionMatcher(CookieTransportCsrf.protectedRequests(refreshCookie.getName())))
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -43,6 +54,9 @@ public class SecurityConfig {
                                 "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/.well-known/jwks.json",
+                                // Hands the CSRF token to the web client (cookie + body); it reveals nothing
+                                // a cross-site page could use: CORS keeps the body from it.
+                                "/api/v1/auth/csrf",
                                 // Informational registration bootstrap — exact GET only.
                                 // State-changing methods on this path remain authenticated.
                                 "/api/v1/auth/registration-mode").permitAll()
@@ -53,7 +67,10 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(entryPoint))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(csrfAccessDeniedHandler))
+                .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService),
                         UsernamePasswordAuthenticationFilter.class);
 

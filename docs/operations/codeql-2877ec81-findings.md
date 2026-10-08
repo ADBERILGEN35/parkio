@@ -44,3 +44,10 @@ Open on `master` as [alert 7](https://github.com/ADBERILGEN35/parkio/security/co
   that path regardless of JWT defaulting.
 
 Do not mix a CSRF change into recovery work.
+
+**Resolution 2026-10-08.** Inventory: bearer JWT on every authenticated API; credentials in the body on
+login/register/reset; the only cookie-authenticated paths are `/api/v1/auth/refresh-token` and
+`/api/v1/auth/logout` (HttpOnly refresh cookie, web transport). The global CSRF disable was a defect on those two
+paths; they are now protected by a route-specific double-submit token (`CookieTransportCsrf`), the global
+disable is gone, and native body-token clients are unaffected. See `GHAS-44-CSRF-MARKETING-EVIDENCE.md`
+section 7.

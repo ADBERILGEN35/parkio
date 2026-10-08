@@ -28,6 +28,7 @@ import com.parkio.auth.presentation.dto.ResendVerificationRequest;
 import com.parkio.auth.presentation.dto.ResetPasswordRequest;
 import com.parkio.auth.presentation.dto.UserResponse;
 import com.parkio.auth.presentation.dto.VerifyEmailRequest;
+import org.springframework.security.web.csrf.CsrfToken;
 import com.parkio.auth.presentation.openapi.StandardApiResponses;
 import com.parkio.auth.shared.AuthPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,6 +40,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.Executor;
@@ -122,7 +124,7 @@ public class AuthController {
             // Native client: refresh token returned in the body for SecureStore; no cookie.
             return ResponseEntity.ok(AuthResponse.fromMobile(result));
         }
-        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result));
+        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result).withCsrfToken(csrfToken(httpRequest)));
     }
 
     @Operation(summary = "Rotate refresh token")
@@ -141,7 +143,18 @@ public class AuthController {
         if (mobile) {
             return ResponseEntity.ok(AuthResponse.fromMobile(result));
         }
-        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result));
+        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result).withCsrfToken(csrfToken(request)));
+    }
+
+    /**
+     * Hands the web client its CSRF token for the cookie-authenticated endpoints (the API is another origin,
+     * so the SPA cannot read the XSRF-TOKEN cookie). The response also (re)issues that cookie. A cross-site
+     * page cannot read this body (CORS) and cannot send the cookie's value, so revealing the token here is safe.
+     */
+    @Operation(summary = "CSRF token for the cookie transport")
+    @GetMapping("/csrf")
+    public Map<String, String> csrf(HttpServletRequest request) {
+        return Map.of("token", csrfToken(request));
     }
 
     @Operation(summary = "Verify a registered email address")
@@ -298,6 +311,11 @@ public class AuthController {
      * metadata. This keeps browser contexts on the cookie transport even if a
      * script accidentally sends the mobile header.
      */
+    private static String csrfToken(HttpServletRequest request) {
+        CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+        return token == null ? null : token.getToken();
+    }
+
     private boolean isMobileClient(HttpServletRequest request) {
         return "mobile".equalsIgnoreCase(request.getHeader("X-Parkio-Client"))
                 && request.getHeader("Origin") == null

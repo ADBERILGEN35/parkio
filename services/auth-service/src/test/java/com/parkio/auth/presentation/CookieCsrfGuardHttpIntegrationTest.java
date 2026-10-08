@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -115,6 +116,84 @@ class CookieCsrfGuardHttpIntegrationTest {
         if (roles.findByName(RoleName.USER).isEmpty()) {
             roles.save(new RoleEntity(UUID.randomUUID(), RoleName.USER));
         }
+    }
+
+    /** CodeQL #7: the cookie transport needs the double-submit CSRF token; a forged POST has the cookies only. */
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/auth/refresh-token", "/api/v1/auth/logout"})
+    void cookieRequestWithoutCsrfHeaderIsForbiddenAndDoesNotMutate(String path) throws Exception {
+        AuthResult initial = registerVerifiedAndLogin("csrf-missing-" + UUID.randomUUID() + "@example.com");
+        SessionSnapshot snap = snapshot(initial);
+        mockMvc.perform(cookieAuthWithoutCsrfHeader(path, initial).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_REQUIRED"));
+        assertUnchanged(snap);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/auth/refresh-token", "/api/v1/auth/logout"})
+    void cookieRequestWithMismatchedCsrfHeaderIsForbiddenAndDoesNotMutate(String path) throws Exception {
+        AuthResult initial = registerVerifiedAndLogin("csrf-mismatch-" + UUID.randomUUID() + "@example.com");
+        SessionSnapshot snap = snapshot(initial);
+        mockMvc.perform(cookieAuthWithoutCsrfHeader(path, initial)
+                        .header("Origin", ALLOWED_ORIGIN)
+                        .header("X-XSRF-TOKEN", "not-the-token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_REQUIRED"));
+        assertUnchanged(snap);
+    }
+
+    @Test
+    void csrfEndpointIssuesAnHttpOnlyCookieMatchingTheBodyToken() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/v1/auth/csrf")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isString())
+                .andReturn();
+        String token = objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
+        String setCookie = String.join(";", result.getResponse().getHeaders("Set-Cookie"));
+        assertThat(setCookie).contains("XSRF-TOKEN=" + token).contains("Path=/api/v1/auth").contains("HttpOnly");
+        Cookie issued = result.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(issued).isNotNull();
+        assertThat(issued.getAttribute("SameSite")).as("SameSite attribute (rendered by the container)").isEqualTo("Strict");
+        assertThat(issued.isHttpOnly()).isTrue();
+    }
+
+    @Test
+    void webLoginHandsOutTheCsrfTokenAndItAuthorisesTheCookieRefresh() throws Exception {
+        String email = registerAndVerify("csrf-login-" + UUID.randomUUID() + "@example.com");
+        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Origin", ALLOWED_ORIGIN)
+                        .contentType("application/json")
+                        .content(credentials(email)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.csrfToken").isString())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn();
+        String token = objectMapper.readTree(login.getResponse().getContentAsString()).get("csrfToken").asText();
+        Cookie xsrf = login.getResponse().getCookie("XSRF-TOKEN");
+        Cookie refresh = login.getResponse().getCookie("parkio_refresh");
+        assertThat(xsrf).isNotNull();
+        assertThat(xsrf.getValue()).isEqualTo(token);
+        assertThat(refresh).isNotNull();
+        mockMvc.perform(post("/api/v1/auth/refresh-token")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Origin", ALLOWED_ORIGIN)
+                        .header("X-XSRF-TOKEN", token)
+                        .cookie(refresh, xsrf))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.csrfToken").isString())
+                .andExpect(cookie().exists("parkio_refresh"));
+    }
+
+    @Test
+    void mobileLoginResponseCarriesNoCsrfToken() throws Exception {
+        String email = registerAndVerify("csrf-mobile-" + UUID.randomUUID() + "@example.com");
+        JsonNode body = mobileLogin(email);
+        assertThat(body.has("csrfToken")).isFalse();
+        assertThat(body.get("refreshToken").isTextual()).isTrue();
     }
 
     @ParameterizedTest
@@ -328,10 +407,36 @@ class CookieCsrfGuardHttpIntegrationTest {
         assertThat(authService.sessionEpoch(snap.userId())).isEqualTo(snap.epoch() + 1);
     }
 
-    private MockHttpServletRequestBuilder cookieAuth(String path, AuthResult initial) {
+    /** A cookie-transport request as the web client sends it: refresh cookie, XSRF cookie and the header. */
+    private MockHttpServletRequestBuilder cookieAuth(String path, AuthResult initial) throws Exception {
+        Csrf csrf = csrf();
         return post(path)
                 .header("X-Gateway-Auth", GATEWAY_SECRET)
-                .cookie(refreshCookie(initial));
+                .header("X-XSRF-TOKEN", csrf.token())
+                .cookie(refreshCookie(initial), csrf.cookie());
+    }
+
+    /** The same request without the CSRF header (the cookies alone, as a forged cross-site POST would carry). */
+    private MockHttpServletRequestBuilder cookieAuthWithoutCsrfHeader(String path, AuthResult initial) throws Exception {
+        Csrf csrf = csrf();
+        return post(path)
+                .header("X-Gateway-Auth", GATEWAY_SECRET)
+                .cookie(refreshCookie(initial), csrf.cookie());
+    }
+
+    private record Csrf(String token, Cookie cookie) {
+    }
+
+    private Csrf csrf() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/v1/auth/csrf")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isOk())
+                .andReturn();
+        String token = objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
+        Cookie cookie = result.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(cookie).isNotNull();
+        return new Csrf(token, cookie);
     }
 
     private static Cookie refreshCookie(AuthResult initial) {
