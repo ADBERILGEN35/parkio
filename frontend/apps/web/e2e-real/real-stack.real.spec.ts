@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { E2E_PASSWORD } from '../e2e/fixtures/credentials';
 // Seeded-account contract: the PARKIO_REAL_{USER,MODERATOR,ADMIN}_{EMAIL,PASSWORD} pairs
 // must point at ACTIVE, email-verified accounts with the matching role. Provision them
 // Behavior: when a pair is MISSING the related tests skip; when it is PRESENT but login
@@ -184,8 +185,8 @@ test('registers a real pending account through the gateway', async ({ page, requ
   await page.goto('/register');
   await page.getByLabel('Full name').fill('Q5 Real E2E');
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('StrongParkio123');
-  await page.getByLabel('Confirm password').fill('StrongParkio123');
+  await page.getByLabel('Password', { exact: true }).fill(E2E_PASSWORD);
+  await page.getByLabel('Confirm password').fill(E2E_PASSWORD);
   await page.getByLabel(/I agree/).check();
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/check-email(?:\?.*)?$/);

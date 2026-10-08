@@ -119,6 +119,12 @@ printf 'x.env\n' > "$R/.gitleaksignore";                              E6=$(commi
 expect_fail "a bare path entry fails the scan" 'invalid fingerprint exception' --full "$E6"
 printf '# comment\r\n\r\n%s:x.env:github-pat:1  \r\n' "$E2" > "$R/.gitleaksignore"; E7=$(commit "e7 CRLF, blank and trailing-space lines")
 expect_pass "comment, blank and CRLF lines around a valid entry are tolerated" --full "$E7"
+printf '%s:x.env:github-pat:1\n' "$E2" > "$R/.gitleaksignore";   E8=$(commit "e8 valid entry at the base")
+printf 'x.env:github-pat:1\n' > "$R/.gitleaksignore";               E9=$(commit "e9 pull request head makes the entry commit-less")
+expect_fail "a pull request whose head carries an invalid entry fails (format-checked, never applied)" 'invalid fingerprint exception at the scanned head' --event pull_request --base "$E8" --head "$E9"
+printf '# tidy\n%s:x.env:github-pat:1\n' "$E2" > "$R/.gitleaksignore"; E10=$(commit "e10 head restores a valid file")
+expect_pass "a pull request whose head carries a valid file is not failed by the head check" --event pull_request --base "$E8" --head "$E10"
+grep -q '1 fingerprint exception(s) from' "$TMP/out" && ok "  the base's exception is the one applied" || { bad "base exception count not reported"; cat "$TMP/out"; }
 R=$R0
 
 # Log assessment: the exact output of the broken step, and other malformed outputs.
