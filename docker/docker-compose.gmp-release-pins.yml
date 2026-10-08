@@ -1,33 +1,31 @@
-# Parkio GMP release pins — PR #111 ISPARK closed-occupancy publication 2026-09-25
-# Parking source / OCI revision: 1dd2d5bcc537aea8f150b313cf6151e5bdd31297 (PR #111 merge)
-# Reviewed head: 31baaed7053dd76e41de7981c5e5cc41b25de98e
-# Single-platform OCI image manifest (GHCR confirmed; no separate index):
-#   ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2
-# linux/amd64 platform manifest (same as registry digest above):
-#   sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2
-# Image config:
-#   sha256:0f62313a1d71021c9e0ea9f150d8b3f825e2f3b32e43ebf5f7363cfb6b03a7d7
-# Rollback (live pre-PR #111 parking):
-#   ghcr.io/adberilgen35/parkio/parking-service@sha256:02553cadbd950a6f80fd61801cdfa628fbf9ef9dd3fea9d68e138aa2e2d8a742
-#   OCI revision: unknown (unproven)
-# Gateway/media pins unchanged from live production / PR #106:
+# Parkio GMP release pins — hosted-beta release 2026-10-09
+# Source / OCI revision: a658edcb0e4152b760ecafa3ef02d7410f9b0ef8 (api after #326: lz4-java 1.11.4,
+# Trivy exceptions CVE-2026-47890/47892). Candidate images run 37847459860 (accepted: full stack,
+# auth+gateway 22/22, web suites; Trivy critical + library gates pass), published by candidate-publish
+# run 37850081305: single linux/amd64 manifests, registry config digest = accepted image id.
+#   gateway-service image id sha256:a2dbf7aae7b11a5d39bb3b274cc488f99b2f9aecc4b7b6338780b45ec54f936d
+#   media-service   image id sha256:cfa7c3484af3a399952a4204775cb7a6fdf838053376c353087089b73af55c31
+#   parking-service image id sha256:236fe8dfcad46ba4e5dbff2e718bc390f776b5e8f9c33c489fb0f59da939dd0e
+# Rollback (the previous live pins):
 #   ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
 #   ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
+#   ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2 (OCI revision 1dd2d5bc)
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
-# Recreate with:
+# Release order: gateway, then web, then auth; media and parking after auth. Roll back in reverse.
+# Recreate one service with:
 #   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
-#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate parking-service
+#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate <service>
 #
-# Practical digest update: change ONLY the services.parking-service.image line below.
+# Practical digest update: change ONLY the services.<service>.image lines below.
 name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:e061d7ed3ddc8ad10193f57283b8cb44dfcb66e480db3ca098742aac87bb8e3b
 
   media-service:
-    image: ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
+    image: ghcr.io/adberilgen35/parkio/media-service@sha256:7a758cd6a0ced0acb80768266628a1fe49ba287892f07b0954c5dc5f1e5cdd5a
 
   parking-service:
-    image: ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2
+    image: ghcr.io/adberilgen35/parkio/parking-service@sha256:5c629fff91af92914d9355cf83c829d3175773d46bbe5eb190f431c88cdb53e6

@@ -1,13 +1,13 @@
-# Parkio hosted-beta web release pin - PR #91 map-corrected image (2026-09-23)
-# Source: 3bb89c6ca473e386e9a6c3288a3282732f169478
-# linux/amd64 OCI manifest:
+# Parkio hosted-beta web release pin - hosted-beta release 2026-10-09
+# Source / OCI revision: 843ae7cb461bbb66e688964bf2441b4442d23f27. Candidate images run 37788374271 (accepted:
+# a11y-web, cxf11), published by candidate-publish run 37850004212; registry config digest = accepted image id
+# sha256:8121516d6a8cc875e335e0b82721a5c089d4773a437e7eefbe93790ef777c00e (linux/amd64).
+# Reused for the release of api a658edcb: its build inputs are unchanged 843ae7cb..a658edcb and its served
+# bundle is byte-identical to the web rebuilt in run 37847459860 (release evidence, WEB-REUSE-EVIDENCE.md).
+# Deploy after the gateway and before auth (route-specific CSRF #324).
+# Rollback (the previous live pin, source 3bb89c6c):
 #   ghcr.io/adberilgen35/parkio/web@sha256:aacf9dc9ab8ef412dee01429da2b2bbc33099c4560a7904f181f9fe6db381f6e
-# Image/config ID: sha256:de405e587f8da14b70d8046d3ba9d14250ff8a705e3ffef8881d3d555d01d8be
-# Registry index (attestation + amd64, not the pin):
-#   sha256:21b54c5b703a32729a2b77fc2c71d313f89902bea12ea559a8e72d6bbb883483
 # Do not pin 8d9bfca4; it bakes the CI synthetic MapTiler key.
-# Rollback for this corrected pin:
-#   ghcr.io/adberilgen35/parkio/web@sha256:32f03b4401d655ae76d465587604a6cc900bafb7938eea4ea718ba21f60316a6
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 # Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
@@ -16,4 +16,4 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:aacf9dc9ab8ef412dee01429da2b2bbc33099c4560a7904f181f9fe6db381f6e
+    image: ghcr.io/adberilgen35/parkio/web@sha256:4625a72e5dd3afd4cc6b2d2a62d8cdb999725942ed6471591d33b96cbd42b6a6
