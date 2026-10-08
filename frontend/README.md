@@ -270,11 +270,11 @@ domain `real-e2e.parkio.local`) — pointing the vars at a real account overwrit
 ```bash
 # Local Docker (from repo root, with the stack already up):
 export PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local
-export PARKIO_REAL_USER_PASSWORD='StrongParkio123'
+export PARKIO_REAL_USER_PASSWORD='<unique-password-from-your-secret-store>'
 export PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local
-export PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123'
+export PARKIO_REAL_MODERATOR_PASSWORD='<unique-password-from-your-secret-store>'
 export PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local
-export PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123'
+export PARKIO_REAL_ADMIN_PASSWORD='<unique-password-from-your-secret-store>'
 PARKIO_ENV_FILE=docker/.env ./scripts/seed-real-e2e.sh            # --target local (default)
 
 # Hosted-beta: SSH to the VPS first, then run there (containers are not published):
@@ -300,11 +300,11 @@ PARKIO_REAL_E2E_START_WEB=true \
 PARKIO_REAL_BASE_URL=http://localhost:5173 \
 PARKIO_REAL_API_BASE_URL=http://localhost:8080/api/v1 \
 PARKIO_REAL_USER_EMAIL=user@real-e2e.parkio.local \
-PARKIO_REAL_USER_PASSWORD='StrongParkio123' \
+PARKIO_REAL_USER_PASSWORD='<unique-password-from-your-secret-store>' \
 PARKIO_REAL_MODERATOR_EMAIL=moderator@real-e2e.parkio.local \
-PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123' \
+PARKIO_REAL_MODERATOR_PASSWORD='<unique-password-from-your-secret-store>' \
 PARKIO_REAL_ADMIN_EMAIL=admin@real-e2e.parkio.local \
-PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123' \
+PARKIO_REAL_ADMIN_PASSWORD='<unique-password-from-your-secret-store>' \
 pnpm e2e:real
 ```
 
@@ -328,11 +328,11 @@ PARKIO_REAL_E2E=true \
 PARKIO_REAL_BASE_URL=https://app.example.com \
 PARKIO_REAL_API_BASE_URL=https://api.example.com/api/v1 \
 PARKIO_REAL_USER_EMAIL=user@example.com \
-PARKIO_REAL_USER_PASSWORD='StrongParkio123' \
+PARKIO_REAL_USER_PASSWORD='<unique-password-from-your-secret-store>' \
 PARKIO_REAL_MODERATOR_EMAIL=moderator@example.com \
-PARKIO_REAL_MODERATOR_PASSWORD='StrongParkio123' \
+PARKIO_REAL_MODERATOR_PASSWORD='<unique-password-from-your-secret-store>' \
 PARKIO_REAL_ADMIN_EMAIL=admin@example.com \
-PARKIO_REAL_ADMIN_PASSWORD='StrongParkio123' \
+PARKIO_REAL_ADMIN_PASSWORD='<unique-password-from-your-secret-store>' \
 pnpm e2e:real
 ```
 
