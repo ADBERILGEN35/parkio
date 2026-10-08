@@ -36,34 +36,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The scan fails closed (owner decision 2026-10-08, item 6; same fix as api #312). The former
+  # `docker://` gitleaks step ran as root with GitHub's container-action HOME, so git refused the
+  # runner-owned workspace ("dubious ownership"), gitleaks scanned 0 commits and exited 0.
+  # scripts/ci/secret-scan.sh runs the pinned image as the workspace owner, scans an explicit range (a
+  # pull request's commits, a push's new commits, the full history on a dispatch), and fails on any
+  # scanner or git error, on a scanned-commit count outside the range's bounds, and on any finding.
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run gitleaks
-        uses: docker://zricethezav/gitleaks:v8.28.0
-        with:
-          args: >
-            git
-            --config /github/workspace/.gitleaks.toml
-            --redact
-            --report-format sarif
-            --report-path /github/workspace/gitleaks.sarif
-            --verbose
-            /github/workspace
+      - name: Secret scan self-test (seeded disposable secrets, ranges, the old step's ownership failure)
+        run: bash scripts/ci/test-secret-scan.sh
+
+      - name: Scan the event's commit range with gitleaks (fails closed)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          bash scripts/ci/secret-scan.sh --repo "$GITHUB_WORKSPACE" --event "$EVENT_NAME" \
+            --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" --before "$PUSH_BEFORE" --after "$PUSH_AFTER" \
+            --report gitleaks.sarif --log gitleaks.log
 
       - name: Upload gitleaks report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-sarif
-          path: gitleaks.sarif
+          path: |
+            gitleaks.sarif
+            gitleaks.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -381,7 +392,7 @@ jobs:
             echo ""
             echo "| Gate | Policy | Result |"
             echo "| --- | --- | --- |"
-            echo "| Secret scan (gitleaks) | blocking — fails on any detected secret | ${SECRETS_RESULT} |"
+            echo "| Secret scan (gitleaks) | blocking — scans the pull request's or push's commits (full history on a dispatch); fails on any finding, any scanner or git error and any scanned-commit count outside the range's bounds | ${SECRETS_RESULT} |"
             echo "| Trivy dependency scan | blocking — fails on HIGH/CRITICAL fixable library vulns | ${DEPENDENCIES_RESULT} |"
             echo "| Trivy container scan | reporting HIGH/CRITICAL; blocking on CRITICAL image vulns | ${CONTAINER_RESULT} |"
             echo "| CodeQL (SAST) | ${codeql_line} |  |"
