@@ -65,7 +65,10 @@
       "@types/react": "19.2.17",
       "@types/react-dom": "19.2.3",
       "@expo/metro-runtime": "56.0.16",
-      "@expo/dom-webview": "56.0.6"
+      "@expo/dom-webview": "56.0.6",
+      "compression": "^1.8.2",
+      "source-map-js": "^1.2.2",
+      "shell-quote": "^1.11.0"
     }
   }
 }
