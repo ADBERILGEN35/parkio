@@ -1,11 +1,12 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { E2E_NEW_PASSWORD, E2E_PASSWORD } from './fixtures/credentials';
 
 const SPOT_ID = '0b8f6c3a-0000-0000-0000-000000000123';
 const MEDIA_ID = '0b8f6c3a-0000-0000-0000-0000000000a1';
 const USER_ID = '6f9619ff-8b86-4d01-b42d-00cf4fc964ff';
 const CASE_ID = '0b8f6c3a-0000-0000-0000-0000000000c1';
-const PASSWORD = 'StrongParkio123';
-const NEW_PASSWORD = 'NewStrongParkio123';
+const PASSWORD = E2E_PASSWORD;
+const NEW_PASSWORD = E2E_NEW_PASSWORD;
 
 const user = { id: USER_ID, email: 'tester@parkio.dev', status: 'ACTIVE', roles: ['USER'] };
 const moderator = { ...user, email: 'mod@parkio.dev', roles: ['MODERATOR'] };
