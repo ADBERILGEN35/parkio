@@ -6,9 +6,11 @@
 #   middle and at the end of a range, and in the full history;
 # - each event maps to its intended range: a seeded commit inside the event's range is found, the logged
 #   range and count match, and an empty pull-request range fails;
-# - the scanned tree cannot weaken its own scan: a `.gitattributes` marking the file binary, a
-#   `.gitleaksignore` with the finding's fingerprint, an inline `gitleaks:allow` comment, and a pull
-#   request that allowlists its own secret in `.gitleaks.toml` all still fail;
+# - the scanned tree cannot weaken its own scan: a `.gitattributes` marking the file binary, an
+#   uncommitted `.gitleaksignore` with the finding's fingerprint, an inline `gitleaks:allow` comment, and
+#   a pull request that allowlists its own secret in `.gitleaks.toml` or exempts its own finding by
+#   fingerprint all still fail; a fingerprint exception applies only from the config revision (a pull
+#   request's base; the scanned tip of a push or an audit) and only to that one commit, file and line;
 # - the seeded values never appear in the scan's log or output;
 # - the "commits scanned" count and gitleaks' executed `git log` range are checked;
 # - scanner and git errors fail the scan, including the ownership failure that made the old step pass
@@ -96,6 +98,27 @@ PY
 mkdir -p "$R/canary"; echo "token=$(token)" > "$R/canary/pr.txt"; D4=$(commit "d4 allowlist plus seeded token")
 expect_fail "a pull request's own allowlist does not apply to its scan (base config)" 'leaks found: 1' --event pull_request --base "$D3" --head "$D4"
 expect_pass "  the same allowlist applies once it is the scanned revision's config (merged state)" --range "$D3..$D4"
+R=$R0
+
+# Fingerprint exceptions (.gitleaksignore) come from the config revision only: a pull request cannot
+# exempt its own commits; the exceptions merged into the scanned tip apply to pushes and audits.
+F="$TMP/fingerprints"; new_repo "$F"; R=$F
+echo "clean" > "$R/a.txt";                                       E1=$(commit "e1 clean")
+echo "TOKEN=$(token)" > "$R/x.env";                              E2=$(commit "e2 seeded token")
+expect_fail "a seeded token is found in a full-history audit" 'leaks found: 1' --full "$E2"
+printf '# self-test exception\n%s:x.env:github-pat:1\n' "$E2" > "$R/.gitleaksignore"; E3=$(commit "e3 fingerprint exception for e2")
+expect_pass "a fingerprint exception committed at the scanned tip suppresses that finding in an audit" --full "$E3"
+grep -q '1 fingerprint exception(s) from' "$TMP/out" && ok "  the exception count is reported" || { bad "exception count not reported"; cat "$TMP/out"; }
+expect_fail "a pull request's own fingerprint exception does not apply (base config)" 'leaks found: 1' --event pull_request --base "$E1" --head "$E3"
+expect_pass "  the same exception applies to the push that follows the merge (tip config)" --event push --before "$E1" --after "$E3"
+printf '%s:x.env:github-pat:2\n' "$E2" > "$R/.gitleaksignore";   E4=$(commit "e4 fingerprint for another line")
+expect_fail "a fingerprint for another line does not suppress the finding" 'leaks found: 1' --full "$E4"
+printf 'x.env:github-pat:1\n' > "$R/.gitleaksignore";               E5=$(commit "e5 commit-less entry")
+expect_fail "a commit-less 'file:rule:line' entry fails the scan instead of suppressing every commit" 'invalid fingerprint exception' --full "$E5"
+printf 'x.env\n' > "$R/.gitleaksignore";                              E6=$(commit "e6 bare path entry")
+expect_fail "a bare path entry fails the scan" 'invalid fingerprint exception' --full "$E6"
+printf '# comment\r\n\r\n%s:x.env:github-pat:1  \r\n' "$E2" > "$R/.gitleaksignore"; E7=$(commit "e7 CRLF, blank and trailing-space lines")
+expect_pass "comment, blank and CRLF lines around a valid entry are tolerated" --full "$E7"
 R=$R0
 
 # Log assessment: the exact output of the broken step, and other malformed outputs.

@@ -185,6 +185,19 @@ trap cleanup EXIT
 CONFIG_REV=$(resolve "${CONFIG_REV:-$B}") || fail "cannot resolve the config revision"
 git -C "$REPO" show "$CONFIG_REV:.gitleaks.toml" > "$CONFIG_DIR/.gitleaks.toml" 2>/dev/null \
   || fail "no .gitleaks.toml at the config revision $CONFIG_REV"
+# Fingerprint exceptions (.gitleaksignore: commit:file:rule:line, one historical finding per line) come
+# from the same revision as the config, so a pull request cannot exempt its own commits; a push or an
+# audit applies the exceptions merged into the scanned tip.
+EXCEPTIONS=0
+if git -C "$REPO" cat-file -e "$CONFIG_REV:.gitleaksignore" 2>/dev/null; then
+  git -C "$REPO" show "$CONFIG_REV:.gitleaksignore" | tr -d '\r' > "$CONFIG_DIR/.gitleaksignore"
+  chmod 0644 "$CONFIG_DIR/.gitleaksignore"
+  # Only the full form is accepted: a 40-hex commit, a file, a rule id and a line. gitleaks would also
+  # honour `file:rule:line` (every commit) or a bare pattern; such a line fails the scan instead.
+  BAD=$(grep -nvE '^[[:space:]]*(#|$)|^[0-9a-f]{40}:[^[:space:]:]+(:[^[:space:]:]+)*:[a-z0-9-]+:[0-9]+[[:space:]]*$' "$CONFIG_DIR/.gitleaksignore" || true)
+  [ -z "$BAD" ] || fail "invalid fingerprint exception at $CONFIG_REV:.gitleaksignore (commit:file:rule:line expected): $(echo "$BAD" | head -3 | cut -c1-120 | tr '\n' ' ')"
+  EXCEPTIONS=$(grep -cvE '^[[:space:]]*(#|$)' "$CONFIG_DIR/.gitleaksignore" || true)
+fi
 chmod 0755 "$CONFIG_DIR"; chmod 0644 "$CONFIG_DIR/.gitleaks.toml"; chmod 0777 "$OUT_DIR"
 if [ -z "$LOG" ]; then LOG=$(mktemp); OWN_LOG=$LOG; fi
 
@@ -198,7 +211,7 @@ case "$RUN_AS" in
   old-action) docker_args+=(-e HOME=/github/home) ;;
   *) fail "unknown PARKIO_GITLEAKS_RUN_AS '$RUN_AS'" ;;
 esac
-echo "secret scan: $DESC ($MODE); config from $CONFIG_REV; expecting $MIN..$MAX scanned commits"
+echo "secret scan: $DESC ($MODE); config and $EXCEPTIONS fingerprint exception(s) from $CONFIG_REV; expecting $MIN..$MAX scanned commits"
 docker "${docker_args[@]}" "$IMAGE" git --config /scan-config/.gitleaks.toml --gitleaks-ignore-path /scan-config \
   --ignore-gitleaks-allow --redact --no-banner --log-level debug --report-format sarif \
   --report-path /out/report.sarif --log-opts="$LOG_OPTS" /repo > "$LOG" 2>&1
