@@ -23,6 +23,12 @@ dependencies {
     // plugin (jackson-bom.version); this keeps the platform's own classpaths on the same patched release.
     api(platform("com.fasterxml.jackson:jackson-bom:${project.property("jacksonBomVersion")}"))
     api(libs.kafka.clients)
+    constraints {
+        // kafka-clients 3.9.2 pins lz4-java 1.10.1 (runtime): CVE-2026-106451 (HIGH) and five lower lz4-java
+        // CVEs are fixed in 1.11.4. Every service gets kafka-clients through this platform, so this one
+        // constraint moves all of them. Drop it once kafka-clients itself requires >= 1.11.4.
+        api("at.yawk.lz4:lz4-java:1.11.4")
+    }
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
     api("io.opentelemetry:opentelemetry-api")
@@ -35,6 +41,9 @@ dependencies {
     testImplementation(libs.spring.boot.starter.jdbc)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
+    // Lz4CompressionCompatibilityTest compiles against lz4-java (a runtime-only dependency of kafka-clients);
+    // the version comes from the constraint above.
+    testImplementation("at.yawk.lz4:lz4-java")
     testRuntimeOnly(libs.postgresql)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
