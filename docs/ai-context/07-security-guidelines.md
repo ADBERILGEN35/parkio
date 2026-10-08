@@ -111,7 +111,12 @@ Privilege boundaries / enforcement notes:
   scanned-commit count that does not fit the commit range, fails the check
   (`scripts/ci/secret-scan.sh`). `.gitleaks.toml` may allow only exact local-dev
   placeholders, documentation examples, and test-only fake values. Do not add broad
-  path allowlists for env files or source trees.
+  path allowlists for env files or source trees. A historical finding may be excepted
+  only by its fingerprint (`commit:file:rule:line`) in `.gitleaksignore`, only when it is
+  independently proven synthetic and non-production, and only through a reviewed pull
+  request; uncertain or real credentials stay findings (rotate or remove them). The
+  scanner reads the exceptions from a pull request's base, so a pull request cannot
+  exempt its own commits.
 - If a real secret is committed, rotate/revoke it first and remove it from every
   runtime environment. Do not "fix" the pipeline by allowlisting the leaked value.
 - Dependency and image vulnerability gates should start high-signal: fail on

@@ -589,7 +589,11 @@ Security CI runs on PRs, pushes to `master`, weekly, and on demand:
   `scripts/ci/test-secret-scan.sh` runs first and proves that seeded disposable secrets fail, that each
   event scans its intended range, and that the scanned tree cannot weaken its own scan (gitleaks sees only
   the read-only git directory; inline `gitleaks:allow` comments are ignored; attributes come from the
-  empty tree; a pull request uses its base's config).
+  empty tree; a pull request uses its base's config). Historical findings proven synthetic and
+  non-production are excepted one by one in `.gitleaksignore` (fingerprint `commit:file:rule:line`;
+  never a path or rule exclusion), read from the same revision as the config: a pull request cannot
+  exempt its own commits, and the full-history audit (dispatch or schedule) keeps failing on every
+  finding that is uncertain or real until it is rotated or removed.
 - **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning
   (gated behind the `CODEQL_ENABLED` repository variable — see below).
 - **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL

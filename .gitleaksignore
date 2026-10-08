@@ -1,0 +1,107 @@
+# gitleaks fingerprint exceptions: one historical finding per line (commit:file:rule:line).
+# Scope rules (owner decision 2026-10-08 item 8): only findings independently proven synthetic and
+# non-production; uncertain or real credentials stay findings; no path or rule exclusions. The scanner
+# reads this file from the base revision of a pull request and from the scanned tip of a push or audit,
+# so a pull request cannot exempt its own commits. Evidence and the per-finding proof:
+# agent-tools/parkio-secret-scan-fix/classification/ (CLASSIFICATION.md, HISTORY-SEARCH.md).
+
+# A. Preflight validator fixtures (scripts/preflight-fixtures/*.env): synthetic filler values shared by all fixture variants; PEM bodies are not parseable keys
+6cd34ab0d44f7d4ef11a31357d723874dfd85d7b:scripts/preflight-fixtures/valid.env:generic-api-key:26
+6cd34ab0d44f7d4ef11a31357d723874dfd85d7b:scripts/preflight-fixtures/valid.env:generic-api-key:57
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:28
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:59
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:63
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:67
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:71
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:79
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:83
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:generic-api-key:124
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/placeholder.env:private-key:17
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:52
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:60
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:68
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:72
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:80
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:84
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:generic-api-key:125
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/change-me.env:private-key:17
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:28
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:59
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:63
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:67
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:71
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:79
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:83
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/missing-secret.env:generic-api-key:124
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:private-key:17
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:28
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:52
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:60
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:64
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:68
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:72
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:80
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:84
+ff602afd52b684f20ac1627b54e62a4c219de7af:scripts/preflight-fixtures/valid.env:generic-api-key:126
+
+# B. PEM header strings whose bodies are not parseable keys (test fixtures for malformed-PEM handling and CI dry-run placeholders)
+feaa4020731c93d3b8672e17efb6e0aa18974f44:scripts/ci/test-candidate-scripts.sh:private-key:26
+22158518acfeddcf4c0b932674579d1b5a0579d8:.github/workflows/invite-production-deploy.yml:private-key:249
+22158518acfeddcf4c0b932674579d1b5a0579d8:scripts/test_preflight_jwt_placeholder.py:private-key:79
+bf127ce40b32a8bc1c43acfdc20ae0c8610e1106:services/auth-service/src/test/java/com/parkio/auth/infrastructure/security/JwtKeyRotationTest.java:private-key:184
+a86e3f8e76320014d387faefe05dcceed9a91411:services/auth-service/src/test/java/com/parkio/auth/infrastructure/security/RsaKeyProviderTest.java:private-key:20
+
+# C. Access tokens in k6 load-test summaries of 2026-06-27: issued by a local Docker Desktop compose stack (benchmarks/reports/p221/REPORT.md), 15-minute TTL, expired the same day
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/beta/summary.json:jwt:220
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/light/summary.json:jwt:220
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/smoke/summary.json:jwt:324
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/stress/summary.json:jwt:220
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/stress100/summary.json:jwt:324
+
+# D. Public identifiers: git commit ids and an image digest present in this repository
+930ceb9d9e37828678a95c16b9e11afc08e8a4b3:docker/docker-compose.web-release-pin.yml:generic-api-key:4
+78e0a93852471cc570cb604d65a7ad94e1d53d96:agent-tools/parkio-auth-resend-delivery-readiness-01/prod-readonly-probe-v3.txt:generic-api-key:2
+d144b767d4a13193d6ce1ad8827b9feea8a77bfe:agent-tools/parkio-w01d-terminal-ci-and-publication-handoff-01/20260921T095455Z/SHAS.txt:generic-api-key:1
+2b12e6c08383a4aa4616d7f3a7741ac7a64e233a:agent-tools/parkio-w01c-exact-candidate-integration-closure-01/20260921T093722Z/SHAS.txt:generic-api-key:1
+1d26e0664c2d0ecd0bf6c883f2b950a5ae956752:agent-tools/parkio-w01c-exact-candidate-integration-closure-01/20260921T093722Z/SHAS-start.txt:generic-api-key:1
+41891154fd4a7f74b7948d00bf4e017742146cbb:agent-tools/parkio-w01b-waitlist-release-readiness-01/20260921T092557Z/SHAS.txt:generic-api-key:1
+1b3ee8c7514861e11f6926d87a7845ad0bdf6a2b:agent-tools/parkio-w01b-waitlist-release-readiness-01/20260921T092557Z/SHAS.txt:generic-api-key:1
+
+# E. CI-only disposable account passwords of the isolated real-e2e docker stack (self-labelled synthetic; used only when hosted credentials are absent)
+3db96fd58602ec1bd04c8bc06922d89e9c380741:.github/workflows/frontend-real-e2e.yml:generic-api-key:163
+6523f3229e0550b7dd6bea261ad1fe0a792f2556:.github/workflows/frontend-real-e2e.yml:generic-api-key:118
+6523f3229e0550b7dd6bea261ad1fe0a792f2556:.github/workflows/frontend-real-e2e.yml:generic-api-key:120
+
+# F. One shared unit/integration-test password (auth-service tests and the mobile auth test); never used outside test code
+429fa2f3cb2939b1646722c4642a68aca2b40c02:services/auth-service/src/test/java/com/parkio/auth/presentation/InviteRegistrationEnumerationHttpTest.java:generic-api-key:38
+e16c76ef8d315a3f81593b6c093a2e7d858bb678:services/auth-service/src/test/java/com/parkio/auth/presentation/AdminJwtAuthorityHttpTest.java:generic-api-key:46
+8538983d457ec499ba7387e0071abdcccd8ee5dc:services/auth-service/src/test/java/com/parkio/auth/presentation/CookieCsrfGuardHttpIntegrationTest.java:generic-api-key:87
+0fbad2216309c7f8426886873e44718361900b03:services/auth-service/src/test/java/com/parkio/auth/presentation/CookieCsrfChromiumAcceptanceIT.java:generic-api-key:89
+b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449:services/auth-service/src/test/java/com/parkio/auth/infrastructure/notification/EmailDeliveryTransactionalPostgresIT.java:generic-api-key:58
+b10c1f7cda85693c4af9ea6d32b81f2b3f0a7449:services/auth-service/src/test/java/com/parkio/auth/presentation/PublicEmailDeliveryEnumerationHttpTest.java:generic-api-key:46
+f56aa9b4e32b6a45dc838d7ce7ea8a1f71b2a827:services/auth-service/src/test/java/com/parkio/auth/presentation/AccountErasureHttpIntegrationTest.java:generic-api-key:44
+15de056510caca888c4127f5cb7a48f8b6812d8f:frontend/apps/mobile/src/services/__tests__/auth.test.ts:generic-api-key:59
+15de056510caca888c4127f5cb7a48f8b6812d8f:frontend/apps/mobile/src/services/__tests__/auth.test.ts:generic-api-key:73
+15de056510caca888c4127f5cb7a48f8b6812d8f:frontend/apps/mobile/src/services/__tests__/auth.test.ts:generic-api-key:123
+15de056510caca888c4127f5cb7a48f8b6812d8f:services/auth-service/src/test/java/com/parkio/auth/presentation/MobileAuthFlowIntegrationTest.java:generic-api-key:61
+84a38d526388e91101098621b5776f4c52700d2d:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:58
+84a38d526388e91101098621b5776f4c52700d2d:services/auth-service/src/test/java/com/parkio/auth/infrastructure/persistence/RefreshTokenSecurityIntegrationTest.java:generic-api-key:89
+
+# G. Other test and fixture constants (unit tests, e2e specs, test scripts, a k6 script default, a synthetic log line)
+a0d4897f4f3ef8f7682eaae2867ad1ad717ff3ce:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:370
+2ee52e51d308299ce9652e8fed1e3aecb2d80298:frontend/apps/web/scripts/verify-bundle-env.test.mjs:generic-api-key:258
+0ab41bed210462b87454a59860f6ec3b4c5bdbab:services/auth-service/src/test/java/com/parkio/auth/presentation/AccountExistenceTimingPostgresIT.java:generic-api-key:72
+9716cc86c8fab99f0b071743f6f918adfb028a4b:services/auth-service/src/test/java/com/parkio/auth/presentation/VerifyEmailTokenReuseHttpTest.java:generic-api-key:143
+4b05b232efe667a165d9543e475ef761d2500b6f:services/auth-service/src/test/java/com/parkio/auth/presentation/PasswordByteLengthHttpTest.java:generic-api-key:153
+4b05b232efe667a165d9543e475ef761d2500b6f:services/auth-service/src/test/java/com/parkio/auth/presentation/PasswordByteLengthHttpTest.java:generic-api-key:162
+6aaca115e8ea4efd94dc184a2fac8c73b0fdbcf1:scripts/test-recovery-evidence-contract.py:generic-api-key:269
+2119ffe4bc558ec4f7df19d5255afbed52568f13:scripts/test-guard-web-synthetic-map-deploy.sh:generic-api-key:21
+47d3b73cff2b22f5f6a1a7d8b3aae4df0eeac229:scripts/newrelic_log_pilot/run_isolated_validation.py:generic-api-key:260
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/k6/http-load-multiuser.js:generic-api-key:13
+fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:generic-api-key:8
+0bc4c11159f98eb90d3918b6cfedf463bc443190:frontend/apps/web/src/pages/ProfilePage.test.tsx:generic-api-key:191
+0bc4c11159f98eb90d3918b6cfedf463bc443190:frontend/apps/web/src/pages/ProfilePage.test.tsx:generic-api-key:191
+0bc4c11159f98eb90d3918b6cfedf463bc443190:frontend/apps/web/src/pages/ResetPasswordPage.test.tsx:generic-api-key:52
+0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:350
+0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:371
+0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:400
