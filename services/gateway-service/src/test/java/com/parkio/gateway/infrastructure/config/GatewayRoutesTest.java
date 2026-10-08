@@ -147,6 +147,16 @@ class GatewayRoutesTest {
     }
 
     @Test
+    void csrfTokenHandOutIsPublicReadOnly() {
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/auth/csrf").build())).isTrue();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .post("/api/v1/auth/csrf").build())).isFalse();
+        assertThat(publicEndpoints.isPublic(MockServerHttpRequest
+                .get("/api/v1/auth/me").build())).isFalse();
+    }
+
+    @Test
     void existingPrivateProductAndOperatorSurfacesRemainAuthenticated() {
         for (var request : List.of(
                 MockServerHttpRequest.get("/api/v1/parking/spots").build(),

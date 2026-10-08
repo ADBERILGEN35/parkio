@@ -171,3 +171,16 @@ CodeQL models `String.prototype.includes` as substring sanitization of **URLs**.
 | Merge / dismiss / publish / deploy / production | **None** |
 
 **Proposed #7:** `csrf.disable()` is real configuration, not a proven exploitable browser CSRF path under the tested gateway HTTPS sibling/cross/simple/auth-Origin matrix. Keep #7 open until an explicit accept-risk or defense-in-depth decision. Absence of a reproduced bypass is not proof that every CSRF path is safe.
+
+## 7. Update 2026-10-08 — alert #7 fixed, not accepted
+
+Owner decision 2026-10-08: route-specific CSRF protection instead of risk acceptance. `SecurityConfig` no
+longer calls `csrf.disable()`; CSRF protection is scoped by `CookieTransportCsrf` to browser-shaped POSTs to
+`/api/v1/auth/refresh-token` and `/api/v1/auth/logout` that present the refresh cookie (double submit: HttpOnly
+same-site `XSRF-TOKEN` cookie + `X-XSRF-TOKEN` header; the token is handed out in the web login/refresh body
+and on `GET /api/v1/auth/csrf`, which the gateway allow-lists because a reloaded web client holds no access
+token when it needs it). Bearer and native body-token flows are unchanged. Evidence: the MockMvc guard tests
+(missing/mismatched header refused without mutation; allowed flows pass with the header; native transport
+untouched and cookie-free), the Chromium lab and the gateway HTTPS lab (allowed origin without the header refused
+and not rotated; the reload-shaped token read through the gateway authorises the refresh; cross-origin still
+refused), both run on the pull request's CI. The alert closes on the next CodeQL analysis of the merged source.

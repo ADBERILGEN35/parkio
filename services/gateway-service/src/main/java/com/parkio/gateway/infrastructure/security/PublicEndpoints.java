@@ -16,8 +16,9 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * The allow-list of routes that do not require a valid access token. Everything
  * else is protected and rejected without one (fail closed, ai-context/07).
  *
- * <p>Only the auth bootstrap endpoints (register/login/refresh/logout), JWKS
- * discovery, and the gateway's own health/info actuator endpoints are public.
+ * <p>Only the auth bootstrap endpoints (register/login/refresh/logout, the
+ * registration-mode and CSRF-token reads), JWKS discovery, and the gateway's own
+ * health/info actuator endpoints are public.
  * Note: any other {@code /api/v1/auth/**} endpoint is protected by default.
  *
  * <p>When {@code parkio.gateway.public-surface.actuator-info-enabled} is false,
@@ -56,6 +57,9 @@ public class PublicEndpoints {
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/refresh-token")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/auth/logout")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/registration-mode")),
+                // CSRF token hand-out for the cookie transport: a reloaded web client has no access token
+                // when it needs it (the token is useless to a cross-site page: HttpOnly cookie + CORS).
+                new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/csrf")),
                 new Rule(HttpMethod.GET, parser.parse("/api/v1/auth/.well-known/jwks.json")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist")),
                 new Rule(HttpMethod.POST, parser.parse("/api/v1/waitlist/confirm")),

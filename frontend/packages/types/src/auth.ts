@@ -30,6 +30,17 @@ export interface AuthResponse {
    */
   refreshToken?: string | null;
   user: User;
+  /**
+   * CSRF token for the cookie transport (web only): sent back as the `X-XSRF-TOKEN` header on
+   * cookie refresh/logout and checked against the HttpOnly XSRF-TOKEN cookie. Absent for native
+   * clients, which carry the refresh token in the body.
+   */
+  csrfToken?: string | null;
+}
+
+/** `GET /auth/csrf`: the current CSRF token for the cookie transport (the cookie is (re)issued too). */
+export interface CsrfTokenResponse {
+  token: string;
 }
 
 export interface LoginRequest {

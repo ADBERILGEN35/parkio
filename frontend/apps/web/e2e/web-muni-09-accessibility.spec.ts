@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { E2E_PASSWORD } from './fixtures/credentials';
 
 /**
  * WEB-MUNI-09 — municipal discovery accessibility smoke (flag-on only).
@@ -18,7 +19,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
  */
 
 const FACILITY_ID = '70db58f2-4cca-4010-9315-fa46b30fba1e';
-const PASSWORD = 'StrongParkio123';
+const PASSWORD = E2E_PASSWORD;
 const USER_ID = '6f9619ff-8b86-4d01-b42d-00cf4fc964ff';
 
 const user = {

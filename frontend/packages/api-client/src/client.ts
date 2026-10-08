@@ -98,7 +98,14 @@ export function isRefreshInFlight(): boolean {
  * token itself is invalid (retrying would loop — or deadlock on the shared
  * in-flight refresh promise).
  */
-const REFRESH_EXEMPT_PATHS = ['/auth/login', '/auth/register', '/auth/refresh-token', '/auth/logout'];
+const REFRESH_EXEMPT_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh-token',
+  '/auth/logout',
+  // The CSRF token read is public at the gateway; a 401 from it must not wait on the refresh promise.
+  '/auth/csrf',
+];
 
 function isRefreshExempt(url: string | undefined): boolean {
   return Boolean(url && REFRESH_EXEMPT_PATHS.some((path) => url.includes(path)));

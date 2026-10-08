@@ -109,6 +109,10 @@ async function main() {
     if (login.json?.refreshToken) {
       throw new Error('browser login leaked refreshToken in JSON body');
     }
+    const csrf = login.json?.csrfToken;
+    if (typeof csrf !== 'string' || csrf.length === 0) {
+      throw new Error('web login did not hand out a CSRF token');
+    }
     outcome.checks.loginHttp = login.status;
 
     const cookies = await appContext.cookies(`${authBase}/api/v1/auth/refresh-token`);
@@ -127,8 +131,17 @@ async function main() {
       throw new Error(`SameSite not Strict: ${JSON.stringify(refreshCookies)}`);
     }
 
-    const refreshOk = await appPage.evaluate(async () =>
+    const refreshNoCsrf = await appPage.evaluate(async () =>
       window.__parkio.call('/api/v1/auth/refresh-token', { body: {} }),
+    );
+    outcome.checks.allowedOriginRefreshWithoutCsrf = refreshNoCsrf.status;
+    if (refreshNoCsrf.status !== 403) {
+      throw new Error(`allowed-origin refresh without the CSRF header must be refused: ${JSON.stringify(refreshNoCsrf)}`);
+    }
+    const refreshOk = await appPage.evaluate(
+      async ({ csrf }) =>
+        window.__parkio.call('/api/v1/auth/refresh-token', { body: {}, headers: { 'X-XSRF-TOKEN': csrf } }),
+      { csrf },
     );
     outcome.checks.allowedOriginRefresh = refreshOk.status;
     if (refreshOk.status !== 200) {
@@ -148,17 +161,24 @@ async function main() {
       throw new Error(`pre-reject login failed HTTP ${loginForReject.status}`);
     }
     outcome.accessTokenBeforeRejects = loginForReject.json?.accessToken ?? null;
+    // clearCookies() dropped the XSRF-TOKEN cookie too: this login issued a fresh pair.
+    const csrfReject = loginForReject.json?.csrfToken;
+    if (typeof csrfReject !== 'string' || csrfReject.length === 0) {
+      throw new Error('pre-reject login did not hand out a CSRF token');
+    }
     outcome.refreshCookieValuesBeforeRejects = (
       await appContext.cookies(`${authBase}/api/v1/auth/refresh-token`)
     )
       .filter((c) => c.name === 'parkio_refresh')
       .map((c) => c.value);
 
-    const forgedMobile = await appPage.evaluate(async () =>
-      window.__parkio.call('/api/v1/auth/refresh-token', {
-        body: {},
-        headers: { 'X-Parkio-Client': 'mobile' },
-      }),
+    const forgedMobile = await appPage.evaluate(
+      async ({ csrfReject }) =>
+        window.__parkio.call('/api/v1/auth/refresh-token', {
+          body: {},
+          headers: { 'X-Parkio-Client': 'mobile', 'X-XSRF-TOKEN': csrfReject },
+        }),
+      { csrfReject },
     );
     outcome.checks.forgedMobileWithOrigin = forgedMobile.status;
     if (forgedMobile.status !== 200) {
@@ -176,6 +196,10 @@ async function main() {
     );
     if (loginLive.status !== 200) {
       throw new Error(`live login failed HTTP ${loginLive.status}`);
+    }
+    const csrfLive = loginLive.json?.csrfToken;
+    if (typeof csrfLive !== 'string' || csrfLive.length === 0) {
+      throw new Error('live login did not hand out a CSRF token');
     }
     const liveCookies = await appContext.cookies([
       `${authBase}/api/v1/auth/refresh-token`,
@@ -249,8 +273,10 @@ async function main() {
       throw new Error('did not capture cross-site logout request');
     }
 
-    const logoutOk = await appPage.evaluate(async () =>
-      window.__parkio.call('/api/v1/auth/logout', { body: {} }),
+    const logoutOk = await appPage.evaluate(
+      async ({ csrfLive }) =>
+        window.__parkio.call('/api/v1/auth/logout', { body: {}, headers: { 'X-XSRF-TOKEN': csrfLive } }),
+      { csrfLive },
     );
     outcome.checks.allowedOriginLogout = logoutOk.status;
     if (logoutOk.status !== 204) {

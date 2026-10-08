@@ -117,10 +117,12 @@ class RefreshTokenSecurityIntegrationTest {
         AuthResult initial = registerVerifiedAndLogin(
                 "cookie-refresh-" + UUID.randomUUID() + "@example.com");
 
+        Csrf csrf = csrf();
         MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh-token")
                         .header("X-Gateway-Auth", GATEWAY_SECRET)
                         .header("Origin", "http://localhost:5173")
-                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken())))
+                        .header("X-XSRF-TOKEN", csrf.token())
+                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken()), csrf.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(cookie().exists("parkio_refresh"))
                 .andExpect(jsonPath("$.accessToken").isString())
@@ -141,10 +143,12 @@ class RefreshTokenSecurityIntegrationTest {
         AuthResult initial = registerVerifiedAndLogin(
                 "logout-cookie-" + UUID.randomUUID() + "@example.com");
 
+        Csrf csrf = csrf();
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header("X-Gateway-Auth", GATEWAY_SECRET)
                         .header("Origin", "http://localhost:5173")
-                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken())))
+                        .header("X-XSRF-TOKEN", csrf.token())
+                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken()), csrf.cookie()))
                 .andExpect(status().isNoContent())
                 .andExpect(header().stringValues(
                         "Set-Cookie",
@@ -199,10 +203,12 @@ class RefreshTokenSecurityIntegrationTest {
         String initialHash = refreshTokenHasher.hash(initial.refreshToken());
         String childHash = refreshTokenHasher.hash(refreshed.refreshToken());
 
+        Csrf csrf = csrf();
         String response = mockMvc.perform(post("/api/v1/auth/refresh-token")
                         .header("X-Gateway-Auth", GATEWAY_SECRET)
                         .header("Origin", "http://localhost:5173")
-                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken())))
+                        .header("X-XSRF-TOKEN", csrf.token())
+                        .cookie(new jakarta.servlet.http.Cookie("parkio_refresh", initial.refreshToken()), csrf.cookie()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"))
                 .andExpect(jsonPath("$.message").value(AuthErrorCode.INVALID_REFRESH_TOKEN.defaultMessage()))
@@ -257,5 +263,25 @@ class RefreshTokenSecurityIntegrationTest {
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
         verify(emailVerificationSender, atLeastOnce()).sendVerificationLink(eq(email), tokenCaptor.capture(), any());
         authService.verifyEmail(new VerifyEmailCommand(tokenCaptor.getValue()));
+    }
+
+    /** The cookie-transport CSRF token and its HttpOnly cookie, as the web client obtains them (CodeQL #7). */
+    private record Csrf(String token, jakarta.servlet.http.Cookie cookie) {
+    }
+
+    private Csrf csrf() throws Exception {
+        MvcResult result = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/auth/csrf")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Origin", "http://localhost:5173"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+        assertThat(m.find()).as("csrf body: %s", body).isTrue();
+        String token = m.group(1);
+        jakarta.servlet.http.Cookie cookie = result.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(cookie).isNotNull();
+        assertThat(cookie.getValue()).isEqualTo(token);
+        return new Csrf(token, cookie);
     }
 }

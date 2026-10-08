@@ -190,6 +190,14 @@ Privilege boundaries / enforcement notes:
   and makes it known; a password reset clears every client's and makes the
   resetting client known. Wrong password, unknown email and
   throttled responses must remain indistinguishable to avoid account enumeration.
+- The two cookie-authenticated endpoints (`/api/v1/auth/refresh-token`, `/api/v1/auth/logout`)
+  carry route-specific CSRF protection in addition to the Origin/Referer guard (CodeQL #7,
+  2026-10-08): a browser-shaped request that presents the refresh cookie must repeat the
+  HttpOnly same-site `XSRF-TOKEN` cookie's value in the `X-XSRF-TOKEN` header. The token is
+  handed out in the web login/refresh body and on `GET /api/v1/auth/csrf` (the API is another
+  origin, so the SPA cannot read the cookie); native clients send the refresh token in the
+  body and need neither. Spring CSRF protection is never disabled; it is scoped by
+  `CookieTransportCsrf`. Do not add a cookie-authenticated endpoint outside that scope.
 - Registration passwords must be at least 12 characters, include lowercase,
   uppercase and a digit, and reject a maintainable common-password deny-list.
 - Email verification resend is abuse-sensitive; throttle it in shared storage
