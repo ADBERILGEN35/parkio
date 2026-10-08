@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { E2E_PASSWORD } from './fixtures/credentials';
 
 const user = {
   id: '6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
@@ -93,7 +92,7 @@ test.describe('default route (/)', () => {
     await expect(page.getByRole('link', { name: 'Explore without an account' })).toBeVisible();
 
     await page.getByLabel('Email').fill(user.email);
-    await page.getByLabel('Password').fill(E2E_PASSWORD);
+    await page.getByLabel('Password').fill('StrongParkio123');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page).toHaveURL(/\/map$/);

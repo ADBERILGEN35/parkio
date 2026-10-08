@@ -1,5 +1,4 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { E2E_PASSWORD } from '../e2e/fixtures/credentials';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, type Route, type TestInfo } from '@playwright/test';
@@ -29,7 +28,7 @@ export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export const PASSWORD = E2E_PASSWORD;
+export const PASSWORD = 'StrongParkio123';
 
 export interface Persona {
   id: string;

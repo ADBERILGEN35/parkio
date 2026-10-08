@@ -1,12 +1,11 @@
 import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test';
-import { E2E_PASSWORD } from './fixtures/credentials';
 
 /**
  * CX-F04 / U04 browser acceptance: registration-captured profile fields must only
  * be applied to the account that registered them. All backend traffic is mocked
  * at the network layer with synthetic accounts; nothing leaves the browser.
  */
-const PASSWORD = E2E_PASSWORD;
+const PASSWORD = 'StrongParkio123';
 
 const accountA = {
   id: '1a1a1a1a-0000-4000-8000-00000000000a',
