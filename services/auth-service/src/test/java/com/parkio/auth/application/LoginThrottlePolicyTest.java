@@ -18,6 +18,16 @@ class LoginThrottlePolicyTest {
         assertThat(LoginThrottlePolicy.pairDelay(500)).isEqualTo(Duration.ofHours(1));
     }
 
+    /** Owner decision 2026-10-08 item 6: 14-day retention of the account-to-client digest, documented rotation. */
+    @Test
+    void retentionAndRotationConstantsAreTheApprovedOnes() {
+        assertThat(LoginThrottlePolicy.KNOWN_CLIENT_TTL).isEqualTo(Duration.ofDays(14));
+        assertThat(LoginThrottlePolicy.HMAC_KEY_ROTATION_INTERVAL).isEqualTo(Duration.ofDays(180));
+        assertThat(LoginThrottlePolicy.HMAC_KEY_OVERLAP).isEqualTo(Duration.ofDays(14))
+                .isGreaterThanOrEqualTo(LoginThrottlePolicy.KNOWN_CLIENT_TTL)
+                .isGreaterThanOrEqualTo(LoginThrottlePolicy.PAIR_WINDOW);
+    }
+
     @Test
     void accountTiersEscalateAndStayBounded() {
         assertThat(LoginThrottlePolicy.accountDelay(LoginThrottlePolicy.ACCOUNT_FIRST_CAP - 1)).isEqualTo(Duration.ZERO);

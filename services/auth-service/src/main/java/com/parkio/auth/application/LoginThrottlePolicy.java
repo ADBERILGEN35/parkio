@@ -3,7 +3,8 @@ package com.parkio.auth.application;
 import java.time.Duration;
 
 /**
- * Login throttling policy v2 (CL-F15 follow-up; owner decision 2026-10-08 item 6, PROPOSED).
+ * Login throttling policy v2 (CL-F15 follow-up; owner decision 2026-10-08 item 6, approved as revised:
+ * keyed digests, 14-day retention, documented rotation and reset behaviour).
  *
  * <ul>
  *   <li><b>Per client.</b> Failures are counted per (account, client) pair. The client is the
@@ -17,11 +18,15 @@ import java.time.Duration;
  *       hour once it passes 200, however many addresses it has and however many attempts it sends at once:
  *       admission claims each wait atomically before the password is checked
  *       ({@code LoginThrottleSimulationTest}).</li>
- *   <li><b>Known clients</b> logged into the account, or completed its password reset, within the last
- *       30 days (one marker per client, expiring 30 days after that client's last login or reset). They are exempt from the account wait, so a distributed attacker cannot keep the owner
- *       out of a network the owner used before; their own pair tiers still apply. (NIST SP 800-63B
- *       5.2.2 lists this allowlist of previously authenticated addresses among the measures against
- *       lockout.)</li>
+ *   <li><b>Known clients</b> logged into the account, completed its password reset, or rotated one of
+ *       its refresh tokens within the last 14 days (one marker per client, expiring 14 days after that
+ *       client's last login, reset or refresh). They are exempt from the account wait, so a distributed
+ *       attacker cannot keep the owner out of a network the owner used before; their own pair tiers
+ *       still apply. (NIST SP 800-63B 5.2.2 lists this allowlist of previously authenticated addresses
+ *       among the measures against lockout.) Only a successful authentication writes the marker.</li>
+ *   <li><b>Key space.</b> E-mails and clients are stored as HMAC-SHA256 digests under a separately
+ *       managed secret ({@link LoginThrottleKeys}), rotated every {@link #HMAC_KEY_ROTATION_INTERVAL}
+ *       with a {@link #HMAC_KEY_OVERLAP} in which the previous secret is read but not written.</li>
  *   <li><b>Recovery.</b> Completing a password reset clears every pair of the account and marks the
  *       resetting client known, so the owner can log in from that client at once, also during an
  *       attack. The account counter stays, so neither a reset nor a successful login gives a
@@ -41,8 +46,19 @@ public final class LoginThrottlePolicy {
     public static final Duration ACCOUNT_SECOND_DELAY = Duration.ofSeconds(60);
     public static final long ACCOUNT_THIRD_CAP = 200;
     public static final Duration ACCOUNT_THIRD_DELAY = Duration.ofMinutes(5);
-    /** How long a successful login or a completed reset keeps a client known for the account. */
-    public static final Duration KNOWN_CLIENT_TTL = Duration.ofDays(30);
+    /**
+     * How long a successful login, a completed reset or a successful token refresh keeps a client known
+     * for the account (the retention of the account-to-client digest; owner decision 2026-10-08 item 6).
+     */
+    public static final Duration KNOWN_CLIENT_TTL = Duration.ofDays(14);
+    /** Scheduled rotation interval of the keyed-hashing secret (operations; not enforced by code). */
+    public static final Duration HMAC_KEY_ROTATION_INTERVAL = Duration.ofDays(180);
+    /**
+     * How long the previous secret stays configured (read-only) after a rotation: at least the longest
+     * lifetime of any entry written under it, so nothing written under the old secret is still needed
+     * when it is removed.
+     */
+    public static final Duration HMAC_KEY_OVERLAP = Duration.ofDays(14);
     /** IPv6 clients are keyed by their network of this prefix length. */
     public static final int IPV6_CLIENT_PREFIX_BITS = 64;
 

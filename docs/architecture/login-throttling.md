@@ -41,9 +41,24 @@ e-mail could keep that account locked from anywhere, and a password reset did no
 
 ## Throttling (policy v2)
 
-Counters live in Redis under SHA-256 digests of the e-mail and the client (no raw e-mail or address in
-the key space). The rules are in `LoginThrottlePolicy` and `ThrottledLoginFailureTracker`; the Redis
-primitives in `RedisLoginThrottleStore`.
+Counters live in Redis under **keyed digests** of the e-mail and the client: HMAC-SHA256 under
+`PARKIO_LOGIN_THROTTLE_HMAC_KEY`, a secret generated for this purpose and managed separately from every
+other secret (`LoginThrottleKeys`; no raw e-mail or address in the key space, and no offline reversal
+of a Redis copy into account-to-address associations). Every key is prefixed with the id of the secret
+that produced its digests (`auth:login:v3:{kid}:…`). The rules are in `LoginThrottlePolicy` and
+`ThrottledLoginFailureTracker`; the Redis primitives in `RedisLoginThrottleStore`.
+
+**Secret rotation** (every 180 days, or at once on suspicion of compromise): put the new secret in
+`PARKIO_LOGIN_THROTTLE_HMAC_KEY` and the old one in `PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS`, restart
+auth-service. During the overlap the entries written under the old secret keep their effect (running
+waits are honoured but never renewed; a client known under the old secret is known; a reset or an
+erasure clears both key ids) while every new entry is written under the new secret only. After 14 days
+(the overlap; no entry lives longer, so nothing written under the old secret is still needed) remove
+`PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS` and restart. A compromised secret is rotated without the
+overlap: the throttle then starts from empty counters (as after a Redis loss). The preflight requires the
+secret (32+ characters, no placeholder, distinct from the gateway and waitlist secrets) and refuses a
+previous secret equal to the current one; auth-service refuses to start without a secret outside the
+`dev` profile, which generates a per-process key.
 
 **Client key.** The gateway-resolved client IP (`ClientIdentityResolver`), normalised by
 `LoginClientKeys`: an IPv4 address as it is, an IPv6 address as its /64 network (so rotating addresses
@@ -54,11 +69,18 @@ inside one /64 is one client), an IPv4-mapped IPv6 address as the IPv4 client, a
 |---|---|---|
 | (account, client) failures | 24 h after the last failure | the pair waits 30 s from the 5th failure, 5 min from the 10th, 1 h from the 20th |
 | account failures (all clients) | 1 h after the last failure | from the 50th failure each further failure makes the account's **unknown** clients wait 10 s; from the 100th, 60 s; from the 200th, 5 min |
-| known client of the account (one marker per client) | 30 days after that client's last login or completed reset | exempt from the account wait (its own pair tiers still apply) |
+| known client of the account (one marker per client) | 14 days after that client's last login, completed reset or successful refresh-token rotation | exempt from the account wait (its own pair tiers still apply) |
 
 A client becomes **known** for an account when it logs in successfully or completes the account's
-password reset; the shared `unknown` client never does. This is the allowlist of previously
-authenticated addresses that NIST SP 800-63B 5.2.2 lists among the measures against lockout.
+password reset, and stays known while it rotates the account's refresh tokens (an active session keeps
+its exemption without a password login); the shared `unknown` client never does. Only a successful
+authentication writes or refreshes the marker: admission, failures and a rejected refresh never do
+(`ThrottledLoginFailureTrackerTest`, `AuthApplicationServiceTest`, `LoginThrottleClientKeyHttpTest`).
+This is the allowlist of previously authenticated addresses that NIST SP 800-63B 5.2.2 lists among the
+measures against lockout. Retention: 14 days after the last successful authentication from that client
+(the shortest window that still covers the sessions people actually resume; a refresh token's own
+sliding lifetime is 30 days, so an owner who has not authenticated for 14 days logs in with the password
+or, during an attack, resets it).
 
 **Admission.** Before the password is checked, the attempt claims the waits that apply to it in one
 atomic step (a Redis script): the pair wait and, for a client that is not known, the account wait. When
@@ -86,12 +108,13 @@ Clearing:
   included, after the request commits (best effort; registered after the durable-recording step and
   never throws).
 
-The key names and types of v1 are kept (`pair:*`, `account:*:failures`, `account:*:wait`,
-`account:*:clients` as a plain set); `known:{email}:{client}` (a plain marker) is new and ignored by v1, so
-an upgrade or a rollback reads the other's state without type errors (Redis IT, both directions). IPv6
-pairs restart once at the upgrade (their key changes from /128 to /64). After a rollback to v1 the
-`known:*` markers are neither read nor erased by v1; they expire within 30 days, or are removed with
-`redis-cli --scan --pattern 'auth:login:v2:known:*' | xargs -r redis-cli del` as a rollback step.
+The key names and types inside a key id are those of v1 (`pair:*`, `account:*:failures`,
+`account:*:wait`, `account:*:clients` as a plain set) plus the `known:{email}:{client}` marker, but the
+namespace is new (`auth:login:v3:{kid}:` instead of `auth:login:v2:`) because the digests are keyed:
+v3 never reads or writes a v1/v2-named key (Redis IT). At the upgrade the counters start empty (v1's
+entries expire on their own: pairs within 24 h, account counters within 1 h); after a rollback v1 finds
+its own key space untouched and v3's entries expire within 14 days, or are removed with
+`redis-cli --scan --pattern 'auth:login:v3:*' | xargs -r redis-cli del` as a rollback step.
 
 ## Measured behaviour (LoginThrottleSimulationTest)
 
@@ -157,14 +180,14 @@ Reading the table:
 - **Known clients are addresses.** An attacker on a network the owner used before (the same NAT or
   carrier-grade NAT address) is exempt from the account wait and limited by its pair tiers (about 43
   guesses a day). Mobile users whose public address changes between sessions are rarely known.
-- **Retention and privacy.** A known-client marker keeps the digest of one client address (an IPv4
-  address or an IPv6 /64) per account for exactly 30 days after that client's last login or completed
-  reset, and is removed at account erasure. The e-mail and address digests are unsalted SHA-256: IPv4
-  addresses can be enumerated and e-mails guessed from a dictionary, so anyone holding a copy of Redis
-  (AOF-persisted to the `redis-data` volume; not backed up) can recover a 30-day account-to-address
-  association offline. v1 kept only failure data, for at most 24 h. A keyed HMAC (as `WaitlistHasher`
-  does) would prevent offline reversal at the cost of a new secret. Owner decision: accept 30 days and
-  plain digests, shorten the window, or require the HMAC.
+- **Retention and privacy.** A known-client marker keeps the keyed digest of one client address (an
+  IPv4 address or an IPv6 /64) per account for 14 days after that client's last successful
+  authentication, and is removed at account erasure. The digests are HMAC-SHA256 under a separately
+  managed secret, so a copy of Redis (AOF-persisted to the `redis-data` volume; not backed up) cannot be
+  reversed offline without that secret; whoever holds both Redis and the secret can still test guessed
+  addresses and e-mails against the markers, which is why the secret is rotated (see above) and kept out
+  of every other secret's custody. Owner decision 2026-10-08 item 6: keyed HMAC with a separate secret,
+  14-day retention, documented rotation.
 - **IPv6 /64 sharing.** One pair, and one known-client exemption, covers a whole /64: a home or office
   LAN, or a /64 that a hosting provider shares between customers. An attacker on the owner's LAN (or a
   shared /64) shares the owner's pair and, if the /64 is known, skips the account wait (its pair tiers
@@ -185,28 +208,36 @@ Reading the table:
 
 - `ThrottledLoginFailureTrackerTest` (in-memory store, virtual clock): pair tiers for known and unknown
   clients, account tiers for unknown clients only, admission claiming the waits (one evaluation per wait;
-  32 concurrent admissions admit exactly one), the unknown bucket never known, the 30-day known window,
-  success and reset clearing, erasure, no raw identifiers in the key space.
+  32 concurrent admissions admit exactly one), the unknown bucket never known, the 14-day known window
+  and its refresh by a token rotation, failures and admissions never making a client known, the keyed
+  key space (digests differ per secret, no unkeyed SHA-256), the rotation overlap (old waits honoured but
+  not renewed, old known clients recognised, writes under the new key id only, reset and erasure clearing
+  both, old entries ignored once the previous secret is gone), success and reset clearing, erasure, no raw
+  identifiers in the key space.
+- `LoginThrottleKeysTest`, `LoginThrottleKeysBeanTest`: keyed digests and key ids, secret validation
+  (32+ characters, previous differs), the dev-only ephemeral key, no silent fallback.
 - `RedisLoginThrottleStoreTest`: the Redis commands behind each primitive, including the admission script
   and the incremental scan used by erasure.
 - `LoginThrottleClientKeyHttpTest`: over HTTP, the gateway-resolved client (IPv6 by /64) reaches login
-  admission, the success and the password reset; without the header the reset uses the unknown client.
+  admission, the success, the password reset and a successful refresh-token rotation; a rejected refresh
+  never touches the known-client state; without the header the reset uses the unknown client.
 - `LoginThrottleSimulationTest`: the measured table above, with the v2 bounds asserted.
 - `LoginClientKeysTest`, `ClientIdentityResolverTest`: IPv4, IPv6 /64, IPv4-mapped, refusals of anything
   else, random literal-like input; the header is trusted only on gateway-authenticated requests.
 - `AuthApplicationServiceTest`: the service with the real tracker on an in-memory store; attacker
   failures from another client do not throttle the user; brute force from one client; shared NAT per
   account only; account tier delays unknown clients but not a known one; reset from a new device during
-  an attack lets the owner in at once; reset clearing only at commit and best effort.
+  an attack lets the owner in at once; reset clearing only at commit and best effort; a valid refresh
+  makes the client known while a reused token, an unknown token and a wrong password never do.
 - `AccountErasureApplicationServiceTest`, `AccountErasureHttpIntegrationTest`: the erasure request removes
   the account's throttle state (also through the Spring-wired hook over HTTP); an unavailable store does
   not fail it.
 - `AuthApplicationServiceTest` also sends sixteen concurrent wrong-password logins from different
   addresses when the account wait opens: exactly one reaches the password check.
 - `ThrottledLoginFailureTrackerRedisIT` (Testcontainers `redis:7-alpine`, `integrationTest`): the same
-  rules with real TTLs and types, 32 concurrent admissions against real Redis admitting exactly one,
-  v1-written state read and cleared without type errors, the keys v1 uses keeping v1's types after v2
-  operations (rollback), erasure, and no raw identifiers in the key space.
+  rules with real TTLs and types, 32 concurrent admissions against real Redis admitting exactly one, the
+  rotation overlap against real Redis, nothing written outside the v3 namespace (rollback safety),
+  erasure, and no raw identifiers in the key space.
 - `ClientIpHeaderGlobalFilterTest` (gateway): spoofed header stripped, trusted-proxy chain, and the
   framework-strategy check above. `AdminGatewayIngressTest` (auth): the header is trusted only on
   gateway-authenticated requests.

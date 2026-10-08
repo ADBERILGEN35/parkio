@@ -137,7 +137,7 @@ public class AuthController {
             validateOrigin(request);
         }
         String token = mobile ? mobileRefreshToken(body) : refreshTokenCookie(request);
-        AuthResult result = authService.refresh(new RefreshTokenCommand(token));
+        AuthResult result = authService.refresh(new RefreshTokenCommand(token, clientIdentity.clientKey(request)));
         if (mobile) {
             return ResponseEntity.ok(AuthResponse.fromMobile(result));
         }

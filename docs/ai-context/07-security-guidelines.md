@@ -171,6 +171,12 @@ Privilege boundaries / enforcement notes:
   by (normalized email, client) with progressive per-client delays and an
   account-wide delay that applies only to clients not known for the account, never
   a hard account lock (CL-F15, policy v2; see `docs/architecture/login-throttling.md`).
+  The e-mail and client in the Redis keys are HMAC-SHA256 digests under
+  `PARKIO_LOGIN_THROTTLE_HMAC_KEY` (a secret generated for this purpose, managed
+  separately from every other secret, rotated with a 14-day overlap through
+  `PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS`); a client stays known for 14 days after
+  its last successful authentication, and only a successful authentication (login,
+  completed reset, refresh-token rotation) writes that marker.
   The client is the gateway-resolved IP in `X-Parkio-Client-Ip` (IPv6 by /64): the
   gateway strips any client-supplied copy, and auth-service reads it only on
   gateway-authenticated requests. A successful login clears that client's counter

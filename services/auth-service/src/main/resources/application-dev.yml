@@ -16,3 +16,6 @@ parkio:
       log-token: ${PARKIO_EMAIL_VERIFICATION_LOG_TOKEN:true}
     jwt:
       generate-ephemeral-key: true
+    login-throttle:
+      # Local development only: a per-process key; throttle state does not survive a restart.
+      generate-ephemeral-hmac-key: true

@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -129,6 +131,44 @@ class LoginThrottleClientKeyHttpTest {
 
         assertThat(response.getStatus()).isBetween(200, 204);
         verify(loginFailureTracker).clearAfterPasswordReset(email, LoginFailureTracker.UNKNOWN_CLIENT);
+    }
+
+    /** CL-F15 v3: a successful refresh keeps the gateway-resolved client known; a failed refresh touches nothing. */
+    @Test
+    void aSuccessfulRefreshKeepsTheClientKnownAndAFailedRefreshDoesNot() throws Exception {
+        String email = verifiedUser();
+        MockHttpServletResponse login = postMobile("/api/v1/auth/login", "2001:db8:5:6::7",
+                Map.of("email", email, "password", PASSWORD));
+        assertThat(login.getStatus()).isEqualTo(200);
+        String refreshToken = objectMapper.readTree(login.getContentAsString()).get("refreshToken").asText();
+        assertThat(refreshToken).isNotBlank();
+
+        MockHttpServletResponse refreshed = postMobile("/api/v1/auth/refresh-token", "2001:db8:5:6::9",
+                Map.of("refreshToken", refreshToken));
+        assertThat(refreshed.getStatus()).isEqualTo(200);
+        verify(loginFailureTracker).refreshKnownClient(email, "2001:db8:5:6:0:0:0:0/64");
+
+        MockHttpServletResponse reused = postMobile("/api/v1/auth/refresh-token", "2001:db8:7:8::1",
+                Map.of("refreshToken", refreshToken));
+        assertThat(reused.getStatus()).isEqualTo(401);
+        MockHttpServletResponse garbage = postMobile("/api/v1/auth/refresh-token", "2001:db8:7:8::1",
+                Map.of("refreshToken", "not-a-refresh-token"));
+        assertThat(garbage.getStatus()).isEqualTo(401);
+        verify(loginFailureTracker, never()).refreshKnownClient(eq(email), eq("2001:db8:7:8:0:0:0:0/64"));
+        verify(loginFailureTracker, times(1)).refreshKnownClient(anyString(), anyString());
+    }
+
+    /** Native-client transport: the refresh token travels in the body, no cookie and no Origin. */
+    private MockHttpServletResponse postMobile(String path, String clientIp, Map<String, String> body) throws Exception {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                .header("X-Gateway-Auth", GATEWAY_SECRET)
+                .header("X-Parkio-Client", "mobile")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body));
+        if (clientIp != null) {
+            request.header("X-Parkio-Client-Ip", clientIp);
+        }
+        return mockMvc.perform(request).andReturn().getResponse();
     }
 
     private String requestReset(String email) throws Exception {

@@ -146,7 +146,7 @@ class AccountErasureApplicationServiceTest {
     @Test
     void requestRemovesTheAccountsLoginThrottleState() {
         InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(() -> NOW);
-        ThrottledLoginFailureTracker tracker = new ThrottledLoginFailureTracker(store);
+        ThrottledLoginFailureTracker tracker = new ThrottledLoginFailureTracker(store, LoginThrottleTestKeys.CURRENT);
         tracker.clearAfterSuccess(user.email(), "198.51.100.7");
         tracker.recordFailure(user.email(), "203.0.113.9", NOW);
         tracker.recordFailure("neighbour@example.com", "203.0.113.9", NOW);
@@ -157,9 +157,9 @@ class AccountErasureApplicationServiceTest {
 
         service.requestDeletion(user.id(), "pw");
 
-        String account = ThrottledLoginFailureTracker.digest(user.email());
+        String account = tracker.digest(user.email());
         assertThat(store.keys()).noneMatch(key -> key.contains(account));
-        assertThat(store.keys()).anyMatch(key -> key.contains(ThrottledLoginFailureTracker.digest("neighbour@example.com")));
+        assertThat(store.keys()).anyMatch(key -> key.contains(tracker.digest("neighbour@example.com")));
     }
 
     /** Best effort: an unavailable throttle store does not fail or change the erasure request. */
@@ -167,7 +167,7 @@ class AccountErasureApplicationServiceTest {
     void anUnavailableThrottleStoreDoesNotFailTheErasureRequest() {
         InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(() -> NOW);
         store.failing = true;
-        service.setLoginFailureTracker(new ThrottledLoginFailureTracker(store));
+        service.setLoginFailureTracker(new ThrottledLoginFailureTracker(store, LoginThrottleTestKeys.CURRENT));
         when(users.findById(user.id())).thenReturn(Optional.of(user));
         when(passwordHasher.matches("pw", "hash")).thenReturn(true);
         when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());

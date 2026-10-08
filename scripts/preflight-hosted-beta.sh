@@ -263,6 +263,21 @@ if [ -n "$(env_get PARKIO_WAITLIST_HASH_SECRET)" ] \
 else
   ok
 fi
+# CL-F15 v3: the login throttle's keyed-hashing secret is managed separately from every other secret.
+require_secret PARKIO_LOGIN_THROTTLE_HMAC_KEY 32 "openssl rand -base64 48"
+for other in PARKIO_GATEWAY_INTERNAL_SECRET PARKIO_WAITLIST_HASH_SECRET; do
+  if [ -n "$(env_get PARKIO_LOGIN_THROTTLE_HMAC_KEY)" ] \
+    && [ "$(env_get PARKIO_LOGIN_THROTTLE_HMAC_KEY)" = "$(env_get "$other")" ]; then
+    fail "PARKIO_LOGIN_THROTTLE_HMAC_KEY" "must be distinct from $other" "generate an independent HMAC secret"
+  fi
+done
+# The previous secret is optional (rotation overlap only); when set it must be a real, different secret.
+if [ -n "$(env_get PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS)" ]; then
+  require_secret PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS 32 "the secret in use before the rotation, or leave it empty"
+  if [ "$(env_get PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS)" = "$(env_get PARKIO_LOGIN_THROTTLE_HMAC_KEY)" ]; then
+    fail "PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS" "equals PARKIO_LOGIN_THROTTLE_HMAC_KEY" "leave it empty when no rotation is in progress"
+  fi
+fi
 
 for svc in AUTH GATEWAY USER PARKING MEDIA GAMIFICATION NOTIFICATION MODERATION ANALYTICS AIVALIDATION; do
   require_secret "POSTGRES_${svc}_PASSWORD" 16 "openssl rand -base64 24"

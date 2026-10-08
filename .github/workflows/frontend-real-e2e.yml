@@ -125,6 +125,18 @@ jobs:
             rm -f /tmp/parkio-real-e2e-jwt.pem
             echo "Injected disposable PKCS#8 JWT for isolated local E2E."
           fi
+          # CL-F15 v3: the login throttle's keyed-hashing secret is likewise a throwaway value for this
+          # isolated stack, never the example file's local-dev placeholder.
+          python3 - <<'PY'
+          import secrets
+          from pathlib import Path
+          env_path = Path("docker/.env")
+          lines = [line for line in env_path.read_text().splitlines()
+                   if not line.startswith("PARKIO_LOGIN_THROTTLE_HMAC_KEY=")]
+          lines.append(f"PARKIO_LOGIN_THROTTLE_HMAC_KEY={secrets.token_urlsafe(48)}")
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+          echo "Injected a disposable login-throttle HMAC key for isolated local E2E."
 
       - name: Boot the stack (local mode)
         if: inputs.mode == 'local'

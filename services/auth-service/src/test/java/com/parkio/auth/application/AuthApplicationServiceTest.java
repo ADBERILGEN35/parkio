@@ -104,7 +104,7 @@ class AuthApplicationServiceTest {
         passwordHasher = new FakePasswordHasher();
         refreshTokenHasher = new FakeRefreshTokenHasher();
         throttleStore = new InMemoryLoginThrottleStore(() -> clock.instant());
-        loginFailures = new ThrottledLoginFailureTracker(throttleStore);
+        loginFailures = new ThrottledLoginFailureTracker(throttleStore, LoginThrottleTestKeys.CURRENT);
         verificationResendLimiter = new FakeVerificationResendLimiter();
         passwordResetLimiter = new FakePasswordResetLimiter();
         emailVerificationSender = new FakeEmailVerificationSender();
@@ -300,12 +300,12 @@ class AuthApplicationServiceTest {
     }
 
     private long failureCount(String email, String client) {
-        return throttleStore.counter(ThrottledLoginFailureTracker.pairFailuresKey(
-                ThrottledLoginFailureTracker.digest(email), ThrottledLoginFailureTracker.digest(client)));
+        return throttleStore.counter(loginFailures.pairFailuresKey(
+                loginFailures.digest(email), loginFailures.digest(client)));
     }
 
     private long accountFailureCount(String email) {
-        return throttleStore.counter(ThrottledLoginFailureTracker.accountFailuresKey(ThrottledLoginFailureTracker.digest(email)));
+        return throttleStore.counter(loginFailures.accountFailuresKey(loginFailures.digest(email)));
     }
 
     /** Wrong-password attempts from one client, each made only after that client's current delay has passed. */
@@ -818,6 +818,40 @@ class AuthApplicationServiceTest {
         assertThat(child.tokenFamilyId()).isEqualTo(oldToken.tokenFamilyId());
         assertThat(child.parentTokenId()).isEqualTo(oldToken.id());
         assertThat(child.isRevoked()).isFalse();
+    }
+
+    /** CL-F15 v3: a valid refresh keeps the client known; nothing else on the refresh path does. */
+    @Test
+    void aSuccessfulRefreshMakesTheClientKnownAndAFailedOneDoesNot() {
+        AuthResult initial = registerVerifiedAndLogin("user@example.com");
+        String phone = "2001:db8:aa:bb:0:0:0:0/64";
+        String known = loginFailures.knownKey(loginFailures.digest("user@example.com"), loginFailures.digest(phone));
+        assertThat(throttleStore.keys()).doesNotContain(known);
+
+        // A refresh without an identified client marks nothing.
+        AuthResult second = service.refresh(new RefreshTokenCommand(initial.refreshToken()));
+        assertThat(throttleStore.keys()).noneMatch(key -> key.endsWith(":" + loginFailures.digest(phone)));
+
+        // A valid refresh from the phone makes it known: the account wait no longer applies to it.
+        AuthResult third = service.refresh(new RefreshTokenCommand(second.refreshToken(), phone));
+        assertThat(throttleStore.keys()).contains(known);
+        for (int i = 0; i < LoginThrottlePolicy.ACCOUNT_FIRST_CAP; i++) {
+            loginFailures.recordFailure("user@example.com", "203.0.113." + (i % 200), clock.instant());
+        }
+        assertThat(loginFailures.retryAfter("user@example.com", phone, clock.instant())).isZero();
+        assertThat(loginFailures.retryAfter("user@example.com", "198.18.0.1", clock.instant()))
+                .isEqualTo(LoginThrottlePolicy.ACCOUNT_FIRST_DELAY);
+
+        // A reused (revoked) token, an unknown token and a wrong password never establish a client.
+        String laptop = "192.0.2.77";
+        String laptopKnown = loginFailures.knownKey(loginFailures.digest("user@example.com"), loginFailures.digest(laptop));
+        String reused = second.refreshToken();
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand(reused, laptop))).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.refresh(new RefreshTokenCommand("not-a-token", laptop))).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "wrong-password", laptop)))
+                .isInstanceOf(AuthException.class);
+        assertThat(throttleStore.keys()).doesNotContain(laptopKnown);
+        assertThat(third.refreshToken()).isNotEqualTo(second.refreshToken());
     }
 
     @Test

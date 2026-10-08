@@ -633,6 +633,10 @@ class AdminApplicationServiceTest {
         }
 
         @Override
+        public void refreshKnownClient(String normalizedEmail, String clientKey) {
+        }
+
+        @Override
         public void forgetAccount(String normalizedEmail) {
         }
     }

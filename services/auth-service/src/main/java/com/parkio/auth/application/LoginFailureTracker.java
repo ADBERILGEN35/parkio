@@ -42,6 +42,13 @@ public interface LoginFailureTracker {
      */
     void clearAfterPasswordReset(String normalizedEmail, String resettingClientKey);
 
+    /**
+     * Keeps (or makes) the client known for the account after a successful refresh-token rotation, so an
+     * active session keeps its exemption from the account wait without a password login. Called only
+     * after the presented refresh token was validated and rotated; never on a failed refresh.
+     */
+    void refreshKnownClient(String normalizedEmail, String clientKey);
+
     /** Account erasure: removes everything the throttle keeps for the account, known clients included. */
     void forgetAccount(String normalizedEmail);
 

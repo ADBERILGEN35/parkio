@@ -265,6 +265,9 @@ the maximum re-export on restore. Recovery guidance:
   (`worker.py --list-unknown`) with the restored outbox;
 - then choose accept-duplicates or discard;
 - restore the same `PARKIO_WAITLIST_HASH_SECRET`, or `dedup_key` values will not match.
+- `PARKIO_LOGIN_THROTTLE_HMAC_KEY` (auth-service login throttle, CL-F15 v3) need not match the
+  pre-incident value: Redis is not backed up and the throttle's entries expire on their own, so a new
+  secret only starts the counters empty. Keep it in the same custody as the other HMAC secrets.
 
 ## 7. Gaps ranked by recovery impact
 

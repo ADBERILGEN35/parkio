@@ -25,6 +25,9 @@ SECRET_KEYS = {
     "PARKIO_JWT_PRIVATE_KEY_PEM": "jwt-private-key-pem",
     "PARKIO_GATEWAY_INTERNAL_SECRET": "gateway-internal-secret",
     "PARKIO_WAITLIST_HASH_SECRET": "waitlist-hash-secret",
+    # CL-F15 v3: the login throttle's keyed-hashing secret (separately managed; the rotation
+    # predecessor PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS is set by the operator only during an overlap).
+    "PARKIO_LOGIN_THROTTLE_HMAC_KEY": "login-throttle-hmac-key",
     "POSTGRES_AUTH_PASSWORD": "postgres-auth-runtime-password",
     "POSTGRES_AUTH_MIGRATION_PASSWORD": "postgres-auth-migration-password",
     "POSTGRES_GATEWAY_PASSWORD": "postgres-gateway-runtime-password",

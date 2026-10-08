@@ -150,6 +150,16 @@ parkio:
     # old and new secret overlap with no downtime. Empty when no rotation is in progress.
     internal-accepted-secrets: ${PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS:}
   security:
+    login-throttle:
+      # Keyed-hashing secret of the login throttle's Redis key space (CL-F15 v3): HMAC-SHA256 over
+      # e-mails and client keys. At least 32 characters, generated for this purpose
+      # (openssl rand -base64 48) and managed separately from every other secret; no default and no
+      # fallback: production fails closed unless supplied. The dev profile generates a per-process key.
+      hmac-key: ${PARKIO_LOGIN_THROTTLE_HMAC_KEY:}
+      # Rotation: move the old secret here, put the new one above; entries written under the old secret
+      # are read (never renewed) for the overlap, then remove it. Empty when no rotation is in progress.
+      hmac-key-previous: ${PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS:}
+      generate-ephemeral-hmac-key: false
     jwt:
       # PKCS#8 RSA private key. No default: production fails closed unless supplied.
       # The dev profile explicitly enables ephemeral key generation.

@@ -320,34 +320,35 @@ public class AuthApplicationService {
         // The account's owner proved control of the mailbox and chose a new password: every client's
         // pair is cleared and the resetting client becomes known, so the owner can log in from it at
         // once, also while a distributed attack keeps the account's unknown clients waiting (CL-F15 v2).
-        clearLoginThrottleAfterCommit(user.email(), command.clientKey(), user.id());
+        String resettingClientKey = command.clientKey();
+        loginThrottleAfterCommit(() -> loginFailures.clearAfterPasswordReset(user.email(), resettingClientKey),
+                "counters not cleared after a password reset; they expire on their own", user.id());
         log.info("Password reset completed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
     }
 
     /**
-     * Clears the account's login-throttle pairs once the password reset has committed. Best effort:
-     * the throttle store being unavailable must not undo or fail a completed reset, and the counters
-     * expire on their own (CL-F15).
+     * Runs a login-throttle update once the surrounding transaction has committed (at once when there is
+     * none). Best effort: the throttle store being unavailable must not undo or fail a completed reset or
+     * refresh, and the throttle's entries expire on their own (CL-F15).
      */
-    private void clearLoginThrottleAfterCommit(String email, String resettingClientKey, UUID userId) {
-        Runnable clear = () -> {
+    private void loginThrottleAfterCommit(Runnable update, String failureNote, UUID userId) {
+        Runnable guarded = () -> {
             try {
-                loginFailures.clearAfterPasswordReset(email, resettingClientKey);
+                update.run();
             } catch (RuntimeException ex) {
-                log.warn("Login throttle counters not cleared after a password reset; they expire on their own; userId={}",
-                        userId);
+                log.warn("Login throttle {}; userId={}", failureNote, userId);
             }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    clear.run();
+                    guarded.run();
                 }
             });
         } else {
-            clear.run();
+            guarded.run();
         }
     }
 
@@ -428,6 +429,14 @@ public class AuthApplicationService {
         // Rotate: the presented token is revoked and a fresh one is issued.
         existing.revoke(RefreshTokenRevocationReason.ROTATED, now);
         refreshTokens.save(existing);
+        // The presented token was valid, unexpired, unrevoked and within the family's lifetime: the
+        // client stays known for the account (exempt from the account wait) without a password login,
+        // once the rotation has committed (CL-F15 v3). Never reached on a failed refresh.
+        if (command.clientKey() != null && !command.clientKey().isBlank()) {
+            String clientKey = command.clientKey();
+            loginThrottleAfterCommit(() -> loginFailures.refreshKnownClient(user.email(), clientKey),
+                    "known-client marker not refreshed after a token rotation; it expires on its own", user.id());
+        }
 
         return issueTokens(user, existing);
     }

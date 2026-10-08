@@ -59,7 +59,7 @@ class LoginThrottleSimulationTest {
 
         Sim(boolean v2) {
             InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(now::get);
-            tracker = v2 ? new ThrottledLoginFailureTracker(store) : new V1Replica(store);
+            tracker = v2 ? new ThrottledLoginFailureTracker(store, LoginThrottleTestKeys.CURRENT) : new V1Replica(store);
             clientKey = v2 ? LoginClientKeys::fromIpLiteral : ip -> ip.trim().toLowerCase(Locale.ROOT);
         }
 
@@ -500,6 +500,10 @@ class LoginThrottleSimulationTest {
             }
             keys.addAll(List.of("cl:" + email, "af:" + email, "aw:" + email));
             store.delete(keys);
+        }
+
+        @Override
+        public void refreshKnownClient(String normalizedEmail, String clientKey) {
         }
 
         @Override

@@ -436,7 +436,10 @@ out on deploy.
 
 Sprint 2 added auth-service brute-force protection on top of the gateway's Redis
 token-bucket limits; CL-F15 (2026-10-07) replaced its e-mail-only hard lock with
-client-keyed throttling, see [login-throttling.md](login-throttling.md). Failed
+client-keyed throttling, see [login-throttling.md](login-throttling.md); its Redis
+keys carry HMAC-SHA256 digests under `PARKIO_LOGIN_THROTTLE_HMAC_KEY`, a required,
+separately managed secret (rotation through `PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS`,
+14-day overlap; the hosted preflight enforces both). Failed
 login attempts are tracked in Redis per (normalized email, client) so protection
 works across auth-service instances and so that an attacker who knows an e-mail
 cannot lock its owner out: 5 failures from one client delay that client 30 seconds,
