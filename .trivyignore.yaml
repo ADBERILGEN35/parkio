@@ -3,7 +3,8 @@
 # date passes, Trivy reports the finding again and Security CI fails.
 #
 # Full disposition: docs/operations/security-findings-2026-07-25.md (CVE-2026-14257) and
-# docs/operations/security-findings-2026-10-06.md (CVE-2026-47884).
+# docs/operations/security-findings-2026-10-06.md (CVE-2026-47884), and
+# docs/operations/security-findings-2026-10-08.md (CVE-2026-47890, CVE-2026-47892).
 vulnerabilities:
   - id: CVE-2026-14257
     paths:
@@ -41,3 +42,47 @@ vulnerabilities:
       separate decision), or an OSS 6.2.x fix if one ships (none expected: 6.2.x OSS support
       ended 2026-06-30).
     expired_at: 2026-11-05
+  - id: CVE-2026-47890
+    paths:
+      - "app/app.jar/BOOT-INF/lib/spring-webmvc-6.2.19.jar"
+      - "app/app.jar/BOOT-INF/lib/spring-webflux-6.2.19.jar"
+    statement: >-
+      Spring Framework 6.2.19 (Spring Boot 3.5.15), "Server Sent Event stream corruption while rendering
+      fragments" (https://spring.io/security/cve-2026-47890). Vendor conditions, all required: the application
+      uses Spring MVC or WebFlux, sends view fragments to clients over Server-Sent Events, and the attacker
+      controls data streamed to other users. Not met in any image of the accepted candidate (run 37788374271,
+      source 843ae7cb): independent verification of the exact image artifacts found no SSE endpoint and no
+      view-fragment rendering; every application controller is a @RestController; no template engine on any
+      classpath and no application-defined View or ViewResolver; the application classes reference no
+      SseEmitter, ResponseBodyEmitter, StreamingResponseBody, ServerSentEvent, FragmentsRendering, ModelAndView,
+      View or text/event-stream. Spring rates it LOW (CVSS 3.1 2.6, AV:N/AC:H/PR:L/UI:R/S:U/C:N/I:L/A:N); GHSA
+      copies the CISA-ADP vector (9.8) and Trivy follows GHSA, hence CRITICAL. OSS fix only in Spring Framework
+      7.0.9 (Spring Boot 4); 6.2.20 is enterprise-only. Owner: repository owner, decision 2026-10-08 (narrow,
+      evidence-based; not an extension of CVE-2026-47884). Record: docs/operations/security-findings-2026-10-08.md.
+      Re-evaluate or drop on: any SSE or streaming handler, ModelAndView/View/fragment rendering or non-REST
+      @Controller; a template engine or view settings; spring-webflux in a servlet image; a new Java image (this
+      file applies to every image); any Spring Framework, Spring Boot or Spring Cloud Gateway change (drop at
+      7.0.9 or an OSS 6.2.x fix); actuator or resilience4j-reactor changes that add SSE endpoints; advisory
+      updates; the expiry below.
+    expired_at: 2026-11-07
+  - id: CVE-2026-47892
+    paths:
+      - "app/app.jar/BOOT-INF/lib/spring-webflux-6.2.19.jar"
+    statement: >-
+      Spring Framework 6.2.19, "Header Predicate Bypass in WebFlux Functional Endpoints"
+      (https://spring.io/security/cve-2026-47892): "A WebFlux application using functional endpoints and deployed
+      with DispatcherServlet may be vulnerable to a header predicate bypass in a pre-flight request." The upstream
+      fix (gh-37024) concerns functional endpoints served without DispatcherHandler. Only the gateway image carries
+      spring-webflux. Independent verification of the exact candidate gateway artifact (run 37788374271, source
+      843ae7cb): Spring Cloud Gateway on reactor-netty; no DispatcherServlet, servlet container or spring-webmvc
+      on the classpath; no WebFlux functional endpoints (RouterFunction/RequestPredicates); nothing deploys a
+      RouterFunction through RouterFunctions.toHttpHandler/toWebHandler; requests are dispatched by
+      DispatcherHandler and CORS pre-flight is handled by CorsWebFilter. Spring rates it MEDIUM (CVSS 3.1 4.8,
+      AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N); GHSA copies the CISA-ADP 9.8 vector, hence Trivy CRITICAL. OSS fix only
+      in Spring Framework 7.0.9. Owner: repository owner, decision 2026-10-08 (narrow, evidence-based). Record:
+      docs/operations/security-findings-2026-10-08.md. Re-evaluate or drop on: any RouterFunction or
+      RequestPredicates, toHttpHandler/toWebHandler, or custom HttpHandler/WebHandler; a web-application-type
+      change; a move to Spring Cloud Gateway Server MVC or spring-webmvc/a servlet container in the gateway;
+      spring-webflux in any other image; a new Java image; any Spring Framework or Spring Cloud Gateway change;
+      advisory updates; the expiry below.
+    expired_at: 2026-11-07
