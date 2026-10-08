@@ -106,6 +106,7 @@ fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:gen
 0bc4c11159f98eb90d3918b6cfedf463bc443190:services/auth-service/src/test/java/com/parkio/auth/application/AuthApplicationServiceTest.java:generic-api-key:400
 
 # H. A synthetic test password in an open pull request's earlier commit (#311, login throttle policy v2):
-# the literal was replaced in that branch's later commit, but the pull-request range still scans the
-# earlier commit. Test code only; policy-shaped test value; never used outside the test.
+# the literal is the shared unit/integration-test password of category F (same value, used only in test
+# code and the csrf-lab harness across the whole history); the branch's later commit replaced it, but the
+# pull-request range still scans the earlier commit.
 a845371e504c22aa8c682627631be8e1c279c0ef:services/auth-service/src/test/java/com/parkio/auth/presentation/LoginThrottleClientKeyHttpTest.java:generic-api-key:47

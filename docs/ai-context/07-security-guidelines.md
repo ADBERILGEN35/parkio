@@ -111,7 +111,7 @@ Privilege boundaries / enforcement notes:
   scanned-commit count that does not fit the commit range, fails the check
   (`scripts/ci/secret-scan.sh`). `.gitleaks.toml` may allow only exact local-dev
   placeholders, documentation examples, and test-only fake values. Do not add broad
-  path allowlists for env files or source trees. A historical finding may be excepted
+  path allowlists for env files or source trees. A finding in an existing commit may be excepted
   only by its fingerprint (`commit:file:rule:line`) in `.gitleaksignore`, only when it is
   independently proven synthetic and non-production, and only through a reviewed pull
   request; uncertain or real credentials stay findings (rotate or remove them). The
