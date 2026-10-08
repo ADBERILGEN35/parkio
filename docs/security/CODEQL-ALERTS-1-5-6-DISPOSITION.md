@@ -58,3 +58,24 @@ On api, the phone now lives in module memory only, legacy payloads are scrubbed,
 ## Analysis success is not alert state
 
 The Security CI CodeQL jobs, `CodeQL (javascript-typescript)` among them, succeed on api while #5 and #6 stay open. A green analysis job means the scan ran. It does not close or dismiss these alerts. Alert state changes only through a fix that the next analysis observes, or through an approved dismissal.
+
+## Addendum 2026-10-08 — dismissal of #5 and #6 as false positives (owner-conditioned)
+
+Owner decision 2026-10-08: "Approve #5/#6 false-positive dismissal only if the independently reviewed
+evidence matches the exact current alert paths. Record that evidence in the disposition."
+
+Independent check (`agent-tools/parkio-queue-integration-20261002/reviews/CODEQL-5-6-EVIDENCE-CHECK.md`,
+task evidence kept outside the repository; verdict **MATCHES**): the live alerts' most recent instances are on master a2be151c (the current master
+tip) at `frontend/apps/web/src/pages/UploadPage.tsx` 433 (#5) and 879 (#6) — the same file blob (a601d295)
+as master 8d0ee2b4 and api 6b285f2c analysed above, so the cited lines are the current lines byte for
+byte. The api instances at c3477eb5 (the current api tip) are at 437 and 883: the file's blob there
+(8056122f) differs only above line 180 (imports, inline form defaults, `formState.isDirty`; net +4
+lines); the flagged regions and every line of the data flow (`previewUrl`, `createObjectURL`,
+`revokeObjectURL`, `setFile`, `onFileChange`, the file input, `fileName`, both `<img src>`) are
+identical. The document's data-flow conclusion — the only sinks are two `<img src={previewUrl}>` fed by a
+browser-created object URL; the file name is rendered as a text node; no `innerHTML` or
+`dangerouslySetInnerHTML` in the file — holds on the current code. The regression test
+`UploadPage.test.tsx` exists on api (not on master, as before).
+
+Action: alerts #5 and #6 dismissed as false positives on this basis (dismissal comment cites this
+section and the review file). Alert #1 is out of scope here and stays as recorded above.
