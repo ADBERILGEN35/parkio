@@ -130,6 +130,17 @@ itself only reaches the Prometheus and Alertmanager UIs (it travels the broken p
   **Scope note:** A does not observe a receiver failure on the live host, so it does not satisfy the
   original criterion "receiver failure surfaces" as written; accepting it is an owner scope decision.
   Its independent path (the heartbeat) counts only once the heartbeat is activated.
+
+  **Owner decision 2026-10-08 (accepted).** The acceptance criterion's middle clause is replaced. The
+  criterion now reads: *"Single delivery and resolution recorded with timestamps; receiver failure
+  surfaces in the isolated CI acceptance (the webhook returns 503 and `AlertmanagerNotificationsFailing`
+  fires); on parkio-civo-prod the read-only delivery-rules check passes; the external heartbeat is active
+  and verified once; the live receiver is never interrupted; real backup data unchanged."*
+  **Recorded limitation:** this does not prove that a real live Slack outage becomes visible; it proves
+  the failure rule in isolation plus the live rule wiring plus an independent heartbeat path. The task
+  stays open until every stated prerequisite is met with evidence: the host runs the current alerting
+  configuration (separately authorized host change), the heartbeat is activated by the owner and verified
+  once, and the live BackupStale acceptance is authorized and executed. None of these is authorized yet.
 - **B (currently excluded by the owner's 2026-10-07 ruling "Do not interrupt the live alert receiver";
   available only if the owner lifts it):** a scheduled live break: set `PARKIO_ALERT_SLACK_WEBHOOK_URL` to an unroutable
   `https://127.0.0.1:9/` in the host env, recreate Alertmanager, arm the synthetic alert as

@@ -198,6 +198,13 @@ if git -C "$REPO" cat-file -e "$CONFIG_REV:.gitleaksignore" 2>/dev/null; then
   [ -z "$BAD" ] || fail "invalid fingerprint exception at $CONFIG_REV:.gitleaksignore (commit:file:rule:line expected): $(echo "$BAD" | head -3 | cut -c1-120 | tr '\n' ' ')"
   EXCEPTIONS=$(grep -cvE '^[[:space:]]*(#|$)' "$CONFIG_DIR/.gitleaksignore" || true)
 fi
+# A pull request's own .gitleaksignore is never applied, but it is format-checked here, so an invalid
+# line cannot be merged and then fail every later scan that reads it as the base's config.
+if [ "$MODE" = range ] && [ "$B" != "$CONFIG_REV" ] && git -C "$REPO" cat-file -e "$B:.gitleaksignore" 2>/dev/null; then
+  HEAD_BAD=$(git -C "$REPO" show "$B:.gitleaksignore" | tr -d '\r' \
+    | grep -nvE '^[[:space:]]*(#|$)|^[0-9a-f]{40}:[^[:space:]:]+(:[^[:space:]:]+)*:[a-z0-9-]+:[0-9]+[[:space:]]*$' || true)
+  [ -z "$HEAD_BAD" ] || fail "invalid fingerprint exception at the scanned head $B:.gitleaksignore (commit:file:rule:line expected; it would break every scan once merged): $(echo "$HEAD_BAD" | head -3 | cut -c1-120 | tr '\n' ' ')"
+fi
 chmod 0755 "$CONFIG_DIR"; chmod 0644 "$CONFIG_DIR/.gitleaks.toml"; chmod 0777 "$OUT_DIR"
 if [ -z "$LOG" ]; then LOG=$(mktemp); OWN_LOG=$LOG; fi
 
