@@ -45,7 +45,9 @@
 # Exit status: 0 when every suite passed, 1 when a suite failed, 2 on a bake, build or start failure,
 # 3 when the checksum manifest could not be written.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# PARKIO_CANDIDATE_SOURCE_ROOT lets candidate-images.yml run this script from its own revision against a
+# source checkout at another revision (prebuilt mode); the frontend, bake and git facts come from ROOT.
+ROOT="${PARKIO_CANDIDATE_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 OUT_ARG="${1:-$ROOT/web-candidate-evidence}"
 if [ -d "$OUT_ARG" ] && [ -n "$(ls -A "$OUT_ARG")" ]; then
   echo "FAIL: $OUT_ARG is not empty; the evidence and its SHA256SUMS need a fresh directory" >&2
@@ -61,6 +63,13 @@ URL="http://127.0.0.1:$PORT"
 SYNTHETIC_MAP_KEY="candidateEvidenceSyntheticMapKey00"
 SHA="$(git -C "$ROOT" rev-parse HEAD)"
 TAG="parkio-web-candidate-evidence:${SHA:0:12}-$$"
+# Prebuilt mode (candidate-images.yml): run the suites against an image that was already built and
+# loaded, instead of building one here. The image stays; the caller owns it.
+PREBUILT_TAG="${PARKIO_CANDIDATE_PREBUILT_TAG:-}"
+if [ -n "$PREBUILT_TAG" ]; then
+  TAG="$PREBUILT_TAG"
+  KEEP_IMAGE=1
+fi
 NAME="parkio-web-candidate-evidence-$$"
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 mkdir -p "$OUT/reports"
@@ -129,6 +138,24 @@ build_args=()
 for arg in "${args[@]}"; do build_args+=(--build-arg "$arg"); done
 printf '%s\n' "${args[@]}" | grep -v '^VITE_MAPTILER_KEY=' >"$OUT/build-args.txt"
 
+if [ -n "$PREBUILT_TAG" ]; then
+  echo "using the prebuilt candidate image $TAG (built by candidate-images.yml from $SHA); no build here"
+  if ! docker image inspect "$TAG" >"$OUT/image-inspect.json" 2>/dev/null; then
+    echo "FAIL: prebuilt image $TAG is not loaded in the local daemon" >&2
+    exit 2
+  fi
+  prebuilt_revision="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$TAG")"
+  if [ "$prebuilt_revision" != "$SHA" ]; then
+    echo "FAIL: prebuilt image revision label $prebuilt_revision is not the checked-out source $SHA" >&2
+    exit 2
+  fi
+  IMAGE_VERSION="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$TAG")"
+  IMAGE_CREATED="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.created"}}' "$TAG")"
+  docker image inspect -f '{{.Id}}' "$TAG" >"$OUT/iidfile"
+  printf 'prebuilt image %s; built by candidate-images.yml (see that run for the build log)\n' "$TAG" >"$OUT/build.log"
+  printf 'prebuilt: the build arguments are recorded by the candidate-images.yml build job\n' >"$OUT/build-args.txt"
+  : >"$OUT/builder.txt"
+else
 echo "building $TAG from $SHA as release.yml builds web ($BAKE)"
 if ! (cd "$ROOT" && docker buildx build --platform linux/amd64 --provenance=false --load --progress=plain \
       -f "$DOCKERFILE" "${build_args[@]}" --iidfile "$OUT/iidfile" -t "$TAG" .) >"$OUT/build.log" 2>&1; then
@@ -138,6 +165,7 @@ if ! (cd "$ROOT" && docker buildx build --platform linux/amd64 --provenance=fals
 fi
 docker image inspect "$TAG" >"$OUT/image-inspect.json"
 docker buildx inspect >"$OUT/builder.txt" 2>&1 || true
+fi
 
 docker run -d --pull never --name "$NAME" --label parkio.task=web-candidate-evidence -p "127.0.0.1:$PORT:80" \
   -e PARKIO_DOMAIN=api.parkio.dev -e PARKIO_MEDIA_DOMAIN=media.parkio.dev "$TAG" >/dev/null
@@ -248,15 +276,26 @@ for line in (out / "suites.tsv").read_text().splitlines():
     suites.append({"name": name, "exit": int(rc), "passed": int(rc) == 0, **counts,
                    "report": f"reports/{name}.json", "log": f"{name}.log"})
 
-differences = [
-    "VITE_MAPTILER_KEY is synthetic (fingerprint in build.maptiler_key); release bakes the WEB_MAPTILER_KEY "
-    "secret. The MapTiler style and tiles do not load, so the style's credits (MapTiler, OpenStreetMap) are "
-    "not measured; the attribution control and MapLibre's credit are.",
-    f"IMAGE_VERSION is {image_version}; release uses the v* tag. IMAGE_CREATED is this build's time.",
-    "Built by `docker buildx build` directly; release runs it through docker/build-push-action with the same "
-    "builder setup (docker/setup-buildx-action in CI).",
-    "Loaded into the local daemon only and never pushed.",
-]
+prebuilt = env.get("PARKIO_CANDIDATE_PREBUILT_TAG") or None
+if prebuilt:
+    differences = [
+        f"Prebuilt image {prebuilt}: built by candidate-images.yml with docker/build-push-action and release.yml's "
+        "web build arguments including the WEB_MAPTILER_KEY secret, loaded from its artifact; this script only ran "
+        "the suites against it. The MapTiler style and tiles still do not load here (the suites abort third-party "
+        "hosts), so the style's credits are not measured; the attribution control and MapLibre's credit are.",
+        f"IMAGE_VERSION is {image_version}; release uses the v* tag.",
+        "Loaded into the local daemon only and never pushed by this script.",
+    ]
+else:
+    differences = [
+        "VITE_MAPTILER_KEY is synthetic (fingerprint in build.maptiler_key); release bakes the WEB_MAPTILER_KEY "
+        "secret. The MapTiler style and tiles do not load, so the style's credits (MapTiler, OpenStreetMap) are "
+        "not measured; the attribution control and MapLibre's credit are.",
+        f"IMAGE_VERSION is {image_version}; release uses the v* tag. IMAGE_CREATED is this build's time.",
+        "Built by `docker buildx build` directly; release runs it through docker/build-push-action with the same "
+        "builder setup (docker/setup-buildx-action in CI).",
+        "Loaded into the local daemon only and never pushed.",
+    ]
 server = env.get("GITHUB_SERVER_URL", "")
 repo = env.get("GITHUB_REPOSITORY", "")
 run_id = env.get("GITHUB_RUN_ID", "")
@@ -295,7 +334,9 @@ record = {
         "bundle_gates": {"VERIFY_REQUIRE_PUBLIC_EXPLORE": "true", "VERIFY_REQUIRE_MUNICIPAL": municipal},
         "image_version": image_version,
         "image_created": image_created,
-        "maptiler_key": {"kind": "synthetic", "sha256_12": hashlib.sha256(key.encode()).hexdigest()[:12]},
+        "maptiler_key": ({"kind": "prebuilt", "note": "baked by candidate-images.yml from the WEB_MAPTILER_KEY secret; not known here"}
+                         if prebuilt else {"kind": "synthetic", "sha256_12": hashlib.sha256(key.encode()).hexdigest()[:12]}),
+        "prebuilt": prebuilt,
         "base_images": [line.split()[1] for line in (root / dockerfile).read_text().splitlines()
                         if line.startswith("FROM ")],
         "apk_upgrades": apk_upgrades,

@@ -1,0 +1,214 @@
+name: Candidate image build
+description: >-
+  Builds one production image from the checked-out source exactly as release.yml does (pinned Buildx
+  and build-push actions, OCI labels), records its identity, scans it with Security CI's Trivy policy,
+  saves it as an artifact. Nothing is pushed. Used by candidate-images.yml for the services and for web.
+
+inputs:
+  source_dir:
+    description: "Directory holding the source checkout at source_sha (the build context)"
+    required: false
+    default: source
+  service:
+    description: "Service name (image parkio/<service>)"
+    required: true
+  dockerfile:
+    description: "Dockerfile path"
+    required: true
+  source_sha:
+    description: "The pinned api commit being built (must equal the checkout)"
+    required: true
+  sha12:
+    description: "First 12 hex of source_sha"
+    required: true
+  created:
+    description: "IMAGE_CREATED value (RFC 3339)"
+    required: true
+  extra_build_args:
+    description: "Additional ARG=VALUE lines (web only)"
+    required: false
+    default: ""
+  trivy_image:
+    description: "Trivy image reference, as in security-ci.yml"
+    required: true
+  trivy_cache_dir:
+    description: "Trivy cache directory on the runner"
+    required: true
+  ghcr_token:
+    description: "Token for the authenticated ghcr.io pull of the Trivy database"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify the source
+      shell: bash
+      env:
+        SHA: ${{ inputs.source_sha }}
+        SERVICE: ${{ inputs.service }}
+        SRC: ${{ inputs.source_dir }}
+      run: |
+        set -euo pipefail
+        head="$(git -C "$SRC" rev-parse HEAD)"
+        test "$head" = "$SHA" || { echo "::error::checked out $head, expected $SHA"; exit 1; }
+        if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+          echo "::error::Working tree is dirty; refusing to build $SERVICE."; exit 1
+        fi
+        echo "Building $SERVICE from $SHA"
+
+    # The builder release.yml uses (job images): the same pinned action, docker-container driver.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+    # No build record artifact and no build summary: the web build arguments include the MapTiler
+    # key (public once baked, but kept out of artifacts and summaries, as release.yml does).
+    - name: Build the candidate image (release-equivalent, not pushed)
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      env:
+        DOCKER_BUILD_RECORD_UPLOAD: "false"
+        DOCKER_BUILD_SUMMARY: "false"
+      with:
+        context: ${{ inputs.source_dir }}
+        file: ${{ inputs.source_dir }}/${{ inputs.dockerfile }}
+        platforms: linux/amd64
+        push: false
+        load: true
+        tags: parkio/${{ inputs.service }}:candidate-${{ inputs.sha12 }}
+        build-args: |
+          IMAGE_VERSION=candidate-${{ inputs.sha12 }}
+          IMAGE_REVISION=${{ inputs.source_sha }}
+          IMAGE_CREATED=${{ inputs.created }}
+          ${{ inputs.extra_build_args }}
+        provenance: false
+
+    - name: Record the image identity
+      shell: bash
+      env:
+        TAG: parkio/${{ inputs.service }}:candidate-${{ inputs.sha12 }}
+        SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        mkdir -p out meta
+        docker image inspect "$TAG" > out/inspect.json
+        cp out/inspect.json meta/inspect.json
+        python3 - "$SHA" <<'PY'
+        import json, sys
+        sha = sys.argv[1]
+        image = json.load(open("out/inspect.json"))[0]
+        labels = (image.get("Config") or {}).get("Labels") or {}
+        problems = []
+        if image.get("Os") != "linux" or image.get("Architecture") != "amd64":
+            problems.append(f"platform {image.get('Os')}/{image.get('Architecture')}")
+        if labels.get("org.opencontainers.image.revision") != sha:
+            problems.append(f"revision label {labels.get('org.opencontainers.image.revision')!r} != {sha}")
+        print(f"image id {image['Id']} platform {image.get('Os')}/{image.get('Architecture')} "
+              f"revision {labels.get('org.opencontainers.image.revision')} version {labels.get('org.opencontainers.image.version')}")
+        if problems:
+            print("::error::" + "; ".join(problems)); sys.exit(1)
+        PY
+
+    # Authenticated ghcr pull avoids anonymous trivy-db rate limits (as in security-ci.yml).
+    - name: Log in to ghcr.io (Trivy database pulls)
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.ghcr_token }}
+
+    - name: Trivy database cache day
+      id: trivy-day
+      shell: bash
+      run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Trivy database
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.trivy_cache_dir }}/db
+        key: trivy-db-${{ runner.os }}-${{ inputs.trivy_image }}-${{ steps.trivy-day.outputs.day }}
+        restore-keys: |
+          trivy-db-${{ runner.os }}-${{ inputs.trivy_image }}-
+
+    # Security CI's container-scan policy, verbatim: a HIGH/CRITICAL fixed-only report that never
+    # fails, a CRITICAL fixed-only gate over every package type, and a HIGH/CRITICAL fixed-only gate
+    # over application libraries; all with the source revision's expiring exceptions
+    # (<source_dir>/.trivyignore.yaml), as Security CI would apply them to that revision.
+    - name: Scan the candidate image (Security CI policy)
+      shell: bash
+      env:
+        TAG: parkio/${{ inputs.service }}:candidate-${{ inputs.sha12 }}
+        TRIVY_IMAGE: ${{ inputs.trivy_image }}
+        TRIVY_CACHE_DIR: ${{ inputs.trivy_cache_dir }}
+        SRC: ${{ inputs.source_dir }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$TRIVY_CACHE_DIR"
+        trivy() {
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/work" -w /work \
+            "${TRIVY_IMAGE}" image --scanners vuln --ignorefile "/work/${SRC}/.trivyignore.yaml" --cache-dir /root/.cache/trivy "$@"
+        }
+        trivy --severity HIGH,CRITICAL --ignore-unfixed --format json --output /work/out/trivy.json --exit-code 0 "$TAG"
+        trivy --severity HIGH,CRITICAL --ignore-unfixed --format table --output /work/out/trivy.txt --exit-code 0 "$TAG"
+        critical=pass
+        trivy --severity CRITICAL --ignore-unfixed --format table --output /work/out/trivy-critical.txt --exit-code 1 "$TAG" || critical=fail
+        library=pass
+        trivy --pkg-types library --severity HIGH,CRITICAL --ignore-unfixed --format table --output /work/out/trivy-library.txt --exit-code 1 "$TAG" || library=fail
+        python3 - "$critical" "$library" "$TRIVY_IMAGE" <<'PY'
+        import json, sys
+        critical, library, scanner = sys.argv[1:4]
+        report = json.load(open("out/trivy.json"))
+        counts = {"CRITICAL": 0, "HIGH": 0}
+        for result in report.get("Results") or []:
+            for v in result.get("Vulnerabilities") or []:
+                if v.get("Severity") in counts:
+                    counts[v["Severity"]] += 1
+        gate = "pass" if critical == "pass" and library == "pass" else "fail"
+        summary = {"scanner": scanner, "policy": "security-ci container scan: CRITICAL fixed (all packages) + HIGH/CRITICAL fixed (libraries); ignorefile .trivyignore.yaml",
+                   "fixed_critical": counts["CRITICAL"], "fixed_high": counts["HIGH"],
+                   "critical_gate": critical, "library_gate": library, "gate": gate}
+        json.dump(summary, open("out/trivy-summary.json", "w"), indent=2)
+        json.dump(summary, open("meta/trivy-summary.json", "w"), indent=2)
+        print(json.dumps(summary))
+        if gate != "pass":
+            print("::warning::Trivy gate failed for the candidate; the manifest will not accept it")
+        PY
+
+    - name: Save the image
+      shell: bash
+      env:
+        TAG: parkio/${{ inputs.service }}:candidate-${{ inputs.sha12 }}
+        SERVICE: ${{ inputs.service }}
+      run: |
+        set -euo pipefail
+        docker save "$TAG" | gzip -1 > out/image.tar.gz
+        (cd out && sha256sum inspect.json trivy.json trivy.txt trivy-critical.txt trivy-library.txt trivy-summary.json image.tar.gz > SHA256SUMS)
+        cp out/SHA256SUMS meta/SHA256SUMS
+        ls -l out
+        {
+          echo "### $SERVICE candidate"
+          echo '```'
+          python3 -c 'import json; i=json.load(open("out/inspect.json"))[0]; print("id", i["Id"]); print("platform", i["Os"]+"/"+i["Architecture"]); print("labels", json.dumps((i.get("Config") or {}).get("Labels") or {}))'
+          cat out/trivy-summary.json
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the candidate image artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: candidate-image-${{ inputs.service }}-${{ inputs.sha12 }}
+        path: out/
+        retention-days: 90
+        compression-level: 0
+        if-no-files-found: error
+        overwrite: true
+
+    - name: Upload the identity record
+      uses: actions/upload-artifact@v4
+      with:
+        name: candidate-image-${{ inputs.service }}-${{ inputs.sha12 }}-meta
+        path: meta/
+        retention-days: 90
+        if-no-files-found: error
+        overwrite: true
