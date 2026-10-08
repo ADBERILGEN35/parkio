@@ -582,7 +582,11 @@ backup/restore drills (`backup-restore-drill.yml`), and security scanning (`secu
 Security CI runs on PRs, pushes to `master`, weekly, and on demand:
 
 - **Secret scanning:** gitleaks with `.gitleaks.toml`, blocking all detected secrets except exact
-  documented local-dev placeholders and test-only fake values.
+  documented local-dev placeholders and test-only fake values. `scripts/ci/secret-scan.sh` scans a pull
+  request's own commits, a push's new commits, or the full history on a dispatch (audit), and fails
+  closed: any scanner or git error, or a scanned-commit count outside the range's bounds, fails the check
+  (until 2026-10-08 the step hit git's "dubious ownership" refusal and passed with 0 commits scanned).
+  `scripts/ci/test-secret-scan.sh` runs first and proves that seeded disposable secrets fail.
 - **SAST:** CodeQL for Java/Kotlin and JavaScript/TypeScript, uploading SARIF to GitHub code scanning
   (gated behind the `CODEQL_ENABLED` repository variable — see below).
 - **Dependency scanning:** Trivy filesystem scan over dependency manifests, blocking HIGH/CRITICAL
@@ -633,7 +637,7 @@ allowlist/config entry. If a real secret is committed, rotate/revoke it and remo
 environments; do not allowlist it. Local equivalents:
 
 ```bash
-gitleaks detect --source . --config .gitleaks.toml --redact
+bash scripts/ci/secret-scan.sh --repo . --full HEAD     # what CI runs on a dispatch; --range A..B for a range
 trivy fs --scanners vuln --vuln-type library --severity HIGH,CRITICAL --ignore-unfixed .
 docker build -f services/media-service/Dockerfile -t parkio/media-service:local-scan .
 trivy image --severity HIGH,CRITICAL --ignore-unfixed parkio/media-service:local-scan

@@ -107,7 +107,9 @@ Privilege boundaries / enforcement notes:
 - **No secrets in code, configs, or git.** Inject via environment variables /
   secret manager. `.env` is git-ignored (`.env.example` only for documentation).
 - Separate config per environment; production secrets never in dev.
-- CI secret scanning is mandatory. `.gitleaks.toml` may allow only exact local-dev
+- CI secret scanning is mandatory and fails closed: a scanner or git error, or a
+  scanned-commit count that does not fit the commit range, fails the check
+  (`scripts/ci/secret-scan.sh`). `.gitleaks.toml` may allow only exact local-dev
   placeholders, documentation examples, and test-only fake values. Do not add broad
   path allowlists for env files or source trees.
 - If a real secret is committed, rotate/revoke it first and remove it from every
