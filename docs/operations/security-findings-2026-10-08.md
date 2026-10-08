@@ -11,7 +11,7 @@ The last green api container scans were Security CI run 37792481650 (push on api
 Security CI run 37822536125 of PR #325 (18:12–18:21Z; images built from the master merge checkout) failed the critical gate on
 every Java image. The accepted release candidate (Candidate images run 37788374271, source
 `843ae7cb461bbb66e688964bf2441b4442d23f27`, scans 13:59–14:01Z, completed 14:07Z) predates that database content and carries
-both findings in every Java image.
+CVE-2026-47890 in every Java image and CVE-2026-47892 in the gateway image.
 
 ## Gate thresholds (unchanged by this change)
 
