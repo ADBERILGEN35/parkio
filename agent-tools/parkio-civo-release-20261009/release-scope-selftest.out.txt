@@ -1,0 +1,77 @@
+D0.2.2 release scope | stamp 20261009T080547Z | compose 5.5.1 | daemon linux/amd64
+release checkout <W>/release | project scopeprobe3 | report and evidence in <W>/out
+release model: 14 active services | digest-pinned app services ['auth-service', 'gateway-service', 'media-service', 'parking-service', 'web'] | built on the host ['analytics-service', 'user-service']
+
+1. Live Compose file lists recorded on the running containers (self-check: this Compose reproduces the labels)
+L1: 10 container(s) ['alertmanager', 'auth-service', 'caddy', 'gateway-service', 'legacy', 'media-service', 'node-exporter', 'parking-service', 'prometheus', 'redis']
+    project dir <W>/live/docker | env file as recorded
+    files ['docker-compose.yml', 'docker-compose.azure-hosted-beta.yml', 'docker-compose.pins.yml', 'docker-compose.civo-alertmanager.yml']
+    vs the release production list: lacks nothing; adds nothing; Civo overlay present
+    self-check: 10/10 labels reproduced
+L2: 2 container(s) ['analytics-service', 'user-service']
+    project dir <W>/live/docker | env file as recorded
+    files ['docker-compose.yml', 'docker-compose.azure-hosted-beta.yml', 'docker-compose.pins.yml']
+    vs the release production list: lacks nothing; adds nothing; no Civo overlay
+    self-check: 2/2 labels reproduced
+L3: 1 container(s) ['postgres-auth']
+    project dir <W>/live/docker | env file as recorded
+    files ['docker-compose.yml']
+    vs the release production list: lacks ['docker-compose.azure-hosted-beta.yml', 'docker-compose.pins.yml']; adds nothing; no Civo overlay
+    self-check: 1/1 labels reproduced
+L4: 1 container(s) ['web']
+    project dir <W>/live/docker | env file as recorded
+    files ['docker-compose.yml', 'docker-compose.azure-hosted-beta.yml', 'docker-compose.pins.yml', 'docker-compose.civo-alertmanager.yml', 'web-binding.yml']
+    vs the release production list: lacks nothing; adds ['web-binding.yml']; Civo overlay present; temporary web binding rebuilt from the container image
+    self-check: 1/1 labels reproduced
+self-check total: 14/14 running containers reproduce their config-hash label
+
+2. Per service against the release model (L<n> = live file list above)
+D2  alertmanager L1: recreated (--no-deps --force-recreate) -- config otherwise unchanged
+D5  auth-service L1: recreated (--no-deps --force-recreate) -- changes: image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c -> alpine@sha256:28bd5fe8b56d1bd048e5babf5b1071; env values changed ['HMAC']
+D2  caddy L1: recreated (--no-deps --force-recreate) -- changes: bind sources moved to the release checkout: 1 (/etc/caddy/Caddyfile)
+D3  gateway-service L1: recreated (--no-deps --force-recreate) -- changes: image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c -> alpine@sha256:28bd5fe8b56d1bd048e5babf5b1071
+D6  media-service L1: recreated (--no-deps --force-recreate) -- changes: image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c -> alpine@sha256:28bd5fe8b56d1bd048e5babf5b1071
+D6  parking-service L1: recreated (--no-deps --force-recreate) -- changes: image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c -> alpine@sha256:28bd5fe8b56d1bd048e5babf5b1071
+D2  prometheus L1: recreated (--no-deps --force-recreate) -- changes: bind sources moved to the release checkout: 1 (/etc/prometheus/prometheus.yml)
+D4  web L4: recreated (--no-deps --force-recreate) -- changes: image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c -> alpine@sha256:28bd5fe8b56d1bd048e5babf5b1071
+D7  analytics-service L2: recreated with the image built from the release checkout
+D7  user-service L2: recreated with the image built from the release checkout
+--  node-exporter L1: DRIFT, kept as is by D2-D7 -- bind sources moved to the release checkout: 1 (/textfile-collector)
+--  postgres-auth [DATABASE] L3: DRIFT, kept as is by D2-D7 -- read_only: False -> True
+--  redis [CACHE] L1: DRIFT, kept as is by D2-D7 -- same image reference now resolves to another local image
+--  kafka [BROKER]: in the release model, no container today; no step creates it
+--  legacy L1: not in the release model (running); no step touches it
+
+4. scripts/deploy-hosted-beta.sh on this host
+profile: shell unset | env file unset | selected hosted-beta
+production hostnames in the model: ['PARKIO_DOMAIN', 'PARKIO_WEB_DOMAIN', 'PARKIO_MEDIA_DOMAIN']
+hosted-beta profile: REFUSES this env by design (owner decision 2026-10-05 item 4; no override)
+azure-hosted-beta profile: deprecated (B7); it cannot build digest-pinned services (auth-service, gateway-service, media-service, parking-service, web): a build-and-deploy stops at the first one
+=> D7 runs through the production wrapper scripts/parkio-prod-compose.sh: build the six, then up --no-deps; the deploy wrapper's manifest, deployed record and built-in smoke do not run there
+
+5. Other Compose projects on this host (no step names them; project-scoped commands never touch them)
+project navlo-core-local: 3 container(s), untouched
+project scopeprobe3-nr: 1 container(s), untouched
+
+SUMMARY
+D2-D6 recreate 8: ['alertmanager', 'auth-service', 'caddy', 'gateway-service', 'media-service', 'parking-service', 'prometheus', 'web']
+D7 recreates 2: ['analytics-service', 'user-service']
+databases recreated by D2-D7: none
+drift kept by D2-D7 (3): ['node-exporter', 'postgres-auth', 'redis']
+stateful services in that drift: ['postgres-auth', 'redis']
+a whole-project up would also recreate those 3 and create 1 service(s)
+node-exporter recreated by D2-D7: no -> textfile correction not required for D2-D7 (required before any step that recreates node-exporter)
+D0.2.2 COMPLETE (read-only)
+report saved: <W>/out/D022-release-scope-20261009T080547Z.txt
+ok   self-check total: 14/14
+ok   D2-D6 recreate 8: ['alertmanager', 'auth-service', 'caddy', 'gateway-service', 'media-service', 'parking-service', 'prometheus', 'web']
+ok   D7 recreates 2: ['analytics-service', 'user-service']
+ok   drift kept by D2-D7 (3): ['node-exporter', 'postgres-auth', 'redis']
+ok   redis [CACHE] L1: DRIFT, kept as is by D2-D7 -- same image reference now resolves to another local image
+ok   a whole-project up would also recreate those 3 and create 1 service(s)
+ok   hosted-beta profile: REFUSES this env by design
+ok   project scopeprobe3-nr: 1 container(s), untouched
+ok   D2-D7 recreate exactly the explicit and built services
+ok   whole-project up afterwards = reported drift + absent
+compose 5.5.1, docker 29.8.1, storage overlayfs
+SELFTEST PASS
