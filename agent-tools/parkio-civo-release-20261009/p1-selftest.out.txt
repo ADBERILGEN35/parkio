@@ -1,0 +1,140 @@
+P1 release facts | stamp 20261009T135943Z | release <W>/release @ c89ba9bb0582 (0 changes) | live <W>/live @ 0dcf4de1 (4 changes) | project p1probe
+
+A. Pending migrations: PostgreSQL version, tables they alter (estimated rows, total size), duplicates
+  gateway: query failed (exit 1) Error response from daemon: No such container: p1probe-postgres-gateway
+  auth: query failed (exit 1) Error response from daemon: No such container: p1probe-postgres-auth
+  media: PostgreSQL 160004; media_files ~4 rows 0.0 MiB
+    duplicates blocking media V18 uq_media_files_owner_checksum_live: 1
+  parking: PostgreSQL 160004; parking_sessions ~4 rows 0.0 MiB; parking_spot_search_logs ~1000 rows 0.1 MiB; parking_spot_view_logs ~0 rows 0.0 MiB
+  user: query failed (exit 1) Error response from daemon: No such container: p1probe-postgres-user
+  notification: query failed (exit 1) Error response from daemon: No such container: p1probe-postgres-notification
+  moderation: PostgreSQL 160004; appeals ~1 rows 0.0 MiB; user_reports ~3 rows 0.0 MiB
+    duplicates blocking moderation V14 uq_user_reports_reporter_target_reason: 0
+    duplicates blocking moderation V14 uq_appeals_case_user: 0
+  analytics: query failed (exit 1) Error response from daemon: No such container: p1probe-postgres-analytics
+
+B. parking V41: session time zones and back-fill signatures (counts only)
+  database server default TimeZone (a psql session that sends none): UTC (source database)
+  ALTER DATABASE/ROLE TimeZone settings: parkio_parking/* UTC
+  parking_sessions.last_confirmed_at type today: timestamp without time zone
+  flyway V17 installed_on (wall clock of the migrating session): 2026-07-02T03:00:00
+  flyway V40 installed_on (wall clock of the migrating session): 2026-07-03T02:00:00
+  rows: total 4; with last_confirmed_at 3; ACTIVE 2
+    equal to started_at as UTC wall clock (consistent with a UTC back-fill or app write): 1
+    Europe/Istanbul back-fill signature (V41 repairs these only in an Istanbul session): 1
+    signature of the server default zone (what V41 changes in a session in that zone): 0
+  running parking container: TZ absent; JAVA_TOOL_OPTIONS user.timezone=UTC
+    image files: /etc/timezone Etc/UTC; /etc/localtime -> not a link
+    container created (UTC): 2026-10-09T13:59:30  (compare with the latest installed_on above: about equal means that container's migrations ran in a UTC session, if it applied them)
+  env file: TZ absent; JAVA_TOOL_OPTIONS user.timezone=UTC
+
+C. Feature flags (fixed list; unset = the code default) and alert keys (set / empty / absent)
+  PARKIO_ACCOUNT_ERASURE_ENABLED: false
+  PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_ENABLED: unset
+  PARKIO_ACCOUNT_ERASURE_DURABLE_RECORDING_RETRY_WORKER_ENABLED: unset
+  PARKIO_ACCOUNT_ERASURE_RESTORE_REPLAY_ENABLED: unset
+  PARKIO_RESTORE_REPLAY_ENABLED: unset
+  PARKIO_ERASURE_CHECKPOINT_ENABLED: unset
+  PARKIO_ERASURE_STORE_OBJECT_LOCK_ENABLED: unset
+  PARKIO_MEDIA_ERASURE_WORKER_ENABLED: unset
+  PARKIO_WAITLIST_CONSENT_REQUIRED: true
+  PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED: <non-boolean>
+  PARKIO_SLACK_BIZ_ENABLED: true
+  PARKIO_ALERT_SLACK_WEBHOOK_URL set; PARKIO_ALERT_WEBHOOK_URL absent; PARKIO_ALERT_HEARTBEAT_URL empty; PARKIO_ALERT_HEARTBEAT_SECRET absent; BACKUP_DIR absent; PARKIO_PROMETHEUS_TEXTFILE_DIR absent
+
+D. Alertmanager
+  live render-config.sh blob 71b01e82c3b243eaf67b8444d2d596fb428126ca (MODIFIED; HEAD 7d992053772c); release blob 72899b299e8e458bec788be54129179379e0a9c5
+  live routing tree (receiver names and matchers):
+    Routing tree:
+    `-- default-route  receiver: warning
+        |-- {severity="critical"}  receiver: critical
+        `-- {alertname="X"}  receiver: <url>
+
+E. Backup (the live checkout's scripts run the nightly backup)
+  scripts/run-production-backup.sh: unmodified; live blob 8af62257747a; HEAD 8af62257747a
+  scripts/backup-hosted-beta.sh: unmodified; live blob 8df1f82a4e1b; HEAD 8df1f82a4e1b
+  scripts/lib/backup-common.sh: unmodified; live blob 1932e5ec0e55; HEAD 1932e5ec0e55
+  scripts/backup-databases.sh: unmodified; live blob 92e720baef4b; HEAD 92e720baef4b
+  scripts/backup-minio.sh: unmodified; live blob b23352917ae5; HEAD b23352917ae5
+  scripts/lib/backup-metrics.py: unmodified; live blob 73a0b07f0b9c; HEAD 73a0b07f0b9c
+  live backup writes an offsite receipt file: no
+  textfile metrics (scope azure-hosted-beta): parkio_backup_last_success 1; parkio_backup_offsite_last_success 1; parkio_backup_production_mode 1; parkio_backup_encryption_enabled 1; parkio_backup_last_timestamp_seconds age 2.0 h
+  backup stamps: 2; newest 2026-10-08T03-30-01Z; COMPLETE yes; offsite receipt no
+
+F. NR guard prerequisites (read-only)
+  gateway-service: live json-file/10m/5 | release model json-file/10m/5 | equal
+  auth-service: live json-file/10m/5 | release model json-file/10m/5 | equal
+  parking-service: live json-file/10m/5 | release model json-file/10m/3 | DIFFERENT
+  free space /: 854.1 GiB; above the 12.0 GiB bound by 842.1 GiB
+  free space docker root: 854.1 GiB
+  free space NR budget filesystem: 854.1 GiB; above the 5.0 GiB bound by 849.1 GiB
+  parkio-nr-log-source.service: inactive
+  parkio-nr-log-continuous.service: inactive
+  parkio-nr-log-continuous-guard.timer: inactive
+  guard timer: NextElapseUSecMonotonic=infinity LastTriggerUSec= AccuracyUSec=1min
+
+G. U12 part A (counts only)
+  open dead-lettered gamification outbox rows: 2 (PointsEarned 2)
+  unpublished, not dead-lettered gamification rows: 1 (oldest 10 s)
+  parkio.dlt.user retained records: 3 (p0 3, p1 0)
+  group parkio.user lag per topic: parkio.gamification.score 1
+
+H. Marketing bundle (public site; CL-F18 consent)
+  landing page: waitlist mode api; Content-Security-Policy header absent; Strict-Transport-Security absent
+  waitlist.js sends consentTextVersion: yes; carries waitlist-consent-v1: yes
+
+SUMMARY
+U12 part A totals: dead-lettered gamification rows 2; retained parkio.dlt.user records 3
+P1 COMPLETE (read-only)
+report saved: <W>/out/P1-facts-20261009T135943Z.txt
+ok   release <W>/release @ 
+ok   duplicates blocking media V18 uq_media_files_owner_checksum_live: 1
+ok   duplicates blocking moderation V14 uq_user_reports_reporter_target_reason: 0
+ok   duplicates blocking moderation V14 uq_appeals_case_user: 0
+ok   parking: PostgreSQL 16
+ok   parking_sessions ~4 rows
+ok   parking_spot_search_logs ~1000 rows
+ok   gateway: query failed
+ok   ALTER DATABASE/ROLE TimeZone settings: parkio_parking/* UTC
+ok   parking_sessions.last_confirmed_at type today: timestamp without time zone
+ok   flyway V17 installed_on (wall clock of the migrating session): 2026-07-02T03:00:00
+ok   flyway V40 installed_on
+ok   rows: total 4; with last_confirmed_at 3; ACTIVE 2
+ok   equal to started_at as UTC wall clock (consistent with a UTC back-fill or app write): 1
+ok   Europe/Istanbul back-fill signature (V41 repairs these only in an Istanbul session): 1
+ok   signature of the server default zone (what V41 changes in a session in that zone): 0
+ok   running parking container: TZ absent; JAVA_TOOL_OPTIONS user.timezone=UTC
+ok   image files: /etc/timezone Etc/UTC; /etc/localtime -> not a link
+ok   env file: TZ absent; JAVA_TOOL_OPTIONS user.timezone=UTC
+ok   PARKIO_ACCOUNT_ERASURE_ENABLED: false
+ok   PARKIO_WAITLIST_OPS_NOTIFICATIONS_ENABLED: <non-boolean>
+ok   PARKIO_RESTORE_REPLAY_ENABLED: unset
+ok   PARKIO_ALERT_SLACK_WEBHOOK_URL set; PARKIO_ALERT_WEBHOOK_URL absent; PARKIO_ALERT_HEARTBEAT_URL empty
+ok   live render-config.sh blob 71b01e82c3b243eaf67b8444d2d596fb428126ca (MODIFIED; HEAD 
+ok   default-route  receiver: warning
+ok   receiver: <url>
+ok   scripts/lib/backup-common.sh: unmodified
+ok   live backup writes an offsite receipt file: no
+ok   parkio_backup_last_success 1; parkio_backup_offsite_last_success 1; parkio_backup_production_mode 1; parkio_backup_encryption_enabled 1; parkio_backup_last_timestamp_seconds age 2.0 h
+ok   backup stamps: 2; newest 2026-10-08T03-30-01Z; COMPLETE yes; offsite receipt no
+ok   gateway-service: live json-file/10m/5 | release model json-file/10m/5 | equal
+ok   parking-service: live json-file/10m/5 | release model json-file/10m/3 | DIFFERENT
+ok   free space NR budget filesystem:
+ok   open dead-lettered gamification outbox rows: 2 (PointsEarned 2)
+ok   unpublished, not dead-lettered gamification rows: 1
+ok   parkio.dlt.user retained records: 3
+ok   parkio.user lag reported
+ok   landing page: waitlist mode api; Content-Security-Policy header absent
+ok   waitlist.js sends consentTextVersion: yes; carries waitlist-consent-v1: yes
+ok   U12 part A totals: dead-lettered gamification rows 2; retained parkio.dlt.user records 3
+ok   P1 COMPLETE (read-only)
+ok   not printed: alert webhook URL
+ok   not printed: webhook token
+ok   not printed: database password
+ok   not printed: ACME e-mail
+ok   not printed: non-boolean flag value
+ok   report mode 600
+ok   live checkout status unchanged by the tool
+ok   release checkout clean and unchanged
+python 3.10.12, compose 5.5.1, docker 29.8.1
+SELFTEST PASS
