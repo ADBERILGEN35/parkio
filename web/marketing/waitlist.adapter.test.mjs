@@ -147,7 +147,7 @@ test('hero CTA and nav waitlist copy are present in canonical marketing', () => 
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
   assert.match(indexHtml, /i18n\.js\?v=w01l7/);
-  assert.match(indexHtml, /styles\.css\?v=w01l7/);
+  assert.match(indexHtml, /styles\.css\?v=w01m1/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
   assert.match(i18n, /'cta\.waitlist': 'Join the waitlist'/);
   assert.match(i18n, /'nav\.waitlist': 'Bekleme listesi'/);
