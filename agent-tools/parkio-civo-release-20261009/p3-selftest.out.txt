@@ -1,0 +1,176 @@
+A. Release checkout
+  P3 | stamp 20261009T163048Z | release <W>/release @ beead5689e04 | live <W>/live @ 9d4a7522 (1 changes, untouched) | project p3probe
+  PASS release checkout clean: 0 changes
+  PASS no divergent env-file copy in the release checkout: docker/.env.azure-hosted-beta present, mode 644, identical to the live env file
+
+B. Preflight (env validation, release scripts) and release wrapper models
+  [Secrets]
+  [Domains]
+    SKIP compose render (--skip-compose)
+  PASS preflight (azure-hosted-beta, env validation): exit 0; === PREFLIGHT: PASS - 13 check(s) passed, 0 warning(s) ===
+    (--skip-compose: the deployed model is the wrapper's, rendered below; preflight's own render uses the deprecated azure profile list)
+  PASS release wrapper model renders (canonical): exit 0
+  PASS release wrapper model renders (gateway with the waitlist overlay): exit 0
+
+C. Kafka: every partition of the 17 groups the release recreates (auto.offset.reset=earliest everywhere)
+  offsets.retention.minutes: 10080 (committed offsets of a group without members expire after it)
+  per partition: pN retained/restart-reads, * = no committed offset (a restarted consumer reads from the log start); offsets count records (no transactional producer)
+  parkio.ai-validation.erasure (D7 ai-validation): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.aivalidation (D7 ai-validation): absent on the broker (a new consumer would read every retained record)
+    parkio.media.media: topic absent (no partition, nothing to read)
+    parkio.parking.spot: topic absent (no partition, nothing to read)
+  parkio.analytics (D7 analytics): absent on the broker (a new consumer would read every retained record)
+    parkio.gamification.score: p0 0/0*  p1 0/0*  p2 0/0*  p3 0/0*  p4 0/0*  p5 0/0*  (6 partitions, 0 committed; retained 0; restart reads 0)
+    parkio.notification.notification: topic absent (no partition, nothing to read)
+    parkio.parking.spot: topic absent (no partition, nothing to read)
+    parkio.parking.session: topic absent (no partition, nothing to read)
+  parkio.analytics.erasure (D7 analytics): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.auth (D5 auth): Empty, 0 member(s)
+    parkio.moderation.action: p0 1/0  p1 0/0  p2 0/0  (3 partitions, 3 committed; retained 1; restart reads 0)
+  parkio.auth.erasure (D5 auth): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.gamification (D7 gamification): Empty, 0 member(s)
+    parkio.moderation.action: p0 1/0  p1 0/0  p2 0/0  (3 partitions, 3 committed; retained 1; restart reads 0)
+    parkio.moderation.case: topic absent (no partition, nothing to read)
+    parkio.parking.spot: topic absent (no partition, nothing to read)
+  parkio.gamification.erasure (D7 gamification): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.media.erasure (D6a media): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.moderation (D7 moderation): absent on the broker (a new consumer would read every retained record)
+    parkio.aivalidation.result: topic absent (no partition, nothing to read)
+    parkio.media.media: topic absent (no partition, nothing to read)
+    parkio.parking.spot: topic absent (no partition, nothing to read)
+  parkio.moderation.erasure (D7 moderation): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.notification (D7 notification): Empty, 0 member(s)
+    parkio.gamification.score: p0 0/0*  p1 0/0*  p2 0/0*  p3 0/0*  p4 0/0*  p5 0/0*  (6 partitions, 0 committed; retained 0; restart reads 0)
+    parkio.moderation.action: p0 1/0  p1 0/0  p2 0/0  (3 partitions, 3 committed; retained 1; restart reads 0)
+    parkio.moderation.case: topic absent (no partition, nothing to read)
+    parkio.parking.spot: topic absent (no partition, nothing to read)
+    parkio.parking.session: topic absent (no partition, nothing to read)
+  parkio.notification.erasure (D7 notification): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.parking (D6b parking): Empty, 0 member(s)
+    parkio.aivalidation.result: topic absent (no partition, nothing to read)
+    parkio.moderation.action: p0 1/0  p1 0/0  p2 0/0  (3 partitions, 3 committed; retained 1; restart reads 0)
+  parkio.parking.erasure (D6b parking): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  parkio.user (D7 user): Empty, 0 member(s)
+    parkio.gamification.score: p0 0/0*  p1 0/0*  p2 0/0*  p3 0/0*  p4 0/0*  p5 0/0*  (6 partitions, 0 committed; retained 0; restart reads 0)
+    parkio.moderation.action: p0 1/0  p1 0/0  p2 0/0  (3 partitions, 3 committed; retained 1; restart reads 0)
+    parkio.auth.user: p0 3/1  (1 partitions, 1 committed; retained 3; restart reads 1)
+  parkio.user.erasure (D7 user): absent on the broker (a new consumer would read every retained record)
+    parkio.privacy.erasure: p0 0/0*  p1 0/0*  (2 partitions, 0 committed; retained 0; restart reads 0)
+  DLT topics (retained records per partition): parkio.dlt.media p0 0; parkio.dlt.user p0 0 p1 0 p2 0
+  other groups on the broker (not recreated by this release): none
+  totals: 52 group partitions, 36 without a committed offset; retained 8; restart reads 1 (pending after a commit 1, from the log start 0)
+  PASS no release group would re-read retained records from the log start: none
+
+D. U12 part A
+  gamification outbox: open dead-lettered 0; unpublished, not dead-lettered 0
+  parkio.dlt.user retained 0; parkio.user restart reads on parkio.gamification.score 0
+  PASS U12-A: dead-lettered 0, DLT 0 and nothing for user-service to re-read on the score topic
+
+E. parking rows (V41 gate)
+  last_confirmed_at type timestamp without time zone; rows 0; with last_confirmed_at 0; Istanbul signature 0
+  PASS V41: no Istanbul-signature rows: V41 in a UTC session changes no value
+
+F. NR, free space, backup (read-only)
+  parkio-nr-log-source.service inactive; parkio-nr-log-continuous.service inactive; parkio-nr-log-continuous-guard.timer inactive
+  guard service last run: Result=success ExecMainExitTimestamp=n/a ExecMainStatus=0
+  free space: / 854.1 GiB (>= bound); docker root 854.1 GiB; NR budget fs 854.1 GiB (>= bound)
+  backup metrics (azure-hosted-beta): parkio_backup_last_timestamp_seconds age 1.0 h
+  newest backup 2026-10-09T03-30-01Z (age 13.0 h), COMPLETE yes; P5 makes the fresh one
+  PASS release checkout still clean
+
+SUMMARY
+gates passed 9/9
+P3 COMPLETE (read-only)
+saved: <W>/out/P3-gates-20261009T163048Z.txt
+saved: <W>/out/P3-gates-20261009T163048Z.json
+ok   s1.out exit 0
+ok   s1.out: PASS release checkout clean
+ok   s1.out: PASS no divergent env-file copy in the release checkout: docker/.env.azure-hosted-beta present, mode
+ok   s1.out: identical to the live env file
+ok   s1.out:   [Secrets]
+ok   s1.out: SKIP compose render (--skip-compose)
+ok   s1.out: PASS preflight (azure-hosted-beta, env validation): exit 0; === PREFLIGHT: PASS - 13 check(s) passed, 0 warning(s) ===
+ok   s1.out: PASS release wrapper model renders (canonical): exit 0
+ok   s1.out: PASS release wrapper model renders (gateway with the waitlist overlay): exit 0
+ok   s1.out: offsets.retention.minutes: 10080
+ok   s1.out: parkio.user (D7 user): Empty, 0 member(s)
+ok   s1.out: parkio.auth.user: p0 3/1  (1 partitions, 1 committed; retained 3; restart reads 1)
+ok   s1.out: (3 partitions, 3 committed; retained 1; restart reads 0)
+ok   s1.out: parkio.gamification.score: p0 0/0*  p1 0/0*  p2 0/0*  p3 0/0*  p4 0/0*  p5 0/0*  (6 partitions, 0 committed; retained 0; restart reads 0)
+ok   s1.out: parkio.media.erasure (D6a media): absent on the broker (a new consumer would read every retained record)
+ok   s1.out: parkio.privacy.erasure: p0 0/0*  p1 0/0*
+ok   s1.out: parkio.parking.spot: topic absent (no partition, nothing to read)
+ok   s1.out: DLT topics (retained records per partition): parkio.dlt.media p0 0; parkio.dlt.user p0 0 p1 0 p2 0
+ok   s1.out: restart reads 1 (pending after a commit 1, from the log start 0)
+ok   s1.out: other groups on the broker (not recreated by this release): none
+ok   s1.out: PASS no release group would re-read retained records from the log start: none
+ok   s1.out: gamification outbox: open dead-lettered 0; unpublished, not dead-lettered 0
+ok   s1.out: PASS U12-A: dead-lettered 0, DLT 0 and nothing for user-service to re-read on the score topic
+ok   s1.out: last_confirmed_at type timestamp without time zone; rows 0; with last_confirmed_at 0; Istanbul signature 0
+ok   s1.out: PASS V41: no Istanbul-signature rows: V41 in a UTC session changes no value
+ok   s1.out: newest backup 2026-10-09T03-30-01Z
+ok   s1.out: backup metrics (azure-hosted-beta): parkio_backup_last_timestamp_seconds age 1.0 h
+ok   s1.out: gates passed 9/9
+ok   s1.out: P3 COMPLETE (read-only)
+ok   unrelated topic not reported
+ok   S1 changed no committed offset or log end
+A. Release checkout
+  P3 | stamp 20261009T163059Z | release <W>/release @ beead5689e04 | live <W>/live @ 9d4a7522 (1 changes, untouched) | project p3probe
+  PASS release checkout clean: 0 changes
+  FAIL no divergent env-file copy in the release checkout: docker/.env.azure-hosted-beta present, mode 644, DIFFERENT from the live env file; the wrapper falls back to it when PARKIO_ENV_FILE is unset (decision: remove or refresh)
+
+B. Preflight (env validation, release scripts) and release wrapper models
+  [Secrets]
+    FAIL PARKIO_JWT_SECRET
+    WARN PARKIO_ALERT_WEBHOOK_URL
+    FAIL PARKIO_ACME_EMAIL
+  [Domains]
+    SKIP compose render (--skip-compose)
+  FAIL preflight (azure-hosted-beta, env validation): exit 1; === PREFLIGHT: FAIL - 2 failure(s), 1 warning(s), 11 check(s) passed ===
+    (--skip-compose: the deployed model is the wrapper's, rendered below; preflight's own render uses the deprecated azure profile list)
+  PASS release wrapper model renders (canonical): exit 0
+  FAIL release wrapper model renders (gateway with the waitlist overlay): exit 1; error while interpolating services.gateway-service.group_add.[]: required variable P3TEST_GID is missing a value: missing
+
+C. Kafka: every partition of the 17 groups the release recreates (auto.offset.reset=earliest everywhere)
+SUMMARY
+gates passed 3/9; failed: no divergent env-file copy in the release checkout, preflight (azure-hosted-beta, env validation), release wrapper model renders (gateway with the waitlist overlay), no release group would re-read retained records from the log start, U12-A, V41: no Istanbul-signature rows
+P3 COMPLETE (read-only); a gate needs a decision, see FAIL lines
+saved: <W>/out/P3-gates-20261009T163059Z.txt
+saved: <W>/out/P3-gates-20261009T163059Z.json
+ok   s2.out exit 1
+ok   s2.out: FAIL no divergent env-file copy in the release checkout
+ok   s2.out: DIFFERENT from the live env file
+ok   s2.out:     FAIL PARKIO_JWT_SECRET
+ok   s2.out:     WARN PARKIO_ALERT_WEBHOOK_URL
+ok   s2.out:     FAIL PARKIO_ACME_EMAIL
+ok   s2.out: FAIL preflight (azure-hosted-beta, env validation): exit 1; === PREFLIGHT: FAIL - 2 failure(s), 1 warning(s), 11 check(s) passed ===
+ok   s2.out: PASS release wrapper model renders (canonical): exit 0
+ok   s2.out: FAIL release wrapper model renders (gateway with the waitlist overlay): exit 
+ok   s2.out: P3TEST_GID
+ok   s2.out: 2/2*
+ok   s2.out: FAIL no release group would re-read retained records from the log start: decision needed: parkio.analytics parkio.gamification.score p
+ok   s2.out: parkio.user parkio.gamification.score p
+ok   s2.out: parkio.dlt.user p0
+ok   s2.out: open dead-lettered 1
+ok   s2.out: FAIL U12-A: decision needed per row/record
+ok   s2.out: rows 1; with last_confirmed_at 1; Istanbul signature 1
+ok   s2.out: FAIL V41: no Istanbul-signature rows: 1 row(s) would stay 3 h off after V41 in UTC (decision before D6b)
+ok   s2.out: gates passed 3/9
+ok   s2.out: P3 COMPLETE (read-only); a gate needs a decision, see FAIL lines
+ok   S2 changed no committed offset or log end
+ok   no secret, URL or e-mail in any output or report (checked 5 values)
+ok   reports mode 600
+ok   JSON records parse
+ok   JSON holds every partition with start, end, committed and restart reads
+ok   live checkout unchanged
+ok   release checkout clean (env copy is ignored)
+python 3.10.12, compose 5.5.1, docker 29.8.1, kafka cp-7.7.1
+SELFTEST PASS

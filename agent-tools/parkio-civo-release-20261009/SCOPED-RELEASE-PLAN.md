@@ -240,8 +240,8 @@ and `sudo env PARKIO_NR_COMPOSE_PROJECT=parkio PARKIO_NR_SOURCE_ROOT=/var/lib/pa
 | Step | What | Changes |
 |---|---|---|
 | P1 | read-only facts | done (exit 0) |
-| P2 | `p2-release-images.py`: 11 rollback tags `<repository>:rollback-pre-22f96990` on the running images (all checked before the first is written; an existing different tag, or a running image that has lost its name on a containerd image store, stops it before any change); the five pins pulled by digest and verified (classic store: image id = accepted config id; containerd: manifest digest = pin, config digest compared when exposed; RepoDigests, linux/amd64, OCI revision a658edcb / 843ae7cb); D2 images unchanged; the wrapper's three web guards dry-run on the new web image; the new parking image's effective zone; base images and buildx (reported, not pulled); free space | local tags and pulls; containers created and never started, then removed |
-| P3 | read-only gates: preflight (`--deployment-profile azure-hosted-beta`, output reduced to category, FAIL/WARN subject names and the summary line), `smoke --check-credentials` (password via `read -r -s`), U12 offsets (section 5), parking rows, NR state, newest backup age | none |
+| P2 | done 2026-10-09T16:12:29Z, 12/12 gates, exit 0 (eclipse-temurin:21-jre absent locally). `p2-release-images.py`: 11 rollback tags `<repository>:rollback-pre-22f96990` on the running images (all checked before the first is written; an existing different tag, or a running image that has lost its name on a containerd image store, stops it before any change); the five pins pulled by digest and verified (classic store: image id = accepted config id; containerd: manifest digest = pin, config digest compared when exposed; RepoDigests, linux/amd64, OCI revision a658edcb / 843ae7cb); D2 images unchanged; the wrapper's three web guards dry-run on the new web image; the new parking image's effective zone; base images and buildx (reported, not pulled); free space | local tags and pulls; containers created and never started, then removed |
+| P3 | `p3-readonly-gates.py`: release checkout clean and its env-file copy (presence, identical or not); preflight of the live env file (`--deployment-profile azure-hosted-beta --skip-compose`, reduced to categories, FAIL/WARN subject names and the summary line; the deployed model is the wrapper's, rendered with `config --quiet`, canonical and with the waitlist overlay); Kafka per partition for all 17 groups the release recreates (section 5) and every parkio.dlt.* topic; U12-A; V41 rows gate (section 3); NR state; free space; newest backup age. `smoke --check-credentials` only checks that the password variable is set (no login, no network), so it stays at the start of the deployment session (section 12) and P3 asks for no password | none |
 | P4 | U12-A decision, only if P3 is not zero | only if decided |
 | P5 | fresh backup + offsite evidence (section 6) | a backup, its metrics and manifest, as nightly |
 | P6 | planned record (T1 `plan`): baseline Flyway scripts per database, previous containers (id, image, config hash, recorded files and env file), the rollback method per service re-verified (live wrapper or recorded files, as D0.2.3 G), target hashes and images, P2 and P5 references | evidence files only |
@@ -292,7 +292,8 @@ failed rows; NR check where applicable.
 D7 build failure: nothing is recreated; every moved `parkio-<svc>:latest` is pointed back at its rollback tag
 (`docker tag parkio-<svc>:rollback-pre-22f96990 parkio-<svc>:latest`), journal `fail`, state `partial` (D2-D6b
 done). The build needs network for Gradle, Maven Central and apt; base images are used from the local store when
-present (P2 G).
+present. P2: eclipse-temurin:21-jre is absent, so the D7 preparation pulls it once before the window and records its
+digest (a pull of a base image moves no service tag).
 
 Expected during the window: short outages of the API (D3), web (D4), auth (D5), media (D6a), parking (D6b) and
 the six (D7). GatewayDown/CoreServiceDown alert only if a service stays down over 2 minutes. No silence planned.
