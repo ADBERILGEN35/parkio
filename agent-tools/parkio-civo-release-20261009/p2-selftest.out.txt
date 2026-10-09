@@ -1,0 +1,244 @@
+ok   s0.out exit 1
+ok   s0.out: STOP: running image not taggable (nothing was changed): notification-service runs 
+ok   S0 wrote no rollback tag
+A. Inputs
+  P2 | stamp 20261009T160531Z | release <W>/release @ 900a5bba0f99 (clean) | live <W>/live @ 5718a613 (1 changes, untouched) | project p2probe
+  docker 29.8.1; storage driver overlayfs; image store containerd
+  free space before: / 854.1 GiB (>= bound); docker root 854.1 GiB; NR budget fs 854.1 GiB (>= bound)
+
+B. Running images of the 14 services and the planned rollback tags (no change yet)
+  gateway-service: running 97fd8646a38b from localhost:15731/parkio/gateway-service@sha256:97fd8646a38be24d690159725656db23388b023f04c73cd504c4bb2a91b6ce8d; revision prev-gateway; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/gateway-service:rollback-pre-22f96990: to create
+  media-service: running f74b521650ee from localhost:15731/parkio/media-service@sha256:f74b521650ee58eda59b749b631fff2a586dcbe9e8bff574ee22a929e363b4ac; revision prev-media-s; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/media-service:rollback-pre-22f96990: to create
+  parking-service: running a81b2f3edfa3 from localhost:15731/parkio/parking-service@sha256:a81b2f3edfa3afa88b93845171a6f05701bd97dc289e9b1a4af87240dce85115; revision prev-parking; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/parking-service:rollback-pre-22f96990: to create
+  auth-service: running 964bf3877e2b from localhost:15731/parkio/auth-service@sha256:964bf3877e2be87be1d358dad3757e5738c392c2f130db9f9b8d88039ae21732; revision prev-auth-se; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/auth-service:rollback-pre-22f96990: to create
+  web: running 51ebb8b73699 from localhost:15731/parkio/web@sha256:51ebb8b736994ecefa645fa0020bbb6215b0ee1a07afaa25cdabf1477337ec8f; revision prev-web; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/web:rollback-pre-22f96990: to create
+  user-service: running 80fd550aa77f from p2probe-user-service; revision unknown; p2probe-user-service:latest = running
+    rollback tag p2probe-user-service:rollback-pre-22f96990: CONFLICT
+  gamification-service: running fc714bc1d0d5 from p2probe-gamification-service; revision unknown; p2probe-gamification-service:latest = running
+    rollback tag p2probe-gamification-service:rollback-pre-22f96990: to create
+  notification-service: running 30f06f9151d5 from p2probe-notification-service; revision absent; p2probe-notification-service:latest = running
+    rollback tag p2probe-notification-service:rollback-pre-22f96990: to create
+  moderation-service: running 533645aea406 from p2probe-moderation-service; revision unknown; p2probe-moderation-service:latest = running
+    rollback tag p2probe-moderation-service:rollback-pre-22f96990: to create
+  ai-validation-service: running 20911fa8cfb8 from p2probe-ai-validation-service; revision unknown; p2probe-ai-validation-service:latest = running
+    rollback tag p2probe-ai-validation-service:rollback-pre-22f96990: to create
+  analytics-service: running e50cf1b0df1c from p2probe-analytics-service; revision unknown; p2probe-analytics-service:latest MOVED since the container started
+    rollback tag p2probe-analytics-service:rollback-pre-22f96990: to create
+  alertmanager: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+  prometheus: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+  caddy: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+STOP: rollback tag name already used by another image (nothing was changed): p2probe-user-service:rollback-pre-22f96990 -> fd7dc98638c8, running 80fd550aa77f
+P2 STOPPED (see the STOP line; tags written so far are listed above)
+saved: <W>/out/P2-images-20261009T160531Z.txt
+saved: <W>/out/P2-images-20261009T160531Z.json
+ok   s1.out exit 1
+ok   s1.out: STOP: rollback tag name already used by another image (nothing was changed): p2probe-user-service:rollback-pre-22f96990
+ok   S1 wrote no rollback tag
+ok   S1 pulled nothing
+A. Inputs
+  P2 | stamp 20261009T160535Z | release <W>/release @ 900a5bba0f99 (clean) | live <W>/live @ 5718a613 (1 changes, untouched) | project p2probe
+  docker 29.8.1; storage driver overlayfs; image store containerd
+  free space before: / 854.1 GiB (>= bound); docker root 854.1 GiB; NR budget fs 854.1 GiB (>= bound)
+
+B. Running images of the 14 services and the planned rollback tags (no change yet)
+  gateway-service: running 97fd8646a38b from localhost:15731/parkio/gateway-service@sha256:97fd8646a38be24d690159725656db23388b023f04c73cd504c4bb2a91b6ce8d; revision prev-gateway; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/gateway-service:rollback-pre-22f96990: to create
+  media-service: running f74b521650ee from localhost:15731/parkio/media-service@sha256:f74b521650ee58eda59b749b631fff2a586dcbe9e8bff574ee22a929e363b4ac; revision prev-media-s; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/media-service:rollback-pre-22f96990: to create
+  parking-service: running a81b2f3edfa3 from localhost:15731/parkio/parking-service@sha256:a81b2f3edfa3afa88b93845171a6f05701bd97dc289e9b1a4af87240dce85115; revision prev-parking; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/parking-service:rollback-pre-22f96990: to create
+  auth-service: running 964bf3877e2b from localhost:15731/parkio/auth-service@sha256:964bf3877e2be87be1d358dad3757e5738c392c2f130db9f9b8d88039ae21732; revision prev-auth-se; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/auth-service:rollback-pre-22f96990: to create
+  web: running 51ebb8b73699 from localhost:15731/parkio/web@sha256:51ebb8b736994ecefa645fa0020bbb6215b0ee1a07afaa25cdabf1477337ec8f; revision prev-web; = previous pin named in the release file
+    rollback tag localhost:15731/parkio/web:rollback-pre-22f96990: to create
+  user-service: running 80fd550aa77f from p2probe-user-service; revision unknown; p2probe-user-service:latest = running
+    rollback tag p2probe-user-service:rollback-pre-22f96990: to create
+  gamification-service: running fc714bc1d0d5 from p2probe-gamification-service; revision unknown; p2probe-gamification-service:latest = running
+    rollback tag p2probe-gamification-service:rollback-pre-22f96990: to create
+  notification-service: running 30f06f9151d5 from p2probe-notification-service; revision absent; p2probe-notification-service:latest = running
+    rollback tag p2probe-notification-service:rollback-pre-22f96990: to create
+  moderation-service: running 533645aea406 from p2probe-moderation-service; revision unknown; p2probe-moderation-service:latest = running
+    rollback tag p2probe-moderation-service:rollback-pre-22f96990: to create
+  ai-validation-service: running 20911fa8cfb8 from p2probe-ai-validation-service; revision unknown; p2probe-ai-validation-service:latest = running
+    rollback tag p2probe-ai-validation-service:rollback-pre-22f96990: to create
+  analytics-service: running e50cf1b0df1c from p2probe-analytics-service; revision unknown; p2probe-analytics-service:latest MOVED since the container started
+    rollback tag p2probe-analytics-service:rollback-pre-22f96990: to create
+  alertmanager: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+  prometheus: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+  caddy: running fd7dc98638c8 from busybox:latest; release model busybox:latest -> same reference, resolves to the running image: D2 keeps the image
+
+C. Rollback tags
+  localhost:15731/parkio/gateway-service:rollback-pre-22f96990 -> 97fd8646a38b (created, verified)
+  localhost:15731/parkio/media-service:rollback-pre-22f96990 -> f74b521650ee (created, verified)
+  localhost:15731/parkio/parking-service:rollback-pre-22f96990 -> a81b2f3edfa3 (created, verified)
+  localhost:15731/parkio/auth-service:rollback-pre-22f96990 -> 964bf3877e2b (created, verified)
+  localhost:15731/parkio/web:rollback-pre-22f96990 -> 51ebb8b73699 (created, verified)
+  p2probe-user-service:rollback-pre-22f96990 -> 80fd550aa77f (created, verified)
+  p2probe-gamification-service:rollback-pre-22f96990 -> fc714bc1d0d5 (created, verified)
+  p2probe-notification-service:rollback-pre-22f96990 -> 30f06f9151d5 (created, verified)
+  p2probe-moderation-service:rollback-pre-22f96990 -> 533645aea406 (created, verified)
+  p2probe-ai-validation-service:rollback-pre-22f96990 -> 20911fa8cfb8 (created, verified)
+  p2probe-analytics-service:rollback-pre-22f96990 -> e50cf1b0df1c (created, verified)
+  PASS rollback tags: 11 of 11 point at the running images
+
+D. Release images
+  pulling gateway-service ...
+  PASS gateway-service release image: pulled; sha256:08f00e371a31; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  pulling media-service ...
+  PASS media-service release image: pulled; sha256:0afca79066e7; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  pulling parking-service ...
+  PASS parking-service release image: pulled; sha256:fec79913aade; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  pulling auth-service ...
+  PASS auth-service release image: pulled; sha256:22bec0ac5910; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  pulling web ...
+  PASS web release image: pulled; sha256:570ba1a7ad53; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision 843ae7cb461b
+  D2 images: alertmanager unchanged; prometheus unchanged; caddy unchanged
+  PASS D2 recreates keep their images
+  D7 (host-built, not built by P2): user-service latest = running; gamification-service latest = running; notification-service latest = running; moderation-service latest = running; ai-validation-service latest = running; analytics-service latest MOVED since the container started
+
+E. D4 pre-check: the release wrapper's web guards on the new web image (docker create/cp/rm only)
+  PASS web map guard: web-map-deploy-guard: PASS image=stub mapKey=PRESENT fingerprint=0123456789ab bound=stub
+  PASS web conf.d check: web-conf-d-guard: PASS (renders conf.d)
+  PASS web API endpoint check: web-api-endpoint-guard: PASS web calls <url>
+
+F. New parking image: effective JVM default time zone (pgjdbc sends it as the session TimeZone; V41)
+  image config: TZ absent; JAVA_TOOL_OPTIONS absent; JDK_JAVA_OPTIONS absent; entrypoint/cmd without user.timezone
+  release model (parking-service): TZ absent; JAVA_TOOL_OPTIONS without user.timezone; JDK_JAVA_OPTIONS absent; no entrypoint/command override
+  image files: /etc/timezone absent; /etc/localtime -> /usr/share/zoneinfo/Etc/UTC; probe container removed: yes
+  JVM resolution order user.timezone, TZ, /etc/timezone, /etc/localtime: Etc/UTC from /etc/localtime link
+  PASS parking session time zone is UTC: V41's UPDATE then changes no row by construction
+
+G. D7 build inputs (nothing pulled or built)
+  busybox:latest: present fd7dc98638c8, created 2026-05-13, repo digest sha256:fd7dc98638c8
+  p2probe-no-such:never: absent locally (the D7 build would pull it)
+  docker buildx: present
+  free space after: / 854.1 GiB (>= bound); docker root 854.1 GiB; NR budget fs 854.1 GiB (>= bound)
+  docker root used by P2: 0.0 GiB
+  PASS release checkout still clean
+
+SUMMARY
+gates passed 12/12
+P2 COMPLETE
+saved: <W>/out/P2-images-20261009T160535Z.txt
+saved: <W>/out/P2-images-20261009T160535Z.json
+ok   s2.out exit 0
+ok   s2.out: rollback tag localhost:15731/parkio/gateway-service:rollback-pre-22f96990: to create
+ok   localhost:15731/parkio/gateway-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag localhost:15731/parkio/media-service:rollback-pre-22f96990: to create
+ok   localhost:15731/parkio/media-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag localhost:15731/parkio/parking-service:rollback-pre-22f96990: to create
+ok   localhost:15731/parkio/parking-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag localhost:15731/parkio/auth-service:rollback-pre-22f96990: to create
+ok   localhost:15731/parkio/auth-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag localhost:15731/parkio/web:rollback-pre-22f96990: to create
+ok   localhost:15731/parkio/web:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-user-service:rollback-pre-22f96990: to create
+ok   p2probe-user-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-gamification-service:rollback-pre-22f96990: to create
+ok   p2probe-gamification-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-notification-service:rollback-pre-22f96990: to create
+ok   p2probe-notification-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-moderation-service:rollback-pre-22f96990: to create
+ok   p2probe-moderation-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-ai-validation-service:rollback-pre-22f96990: to create
+ok   p2probe-ai-validation-service:rollback-pre-22f96990 = running image
+ok   s2.out: rollback tag p2probe-analytics-service:rollback-pre-22f96990: to create
+ok   p2probe-analytics-service:rollback-pre-22f96990 = running image
+ok   s2.out: PASS rollback tags: 11 of 11 point at the running images
+ok   s2.out: PASS gateway-service release image: pulled;
+ok   s2.out: PASS media-service release image: pulled;
+ok   s2.out: PASS parking-service release image: pulled;
+ok   s2.out: PASS auth-service release image: pulled;
+ok   s2.out: PASS web release image: pulled;
+ok   s2.out: manifest digest = pin
+ok   s2.out: linux/amd64; revision a658edcb0e41
+ok   s2.out: linux/amd64; revision 843ae7cb461b
+ok   s2.out: gateway-service: running
+ok   s2.out: = previous pin named in the release file
+ok   s2.out: p2probe-analytics-service:latest MOVED since the container started
+ok   s2.out: p2probe-user-service:latest = running
+ok   s2.out: caddy: running
+ok   s2.out: PASS D2 recreates keep their images
+ok   s2.out: PASS web map guard: web-map-deploy-guard: PASS image=stub
+ok   s2.out: PASS web conf.d check: web-conf-d-guard: PASS
+ok   s2.out: PASS web API endpoint check: web-api-endpoint-guard: PASS web calls <url>
+ok   s2.out: image config: TZ absent; JAVA_TOOL_OPTIONS absent; JDK_JAVA_OPTIONS absent; entrypoint/cmd without user.timezone
+ok   s2.out: release model (parking-service): TZ absent; JAVA_TOOL_OPTIONS without user.timezone; JDK_JAVA_OPTIONS absent; no entrypoint/command override
+ok   s2.out: image files: /etc/timezone absent; /etc/localtime -> /usr/share/zoneinfo/Etc/UTC; probe container removed: yes
+ok   s2.out: JVM resolution order user.timezone, TZ, /etc/timezone, /etc/localtime: Etc/UTC from /etc/localtime link
+ok   s2.out: PASS parking session time zone is UTC: V41's UPDATE then changes no row by construction
+ok   s2.out: busybox:latest: present
+ok   s2.out: p2probe-no-such:never: absent locally (the D7 build would pull it)
+ok   s2.out: PASS release checkout still clean
+ok   s2.out: P2 COMPLETE
+ok   s3.out exit 0
+ok   s3.out: rollback tag p2probe-user-service:rollback-pre-22f96990: kept (same image)
+ok   s3.out: localhost:15731/parkio/web:rollback-pre-22f96990 -> 
+ok   s3.out: (kept, verified)
+ok   s3.out: PASS gateway-service release image: present;
+ok   s3.out lacks: (created, verified)
+ok   s3.out: P2 COMPLETE
+D. Release images
+  PASS gateway-service release image: present; sha256:08f00e371a31; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  PASS media-service release image: present; sha256:0afca79066e7; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  pulling parking-service ...
+  PASS parking-service release image: pulled; sha256:133a77bfcb7b; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  PASS auth-service release image: present; sha256:22bec0ac5910; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision a658edcb0e41
+  PASS web release image: present; sha256:570ba1a7ad53; manifest digest = pin (config digest not exposed by this store); linux/amd64; revision 843ae7cb461b
+  D2 images: alertmanager unchanged; prometheus unchanged; caddy CHANGES
+  FAIL D2 recreates keep their images
+  D7 (host-built, not built by P2): user-service latest = running; gamification-service latest = running; notification-service latest = running; moderation-service latest = running; ai-validation-service latest = running; analytics-service latest MOVED since the container started
+
+E. D4 pre-check: the release wrapper's web guards on the new web image (docker create/cp/rm only)
+  PASS web map guard: web-map-deploy-guard: PASS image=stub mapKey=PRESENT fingerprint=0123456789ab bound=stub
+  PASS web conf.d check: web-conf-d-guard: PASS (renders conf.d)
+  FAIL web API endpoint check: web-api-endpoint-guard: BLOCKED: image bakes <url>
+
+F. New parking image: effective JVM default time zone (pgjdbc sends it as the session TimeZone; V41)
+  image config: TZ Europe/Istanbul; JAVA_TOOL_OPTIONS absent; JDK_JAVA_OPTIONS absent; entrypoint/cmd without user.timezone
+  release model (parking-service): TZ absent; JAVA_TOOL_OPTIONS without user.timezone; JDK_JAVA_OPTIONS absent; no entrypoint/command override
+  image files: /etc/timezone absent; /etc/localtime regular file, TZif footer UTC; probe container removed: yes
+  JVM resolution order user.timezone, TZ, /etc/timezone, /etc/localtime: Europe/Istanbul from TZ
+  FAIL parking session time zone is UTC: STOP before D6b: V41 decision needed
+
+G. D7 build inputs (nothing pulled or built)
+  busybox:latest: present fd7dc98638c8, created 2026-05-13, repo digest sha256:fd7dc98638c8
+  p2probe-no-such:never: absent locally (the D7 build would pull it)
+  docker buildx: present
+  free space after: / 854.1 GiB (>= bound); docker root 854.1 GiB; NR budget fs 854.1 GiB (>= bound)
+  docker root used by P2: 0.0 GiB
+  PASS release checkout still clean
+
+SUMMARY
+gates passed 9/12; failed: D2 recreates keep their images, web API endpoint check, parking session time zone is UTC
+P2 INCOMPLETE (a gate failed; no service container was touched)
+saved: <W>/out/P2-images-20261009T160547Z.txt
+saved: <W>/out/P2-images-20261009T160547Z.json
+ok   s4.out exit 1
+ok   s4.out: caddy: running
+ok   s4.out: DIFFERENT image: D2 would change it
+ok   s4.out: FAIL D2 recreates keep their images
+ok   s4.out: FAIL web API endpoint check: web-api-endpoint-guard: BLOCKED: image bakes <url>
+ok   s4.out: image config: TZ Europe/Istanbul;
+ok   s4.out: Europe/Istanbul from TZ
+ok   s4.out: FAIL parking session time zone is UTC: STOP before D6b: V41 decision needed
+ok   s4.out: P2 INCOMPLETE (a gate failed; no service container was touched)
+ok   no secret, URL or synthetic host in any output or report (checked 5 values)
+ok   reports mode 600
+ok   JSON records parse
+ok   two PASS records (S2, S3)
+ok   one FAIL record (S4)
+ok   2 STOPPED record(s) (S0, S1)
+ok   no service container recreated, started or stopped
+ok   existing tags unchanged; only the 11 rollback tags added
+ok   probe containers removed
+ok   private temporary directories removed
+ok   release checkout clean
+ok   classic store identity branch
+python 3.10.12, compose 5.5.1, docker 29.8.1, store containerd
+SELFTEST PASS

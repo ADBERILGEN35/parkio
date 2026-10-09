@@ -1,0 +1,21 @@
+# web/marketing at 22f9699038cdae15ffff5dd7433c4a64aed0a951, launch packaging (top-level *.test.mjs removed), 19 files
+# verify inside the extracted bundle directory: sha256sum -c marketing-m1-manifest.sha256
+f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0  ./.htaccess
+94864ecff437bc90a148e18e1a2d5679ebd56f56a957c1229b139043d8dba94c  ./404.html
+bdee3e60f199540842f734cd63aca422c54502c77342b28702a3341aedc568fe  ./assets/favicon-180.png
+d09ea50e8048139d03ad4a47c3e5f9a207130a35a6fbbd5606ad6a158487e6eb  ./assets/favicon-32.png
+be55e3a12341e701c98594a13e7ff91713b0a0410d13ed09e2edab398ffb748b  ./assets/favicon-512.png
+8b8380632964bbe3d93222275a220c73e2189e5033c7341db3b0a464377cba13  ./assets/favicon-64.png
+e5e129ddb788f5efcad9197022fbef860ce0a3091a36bffbb2f58954c187f37b  ./assets/parkio-logo.png
+7372973d8c53e54f457b261b5b2a1f419a9b4a66aeb3737a1a62117506c5c2e7  ./assets/social-preview.png
+05da52a4459f24e32dc915cdb16a7fcd75cec8156600dd11b596c633c3cc37f0  ./i18n.js
+af35dad8c10e763ac9e0f2142e877846b869ace42733b62e8988bafa9accfc59  ./index.html
+f7777c958994e2d26bd7b82f36dab37211fcbdb7a4f09a02b78153d2b2165c4b  ./privacy/index.html
+31101f8c25b5e17b83edaa10bae8b2e123bc2332e4314a3efe678be59c39c61e  ./robots.txt
+e95673d09e602328fe3997456acd01f9334d0db4d0f44d148e960f863e7ac931  ./site.webmanifest
+29ddf83515d4f67515c54dab3ec776250442ffb46c7d0b0cfc5cfb501666b40f  ./sitemap.xml
+5e12ed5dae68be71157c6a19b175ae19ce8f0e3a6092074a2bf70f33e71cb623  ./styles.css
+3bd15878f4c1c3928722cfb0ddf5b1e8232307cfebe4c7d3f4f9c6193e4e8403  ./terms/index.html
+906655924d0df830ad2a64b5f55a5086239b3fc4c805ed2c6256aa5830a848a4  ./waitlist.js
+cc0abf8c48dff9bdfae9b25e6bfeca35b128524a365fc92942ca870dd2199268  ./waitlist/confirm/index.html
+6a11e73f7dae85cd1bf5f34e287da65c0242f5239129dc32466db3ea80d795a4  ./waitlist/unsubscribe/index.html
