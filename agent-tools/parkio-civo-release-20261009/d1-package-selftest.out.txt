@@ -1,0 +1,18 @@
+ok   s2 exit 1
+ok   s2: STOP: the reviewed head 272273c405c69beec94ce63913e7ddfd803595c3 is not merged into origin/api yet
+ok   s3 exit 1
+ok   s3: STOP: the merge's web/marketing differs from the reviewed head
+ok   s1 exit 0
+D1 marketing package | reviewed head 272273c405c69beec94ce63913e7ddfd803595c3
+  merge commit d6a44dd2ae1b2388db387913053fe8e576d1d1d4 on origin/api (second parent = reviewed head; web/marketing tree identical)
+  output <W>/home/parkio-marketing-d6a44dd2ae1b
+files: 19 in the zip, 19 expected; matching: 19
+zip sha256: a713be8b45e42606120ba925cab205698603b527dc7e27fdeeaabeb7aecc192b
+PACKAGE VERIFIED
+  output: VERIFY.txt parkio-marketing-launch-d6a44dd2ae1b.MANIFEST.txt parkio-marketing-launch-d6a44dd2ae1b.zip 
+ok   s1: merge commit d6a44dd2ae1b2388db387913053fe8e576d1d1d4 on origin/api (second parent = reviewed head; web/marketing tree identical)
+ok   s1: files: 19 in the zip, 19 expected; matching: 19
+ok   s1: PACKAGE VERIFIED
+ok   zip written
+ok   temporary clones removed
+SELFTEST PASS

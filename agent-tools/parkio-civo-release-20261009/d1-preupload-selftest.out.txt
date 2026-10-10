@@ -1,0 +1,55 @@
+ok   s1-public_html exit 0
+ok   s1-public_html: PRE-UPLOAD CHECK PASS
+ok   s1-public_html: .htaccess: recorded live state; the upload replaces it
+ok   s1-public_html: assets/social-preview.png: recorded live state; unchanged by the upload
+ok   s1-public_html: index.html: recorded live state; the upload replaces it
+ok   s1-public_html: files only on live (extraction leaves them as they are): 2: google1234.html, waitlist.adapter.test.mjs
+ok   s1-public_html: 10 replaced
+ok   s1-public_html: 9 unchanged
+ok   s1-backup-zip exit 0
+ok   s1-backup-zip: PRE-UPLOAD CHECK PASS
+ok   s1-backup-zip: .htaccess: recorded live state; the upload replaces it
+ok   s1-backup-zip: assets/social-preview.png: recorded live state; unchanged by the upload
+ok   s1-backup-zip: index.html: recorded live state; the upload replaces it
+ok   s1-backup-zip: files only on live (extraction leaves them as they are): 2: google1234.html, waitlist.adapter.test.mjs
+ok   s1-backup-zip: 10 replaced
+ok   s1-backup-zip: 9 unchanged
+ok   s1-backup-tgz exit 0
+ok   s1-backup-tgz: PRE-UPLOAD CHECK PASS
+ok   s1-backup-tgz: .htaccess: recorded live state; the upload replaces it
+ok   s1-backup-tgz: assets/social-preview.png: recorded live state; unchanged by the upload
+ok   s1-backup-tgz: index.html: recorded live state; the upload replaces it
+ok   s1-backup-tgz: files only on live (extraction leaves them as they are): 2: google1234.html, waitlist.adapter.test.mjs
+ok   s1-backup-tgz: 10 replaced
+ok   s1-backup-tgz: 9 unchanged
+D1 pre-upload check | backup root 'public_html/' | 21 files in the backup
+  .htaccess: recorded live state; the upload replaces it
+  404.html: recorded live state; the upload replaces it
+  assets/favicon-180.png: recorded live state; unchanged by the upload
+  assets/favicon-32.png: recorded live state; unchanged by the upload
+  assets/favicon-512.png: recorded live state; unchanged by the upload
+  assets/favicon-64.png: recorded live state; unchanged by the upload
+  assets/parkio-logo.png: recorded live state; unchanged by the upload
+  assets/social-preview.png: recorded live state; unchanged by the upload
+  i18n.js: recorded live state; the upload replaces it
+  index.html: recorded live state; the upload replaces it
+  privacy/index.html: recorded live state; the upload replaces it
+  robots.txt: recorded live state; unchanged by the upload
+  site.webmanifest: recorded live state; unchanged by the upload
+  sitemap.xml: recorded live state; unchanged by the upload
+  styles.css: recorded live state; the upload replaces it
+  terms/index.html: recorded live state; the upload replaces it
+  waitlist.js: recorded live state; the upload replaces it
+  waitlist/confirm/index.html: recorded live state; the upload replaces it
+  waitlist/unsubscribe/index.html: recorded live state; the upload replaces it
+  files only on live (extraction leaves them as they are): 2: google1234.html, waitlist.adapter.test.mjs
+SUMMARY: 19/19 bundle paths present on live; unrecorded live changes: 0
+PRE-UPLOAD CHECK PASS
+ok   s2 exit 1
+ok   s2: terms/index.html: UNRECORDED LIVE CHANGE
+ok   s2: PRE-UPLOAD CHECK FAIL
+ok   s3 exit 1
+ok   s3: .htaccess: UNRECORDED LIVE CHANGE
+ok   s4 exit 0
+ok   s4: styles.css: already the new version
+SELFTEST PASS

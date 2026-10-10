@@ -1,0 +1,44 @@
+D1 verify | stamp 20261010T181927Z | http://127.0.0.1:18761 | bundle revision __MERGE_SHA__
+
+A. Files (SHA-256 as served; .htaccess is checked through the headers)
+  PASS every bundle file is served as built (images: present, re-encoded by the CDN): 18/18
+
+B. Landing page and waitlist client
+  PASS landing meta parkio-waitlist-mode=api: api
+  PASS landing loads the shared assets with ?v=w01n1: styles.css?v=w01n1, i18n.js?v=w01n1, waitlist.js?v=w01n1
+  PASS waitlist.js carries waitlist-consent-v1
+
+C. Headers, redirect, 404
+  PASS / status 200: 200
+  PASS / CSP equals the bundle's .htaccess: equal
+  PASS / script-src without 'unsafe-inline'
+  PASS / HSTS max-age=31536000: max-age=31536000
+  PASS /waitlist/confirm/ status 200: 200
+  PASS /waitlist/confirm/ CSP equals the bundle's .htaccess: equal
+  PASS /waitlist/confirm/ script-src without 'unsafe-inline'
+  PASS /waitlist/confirm/ HSTS max-age=31536000: max-age=31536000
+  PASS http:// redirects to https: 301 -> https
+  PASS unknown path answers 404: 404
+
+gates passed 14/14
+D1 VERIFIED (live)
+saved: <W>/out/D1-verify-20261010T181927Z.txt
+saved: <W>/out/D1-verify-20261010T181927Z.json
+ok   s1 exit 0
+ok   s1: PASS every bundle file is served as built (images: present, re-encoded by the CDN): 18/18
+ok   s1: PASS landing meta parkio-waitlist-mode=api
+ok   s1: PASS landing loads the shared assets with ?v=w01n1
+ok   s1: PASS waitlist.js carries waitlist-consent-v1
+ok   s1: PASS / CSP equals the bundle's .htaccess: equal
+ok   s1: PASS /waitlist/confirm/ HSTS max-age=31536000
+ok   s1: PASS http:// redirects to https: 301 -> https
+ok   s1: PASS unknown path answers 404: 404
+ok   s1: D1 VERIFIED (live)
+ok   s2 exit 1
+ok   s2: FAIL /waitlist.js: status 200, sha256 differs
+ok   s2: FAIL waitlist.js carries waitlist-consent-v1
+ok   s2: D1 NOT VERIFIED
+ok   s3 exit 1
+ok   s3: FAIL / HSTS max-age=31536000: absent
+ok   reports mode 600
+SELFTEST PASS
