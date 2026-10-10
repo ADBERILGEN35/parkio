@@ -1,0 +1,73 @@
+S1 image findings | stamp 20261010T202428Z | release <W>/release | project s1probe | CVE-2026-78667, CVE-2026-78669, CVE-2026-97031 in usr/bin/pebble
+
+A. Inputs
+  release checkout at 22f9699038cd, clean; the six host-built Dockerfiles build FROM s1probe-temurin:21-jdk and run FROM s1probe-temurin:21-jre
+  docker 29.8.1
+  before: 253 tags, 1 project containers
+
+B. Release images (digest-pinned; present locally, nothing pulled)
+  PASS gateway-service release image identity: image id = accepted config digest; linux/amd64; revision a658edcb0e41
+  PASS gateway-service examined: ubuntu 24.04 (noble); created 2026-10-10T20:24:21; /usr/bin/pebble PRESENT (17543168 bytes, sha256 8be11cd37a7d), built with go1.20.8, path github.com/docker/distribution/cmd/registry -> affected (older than the fixed lines 1.26.9 / 1.27.2)
+  PASS media-service release image identity: image id = accepted config digest; linux/amd64; revision a658edcb0e41
+  PASS media-service examined: ubuntu 24.04 (noble); created 2026-10-10T20:24:22; /usr/bin/pebble PRESENT (260 bytes, sha256 c86b3fe2d6b2), built with go1.27.2, github.com/canonical/pebble v1.99.0 -> fixed (>= 1.27.2)
+  PASS parking-service release image identity: image id = accepted config digest; linux/amd64; revision a658edcb0e41
+  PASS parking-service examined: ubuntu 24.04 (noble); created 2026-10-10T20:24:21; /usr/bin/pebble absent
+  PASS auth-service release image identity: image id = accepted config digest; linux/amd64; revision a658edcb0e41
+  PASS auth-service examined: ubuntu 24.04 (noble); created 2026-10-10T20:24:25; /usr/bin/pebble PRESENT (260 bytes, sha256 ea0f61be688a), built with go1.26.9, github.com/canonical/pebble v1.99.0 -> fixed (>= 1.26.9)
+  PASS web release image identity: image id = accepted config digest; linux/amd64; revision 843ae7cb461b
+  PASS web examined: ubuntu 24.04 (noble); created 2026-10-10T20:24:21; /usr/bin/pebble absent
+
+C. D7 build inputs (as tagged on the host; nothing pulled)
+  PASS s1probe-temurin:21-jre examined: image 1ccb53285389, repo digest sha256:1ccb53285389; ubuntu 26.04 (resolute); created 2026-10-10T20:24:19; /usr/bin/pebble PRESENT (260 bytes, sha256 9cf901d421da), built with go1.26.7, github.com/canonical/pebble v1.99.0 -> affected (< 1.26.9)
+  PASS s1probe-temurin:21-jdk examined: image 1c14110ecfe8, repo digest sha256:1c14110ecfe8; ubuntu 26.04 (resolute); created 2026-10-10T20:24:19; /usr/bin/pebble absent
+
+D. Nothing changed
+  PASS no image tag added, moved or removed: added none; moved or removed none
+  PASS every project container unchanged (image, state, start time): 1 containers
+  PASS no probe container left
+
+E. Findings
+  /usr/bin/pebble present in: gateway-service, media-service, auth-service, d7-runtime-base
+  pebble built with a Go version Trivy reports as affected: gateway-service, d7-runtime-base
+  D7: the six host-built services would inherit the runtime base's /usr/bin/pebble
+
+check gates passed 15/15
+S1 CHECK COMPLETE (findings above are facts for the owner's decision)
+saved: <W>/out/S1-image-findings-20261010T202428Z.txt
+saved: <W>/out/S1-image-findings-20261010T202428Z.json
+ok   s1.out exit 0
+ok   s1.out: PASS gateway-service release image identity: image id = accepted config digest; linux/amd64; revision a658edcb0e41
+ok   s1.out: PASS gateway-service examined: ubuntu 24.04 (noble)
+ok   s1.out: /usr/bin/pebble PRESENT
+ok   s1.out: built with go1.
+ok   s1.out: built with go1.20.8, path github.com/docker/distribution/cmd/registry -> affected (older than the fixed lines 1.26.9 / 1.27.2)
+ok   s1.out: PASS media-service examined: ubuntu 24.04 (noble)
+ok   s1.out: built with go1.27.2, github.com/canonical/pebble v1.99.0 -> fixed (>= 1.27.2)
+ok   s1.out: built with go1.26.9, github.com/canonical/pebble v1.99.0 -> fixed (>= 1.26.9)
+ok   s1.out: PASS parking-service examined: ubuntu 24.04 (noble)
+ok   s1.out: /usr/bin/pebble absent
+ok   s1.out: PASS s1probe-temurin:21-jre examined
+ok   s1.out: ubuntu 26.04 (resolute)
+ok   s1.out: built with go1.26.7, github.com/canonical/pebble v1.99.0 -> affected (< 1.26.9)
+ok   s1.out: PASS no image tag added, moved or removed: added none; moved or removed none
+ok   s1.out: PASS every project container unchanged (image, state, start time): 1 containers
+ok   s1.out: PASS no probe container left
+ok   s1.out: pebble built with a Go version Trivy reports as affected: gateway-service, d7-runtime-base
+ok   s1.out: d7-runtime-base
+ok   s1.out: D7: the six host-built services would inherit the runtime base's /usr/bin/pebble
+ok   s1.out: S1 CHECK COMPLETE
+ok   s1: only real findings listed as affected
+ok   project container untouched
+ok   JSON record
+ok   reports mode 600
+ok   s2.out exit 1
+ok   s2.out: FAIL auth-service release image present: absent locally (not pulled by this check)
+ok   s2.out: S1 CHECK INCOMPLETE
+ok   s2: nothing pulled
+ok   s3.out exit 1
+ok   s3.out: STOP: user-service/Dockerfile FROM lines are not [s1probe-temurin:21-jdk, s1probe-temurin:21-jre]
+ok   s3: no image probed
+ok   no probe container after S1-S3
+ok   s4 parser and classification
+docker 29.8.1
+SELFTEST PASS
