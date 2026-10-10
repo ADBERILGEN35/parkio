@@ -60,14 +60,16 @@ When 01E is authorized:
 4. Back up the existing `public_html` contents using the operator-controlled Hostinger
    facility and record the restore point outside the public web root.
 5. Upload the contents of `web/marketing/` into `public_html`, not the parent directory.
-6. Preserve `.htaccess`; do not weaken its security headers.
+6. Preserve `.htaccess`; do not weaken its security headers or drop the
+   `www.parkio.dev` → `parkio.dev` redirect.
 7. Verify `/`, `/privacy/`, `/terms/`, `/robots.txt`, `/sitemap.xml`, `/404.html`, and all
    referenced assets from an independent browser and crawler-like client.
 8. Record the dated response headers of `https://parkio.dev/` and
    `https://parkio.dev/waitlist/confirm/` (for example `curl -sSI`) and compare
    `Content-Security-Policy` and `Strict-Transport-Security` with `web/marketing/.htaccess`;
    load both pages in a browser and confirm the console shows no CSP violation. Confirm that
-   `http://parkio.dev/` redirects to HTTPS: browsers ignore HSTS sent over plain HTTP.
+   `http://parkio.dev/` redirects to HTTPS: browsers ignore HSTS sent over plain HTTP. Confirm
+   that `https://www.parkio.dev/privacy/?x=1` answers 301 to `https://parkio.dev/privacy/?x=1`.
 
 No credential, FTP secret, resolved environment file, or Hostinger token belongs in Git.
 
@@ -154,10 +156,10 @@ Rollback / containment:
 
 
 The deterministic validator checks the required `.htaccess` directives statically, including
-a `script-src` without `'unsafe-inline'`, an HSTS header, and no executable inline script,
-inline event handler or `javascript:` URL in any page (CL-F39.5). Its local Node server
-validates routes, content types, links, assets, crawler equivalence, and responsive rendering,
-and sends the `Header always set` directives of `.htaccess`, so the marketing Playwright suite
-runs under the configured CSP and fails on any CSP violation. It does not emulate other Apache
-module behavior (expiry, `FilesMatch`, `ErrorDocument`). Apache/Hostinger header verification
-remains an 01E post-deploy check (step 8 above).
+a `script-src` without `'unsafe-inline'`, an HSTS header, the `www` → apex redirect, and no
+executable inline script, inline event handler or `javascript:` URL in any page (CL-F39.5).
+Its local Node server validates routes, content types, links, assets, crawler equivalence, and
+responsive rendering, and sends the `Header always set` directives of `.htaccess`, so the
+marketing Playwright suite runs under the configured CSP and fails on any CSP violation. It
+does not emulate other Apache module behavior (expiry, `FilesMatch`, `ErrorDocument`,
+rewrites). Apache/Hostinger header verification remains an 01E post-deploy check (step 8 above).
