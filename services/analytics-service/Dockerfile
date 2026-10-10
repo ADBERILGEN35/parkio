@@ -17,6 +17,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
+# The Ubuntu 26.04 base layer (built with Rockcraft) ships /usr/bin/pebble, a Go service manager
+# that nothing here runs: the base image clears its entrypoint, the temurin entrypoint never calls
+# it, and this image starts java directly. Removing it keeps that binary's Go stdlib findings
+# (Security CI library gate) out of the image filesystem.
+RUN rm -f /usr/bin/pebble
+
 # OCI image metadata (supply chain / provenance). Mutable fields are passed by CI at build
 # time (--build-arg); none are invented. `source` is the canonical repository. No `licenses`
 # label until a LICENSE file is added to the repo (do not invent a license).
