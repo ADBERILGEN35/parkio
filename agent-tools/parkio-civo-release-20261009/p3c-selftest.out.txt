@@ -1,0 +1,98 @@
+ok   real preflight before: exactly the two host FAILs
+ok   s0 exit 1
+ok   s0: STOP: standard input is not a terminal
+ok   s0: env file unchanged, no backup
+ok   s1 exit 1
+ok   s1: STOP: the two entries differ
+ok   s1: env file unchanged, no backup
+ok   s2 exit 1
+ok   s2: STOP: the entry equals the value of PARKIO_LOGIN_THROTTLE_HMAC_KEY
+ok   s2: env file unchanged, no backup
+ok   s3 exit 1
+ok   s3: STOP: the entry looks like a placeholder
+ok   s3: env file unchanged, no backup
+ok   s4 exit 1
+ok   s4: 1 unknown argument(s), not shown
+ok   s4: env file unchanged, no backup
+ok   s5 exit 0
+P3c Expo push env | stamp 20261010T173512Z | env file <W>/live/docker/.env.azure-hosted-beta | release <W>/release
+
+A. Preconditions (nothing changes here)
+  env file: mode 600, owner <user>, group id <gid>
+  live checkout <W>/live: 2 changes (must stay the same)
+  PARKIO_PUSH_DELIVERY_PROVIDER: noop
+  PARKIO_PUSH_DELIVERY_ENABLED: absent
+  PARKIO_EXPO_ACCESS_TOKEN: empty
+  running notification-service: one container, recorded
+  release model renders: 3 services
+
+B. Token entry (hidden; paste the parkio-civo-push token twice)
+  token (hidden): 
+  same token again (hidden): 
+  entries match; shape accepted
+
+C. Backup and write
+  backup .env.azure-hosted-beta.bak-20261010T173512Z: identical content, mode 600, same owner/group
+  rewritten in place: PARKIO_PUSH_DELIVERY_PROVIDER, PARKIO_EXPO_ACCESS_TOKEN; appended: PARKIO_PUSH_DELIVERY_ENABLED
+
+D. Verification (no value is printed)
+  other lines byte-identical and in place: 291; mode 600, owner and group unchanged
+  PARKIO_PUSH_DELIVERY_PROVIDER: expo; PARKIO_PUSH_DELIVERY_ENABLED: true; PARKIO_EXPO_ACCESS_TOKEN: set, equals the entered value
+  PASS env file holds exactly the intended change
+  PASS live checkout git status unchanged: 2 changes
+  PASS release checkout still clean
+
+E. Preflight and release model (nothing started)
+    [Secrets]
+    [Domains & URLs]
+    [Providers]
+      WARN PARKIO_AI_VISION_PROVIDER
+    [Deployment safety]
+    [Compose]
+  PASS preflight (azure-hosted-beta, env validation): exit 0; === PREFLIGHT: PASS - 62 check(s) passed, 1 warning(s) ===
+  PASS release model gives notification-service the intended settings: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN equals the entered value
+  PASS only notification-service's release config changes: changed: notification-service
+  PASS running notification-service untouched: same container, same start time
+
+SUMMARY
+gates passed 7/7
+to undo the env change (the backup holds the previous state, without this token): cp -p <W>/live/docker/.env.azure-hosted-beta.bak-20261010T173512Z <W>/live/docker/.env.azure-hosted-beta
+notification-service keeps running with provider noop until it is recreated (D7); nothing was restarted
+P3c COMPLETE
+report saved: <W>/out/P3c-expo-push-env-20261010T173512Z.txt
+ok   s5: PARKIO_PUSH_DELIVERY_PROVIDER: noop
+ok   s5: PARKIO_PUSH_DELIVERY_ENABLED: absent
+ok   s5: PARKIO_EXPO_ACCESS_TOKEN: empty
+ok   s5: entries match; shape accepted
+ok   s5: identical content, mode 600, same owner/group
+ok   s5: rewritten in place: PARKIO_PUSH_DELIVERY_PROVIDER, PARKIO_EXPO_ACCESS_TOKEN; appended: PARKIO_PUSH_DELIVERY_ENABLED
+ok   s5: PARKIO_PUSH_DELIVERY_PROVIDER: expo; PARKIO_PUSH_DELIVERY_ENABLED: true; PARKIO_EXPO_ACCESS_TOKEN: set, equals the entered value
+ok   s5: PASS env file holds exactly the intended change
+ok   s5: PASS live checkout git status unchanged: 2 changes
+ok   s5: PASS preflight (azure-hosted-beta, env validation): exit 0; === PREFLIGHT: PASS
+ok   s5: WARN PARKIO_AI_VISION_PROVIDER
+ok   s5: PASS release model gives notification-service the intended settings: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN equals the entered value
+ok   s5: PASS only notification-service's release config changes: changed: notification-service
+ok   s5: PASS running notification-service untouched: same container, same start time
+ok   s5: P3c COMPLETE
+ok   env: three keys set, every other line byte-identical, one appended block
+ok   backup equals the original, mode 600
+ok   env file mode 600
+ok   live checkout git status unchanged
+ok   container untouched
+ok   real preflight after: PASS
+ok   s6 exit 1
+ok   s6: STOP: PARKIO_EXPO_ACCESS_TOKEN is already set
+ok   s6: no new backup
+ok   s7 exit 0
+ok   s7: PARKIO_EXPO_ACCESS_TOKEN: set
+ok   s7: P3c COMPLETE
+ok   s7: rewritten in place: PARKIO_PUSH_DELIVERY_PROVIDER, PARKIO_PUSH_DELIVERY_ENABLED, PARKIO_EXPO_ACCESS_TOKEN; appended: none
+ok   s7: token rotated
+ok   s7: second backup
+ok   no token or other secret in any transcript or report (checked 4 values)
+ok   reports mode 600
+ok   release checkout clean
+ok   no temporary file left
+python 3.10.12, compose 5.5.1, docker 29.8.1
+SELFTEST PASS
