@@ -3,8 +3,9 @@
 #
 #   bash /tmp/d1-marketing-package.sh
 #
-# Builds the Hostinger launch bundle from the merge of PR #330's reviewed head (REVIEWED_HEAD below) into origin/api: the
-# merge commit whose second parent is that head and whose web/marketing tree equals the reviewed one. It uses a fresh
+# Builds the Hostinger launch bundle from the merge of PR #331's reviewed head (REVIEWED_HEAD below; PR #330's M2 bundle plus
+# the live www -> apex redirect in .htaccess) into origin/api: the merge commit whose second parent is that head and whose
+# web/marketing tree equals the reviewed one. It uses a fresh
 # sparse clone under /tmp and the repository's own packager (scripts/package-marketing-waitlist-bundles.sh launch).
 # It does not touch any existing checkout (the backend release checkout on Civo stays at 22f96990) and uploads nothing.
 # Checks: the revision is on origin/api; the packager produced a real zip and its MANIFEST names that revision and
@@ -12,7 +13,7 @@
 # same revision); waitlist.js carries waitlist-consent-v1; every page loads the shared assets with ?v=w01n1.
 # Output: ~/parkio-marketing-<sha12>/ with the zip, the packager's MANIFEST and VERIFY.txt. The clone is removed.
 set -euo pipefail
-REVIEWED_HEAD=272273c405c69beec94ce63913e7ddfd803595c3
+REVIEWED_HEAD=074d9c96bce0f2224f8bef11dee4ffef5c4dd566
 REPO_URL="${D1P_REPO_URL:-https://github.com/ADBERILGEN35/parkio.git}"
 TAG=w01n1
 command -v git >/dev/null && command -v python3 >/dev/null && command -v zip >/dev/null \
@@ -42,7 +43,7 @@ python3 -I - "$ZIP" "$OUT/parkio-marketing-launch-${MERGE_SHA:0:12}.MANIFEST.txt
 import hashlib, re, sys, zipfile
 zpath, manifest_path, sha, tag = sys.argv[1:5]
 EXPECTED = """
-f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0  ./.htaccess
+e82dccfe0a61054ee3a973239610e20b32efbe3fa1d585ed45bf724c0ac2fe65  ./.htaccess
 117e726a937d38600e8fee5c571171aeb3b78206221e41e6e957fa7a133502b5  ./404.html
 bdee3e60f199540842f734cd63aca422c54502c77342b28702a3341aedc568fe  ./assets/favicon-180.png
 d09ea50e8048139d03ad4a47c3e5f9a207130a35a6fbbd5606ad6a158487e6eb  ./assets/favicon-32.png

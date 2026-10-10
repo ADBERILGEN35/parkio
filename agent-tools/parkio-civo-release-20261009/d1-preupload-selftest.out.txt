@@ -1,3 +1,4 @@
+ok   fixture .htaccess = verified live blob 646a360f8e68
 ok   s1-public_html exit 0
 ok   s1-public_html: PRE-UPLOAD CHECK PASS
 ok   s1-public_html: .htaccess: recorded live state; the upload replaces it
@@ -52,4 +53,37 @@ ok   s3 exit 1
 ok   s3: .htaccess: UNRECORDED LIVE CHANGE
 ok   s4 exit 0
 ok   s4: styles.css: already the new version
+ok   s5 exit 1
+ok   s5: .htaccess: UNRECORDED LIVE CHANGE
+ok   s6 exit 0
+ok   s6: backup root '.' | 21 files in the backup
+ok   s6: .htaccess: recorded live state; the upload replaces it
+ok   s6: files only on live (extraction leaves them as they are): 2: DEPLOYMENT-NOTES.txt, MANIFEST.txt
+ok   s6: SUMMARY: 19/19 bundle paths present on live; unrecorded live changes: 0
+ok   s6: PRE-UPLOAD CHECK PASS
+ok   s6: 10 replaced
+ok   s6: 9 unchanged
+D1 pre-upload check | backup root '.' | 21 files in the backup
+  .htaccess: recorded live state; the upload replaces it
+  404.html: recorded live state; the upload replaces it
+  assets/favicon-180.png: recorded live state; unchanged by the upload
+  assets/favicon-32.png: recorded live state; unchanged by the upload
+  assets/favicon-512.png: recorded live state; unchanged by the upload
+  assets/favicon-64.png: recorded live state; unchanged by the upload
+  assets/parkio-logo.png: recorded live state; unchanged by the upload
+  assets/social-preview.png: recorded live state; unchanged by the upload
+  i18n.js: recorded live state; the upload replaces it
+  index.html: recorded live state; the upload replaces it
+  privacy/index.html: recorded live state; the upload replaces it
+  robots.txt: recorded live state; unchanged by the upload
+  site.webmanifest: recorded live state; unchanged by the upload
+  sitemap.xml: recorded live state; unchanged by the upload
+  styles.css: recorded live state; the upload replaces it
+  terms/index.html: recorded live state; the upload replaces it
+  waitlist.js: recorded live state; the upload replaces it
+  waitlist/confirm/index.html: recorded live state; the upload replaces it
+  waitlist/unsubscribe/index.html: recorded live state; the upload replaces it
+  files only on live (extraction leaves them as they are): 2: DEPLOYMENT-NOTES.txt, MANIFEST.txt
+SUMMARY: 19/19 bundle paths present on live; unrecorded live changes: 0
+PRE-UPLOAD CHECK PASS
 SELFTEST PASS

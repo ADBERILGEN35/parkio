@@ -1,4 +1,4 @@
-D1 verify | stamp 20261010T181927Z | http://127.0.0.1:18761 | bundle revision __MERGE_SHA__
+D1 verify | stamp 20261010T191245Z | http://127.0.0.1:18761 | bundle of PR #331 head 074d9c96bce0 (merged)
 
 A. Files (SHA-256 as served; .htaccess is checked through the headers)
   PASS every bundle file is served as built (images: present, re-encoded by the CDN): 18/18
@@ -19,11 +19,14 @@ C. Headers, redirect, 404
   PASS /waitlist/confirm/ HSTS max-age=31536000: max-age=31536000
   PASS http:// redirects to https: 301 -> https
   PASS unknown path answers 404: 404
+  PASS www.parkio.dev/ answers 301 to https://parkio.dev/: 301 -> https://parkio.dev/
+  PASS www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev: 301 -> https://parkio.dev/privacy/?d1v=20261010t191245z
+  info: HSTS on that www 301: max-age=31536000; CDN cache status: n/a
 
-gates passed 14/14
+gates passed 16/16
 D1 VERIFIED (live)
-saved: <W>/out/D1-verify-20261010T181927Z.txt
-saved: <W>/out/D1-verify-20261010T181927Z.json
+saved: <W>/out/D1-verify-20261010T191245Z.txt
+saved: <W>/out/D1-verify-20261010T191245Z.json
 ok   s1 exit 0
 ok   s1: PASS every bundle file is served as built (images: present, re-encoded by the CDN): 18/18
 ok   s1: PASS landing meta parkio-waitlist-mode=api
@@ -33,6 +36,9 @@ ok   s1: PASS / CSP equals the bundle's .htaccess: equal
 ok   s1: PASS /waitlist/confirm/ HSTS max-age=31536000
 ok   s1: PASS http:// redirects to https: 301 -> https
 ok   s1: PASS unknown path answers 404: 404
+ok   s1: PASS www.parkio.dev/ answers 301 to https://parkio.dev/: 301 -> https://parkio.dev/
+ok   s1: PASS www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev: 301 -> https://parkio.dev/privacy/?d1v=
+ok   s1: info: HSTS on that www 301: max-age=31536000
 ok   s1: D1 VERIFIED (live)
 ok   s2 exit 1
 ok   s2: FAIL /waitlist.js: status 200, sha256 differs
@@ -40,5 +46,11 @@ ok   s2: FAIL waitlist.js carries waitlist-consent-v1
 ok   s2: D1 NOT VERIFIED
 ok   s3 exit 1
 ok   s3: FAIL / HSTS max-age=31536000: absent
+ok   s4 exit 1
+ok   s4: FAIL www.parkio.dev/ answers 301 to https://parkio.dev/: 200 -> no location
+ok   s4: D1 NOT VERIFIED
+ok   s5 exit 1
+ok   s5: PASS www.parkio.dev/ answers 301 to https://parkio.dev/
+ok   s5: FAIL www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev: 301 -> https://parkio.dev/privacy/
 ok   reports mode 600
 SELFTEST PASS

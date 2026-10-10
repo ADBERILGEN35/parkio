@@ -5,14 +5,17 @@ Run as civo on the Civo host after the Hostinger upload and CDN purge:
   python3 -I /tmp/d1-verify.py
 
 Checks, all read-only:
-  - every file of the bundle (PR #330 merge) is served with the expected SHA-256 (raw, or after CRLF -> LF);
+  - every file of the bundle (PR #331 merge) is served with the expected SHA-256 (raw, or after CRLF -> LF);
     images only need to be present as image/* (the CDN re-encodes them; their origin bytes are checked before upload);
     waitlist.js and the landing page are fetched both plain and with ?v=w01n1, as browsers request them;
   - the landing page has parkio-waitlist-mode=api and loads styles.css, i18n.js and waitlist.js with ?v=w01n1;
     waitlist.js carries waitlist-consent-v1;
   - response headers of / and /waitlist/confirm/: Content-Security-Policy equal to the bundle's .htaccess (script-src
     without 'unsafe-inline'), Strict-Transport-Security max-age=31536000 without includeSubDomains or preload;
-  - http://parkio.dev/ redirects to https; an unknown path answers 404.
+  - http://parkio.dev/ redirects to https; an unknown path answers 404;
+  - the live www -> apex redirect kept in the bundle's .htaccess: https://www.parkio.dev/ and
+    https://www.parkio.dev/privacy/?d1v=<stamp> answer 301 to the same path and query on https://parkio.dev (the unique
+    query makes the CDN ask the origin); whether that 301 carries HSTS is reported, not gated.
 No submission is made (that would write a row and send e-mail). Writes D1-verify-<stamp>.txt/.json into
 ~/parkio-release-20261009 (mode 600); T1 requires a PASS record before D3.
 """
@@ -25,13 +28,15 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-REVIEWED_HEAD = "272273c405c69beec94ce63913e7ddfd803595c3"  # PR #330; the bundle is built from its merge
+REVIEWED_HEAD = "074d9c96bce0f2224f8bef11dee4ffef5c4dd566"  # PR #331; the bundle is built from its merge
 BASE = os.environ.get("D1V_BASE", "https://parkio.dev")
 HTTP_BASE = os.environ.get("D1V_HTTP_BASE", "http://parkio.dev")
+WWW_BASE = os.environ.get("D1V_WWW_BASE", "https://www.parkio.dev")
+APEX = "https://parkio.dev"  # the redirect target written in .htaccess
 OUT = os.environ.get("D1V_OUT", os.path.join(os.path.expanduser("~"), "parkio-release-20261009"))
 TAG = "w01n1"
 EXPECTED = """
-f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0  ./.htaccess
+e82dccfe0a61054ee3a973239610e20b32efbe3fa1d585ed45bf724c0ac2fe65  ./.htaccess
 117e726a937d38600e8fee5c571171aeb3b78206221e41e6e957fa7a133502b5  ./404.html
 bdee3e60f199540842f734cd63aca422c54502c77342b28702a3341aedc568fe  ./assets/favicon-180.png
 d09ea50e8048139d03ad4a47c3e5f9a207130a35a6fbbd5606ad6a158487e6eb  ./assets/favicon-32.png
@@ -93,7 +98,7 @@ def served_path(name):
 
 
 def main():
-    say(f"D1 verify | stamp {STAMP} | {BASE} | bundle of PR #330 head {REVIEWED_HEAD[:12]} (merged)")
+    say(f"D1 verify | stamp {STAMP} | {BASE} | bundle of PR #331 head {REVIEWED_HEAD[:12]} (merged)")
     want = {}
     for line in EXPECTED.strip().splitlines():
         digest, name = line.split(None, 1)
@@ -158,6 +163,14 @@ def main():
          f"{status} -> {'https' if location.startswith('https://') else (location.split(':', 1)[0] or 'none')}")
     status, _, _ = fetch(BASE + "/d1-verify-no-such-page")
     gate("unknown path answers 404", status == 404, str(status))
+    for path, name in (("/", "www.parkio.dev/ answers 301 to https://parkio.dev/"),
+                       (f"/privacy/?d1v={STAMP.lower()}",
+                        "www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev")):
+        status, headers, _ = fetch(WWW_BASE + path, follow=False)
+        location = headers.get("location", "")
+        gate(name, status == 301 and location == APEX + path, f"{status} -> {location or 'no location'}")
+    say(f"  info: HSTS on that www 301: {headers.get('strict-transport-security', '').strip() or 'absent'}; "
+        f"CDN cache status: {headers.get('x-hcdn-cache-status', 'n/a')}")
     failed = [n for n, ok in GATES if not ok]
     RECORD.update(stamp=STAMP, gates={n: ok for n, ok in GATES}, result="PASS" if not failed else "FAIL")
     say("")

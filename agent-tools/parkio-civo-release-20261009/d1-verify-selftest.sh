@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Local self-test of d1-verify.py against a local server that serves the PR #330 bundle with the bundle's CSP and HSTS
+# Local self-test of d1-verify.py against a local server that serves the PR #331 bundle with the bundle's CSP and HSTS
 # headers, re-encodes PNGs (as Hostinger's CDN does), answers 404 for unknown paths, plus a second port that redirects
-# http -> https. S1 -> D1 VERIFIED; S2 a stale waitlist.js -> FAIL; S3 no HSTS -> FAIL. Public GETs only in production.
+# to https://parkio.dev keeping path and query (http -> https and www -> apex). S1 -> D1 VERIFIED; S2 a stale waitlist.js
+# -> FAIL; S3 no HSTS -> FAIL; S4 www serves the site instead of redirecting -> FAIL; S5 the www redirect drops the query
+# -> FAIL. Public GETs only in production.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/d1-verify.py"; REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
-W="$(mktemp -d)"; P1=18761; P2=18762; SRV=""; SRV2=""
-cleanup() { [ -n "$SRV" ] && kill "$SRV" 2>/dev/null || true; [ -n "$SRV2" ] && kill "$SRV2" 2>/dev/null || true; rm -rf "$W"; }
+W="$(mktemp -d)"; P1=18761; P2=18762; P3=18763; SRV=""; SRV2=""; SRV3=""
+cleanup() { for p in "$SRV" "$SRV2" "$SRV3"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; rm -rf "$W"; }
 trap cleanup EXIT
-git -C "$REPO" archive 272273c405c69beec94ce63913e7ddfd803595c3 web/marketing | tar -x -C "$W"
+git -C "$REPO" archive 074d9c96bce0f2224f8bef11dee4ffef5c4dd566 web/marketing | tar -x -C "$W"
 SITE="$W/web/marketing"; find "$SITE" -maxdepth 1 -name '*.test.mjs' -delete
 cat > "$W/serve.py" <<'PY'
 import http.server, os, re, sys
@@ -17,8 +19,10 @@ CSP = re.search(r'Content-Security-Policy "([^"]+)"', ht).group(1)
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
-        if mode == "redirect":
-            self.send_response(301); self.send_header("Location", "https://parkio.dev" + self.path); self.end_headers(); return
+        if mode in ("redirect", "noquery"):
+            target = self.path if mode == "redirect" else self.path.split("?", 1)[0]
+            self.send_response(301); self.send_header("Location", "https://parkio.dev" + target)
+            self.send_header("Strict-Transport-Security", "max-age=31536000"); self.end_headers(); return
         path = self.path.split("?", 1)[0]
         if path.endswith("/"):
             path += "index.html"
@@ -42,10 +46,11 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 PY
 start() { python3 "$W/serve.py" "$SITE" "$P1" "$1" & SRV=$!; sleep 1; }
 python3 "$W/serve.py" "$SITE" "$P2" redirect & SRV2=$!
+python3 "$W/serve.py" "$SITE" "$P3" noquery & SRV3=$!
 fail=0
 check() { if grep -qF -- "$2" "$W/$1"; then echo "ok   $1: $2"; else echo "FAIL $1: $2"; fail=1; fi; }
-runv() { D1V_BASE="http://127.0.0.1:$P1" D1V_HTTP_BASE="http://127.0.0.1:$P2" D1V_OUT="$W/out" python3 -I "$TOOL" > "$W/$1" 2>&1 \
-         && echo 0 > "$W/$1.rc" || echo $? > "$W/$1.rc"; }
+runv() { D1V_BASE="http://127.0.0.1:$P1" D1V_HTTP_BASE="http://127.0.0.1:$P2" D1V_WWW_BASE="${2:-http://127.0.0.1:$P2}" \
+         D1V_OUT="$W/out" python3 -I "$TOOL" > "$W/$1" 2>&1 && echo 0 > "$W/$1.rc" || echo $? > "$W/$1.rc"; }
 start ok; runv s1; kill "$SRV"; SRV=""
 sed "s#$W#<W>#g" "$W/s1"
 [ "$(cat "$W/s1.rc")" = 0 ] && echo "ok   s1 exit 0" || { echo "FAIL s1 exit"; fail=1; }
@@ -57,6 +62,9 @@ check s1 "PASS / CSP equals the bundle's .htaccess: equal"
 check s1 "PASS /waitlist/confirm/ HSTS max-age=31536000"
 check s1 "PASS http:// redirects to https: 301 -> https"
 check s1 "PASS unknown path answers 404: 404"
+check s1 "PASS www.parkio.dev/ answers 301 to https://parkio.dev/: 301 -> https://parkio.dev/"
+check s1 "PASS www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev: 301 -> https://parkio.dev/privacy/?d1v="
+check s1 "info: HSTS on that www 301: max-age=31536000"
 check s1 "D1 VERIFIED (live)"
 start stale; runv s2; kill "$SRV"; SRV=""
 [ "$(cat "$W/s2.rc")" = 1 ] && echo "ok   s2 exit 1" || { echo "FAIL s2 exit"; fail=1; }
@@ -66,6 +74,14 @@ check s2 "D1 NOT VERIFIED"
 start nohsts; runv s3; kill "$SRV"; SRV=""
 [ "$(cat "$W/s3.rc")" = 1 ] && echo "ok   s3 exit 1" || { echo "FAIL s3 exit"; fail=1; }
 check s3 "FAIL / HSTS max-age=31536000: absent"
+start ok; runv s4 "http://127.0.0.1:$P1"; kill "$SRV"; SRV=""
+[ "$(cat "$W/s4.rc")" = 1 ] && echo "ok   s4 exit 1" || { echo "FAIL s4 exit"; fail=1; }
+check s4 "FAIL www.parkio.dev/ answers 301 to https://parkio.dev/: 200 -> no location"
+check s4 "D1 NOT VERIFIED"
+start ok; runv s5 "http://127.0.0.1:$P3"; kill "$SRV"; SRV=""
+[ "$(cat "$W/s5.rc")" = 1 ] && echo "ok   s5 exit 1" || { echo "FAIL s5 exit"; fail=1; }
+check s5 "PASS www.parkio.dev/ answers 301 to https://parkio.dev/"
+check s5 "FAIL www.parkio.dev/privacy/?d1v=<stamp> answers 301 to the same path and query on parkio.dev: 301 -> https://parkio.dev/privacy/"
 modes="$(stat -c %a "$W"/out/* | sort -u | tr '\n' ' ')"; [ "$modes" = "600 " ] && echo "ok   reports mode 600" || { echo "FAIL modes $modes"; fail=1; }
 [ "$fail" -eq 0 ] && echo "SELFTEST PASS" || echo "SELFTEST FAIL"
 exit "$fail"

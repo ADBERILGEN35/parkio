@@ -5,13 +5,14 @@ Owner workstation, Windows Terminal -> Ubuntu (WSL), after downloading the publi
   python3 -I /tmp/d1-preupload-check.py <backup>     (<backup> = the downloaded .zip / .tar.gz / .tgz, or an extracted folder)
 
 For each of the 19 bundle paths it compares the ORIGIN bytes in the backup (CRLF -> LF for text files) with:
-  - the recorded live state: PR #93's tree (db3f4a3d) plus the two known hand edits on parkio.dev (index.html's
-    i18n.js?v=w01m2 and i18n.js's TR/EN waitlist.success text), as served on 2026-10-10;
-  - the bundle built from PR #330's reviewed tree.
+  - the recorded live state: PR #93's tree (db3f4a3d) plus the three known hand edits on parkio.dev: index.html's
+    i18n.js?v=w01m2 and i18n.js's TR/EN waitlist.success text (as served on 2026-10-10), and the www -> apex redirect
+    block in .htaccess (verified in the owner's public_html backup on 2026-10-10: git blob 646a360f, 1286 bytes);
+  - the bundle built from PR #331's reviewed tree (PR #330's bundle plus that redirect block).
 A file that matches neither is an unrecorded live change: the upload would overwrite it, so the check fails and nothing
 should be uploaded until the owner decides. Files that exist only in the backup are listed by name; extracting the bundle
-does not touch them. It also settles the two images the CDN re-encodes (origin bytes vs repo) and the live .htaccess
-(origin file vs the recorded d3b6360d). It reads only the backup, writes nothing and prints no file content.
+does not touch them. It also settles the two images the CDN re-encodes (origin bytes vs repo). It reads only the
+backup, writes nothing and prints no file content.
 """
 import hashlib
 import io
@@ -20,7 +21,7 @@ import sys
 import tarfile
 import zipfile
 
-RECORDED_LIVE = """26296cb6265bb7b09af9dce104838643d7921fdb21c12fcb91f076541fd3ede2  ./.htaccess
+RECORDED_LIVE = """ec490d08bbdd1eb472268233799be66b25a8ddeb6ad745a3371929ae407e021f  ./.htaccess
 94864ecff437bc90a148e18e1a2d5679ebd56f56a957c1229b139043d8dba94c  ./404.html
 bdee3e60f199540842f734cd63aca422c54502c77342b28702a3341aedc568fe  ./assets/favicon-180.png
 d09ea50e8048139d03ad4a47c3e5f9a207130a35a6fbbd5606ad6a158487e6eb  ./assets/favicon-32.png
@@ -39,7 +40,7 @@ e95673d09e602328fe3997456acd01f9334d0db4d0f44d148e960f863e7ac931  ./site.webmani
 1a7d07e78ca4e189c9d0507db2c556df6e9526362d729a9341900b08b83fa9ec  ./waitlist.js
 ebc4df43c3d3a8f0699d57664f813ef3620b3df1ebf6e6a9b397145c7f719861  ./waitlist/confirm/index.html
 101b6b0d17c8104fbb291946739fa386dca66d9bfa50d9fab7a0a02f738e6795  ./waitlist/unsubscribe/index.html"""
-BUNDLE = """f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0  ./.htaccess
+BUNDLE = """e82dccfe0a61054ee3a973239610e20b32efbe3fa1d585ed45bf724c0ac2fe65  ./.htaccess
 117e726a937d38600e8fee5c571171aeb3b78206221e41e6e957fa7a133502b5  ./404.html
 bdee3e60f199540842f734cd63aca422c54502c77342b28702a3341aedc568fe  ./assets/favicon-180.png
 d09ea50e8048139d03ad4a47c3e5f9a207130a35a6fbbd5606ad6a158487e6eb  ./assets/favicon-32.png
