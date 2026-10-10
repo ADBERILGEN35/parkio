@@ -1,0 +1,36 @@
+ok   s3 exit 1
+ok   s3.out: STOP: user-service/Dockerfile FROM lines are not
+ok   s3: nothing pulled
+D7 preparation: base images | stamp 20261010T175924Z | release <W>/release | project d7pprobe
+  the six Dockerfiles build FROM localhost:15741/selftest/temurin:21-jdk and run FROM localhost:15741/selftest/temurin:21-jre
+  before: 249 tags (1 rollback tags), 1 project containers
+  pulling localhost:15741/selftest/temurin:21-jre ...
+  localhost:15741/selftest/temurin:21-jre: image c161bdd18877, repo digest sha256:c161bdd188771a7f0ff1bf3ac6d83b72fbcba6443de5fd5c2156bc7e89473cf1, linux/amd64, created 2026-10-10T17:59:05
+  localhost:15741/selftest/temurin:21-jdk: image b4d7fbc86bd6, repo digest sha256:b4d7fbc86bd67a5cb0a2c1c8338375fcad741bff3bd8acd4de2e35340d22beba, linux/amd64, created 2026-10-10T17:59:06
+  tags added: localhost:15741/selftest/temurin:21-jre; moved or removed: none
+  rollback tags still on their images: 1/1
+  PASS localhost:15741/selftest/temurin:21-jre present, linux/amd64
+  PASS localhost:15741/selftest/temurin:21-jdk present, linux/amd64
+  PASS no existing tag moved or removed (service and rollback tags included)
+  PASS only localhost:15741/selftest/temurin:21-jre added
+  PASS every project container unchanged
+D7 PREP COMPLETE
+saved: <W>/out/D7prep-base-image-20261010T175924Z.txt
+saved: <W>/out/D7prep-base-image-20261010T175924Z.json
+ok   s1 exit 0
+ok   s1.out: the six Dockerfiles build FROM localhost:15741/selftest/temurin:21-jdk and run FROM localhost:15741/selftest/temurin:21-jre
+ok   s1.out: pulling localhost:15741/selftest/temurin:21-jre ...
+ok   s1.out: PASS localhost:15741/selftest/temurin:21-jre present, linux/amd64
+ok   s1.out: PASS no existing tag moved or removed (service and rollback tags included)
+ok   s1.out: PASS only localhost:15741/selftest/temurin:21-jre added
+ok   s1.out: rollback tags still on their images: 1/1
+ok   s1.out: PASS every project container unchanged
+ok   s1.out: D7 PREP COMPLETE
+ok   s2 exit 0
+ok   s2.out: already present
+ok   s2.out: tags added: none; moved or removed: none
+ok   container image and rollback tag unchanged
+ok   JSON records parse
+ok   reports mode 600
+docker 29.8.1
+SELFTEST PASS
