@@ -1,0 +1,60 @@
+P3b provider facts | stamp 20261010T161435Z | release <W>/release @ 66b3f09f4301 | project p3bprobe
+
+A. Live env file (as preflight reads it: last occurrence of each key, quotes stripped)
+  PARKIO_PUSH_DELIVERY_PROVIDER: noop (2 lines; the last one counts)
+  PARKIO_PUSH_DELIVERY_ENABLED: absent
+  PARKIO_EXPO_ACCESS_TOKEN: placeholder-like
+  PARKIO_EXPO_PUSH_BASE_URL: set
+  PARKIO_AI_VISION_PROVIDER: absent
+  PARKIO_AI_VISION_GEMINI_API_KEY: set
+  PARKIO_DEPLOYMENT_PROFILE: azure-hosted-beta
+  PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE in the file: absent (preflight reads it from the process environment only, and it accepts no noop push provider)
+
+B. Release model (rendered in memory; what D7 starts, compose defaults applied)
+  notification-service: PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN placeholder-like; PARKIO_EXPO_PUSH_BASE_URL absent
+  ai-validation-service: PARKIO_AI_VISION_PROVIDER heuristic; PARKIO_AI_VISION_GEMINI_API_KEY set
+
+C. Running containers (what runs today)
+  notification-service (started 2026-10-10T16:14:30): PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN empty; PARKIO_EXPO_PUSH_BASE_URL absent
+  ai-validation-service (started 2026-10-10T16:14:31): PARKIO_AI_VISION_PROVIDER <other value>; PARKIO_AI_VISION_GEMINI_API_KEY set
+
+D. Push impact (notification database, counts only)
+  device tokens: active 2, inactive 1 (ANDROID active 2, IOS inactive 1)
+  PUSH delivery attempts by status: PENDING 1, latest 2026-10-10; SENT 3 (by the noop sender 2), latest 2026-10-02; SKIPPED 1, latest 2026-09-30
+
+E. Rules and runtime behaviour (source at 22f96990; push code identical at bf9cad51)
+  - preflight, hosted-beta and azure-hosted-beta profiles: PARKIO_EXPO_ACCESS_TOKEN empty or placeholder-like -> FAIL (only invite-production is exempt, as a web-only profile)
+  - preflight: push provider expo -> ok; noop or unset -> FAIL; PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE=1 accepts only another real provider, never noop
+  - preflight: AI vision heuristic or unset -> WARN only (uploads fail closed into PENDING_REVIEW); gemini needs PARKIO_AI_VISION_GEMINI_API_KEY
+  - notification-service, provider noop (the default): each due push attempt is marked SENT with a synthetic noop-<uuid> id and nothing is sent; attempts exist only for users with an active device token
+  - notification-service, provider expo: startup fails without PARKIO_EXPO_ACCESS_TOKEN (ExpoPushConfig); a wrong token fails each send and retries up to max-attempts
+  - notification-service, PARKIO_PUSH_DELIVERY_ENABLED=false: the worker sends nothing and attempts stay PENDING (the invite-production web-only setting, with provider noop and no token)
+  - documented hosted-beta target (env examples, docs/beta/deploy-runbook.md): provider expo with a real token
+
+P3b COMPLETE (read-only)
+saved: <W>/out/P3b-provider-facts-20261010T161435Z.txt
+ok   exit 0
+ok   PARKIO_PUSH_DELIVERY_PROVIDER: noop (2 lines; the last one counts)
+ok   PARKIO_PUSH_DELIVERY_ENABLED: absent
+ok   PARKIO_EXPO_ACCESS_TOKEN: placeholder-like
+ok   PARKIO_EXPO_PUSH_BASE_URL: set
+ok   PARKIO_AI_VISION_PROVIDER: absent
+ok   PARKIO_AI_VISION_GEMINI_API_KEY: set
+ok   PARKIO_DEPLOYMENT_PROFILE: azure-hosted-beta
+ok   PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE in the file: absent
+ok   notification-service: PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN placeholder-like; PARKIO_EXPO_PUSH_BASE_URL absent
+ok   ai-validation-service: PARKIO_AI_VISION_PROVIDER heuristic; PARKIO_AI_VISION_GEMINI_API_KEY set
+ok   notification-service (started 
+ok   PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN empty; PARKIO_EXPO_PUSH_BASE_URL absent
+ok   PARKIO_AI_VISION_PROVIDER <other value>; PARKIO_AI_VISION_GEMINI_API_KEY set
+ok   device tokens: active 2, inactive 1 (ANDROID active 2, IOS inactive 1)
+ok   PUSH delivery attempts by status: PENDING 1, latest 
+ok   SENT 3 (by the noop sender 2), latest 2026-10-02
+ok   SKIPPED 1, latest 2026-09-30
+ok   notification-service, provider expo: startup fails without PARKIO_EXPO_ACCESS_TOKEN (ExpoPushConfig)
+ok   P3b COMPLETE (read-only)
+ok   no credential, URL, token, password or unlisted provider value printed (checked 7 values)
+ok   report mode 600
+ok   release checkout unchanged
+python 3.10.12, compose 5.5.1, docker 29.8.1
+SELFTEST PASS
