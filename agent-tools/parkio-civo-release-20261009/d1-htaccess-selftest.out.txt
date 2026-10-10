@@ -1,0 +1,66 @@
+D1 .htaccess inspection | zip root '.'
+A. Facts (no content)
+  size 1589 bytes; lines 38; CRLF lines 0; BOM no; final newline yes; non-ASCII bytes 0; NUL bytes 0
+  git blob id: raw 3da2e5c6aac4, LF-normalized 3da2e5c6aac4
+  equals a known version: none
+  equals the recorded version d3b6360d ignoring line endings, trailing spaces and blank lines: no
+  equals the release version 87aec6ec ignoring line endings, trailing spaces and blank lines: no
+
+B1. recorded d3b6360d -> live (formatting ignored; '-' only in recorded, '+' only on live)
+  @@ -23,0 +24,12 @@
+  + # contact: <email> token <token:32>
+  + SetEnv <value redacted, line 9e76ca3b>
+  + php_value <value redacted, line 9bdf8863>
+  + <IfModule mod_rewrite.c>
+  +   RewriteEngine On
+  +   RewriteCond %{REMOTE_ADDR} !^<ip>$
+  +   RewriteRule ^admin - [F]
+  +   RewriteRule ^go$ https://example.com/?key=<value> [R=302,L]
+  + </IfModule>
+  + Header set X-Api-Key <value redacted, line 8cf0efcd>
+  + Require <value redacted, line c91e0e58>
+  + AuthUserFile <value redacted, line f86cccfc>
+
+B2. live -> release 87aec6ec (what the upload changes: '-' live lines the upload removes, '+' it adds)
+  @@ -10 +10,4 @@
+  -   Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.parkio.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+  +   # script-src 'self': pages run no inline script; the JSON-LD block is data and needs no allowance
+  +   Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.parkio.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+  +   # parkio.dev only: includeSubDomains or preload would bind every *.parkio.dev host (owner decision)
+  +   Header always set Strict-Transport-Security "max-age=31536000"
+  @@ -24,12 +26,0 @@
+  - # contact: <email> token <token:32>
+  - SetEnv <value redacted, line 9e76ca3b>
+  - php_value <value redacted, line 9bdf8863>
+  - <IfModule mod_rewrite.c>
+  -   RewriteEngine On
+  -   RewriteCond %{REMOTE_ADDR} !^<ip>$
+  -   RewriteRule ^admin - [F]
+  -   RewriteRule ^go$ https://example.com/?key=<value> [R=302,L]
+  - </IfModule>
+  - Header set X-Api-Key <value redacted, line 8cf0efcd>
+  - Require <value redacted, line c91e0e58>
+  - AuthUserFile <value redacted, line f86cccfc>
+
+SUMMARY: live lines the upload would remove: 13; lines it would add: 4
+INSPECTION COMPLETE (read-only)
+ok   v1: equals a known version: 34b8af43 = ad384269 (2026-09-21)
+ok   v1: equals the recorded version d3b6360d ignoring line endings, trailing spaces and blank lines: no
+ok   v2: CRLF lines 26; BOM yes
+ok   v2: equals the recorded version d3b6360d ignoring line endings, trailing spaces and blank lines: yes
+ok   v2: B1. recorded d3b6360d -> live
+ok   v3: equals a known version: none
+ok   v3: + SetEnv <value redacted, line
+ok   v3: + php_value <value redacted, line
+ok   v3: RewriteCond %{REMOTE_ADDR} !^<ip>$
+ok   v3: RewriteRule ^go$ https://example.com/?key=<value> [R=302,L]
+ok   v3: + Header set X-Api-Key <value redacted, line
+ok   v3: + Require <value redacted, line
+ok   v3: + AuthUserFile <value redacted, line
+ok   v3: # contact: <email> token <token:32>
+ok   v3: SUMMARY: live lines the upload would remove:
+ok   v3: +   Header always set Strict-Transport-Security "max-age=31536000"
+ok   v4: equals a known version: 87aec6ec = fbfa218f
+ok   v4: (no difference)
+ok   no secret, IP, e-mail, token or query value printed (checked 10 values)
+SELFTEST PASS
