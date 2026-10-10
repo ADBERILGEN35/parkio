@@ -117,7 +117,7 @@
       'waitlist.submit': 'Bekleme listesine katıl',
       'waitlist.submitting': 'Gönderiliyor…',
       'waitlist.success':
-        'Teşekkürler. Adresiniz alındı. Listede kalmak için e-postanızdaki onay bağlantısını açıp Onayla’ya basın.',
+        'Teşekkürler! İlk kez katılıyorsanız e-postanıza gelen bağlantıyla adresinizi doğrulayın. Daha önce onayladıysanız tekrar işlem yapmanıza gerek yok.',
       'waitlist.error.invalid': 'Geçerli bir e-posta adresi girin.',
       'waitlist.error.fullNameRequired': 'Ad soyad zorunludur.',
       'waitlist.error.fullNameInvalid': 'Ad soyad geçersiz. Harf, boşluk, apostrof ve tire kullanın.',
@@ -348,7 +348,7 @@
       'waitlist.submit': 'Join the waitlist',
       'waitlist.submitting': 'Submitting…',
       'waitlist.success':
-        'Thanks. Your address was received. Open the confirmation link in your email and press Confirm to stay on the list.',
+        'Thank you! If this is your first time joining, verify your email using the link sent to your inbox. If you have already confirmed, no further action is needed.',
       'waitlist.error.invalid': 'Enter a valid email address.',
       'waitlist.error.fullNameRequired': 'Full name is required.',
       'waitlist.error.fullNameInvalid': 'Full name is invalid. Use letters, spaces, apostrophes, and hyphens.',

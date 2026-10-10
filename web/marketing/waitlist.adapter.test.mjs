@@ -146,8 +146,11 @@ test('form uses live consentTimestamp without silent backdating', () => {
 test('hero CTA and nav waitlist copy are present in canonical marketing', () => {
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
-  assert.match(indexHtml, /i18n\.js\?v=w01l7/);
-  assert.match(indexHtml, /styles\.css\?v=w01l7/);
+  assert.match(indexHtml, /i18n\.js\?v=w01n1/);
+  assert.match(indexHtml, /styles\.css\?v=w01n1/);
+  assert.match(indexHtml, /waitlist\.js\?v=w01n1/);
+  assert.match(indexHtml, /id="waitlist-full-name" class="form-field"/);
+  assert.match(indexHtml, /id="waitlist-email" class="form-field"/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
   assert.match(i18n, /'cta\.waitlist': 'Join the waitlist'/);
   assert.match(i18n, /'nav\.waitlist': 'Bekleme listesi'/);

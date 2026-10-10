@@ -54,8 +54,9 @@ test('confirm and withdraw pages wire all visible copy through i18n keys', () =>
   for (const html of [confirmHtml, withdrawHtml]) {
     assert.match(html, /data-i18n="brand\.tagline"/);
     assert.match(html, /data-i18n="waitlist\.page\.kicker"/);
-    assert.match(html, /i18n\.js\?v=w01l8/);
-    assert.match(html, /waitlist\.js\?v=w01l7/);
+    assert.match(html, /i18n\.js\?v=w01n1/);
+    assert.match(html, /waitlist\.js\?v=w01n1/);
+    assert.match(html, /styles\.css\?v=w01n1/);
     assert.doesNotMatch(html, /GET istekleri/);
     assert.doesNotMatch(html, /Alternatif silme talepleri/);
   }
@@ -128,4 +129,20 @@ test('link lang seeds initial locale; switcher can change afterward', () => {
   i18n.applyLocale('tr');
   assert.equal(i18n.resolveLocale(), 'tr');
   assert.equal(i18n.linkLocale(), 'en');
+});
+
+test('every page loads the shared assets with one cache-buster, so a changed asset is never served stale', () => {
+  const pages = ['index.html', '404.html', 'privacy/index.html', 'terms/index.html',
+    'waitlist/confirm/index.html', 'waitlist/unsubscribe/index.html'];
+  const tags = new Set();
+  for (const page of pages) {
+    const html = readFileSync(resolve(root, page), 'utf8');
+    const refs = [...html.matchAll(/(?:href|src)="\/(styles\.css|i18n\.js|waitlist\.js)(\?v=([a-z0-9]+))?"/g)];
+    assert.ok(refs.length > 0, `${page} loads no shared asset`);
+    for (const ref of refs) {
+      assert.ok(ref[3], `${page} loads ${ref[1]} without ?v=`);
+      tags.add(ref[3]);
+    }
+  }
+  assert.equal(tags.size, 1, `pages use different cache-busters: ${[...tags].join(', ')}`);
 });

@@ -54,8 +54,9 @@ h1{font-size:clamp(48px,6vw,78px);line-height:.98;letter-spacing:-.055em;margin:
 .waitlist-panel{background:#fff;border:1px solid var(--line);border-radius:24px;padding:28px;box-shadow:0 7px 24px rgba(12,33,74,.04);display:grid;gap:16px}
 .waitlist-panel .field{display:grid;gap:8px}
 .waitlist-panel label{font-size:14px;font-weight:750;color:#334155}
-.waitlist-panel input[type="email"]{min-height:48px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit}
-.waitlist-panel input[type="email"]:focus-visible{outline:3px solid #79aaff;outline-offset:2px;border-color:#9bbcf5}
+.waitlist-panel input.form-field{width:100%;min-height:48px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;background:#fff}
+.waitlist-panel input.form-field:focus-visible{outline:3px solid #79aaff;outline-offset:2px;border-color:#9bbcf5}
+.waitlist-panel input.form-field[aria-invalid="true"]{border-color:#b42318}
 .field-check{grid-template-columns:auto 1fr;align-items:start;gap:12px}
 .field-check input{margin-top:4px;width:18px;height:18px}
 .waitlist-feedback{margin:0;font-size:14px;font-weight:650}
