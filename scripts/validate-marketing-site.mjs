@@ -206,7 +206,7 @@ check(JSON.stringify(sitemapUrls) === JSON.stringify([
   'https://parkio.dev/terms/',
 ]), 'sitemap.xml must contain only the approved marketing URLs.');
 
-check(sha256('.htaccess') === 'f1afadbb3c4287e631621f2d5036425ef44cb5ff4738a7509f648a4cae9185d0', '.htaccess security policy changed from the imported live baseline.');
+check(sha256('.htaccess') === 'e82dccfe0a61054ee3a973239610e20b32efbe3fa1d585ed45bf724c0ac2fe65', '.htaccess security policy changed from the imported live baseline.');
 
 // CL-F39.5: scripts run only from files, and HTTPS is pinned.
 const htaccess = read('.htaccess');
@@ -216,6 +216,10 @@ const scriptSrc = (cspMatch?.[1] ?? '').split(';').map((directive) => directive.
   .find((directive) => directive.startsWith('script-src')) ?? '';
 check(scriptSrc !== '' && !scriptSrc.includes("'unsafe-inline'"), "CSP script-src must not allow 'unsafe-inline'.");
 check(/Header always set Strict-Transport-Security "max-age=\d+/.test(htaccess), '.htaccess must set Strict-Transport-Security.');
+// The live www -> apex redirect (found in the public_html backup before the M2 upload) ships with every upload.
+check(htaccess.includes('RewriteCond %{HTTP_HOST} ^www\\.parkio\\.dev$ [NC]')
+  && htaccess.includes('RewriteRule ^ https://parkio.dev%{REQUEST_URI} [R=301,L,NE]'),
+'.htaccess must keep the www.parkio.dev -> parkio.dev redirect.');
 for (const file of htmlFiles) {
   const relativeHtml = file.slice(root.length + 1).replaceAll('\\', '/');
   const html = readFileSync(file, 'utf8');
