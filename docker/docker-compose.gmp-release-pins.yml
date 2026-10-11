@@ -1,6 +1,7 @@
 # Parkio GMP release pins — hosted-beta release 2026-10-11
-# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the runtime images drop
-# the unused base-layer /usr/bin/pebble; Java sources identical to a658edcb). Candidate images run
+# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the unused base-layer
+# /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer;
+# Java sources identical to a658edcb). Candidate images run
 # 38087836817 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical + library gates pass),
 # published by candidate-publish run 38125100729: single linux/amd64 manifests, registry config digest =
 # accepted image id.

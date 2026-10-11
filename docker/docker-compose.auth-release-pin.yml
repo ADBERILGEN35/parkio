@@ -1,6 +1,7 @@
 # Parkio hosted-beta auth release pin — hosted-beta release 2026-10-11
-# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: no base-layer
-# /usr/bin/pebble in the runtime image). Candidate images run 38087836817 (accepted), published by
+# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the base layer's
+# /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer).
+# Candidate images run 38087836817 (accepted), published by
 # candidate-publish run 38125100729; registry config digest = accepted image id
 # sha256:6b881a91bbfe9ecaacf73cee59b1c10bce073b5bd7c953d36302de1ec0d26eb7 (linux/amd64).
 # Superseded before deployment (never live; carries /usr/bin/pebble go1.26.7): the a658edcb pin acc36698.
