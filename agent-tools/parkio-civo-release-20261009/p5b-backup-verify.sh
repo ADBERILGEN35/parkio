@@ -159,16 +159,22 @@ pull_hint() {  # a fixed category for a failed pull; the pull's own output is ne
   local f="$1"
   if grep -q -E 'command not found|requires the Azure CLI|is not installed|No such file or directory: .?(az|mc)' "$f"; then
     echo "the offsite client was not found on the cron PATH"
+  elif grep -q -i -E 'unrecognized arguments|invalid choice|the following arguments are required|unknown flag|unknown option' "$f"; then
+    echo "the offsite client rejected the library's arguments (client version)"
   elif grep -q -i -E 'SAS token' "$f"; then
     echo "the SAS token failed the library's shape check"
   elif grep -q -i -E 'AuthenticationFailed|AuthorizationFailure|AuthorizationPermissionMismatch|InvalidAuthenticationInfo|az login|AccessDenied|Access Denied|SignatureDoesNotMatch|InvalidAccessKeyId|\b403\b' "$f"; then
     echo "the offsite store refused the credentials"
+  elif grep -q -i -E 'Max retries|Connection (aborted|refused|reset)|Name or service not known|Temporary failure in name resolution|timed out|dial tcp|no such host|Network is unreachable|SSL|certificate' "$f"; then
+    echo "a network or TLS error reaching the offsite store"
   elif grep -q -i -E 'ContainerNotFound|BlobNotFound|ResourceNotFound|NoSuchBucket|NoSuchKey|no such object|not found|does not exist|\b404\b' "$f"; then
     echo "the stamp, bucket or container was not found offsite"
   elif grep -q -E ': FAILED|did NOT match|FAILED open or read' "$f"; then
     echo "the pulled copy failed the library's checksum verification"
   elif grep -q -E 'incomplete stamp|missing SHA256SUMS' "$f"; then
     echo "the pulled copy has no COMPLETE or SHA256SUMS"
+  elif grep -q -E 'Permission denied' "$f"; then
+    echo "a local permission error"
   else
     echo "unclassified"
   fi

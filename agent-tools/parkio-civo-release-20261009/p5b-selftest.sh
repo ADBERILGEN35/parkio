@@ -9,8 +9,9 @@
 # S5 offsite_last_success 0 -> NOT VERIFIED; S6 no remote copy -> NOT VERIFIED with a category only; S7 a bad argument -> STOP;
 # S8 the cron variables changed after P5a -> STOP; S9 a second backup job -> STOP; S10 a failed P5a record -> STOP; S11 an *.enc
 # file without the OpenSSL header -> NOT VERIFIED; S12 not enough free space -> NOT VERIFIED, nothing pulled; S13 the cron file
-# reader is byte-identical to P5a's; S14 a P5a start after the stamp -> STOP. Every run: no secret, bucket or pull output in
-# the report; the temporary copy is deleted.
+# reader is byte-identical to P5a's; S14 a P5a start after the stamp -> STOP; S15/S16 a network or argument error in the pull
+# -> NOT VERIFIED with its category only. Every run: no secret, bucket or pull output in the report; the temporary copy is
+# deleted.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/p5b-backup-verify.sh"; REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 W="$(mktemp -d)"; trap 'chmod -R u+rwX "$W" 2>/dev/null; rm -rf "${W:?}"' EXIT
@@ -29,6 +30,10 @@ cat > "$W/cronbin/mc" <<EOF
 #!/usr/bin/env bash
 # fake mc: "mirror [--overwrite] offsite/secretbucket/<stamp> <dir>/" copies from $W/remote/<stamp>
 echo "mc: mirroring from offsite/secretbucket (fake)"
+case "\$(cat "$W/mc-mode" 2>/dev/null)" in
+  network) echo "mc: <ERROR> Unable to mirror offsite/secretbucket. dial tcp: lookup offsite.example: no such host" >&2; exit 1 ;;
+  args) echo "mc: unknown flag: --overwrite" >&2; exit 1 ;;
+esac
 [ "\$1" = mirror ] || exit 2; shift; [ "\$1" = --overwrite ] && shift
 case "\$1" in offsite/secretbucket/*) ;; *) echo "mc: no such object \$1" >&2; exit 1 ;; esac
 src="$W/remote/\${1#offsite/secretbucket/}"; [ -d "\$src" ] || { echo "mc: no such object \$1" >&2; exit 1; }
@@ -161,6 +166,12 @@ if [ -n "$(awkprog "$TOOL")" ] && [ "$(awkprog "$TOOL" | sha256sum)" = "$(awkpro
 else
   echo "FAIL s13: the cron file reader differs from P5a's"; fail=1
 fi
+
+echo network > "$W/mc-mode"
+runit s15.out "$NOWS"; rc_is s15.out 1; check s15.out "a network or TLS error reaching the offsite store"; clean s15.out
+echo args > "$W/mc-mode"
+runit s16.out "$NOWS"; rc_is s16.out 1; check s16.out "the offsite client rejected the library's arguments (client version)"; clean s16.out
+rm -f "$W/mc-mode"
 
 p5arecord "$(date -u -d '+5 minutes' +%Y-%m-%dT%H:%M:%SZ)" "$NOWS" PASS
 runit s14.out "$NOWS"; rc_is s14.out 1; check s14.out "is older than the P5a start"

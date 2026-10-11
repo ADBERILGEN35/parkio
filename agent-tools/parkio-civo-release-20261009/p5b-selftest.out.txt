@@ -1,19 +1,19 @@
-P5b backup verification | 2026-10-11T23:53:21Z | stamp 2026-10-11T23-53-20Z | scope azure-hosted-beta
+P5b backup verification | 2026-10-11T23:56:41Z | stamp 2026-10-11T23-56-40Z | scope azure-hosted-beta
 == 0. the P5a record
-  P5a run 2026-10-11T23:48:20Z: result PASS, exit 0, COMPLETE present, stamp 2026-10-11T23-53-20Z
+  P5a run 2026-10-11T23:51:40Z: result PASS, exit 0, COMPLETE present, stamp 2026-10-11T23-56-40Z
 == 1. the backup job's environment (cron file read as root; names only)
   job: '30 3 * * *' as root, approved command
   cron variables applied: SHELL PATH MAILTO (the same as in P5a)
   live library and env file loaded in that environment; backup and textfile dirs resolved from the env file
   deployment profile azure-hosted-beta; offsite kind s3; encryption passphrase set; az missing on the cron PATH
 
-A. Local stamp 2026-10-11T23-53-20Z
+A. Local stamp 2026-10-11T23-56-40Z
   PASS COMPLETE names the stamp and the SHA-256 of SHA256SUMS
   PASS local sha256sum -c --strict
   PASS SHA256SUMS lists every file except itself and COMPLETE (2 of 4)
   PASS 2 encrypted files (*.enc), each with the OpenSSL salted header
   PASS no plaintext dump
-  stamp 2026-10-11T23-53-20Z: 4 files, 7447 bytes, SHA256SUMS sha256 0d98d4243511c4f5c8bf6c30ca7f6d183a7b4a771b6bc9c1f1d87fb3f48f4b1c; newer local stamps: 0
+  stamp 2026-10-11T23-56-40Z: 4 files, 7447 bytes, SHA256SUMS sha256 71638c0b9b234eb508f2d68fe09624e4a9e31c69080d348b2e0ddda26583f052; newer local stamps: 0
 
 B. Metrics (scope azure-hosted-beta)
   PASS the env file's deployment profile is azure-hosted-beta
@@ -24,8 +24,8 @@ B. Metrics (scope azure-hosted-beta)
   PASS production_mode = 1
   PASS last_timestamp_seconds not before the P5a start
 
-C. Encrypted offsite copy of 2026-10-11T23-53-20Z (kind s3)
-  PASS free space for the temporary copy (894322 MiB available)
+C. Encrypted offsite copy of 2026-10-11T23-56-40Z (kind s3)
+  PASS free space for the temporary copy (894321 MiB available)
   PASS pulled with the library's parkio_backup_offsite_pull; its own checksum verification passed
   PASS offsite SHA256SUMS byte-identical
   PASS offsite COMPLETE byte-identical
@@ -35,12 +35,12 @@ C. Encrypted offsite copy of 2026-10-11T23-53-20Z (kind s3)
   PASS no plaintext dump offsite
   PASS temporary copy deleted
 
-receipt: <W>/out/backup/P5b-receipt-2026-10-11T23-53-20Z.json
-stamp 2026-10-11T23-53-20Z | files 4 | bytes 7447 | SHA256SUMS sha256 0d98d4243511c4f5c8bf6c30ca7f6d183a7b4a771b6bc9c1f1d87fb3f48f4b1c | offsite copy identical: true
-D2a window: start before 2026-10-12T01:53:20Z (stamp + 2 h; about 119 min left) and outside 03:00-04:30 UTC
+receipt: <W>/out/backup/P5b-receipt-2026-10-11T23-56-40Z.json
+stamp 2026-10-11T23-56-40Z | files 4 | bytes 7447 | SHA256SUMS sha256 71638c0b9b234eb508f2d68fe09624e4a9e31c69080d348b2e0ddda26583f052 | offsite copy identical: true
+D2a window: start before 2026-10-12T01:56:40Z (stamp + 2 h; about 119 min left) and outside 03:00-04:30 UTC
 P5B VERIFIED
 ok   s1.out exit 0
-ok   s1.out: P5a run 2026-10-11T23:48:20Z: result PASS, exit 0, COMPLETE present, stamp 2026-10-11T23-53-20Z
+ok   s1.out: P5a run 2026-10-11T23:51:40Z: result PASS, exit 0, COMPLETE present, stamp 2026-10-11T23-56-40Z
 ok   s1.out: job: '30 3 * * *' as root, approved command
 ok   s1.out: cron variables applied: SHELL PATH MAILTO (the same as in P5a)
 ok   s1.out: deployment profile azure-hosted-beta; offsite kind s3; encryption passphrase set
@@ -83,7 +83,7 @@ ok   s2.out: P5B NOT VERIFIED
 ok   s2.out: no secret, bucket or pull output
 ok   s2.out: temporary copy deleted
 ok   s3.out exit 1
-ok   s3.out: STOP: the last P5a run made stamp 2026-10-11T23-53-20Z, not 2026-01-01T03-30-00Z
+ok   s3.out: STOP: the last P5a run made stamp 2026-10-11T23-56-40Z, not 2026-01-01T03-30-00Z
 ok   s4.out exit 1
 ok   s4.out: FAIL plaintext dump present (1 file(s) or minio/ tree; library check fail)
 ok   s4.out: FAIL plaintext dump offsite (1 file(s) or minio/ tree; library check fail)
@@ -118,6 +118,14 @@ ok   s12.out: P5B NOT VERIFIED
 ok   s12.out: no secret, bucket or pull output
 ok   s12.out: temporary copy deleted
 ok   s13: the cron file reader is byte-identical to P5a's
+ok   s15.out exit 1
+ok   s15.out: a network or TLS error reaching the offsite store
+ok   s15.out: no secret, bucket or pull output
+ok   s15.out: temporary copy deleted
+ok   s16.out exit 1
+ok   s16.out: the offsite client rejected the library's arguments (client version)
+ok   s16.out: no secret, bucket or pull output
+ok   s16.out: temporary copy deleted
 ok   s14.out exit 1
 ok   s14.out: is older than the P5a start
 SELFTEST PASS
