@@ -1,0 +1,70 @@
+P5a production backup | 2026-10-11T10:08:14Z | entry <W>/entry.sh | lock <W>/lock | log <W>/backup.log
+== 1. pre-checks
+  P6 planned record present
+  outside 03:00-04:30 UTC
+  no backup or pg_dump process running
+  start 2026-10-11T10:08:14Z recorded in <W>/out/P5a-start.txt
+== 2. the entry point as root: cron-like environment, same lock and log
+  backup exit=0 after 0 s
+== 3. the new stamp (names only)
+  new stamp 2026-10-11T10-08-14Z: COMPLETE present
+  record: <W>/out/P5a-run-2026-10-11T10-08-14Z.json
+P5A STEP COMPLETE - verify with P5b next; D2a must start within 2 hours of 2026-10-11T10:08:14Z and outside 03:00-04:30 UTC
+ok   s1.out exit 0
+ok   s1.out: P6 planned record present
+ok   s1.out: outside 03:00-04:30 UTC
+ok   s1.out: no backup or pg_dump process running
+ok   s1.out: backup exit=0
+ok   s1.out: COMPLETE present
+ok   s1.out: P5A STEP COMPLETE
+ok   start file written, mode 600
+ok   run record PASS
+ok   s9: a session variable does not reach the entry point
+ok   s9: cron-like environment (PATH, HOME, LOGNAME, SHELL only)
+ok   s2.out exit 1
+ok   s2.out: backup exit=75
+ok   s2.out: the backup lock is held
+ok   s2: the entry point never ran
+  error lines this run wrote to the log (at most 10: the first 6 and the last 4; masked, shortened):
+    ERROR: upload to <url> failed AccountKey=<hidden>
+    ERROR: offsite/<path> refused token=<hidden>
+    ERROR: retry 1 failed
+    ERROR: retry 2 failed
+    ERROR: retry 3 failed
+    ERROR: retry 4 failed
+    ... (4 more) ...
+    ERROR: retry 9 failed
+    ERROR: retry 10 failed
+    ERROR: retry 11 failed
+    ERROR: retry 12 failed
+STOP: the backup failed (exit 1)
+P5A NOT COMPLETE - do not run P5b or any deployment step
+ok   s3.out exit 1
+ok   s3.out: backup exit=1
+ok   s3.out: <url>
+ok   s3.out: offsite/<path>
+ok   s3.out: AccountKey=<hidden>
+ok   s3.out: does not show SECRETKEY123
+ok   s3.out: does not show TOK999
+ok   s3.out: does not show secretcontainer
+ok   s3.out: does not show secretbucket
+ok   s3.out: does not show RAWLINE
+ok   s3.out: does not show SECRETPASS77
+ok   s3.out: does not show SESSIONSECRET42
+ok   s3: at most 10 error lines plus the elision line
+ok   s3.out: ... (4 more) ...
+ok   s3.out: P5A NOT COMPLETE - do not run P5b or any deployment step
+ok   s4.out exit 1
+ok   s4.out: has no COMPLETE
+ok   s5.out exit 1
+ok   s5.out: 03:00-04:30 UTC is the nightly backup window
+ok   s5.out: does not show backup exit
+ok   s6.out exit 1
+ok   s6.out: a backup or pg_dump process is already running
+ok   s6.out: does not show backup exit
+ok   s7.out exit 1
+ok   s7.out: no P6 planned record
+ok   s8.out exit 0
+ok   s8.out: no backup or pg_dump process running
+ok   s8.out: P5A STEP COMPLETE
+SELFTEST PASS
