@@ -1,49 +1,78 @@
-P5a production backup | 2026-10-11T10:08:14Z | entry <W>/entry.sh | lock <W>/lock | log <W>/backup.log
+P5a production backup | 2026-10-11T10:29:19Z | entry <W>/entry.sh | lock <W>/lock | log <W>/backup.log
 == 1. pre-checks
   P6 planned record present
+  host clock UTC
   outside 03:00-04:30 UTC
-  no backup or pg_dump process running
-  start 2026-10-11T10:08:14Z recorded in <W>/out/P5a-start.txt
-== 2. the entry point as root: cron-like environment, same lock and log
+  no backup or pg_dump process running (this script's own processes excluded)
+== 2. the cron job (read as root; names only)
+  job: '30 3 * * *' as root, approved command; other jobs in the file: 1
+  cron variables applied to this run: SHELL PATH MAILTO PARKIO_TEST_VAR
+  PARKIO_BACKUP_FIRE_MARKER: not applied (it records scheduler fires; a manual run must not add one)
+  backup lock free
+  start 2026-10-11T10:29:19Z recorded in <W>/out/P5a-start.txt
+== 3. the approved command as root in the cron job's environment
   backup exit=0 after 0 s
-== 3. the new stamp (names only)
-  new stamp 2026-10-11T10-08-14Z: COMPLETE present
-  record: <W>/out/P5a-run-2026-10-11T10-08-14Z.json
-P5A STEP COMPLETE - verify with P5b next; D2a must start within 2 hours of 2026-10-11T10:08:14Z and outside 03:00-04:30 UTC
+== 4. the new stamp (names only)
+  new stamp 2026-10-11T10-29-19Z (log destination): COMPLETE present and names the stamp
+  record: <W>/out/P5a-run-2026-10-11T10-29-19Z.json
+P5A STEP COMPLETE - verify with P5b next; D2a must start within 2 hours of 2026-10-11T10:29:19Z and outside 03:00-04:30 UTC
 ok   s1.out exit 0
 ok   s1.out: P6 planned record present
+ok   s1.out: host clock UTC
 ok   s1.out: outside 03:00-04:30 UTC
 ok   s1.out: no backup or pg_dump process running
+ok   s1.out: job: '30 3 * * *' as root, approved command; other jobs in the file: 1
+ok   s1.out: cron variables applied to this run: SHELL PATH MAILTO PARKIO_TEST_VAR
+ok   s1.out: PARKIO_BACKUP_FIRE_MARKER: not applied
+ok   s1.out: backup lock free
 ok   s1.out: backup exit=0
-ok   s1.out: COMPLETE present
+ok   s1.out: (log destination): COMPLETE present and names the stamp
 ok   s1.out: P5A STEP COMPLETE
-ok   start file written, mode 600
-ok   run record PASS
-ok   s9: a session variable does not reach the entry point
-ok   s9: cron-like environment (PATH, HOME, LOGNAME, SHELL only)
+ok   s1.out: does not show LATE_VAR
+ok   s1.out: does not show hello world
+ok   s1: start file written, mode 600
+ok   s1: run record PASS with source and variable names
+ok   s1 entry environment has PARKIO_TEST_VAR=hello world
+ok   s1 entry environment has MAILTO=
+ok   s1 entry environment has PATH=/usr/bin:/bin
+ok   s1 entry environment has SHELL=/bin/sh
+ok   s1 entry environment has LOGNAME=<user>
+ok   s1 entry environment has umask=0022
+ok   s1 entry environment has cwd=<HOME>
+ok   s1 entry environment lacks LATE_VAR
+ok   s1 entry environment lacks PARKIO_BACKUP_FIRE_MARKER
+ok   s1 entry environment lacks SESSIONSECRET42
+ok   s1 entry environment lacks PARKIO_REAL_USER_PASSWORD
+ok   s1 entry environment has nothing else (none)
+ok   s1 fire marker not written
 ok   s2.out exit 1
-ok   s2.out: backup exit=75
-ok   s2.out: the backup lock is held
-ok   s2: the entry point never ran
-  error lines this run wrote to the log (at most 10: the first 6 and the last 4; masked, shortened):
-    ERROR: upload to <url> failed AccountKey=<hidden>
+ok   s2.out: the backup lock is held (another backup is running); nothing was started
+ok   s2: no start file, the entry never ran
+ok   s2b.out exit 1
+ok   s2b.out: backup exit=75
+ok   s2b.out: this run did not start
+ok   s2b: the entry never ran
+  error lines this run wrote to the log (9 new lines; at most 10 shown: the first 6 and the last 4; masked, shortened):
+    ERROR: upload to <url> failed AccountKey=<hidden>;AccountName=<hidden>
     ERROR: offsite/<path> refused token=<hidden>
-    ERROR: retry 1 failed
-    ERROR: retry 2 failed
-    ERROR: retry 3 failed
-    ERROR: retry 4 failed
-    ... (4 more) ...
-    ERROR: retry 9 failed
-    ERROR: retry 10 failed
-    ERROR: retry 11 failed
-    ERROR: retry 12 failed
+    ERROR: az failed: --account-key <hidden> --sas-token <hidden> --container-name <hidden>
+    ERROR: contact <email> failed Authorization: Bearer <hidden>
+    ERROR: json {"password": "<hidden>"} failed
+    ERROR: host <azure-host> refused
+    ERROR: key material <long> failed
 STOP: the backup failed (exit 1)
 P5A NOT COMPLETE - do not run P5b or any deployment step
 ok   s3.out exit 1
 ok   s3.out: backup exit=1
 ok   s3.out: <url>
+ok   s3.out: <azure-host>
+ok   s3.out: AccountKey=<hidden>;AccountName=<hidden>
 ok   s3.out: offsite/<path>
-ok   s3.out: AccountKey=<hidden>
+ok   s3.out: --account-key <hidden> --sas-token <hidden> --container-name <hidden>
+ok   s3.out: <email>
+ok   s3.out: Bearer <hidden>
+ok   s3.out: <long>
+ok   s3.out: P5A NOT COMPLETE - do not run P5b or any deployment step
 ok   s3.out: does not show SECRETKEY123
 ok   s3.out: does not show TOK999
 ok   s3.out: does not show secretcontainer
@@ -51,14 +80,37 @@ ok   s3.out: does not show secretbucket
 ok   s3.out: does not show RAWLINE
 ok   s3.out: does not show SECRETPASS77
 ok   s3.out: does not show SESSIONSECRET42
-ok   s3: at most 10 error lines plus the elision line
-ok   s3.out: ... (4 more) ...
-ok   s3.out: P5A NOT COMPLETE - do not run P5b or any deployment step
+ok   s3.out: does not show SIGSECRET
+ok   s3.out: does not show secretacct
+ok   s3.out: does not show KEYARG777
+ok   s3.out: does not show SASARG888
+ok   s3.out: does not show admin@example.org
+ok   s3.out: does not show BEARER999
+ok   s3.out: does not show JSONPASS1
+ok   s3.out: does not show LONGBASE64KEYMATERIAL
+ok   s3b.out exit 1
+ok   s3b.out: backup exit=75
+ok   s3b.out: the backup failed (exit 75)
+ok   s3b.out: does not show did not start
+ok   s3c.out exit 1
+ok   s3c.out: ... (4 more) ...
+ok   s3c.out: ERROR: retry 6 failed
+ok   s3c.out: ERROR: retry 11 failed
+ok   s3c.out: does not show ERROR: retry 7 failed
+ok   s3c: 10 error lines plus the elision line
 ok   s4.out exit 1
-ok   s4.out: has no COMPLETE
+ok   s4.out: has no COMPLETE that names it
+ok   s4b.out exit 1
+ok   s4b.out: has no COMPLETE that names it
+ok   s4c.out exit 0
+ok   s4c.out: (env file BACKUP_DIR): COMPLETE present
+ok   s4d.out exit 0
+ok   s4d.out: (log destination): COMPLETE present
 ok   s5.out exit 1
 ok   s5.out: 03:00-04:30 UTC is the nightly backup window
 ok   s5.out: does not show backup exit
+ok   s5b.out exit 1
+ok   s5b.out: the host clock is not UTC (offset +0300)
 ok   s6.out exit 1
 ok   s6.out: a backup or pg_dump process is already running
 ok   s6.out: does not show backup exit
@@ -67,4 +119,54 @@ ok   s7.out: no P6 planned record
 ok   s8.out exit 0
 ok   s8.out: no backup or pg_dump process running
 ok   s8.out: P5A STEP COMPLETE
+ok   s8b.out exit 0
+ok   s8b.out: no backup or pg_dump process running
+ok   s8b.out: P5A STEP COMPLETE
+ok   s10-schedule.out exit 1
+ok   s10-schedule.out: the cron schedule is '30 19 * * *', not the approved '30 3 * * *'
+ok   s10-schedule.out: does not show start 
+ok   s10-schedule: no start file, the entry never ran
+ok   s10-twojobs.out exit 1
+ok   s10-twojobs.out: the cron file has 2 job line(s) for the backup entry point
+ok   s10-twojobs.out: does not show start 
+ok   s10-twojobs: no start file, the entry never ran
+ok   s10-otherlog.out exit 1
+ok   s10-otherlog.out: the cron command differs from the approved form (lock path 1, entry 1, log path 0
+ok   s10-otherlog.out: does not show start 
+ok   s10-otherlog: no start file, the entry never ran
+ok   s10-malformed.out exit 1
+ok   s10-malformed.out: line(s) that are neither comments, variables nor jobs
+ok   s10-malformed.out: does not show start 
+ok   s10-malformed: no start file, the entry never ran
+ok   s10-tz.out exit 1
+ok   s10-tz.out: the cron file sets a timezone variable
+ok   s10-tz.out: does not show start 
+ok   s10-tz: no start file, the entry never ran
+ok   s10-user.out exit 1
+ok   s10-user.out: the cron job runs as 'civo', not root
+ok   s10-user.out: does not show start 
+ok   s10-user: no start file, the entry never ran
+ok   s10-missing.out exit 1
+ok   s10-missing.out: cannot read the cron file
+ok   s11 mawk = gawk for cron variant approved, mode inspect
+ok   s11 mawk = gawk for cron variant approved, mode env
+ok   s11 mawk = gawk for cron variant schedule, mode inspect
+ok   s11 mawk = gawk for cron variant schedule, mode env
+ok   s11 mawk = gawk for cron variant twojobs, mode inspect
+ok   s11 mawk = gawk for cron variant twojobs, mode env
+ok   s11 mawk = gawk for cron variant otherlog, mode inspect
+ok   s11 mawk = gawk for cron variant otherlog, mode env
+ok   s11 mawk = gawk for cron variant malformed, mode inspect
+ok   s11 mawk = gawk for cron variant malformed, mode env
+ok   s11 mawk = gawk for cron variant tz, mode inspect
+ok   s11 mawk = gawk for cron variant tz, mode env
+ok   s11 mawk = gawk for cron variant user, mode inspect
+ok   s11 mawk = gawk for cron variant user, mode env
+ok   s11-ok.out exit 0
+ok   s11-ok.out: cron variables applied to this run: SHELL PATH MAILTO PARKIO_TEST_VAR
+ok   s11-many.out exit 1
+ok   s11-many.out: ... (4 more) ...
+ok   s11-guard.out exit 1
+ok   s11-guard.out: a backup or pg_dump process is already running (1 process(es))
+ok   s11-parent.out exit 0
 SELFTEST PASS
