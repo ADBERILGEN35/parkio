@@ -3,23 +3,23 @@
 springBoot = "3.5.15"
 springDependencyManagement = "1.1.7"
 # JJWT is not part of the Spring Boot BOM, so it needs an explicit version.
-jjwt = "0.12.6"
+jjwt = "0.13.0"
 # MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
 minio = "8.6.0"
 # Bouncy Castle arrives transitively (MinIO → media; spring-cloud-starter → gateway).
 # Pin floor to ≥1.85 for CVE-2026-8763 (Name Constraints bypass; fixed in BC Java 1.85+).
 # Also supersedes the prior 1.81.1 floor for CVE-2025-14813. See Keyfactor/BC 1.85 notes.
-bouncycastle = "1.85"
+bouncycastle = "1.86"
 # springdoc-openapi (OpenAPI 3 + Swagger UI for Spring MVC). Not in the Spring Boot BOM.
-springdoc = "2.8.17"
+springdoc = "2.9.1"
 # Resilience4j (circuit breaker / bulkhead / rate limiter). Not in the Spring Boot BOM,
 # so it needs an explicit version; 2.3.x targets the Spring Boot 3.4+/3.5 line.
-resilience4j = "2.3.0"
+resilience4j = "2.4.0"
 kafkaClients = "3.9.2"
 # CycloneDX Gradle plugin — generates a per-service CycloneDX SBOM (build/reports/bom.json).
 # Applied by the convention plugin; consumed by buildSrc. Not part of any BOM.
 cyclonedx = "1.10.0"
-commonsCsv = "1.11.0"
+commonsCsv = "1.14.1"
 # LocationTech JTS — OGC-faithful prepared geometry for municipal district coverage (DATA-WP-19).
 jts = "1.20.0"
 
