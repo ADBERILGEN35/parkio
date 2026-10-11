@@ -1,0 +1,84 @@
+ok   s3.out exit 1
+ok   s3.out: fetched d943d5d2ed7e from origin
+ok   s3.out: unexpected: services/gateway-service/src/X.java
+ok   s3.out: STOP: the new PIN changes paths outside the approved scope; the checkout is not moved
+ok   s3: release checkout at c8915f2
+ok   s4.out exit 1
+ok   s4.out: FAIL every Dockerfile adds exactly the pebble-removal block and removes nothing: differs: user-service
+ok   s4.out: STOP: the new PIN does not match the approved remediation; the checkout is not moved
+ok   s4: release checkout at c8915f2
+RB1 release re-baseline | stamp 20261011T094042Z | <W>/release c8915f230290 -> fbfe0c0816e9 | project rb1probe
+
+A. Before any change
+  release checkout clean; live checkout b4158f43e12b with 1 changes (kept as is)
+  255 tags (2 rollback tags), 1 project containers
+
+B. The new PIN fbfe0c0816e9 against c8915f230290, then the release checkout
+  PASS the new PIN descends from the old PIN
+  PASS changed paths are exactly marketing (13), the ten Dockerfiles and the two pin files: 25 paths
+  PASS every Dockerfile adds exactly the pebble-removal block and removes nothing: 10/10
+  PASS the pin files change only comments and image lines
+  PASS the pin files name exactly the four replacement digests: gateway, media, parking, auth
+  <W>/release moved c8915f230290 -> fbfe0c0816e9
+  PASS release checkout at the new PIN and clean
+  PASS every runtime stage at the new PIN removes /usr/bin/pebble (D7 builds FROM the same two bases): 10/10
+
+C. The four replacement images
+  PASS gateway-service replacement image identity: present; sha256:a2a1a1195ada; image id = accepted config digest; linux/amd64; revision 555555555555
+  PASS gateway-service final filesystem without /usr/bin/pebble: ubuntu ?; /usr/bin/pebble absent
+  PASS media-service replacement image identity: present; sha256:f138e3cddfff; image id = accepted config digest; linux/amd64; revision 555555555555
+  PASS media-service final filesystem without /usr/bin/pebble: ubuntu ?; /usr/bin/pebble absent
+  PASS parking-service replacement image identity: present; sha256:c76c457ad9a9; image id = accepted config digest; linux/amd64; revision 555555555555
+  PASS parking-service final filesystem without /usr/bin/pebble: ubuntu ?; /usr/bin/pebble absent
+  PASS auth-service replacement image identity: present; sha256:6894dd569d18; image id = accepted config digest; linux/amd64; revision 555555555555
+  PASS auth-service final filesystem without /usr/bin/pebble: ubuntu ?; /usr/bin/pebble absent
+
+D. Still carrying pebble by design (reported, not cleaned): the D7 bases
+  PASS rb1probe-temurin:21-jre examined: image 7ff1e1f8229d; ubuntu 26.04; /usr/bin/pebble present (go1.26.7, sha256 e9fa3b0ba2d8); base not clean - expected; D7's runtime stage removes it
+  PASS rb1probe-temurin:21-jdk examined: image 6473c3a99f0b; ubuntu 26.04; /usr/bin/pebble present (go1.26.7, sha256 e9fa3b0ba2d8); base not clean - expected; D7's runtime stage removes it
+  every runtime image also keeps the base layer's bytes under a whiteout (layer-level; verified by S2 on the published candidate artifacts)
+
+E. Nothing else changed
+  PASS no image tag added, moved or removed (rollback tags included): rollback tags 2/2 unchanged
+  PASS every project container unchanged (image, state, start time): 1 containers
+  PASS live checkout /opt/parkio unchanged (HEAD and status): b4158f43e12b, 1 changes
+  PASS no probe container left
+
+gates passed 21/21
+RB1 REBASELINE COMPLETE
+saved: <W>/out/RB1-rebaseline-20261011T094042Z.txt
+saved: <W>/out/RB1-rebaseline-20261011T094042Z.json
+ok   s1.out exit 0
+ok   s1.out: PASS the new PIN descends from the old PIN
+ok   s1.out: PASS changed paths are exactly marketing (13), the ten Dockerfiles and the two pin files: 25 paths
+ok   s1.out: PASS every Dockerfile adds exactly the pebble-removal block and removes nothing: 10/10
+ok   s1.out: PASS the pin files change only comments and image lines
+ok   s1.out: PASS the pin files name exactly the four replacement digests
+ok   s1.out: moved c8915f230290 -> fbfe0c0816e9
+ok   s1.out: PASS release checkout at the new PIN and clean
+ok   s1.out: PASS every runtime stage at the new PIN removes /usr/bin/pebble (D7 builds FROM the same two bases): 10/10
+ok   s1.out: PASS gateway-service replacement image identity: present;
+ok   s1.out: PASS auth-service final filesystem without /usr/bin/pebble: ubuntu ?; /usr/bin/pebble absent
+ok   s1.out: PASS rb1probe-temurin:21-jre examined
+ok   s1.out: /usr/bin/pebble present (go1.26.7, sha256
+ok   s1.out: base not clean - expected; D7's runtime stage removes it
+ok   s1.out: PASS no image tag added, moved or removed (rollback tags included): rollback tags 2/2 unchanged
+ok   s1.out: PASS every project container unchanged (image, state, start time): 1 containers
+ok   s1.out: PASS live checkout /opt/parkio unchanged (HEAD and status)
+ok   s1.out: PASS no probe container left
+ok   s1.out: RB1 REBASELINE COMPLETE
+ok   s1: release checkout at fbfe0c0
+ok   live checkout still dirty
+ok   project container untouched
+ok   s2.out exit 0
+ok   s2.out: already at the new PIN
+ok   s2.out: RB1 REBASELINE COMPLETE
+ok   s5.out exit 1
+ok   s5.out: FAIL media-service final filesystem without /usr/bin/pebble
+ok   s5.out: RB1 REBASELINE NOT COMPLETE
+ok   s6.out exit 1
+ok   s6.out: STOP: this copy has unfilled constants
+ok   no probe container after S1-S6
+ok   reports mode 600
+docker 29.8.1
+SELFTEST PASS

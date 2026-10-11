@@ -1,0 +1,30 @@
+== removed
+  SHA256SUMS OK; image b3edb92faac9; revision None; 8 layers
+  layer  0 (4e07a0f12b2c009f983): usr/bin/pebble added - 9949346 bytes, sha256 5e33a1304f20, go1.26.7, github.com/canonical/pebble v1.32.3-0.20260908071357-f1688182910f -> affected (< 1.26.9)
+  layer  6 (d91257d2dac1b35e942): usr/bin/pebble deleted (whiteout)
+  final runtime filesystem: usr/bin/pebble ABSENT
+  candidate scan: critical gate pass, library gate pass (fixed CRITICAL 0, HIGH 0); targets img (ubuntu 26.04), Java; usr/bin/pebble as a scan target: no
+  PASS
+S2 PASS: 1/1 images
+ok   s1.out exit 0
+ok   s1.out: SHA256SUMS OK
+ok   s1.out: usr/bin/pebble added - 9949346 bytes, sha256 5e33a1304f20, go1.26.7, github.com/canonical/pebble v1.32.3-0.20260908071357-f1688182910f -> affected (< 1.26.9)
+ok   s1.out: usr/bin/pebble deleted (whiteout)
+ok   s1.out: final runtime filesystem: usr/bin/pebble ABSENT
+ok   s1.out: candidate scan: critical gate pass, library gate pass (fixed CRITICAL 0, HIGH 0); targets img (ubuntu 26.04), Java; usr/bin/pebble as a scan target: no
+ok   s1.out: S2 PASS: 1/1 images
+ok   s2.out exit 1
+ok   s2.out: final runtime filesystem: usr/bin/pebble PRESENT
+ok   s2.out: S2 FAIL: 0/1 images
+ok   s2: no deletion reported
+ok   s3.out exit 1
+ok   s3.out: SHA256SUMS MISMATCH trivy.json
+ok   s4.out exit 1
+ok   s4.out: candidate scan: critical gate pass, library gate fail
+ok   s6.out exit 1
+ok   s6.out: usr/bin/pebble as a scan target: yes
+ok   s5.out exit 1
+ok   s5.out: S2 FAIL: 1/2 images
+ok   JSON record
+docker 29.8.1
+SELFTEST PASS

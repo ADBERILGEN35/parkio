@@ -1,0 +1,69 @@
+P5b backup verification | 2026-10-11T09:40:54Z | P5a start 2026-10-11T09:35:54Z | scope azure-hosted-beta
+  offsite kind: s3; pull function present; backup dir and textfile dir resolved from the env file
+
+A. Local stamp
+  PASS newest stamp 2026-10-11T09-40-54Z is not older than the P5a start
+  PASS COMPLETE names the stamp and the SHA-256 of SHA256SUMS
+  PASS local sha256sum -c --strict
+  PASS SHA256SUMS lists every file except itself and COMPLETE (2 of 4)
+  PASS no plaintext dump
+  stamp 2026-10-11T09-40-54Z: 4 files, 7447 bytes, SHA256SUMS sha256 bed43468e32c69fdf22de86544ac3caef0413d0a4975bc4e512876226b735b7f
+
+B. Metrics (scope azure-hosted-beta)
+  PASS last_success = 1
+  PASS databases_failed = 0
+  PASS offsite_last_success = 1
+  PASS encryption_enabled = 1
+  PASS production_mode = 1
+  PASS last_timestamp_seconds after the P5a start
+
+C. Offsite copy of 2026-10-11T09-40-54Z
+  PASS offsite SHA256SUMS byte-identical
+  PASS offsite COMPLETE byte-identical
+  PASS offsite sha256sum -c --strict
+  PASS offsite holds the same 4 file names
+  PASS temporary copy deleted
+
+receipt: <W>/out/backup/P5b-receipt-2026-10-11T09-40-54Z.json
+stamp 2026-10-11T09-40-54Z | files 4 | bytes 7447 | SHA256SUMS sha256 bed43468e32c69fdf22de86544ac3caef0413d0a4975bc4e512876226b735b7f | offsite copy identical: true
+P5B VERIFIED
+ok   s1.out exit 0
+ok   s1.out: offsite kind: s3; pull function present
+ok   s1.out: PASS newest stamp 2026-10-11T09-40-54Z is not older than the P5a start
+ok   s1.out: PASS COMPLETE names the stamp and the SHA-256 of SHA256SUMS
+ok   s1.out: PASS local sha256sum -c --strict
+ok   s1.out: PASS SHA256SUMS lists every file except itself and COMPLETE (2 of 4)
+ok   s1.out: PASS no plaintext dump
+ok   s1.out: PASS last_timestamp_seconds after the P5a start
+ok   s1.out: PASS offsite SHA256SUMS byte-identical
+ok   s1.out: PASS offsite COMPLETE byte-identical
+ok   s1.out: PASS offsite sha256sum -c --strict
+ok   s1.out: PASS offsite holds the same 4 file names
+ok   s1.out: offsite copy identical: true
+ok   s1.out: P5B VERIFIED
+ok   s1.out: no secret, bucket or pull output
+ok   s1.out: temporary copy deleted
+ok   receipt mode 600
+ok   receipt content
+ok   s2.out exit 1
+ok   s2.out: FAIL offsite pull failed (exit
+ok   s2.out: PASS offsite SHA256SUMS byte-identical
+ok   s2.out: FAIL offsite checksum verification failed
+ok   s2.out: offsite copy identical: false
+ok   s2.out: P5B NOT VERIFIED
+ok   s2.out: no secret, bucket or pull output
+ok   s2.out: temporary copy deleted
+ok   s3.out exit 1
+ok   s3.out: is older than the P5a start (P5a made no new stamp)
+ok   s4.out exit 1
+ok   s4.out: FAIL plaintext dump present (1 file(s); library check fail)
+ok   s5.out exit 1
+ok   s5.out: FAIL offsite_last_success = 0 (want 1)
+ok   s6.out exit 1
+ok   s6.out: FAIL offsite pull failed (exit
+ok   s6.out: its output is not shown
+ok   s6.out: no secret, bucket or pull output
+ok   s6.out: temporary copy deleted
+ok   s7.out exit 1
+ok   s7.out: STOP: usage: p5b-backup-verify.sh
+SELFTEST PASS

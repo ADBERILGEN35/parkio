@@ -1,0 +1,58 @@
+ok   S1 plan exit 0
+ok   S1 plan: rollback of notification needs a decision (live wrapper renders a different config)
+ok   S1 plan: gateway rollback via its recorded inputs (live wrapper lacks the overlay)
+ok   S1 plan: web rollback via recorded inputs with the binding rebuilt from its image
+ok   S1 plan: alertmanager rollback via the live wrapper
+ok   S1 planned record written
+ok   S1 D2a refused without a fresh P5 receipt
+ok   S1 D2a refused with a 150 min old receipt
+ok   S1 D2a ok
+ok   S1 D2a ran the wrapper with --no-deps alertmanager
+ok   S1 D2a Watchdog route check
+ok   S1 D3 before D2b/D2c/nr-pause refused
+ok   S1 D2b ok
+ok   S1 D2c ok
+ok   S1 nr-pause ok, timer stopped
+ok   S1 D3 ok with overlay, V6, NR attached, smoke
+ok   S1 D4 ok
+ok   S1 D5 ok
+ok   S1 D6a ok
+ok   S1 D6b ok
+ok   S1 D5 applied auth V24-V27
+ok   S1 rollback auth after V24-V27 REFUSED (F-INV-3)
+ok   S1 D7 before nr-resume refused
+ok   S1 nr-resume ok, timer active, guard PASS
+ok   S1 D7 ok
+ok   S1 D7 checked pebble absent and scanned before starting
+ok   S1 D7 recorded the remaining exposure
+ok   S1 D7 tagged parkio/<svc>:sha-<pin8>
+ok   S1 final ok
+ok   S1 deployed-manifest.json written and equal to R/final/current.json
+ok   S1 manifest: gitSha, pins, six images, migrations read from the databases
+ok   S1 state complete
+ok   S1 journal has start/ok lines and a refused rollback
+ok   S1 T1 records mode 600 (the test's own P5b receipt excluded)
+ok   S1 no password in any output or record
+ok   S1 never a whole-project up, --force-recreate or --allow-dirty
+ok   S2 D3 smoke failure -> FAIL, state partial
+ok   S2 D4 refuses after a failed D3
+ok   S2 D3 re-run ok after the fix
+ok   S3 D7 pebble fault -> FAIL before any start
+ok   S3 D7 pebble fault -> latest tags pointed back at the rollback tags
+ok   S3 D7 library scan fault -> FAIL before any start
+ok   S3 D7 library scan fault -> latest tags pointed back at the rollback tags
+ok   S3 D7 build fault -> FAIL before any start
+ok   S3 D7 build fault -> latest tags pointed back at the rollback tags
+ok   S4 D5 without its migrations -> FAIL (MISSING V24..)
+ok   S4 D5 re-run applies V24-V27
+ok   S4 D6b with parking rows -> stop before any change
+ok   S4 nr-resume with 2/3 attached -> FAIL, timer stays stopped
+ok   S4 D7 refuses after a failed nr-resume
+ok   S4 unfilled PIN -> STOP
+ok   S5 rollback alertmanager via the live wrapper restores the previous hash and image
+ok   S5 rollback notification refused: not reproducible (env changed since it started)
+ok   S5 rollback web via recorded inputs restores the previous image and hash
+ok   S5 final with a broken CSRF check -> FAIL, no manifest
+ok   S5 final with parkio.user behind on a score partition -> FAIL (U12 B)
+all checks passed
+SELFTEST PASS
