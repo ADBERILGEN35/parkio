@@ -1,11 +1,16 @@
-# Parkio GMP release pins — hosted-beta release 2026-10-09
-# Source / OCI revision: a658edcb0e4152b760ecafa3ef02d7410f9b0ef8 (api after #326: lz4-java 1.11.4,
-# Trivy exceptions CVE-2026-47890/47892). Candidate images run 37847459860 (accepted: full stack,
-# auth+gateway 22/22, web suites; Trivy critical + library gates pass), published by candidate-publish
-# run 37850081305: single linux/amd64 manifests, registry config digest = accepted image id.
-#   gateway-service image id sha256:a2dbf7aae7b11a5d39bb3b274cc488f99b2f9aecc4b7b6338780b45ec54f936d
-#   media-service   image id sha256:cfa7c3484af3a399952a4204775cb7a6fdf838053376c353087089b73af55c31
-#   parking-service image id sha256:236fe8dfcad46ba4e5dbff2e718bc390f776b5e8f9c33c489fb0f59da939dd0e
+# Parkio GMP release pins — hosted-beta release 2026-10-11
+# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the unused base-layer
+# /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer;
+# Java sources identical to a658edcb). Candidate images run
+# 38087836817 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical + library gates pass),
+# published by candidate-publish run 38125100729: single linux/amd64 manifests, registry config digest =
+# accepted image id.
+#   gateway-service image id sha256:5fe2150ac77085c8c152fd5212286770744ffd7ab96a855d958a096c1a0addc4
+#   media-service   image id sha256:1996c62a4da0f1452cc27d9718dad74dfb87c7faaf7916407981369211ad2007
+#   parking-service image id sha256:1cefaabd02ed5377fcc00189022f6ac4dff0663c6ccc9cdb6446af69d410f1e3
+# Superseded before deployment (never live; they carry /usr/bin/pebble built with go1.26.7): the a658edcb
+# pins of candidate run 37847459860 / publish run 37850081305 (gateway e061d7ed, media 7a758cd6,
+# parking 5c629fff).
 # Rollback (the previous live pins):
 #   ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
 #   ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
@@ -22,10 +27,10 @@ name: parkio
 
 services:
   gateway-service:
-    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:e061d7ed3ddc8ad10193f57283b8cb44dfcb66e480db3ca098742aac87bb8e3b
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:ff21f4a6dbcd6baba9b2a69527a2d6006016c4d00e5390e1bce01b94e86cf026
 
   media-service:
-    image: ghcr.io/adberilgen35/parkio/media-service@sha256:7a758cd6a0ced0acb80768266628a1fe49ba287892f07b0954c5dc5f1e5cdd5a
+    image: ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
 
   parking-service:
-    image: ghcr.io/adberilgen35/parkio/parking-service@sha256:5c629fff91af92914d9355cf83c829d3175773d46bbe5eb190f431c88cdb53e6
+    image: ghcr.io/adberilgen35/parkio/parking-service@sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9
