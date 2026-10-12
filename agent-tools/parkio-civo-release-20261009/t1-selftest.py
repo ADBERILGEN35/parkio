@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "t1-release-step.py")
 PIN = "7" * 40
 PASSWORD = "S3cret-Test-Password-9x"
-EMAIL = "seed@real-e2e.parkio.local"
+EMAIL = "user@real-e2e.parkio.local"      # the smoke's default account; the production env file does not carry it
 INFRA = ["alertmanager", "prometheus", "caddy"]
 PINNED = ["gateway-service", "auth-service", "media-service", "parking-service", "web"]
 BUILT = ["user-service", "gamification-service", "notification-service", "moderation-service", "ai-validation-service",
@@ -75,7 +75,7 @@ class Host:
         for f in self.live_files:
             open(f, "w").write("services: {}\n")
         self.env_file = os.path.join(root, "env")
-        open(self.env_file, "w").write(f"PARKIO_REAL_USER_EMAIL={EMAIL}\nOTHER=1\n")
+        open(self.env_file, "w").write("OTHER=1\n")    # as on the host: no PARKIO_REAL_USER_EMAIL (2026-10-12 lesson)
         self.flyway = {}
         for svc, (n, pending) in SCRIPTS.items():
             d = os.path.join(self.rel, "services", svc, "src", "main", "resources", "db", "migration")
@@ -121,6 +121,8 @@ class Host:
         self.smoke_fail = 0
         self.pebble_present = set()
         self.trivy_fail = {}
+        self.account = EMAIL          # the account the fake auth service accepts
+        self.logins = []              # e-mails E's CSRF checks logged in with
         self.trivy_error = set()      # services whose scans write no report (scanner error, exit 1)
         self.db_age = {"vulnerabilityDb": 3, "javaDb": 20}   # hours; None = that database's metadata missing
         self.now = lambda: datetime.now(timezone.utc)        # the clock T1 sees (t1() sets the fake one)
@@ -406,7 +408,9 @@ class Host:
         if url.rstrip("/") == "https://parkio.dev":
             return 200, {"content-security-policy": "x", "strict-transport-security": "max-age=31536000"}, b""
         if url.endswith("/auth/login"):
-            ok = json.loads(body)["password"] == PASSWORD
+            req = json.loads(body)
+            self.logins.append(req["email"])
+            ok = req["email"] == self.account and req["password"] == PASSWORD
             return (200, {}, b'{"csrfToken":"tok"}') if ok else (401, {}, b"{}")
         if url.endswith("/auth/refresh-token"):
             if headers.get("Origin") != "https://app.parkio.dev":
@@ -490,6 +494,7 @@ def state(host):
 
 
 def session():
+    os.environ.pop("PARKIO_REAL_USER_EMAIL", None)
     os.environ.update(PARKIO_REAL_USER_PASSWORD=PASSWORD, PARKIO_GATEWAY_URL="https://api.parkio.dev",
                       PARKIO_SMOKE_EXPECT_DIRECT_BLOCKED="1", PARKIO_DEPLOYMENT_PROFILE="azure-hosted-beta",
                       PARKIO_ENV_FILE="/x")
@@ -607,6 +612,8 @@ def main():
     check("S1 deployed-manifest.json written and equal to R/final/current.json", os.path.exists(man)
           and open(man).read() == open(os.path.join(h.out, "final", "current.json")).read())
     mj = json.load(open(man)) if os.path.exists(man) else {}
+    check("S11 E's CSRF login used the smoke's default account (no PARKIO_REAL_USER_EMAIL in the environment or the env file)",
+          "PASS login 200 with csrfToken in the body" in out and h.logins and set(h.logins) == {EMAIL}, str(set(h.logins)))
     check("S10 E0 verified all fourteen services before the smoke gate", out.count(" = its step's record and the release model; running/healthy") == 14
           and out.index("E0. Deployed identities") < out.index("E1. Smoke gate"), out[-300:])
     check("S10 manifest records every service's deployed image and config hash", len(mj.get("deployed") or {}) == 14
@@ -828,6 +835,47 @@ def main():
               and "D7.4 Run:" not in out and all(h.containers[s]["id"] == before[s] for s in BUILT)
               and all(h.images[f"parkio-{s}:latest"] == h.images[f"parkio-{s}:rollback-pre-22f96990"] for s in BUILT),
               out[-900:])
+
+    # S11 (2026-10-12 regression): E took the account e-mail from the production env file only and stopped at "seeded account
+    # available" although the smoke had logged in; it now resolves the account like the smoke
+    m = module(fresh())
+    smoke = ""
+    for repo in (os.environ.get("T1ST_REPO", ""), os.path.dirname(os.path.abspath(__file__))):
+        try:
+            smoke = __import__("subprocess").run(["git", "-C", repo or ".", "show", "f888a81b113c0c486ea0949067779443857e644d:"
+                                                  "scripts/smoke-hosted-beta.sh"], capture_output=True, text=True).stdout
+        except OSError:
+            smoke = ""
+        if smoke:
+            break
+    check("S11 T1's default account is the release smoke script's default", bool(smoke)
+          and "${EXPLICIT_EMAIL:-" + m.SMOKE_ACCOUNT_DEFAULT + "}" in smoke and 'EXPLICIT_EMAIL="${PARKIO_REAL_USER_EMAIL:-}"' in smoke,
+          "smoke script not readable" if not smoke else m.SMOKE_ACCOUNT_DEFAULT)
+    os.environ["PARKIO_REAL_USER_EMAIL"] = "other@real-e2e.parkio.local"
+    check("S11 PARKIO_REAL_USER_EMAIL from the environment wins, as in the smoke", m.seeded_account_email() == "other@real-e2e.parkio.local")
+    h = fresh(); receipt(h, 10)
+    h.account = "other@real-e2e.parkio.local"
+    t1(h, "plan")
+    for s in ("D2a", "D2b", "D2c"):
+        t1(h, "step", s)
+    t1(h, "nr-pause")
+    for s in ("D3", "D4", "D5", "D6a", "D6b"):
+        t1(h, "step", s)
+    t1(h, "nr-resume"); t1(h, "step", "D7"); coverage(h)
+    code, out = t1(h, "final")
+    check("S11 final with PARKIO_REAL_USER_EMAIL set logs in with that account and completes", code == 0
+          and set(h.logins) == {"other@real-e2e.parkio.local"}, out[-500:])
+    os.environ.pop("PARKIO_REAL_USER_EMAIL", None)
+    m2 = module(fresh())
+    open(m2.ENV_FILE, "w").write("OTHER=1\n")
+    os.environ.pop("PARKIO_REAL_USER_PASSWORD", None)
+    st, rec = {"steps": {}}, {}
+    m2.GATES.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        m2.csrf_checks()
+    check("S11 without the smoke password the gate still fails (no login attempted)",
+          m2.GATES == [("CSRF checks: seeded account available (values not shown)", False)], str(m2.GATES))
+    session()
 
     # S6 (2026-10-12 regression): the live helper check prints its lines on stderr; D3 counted 0/0 from stdout only
     h = fresh()

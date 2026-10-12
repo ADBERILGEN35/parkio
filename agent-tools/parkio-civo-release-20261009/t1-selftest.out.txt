@@ -35,6 +35,7 @@ ok   S10 final with a config hash that drifted from the record and the model -> 
 ok   S9 final after a release tag moved -> FAIL, no manifest
 ok   S1 final ok
 ok   S1 deployed-manifest.json written and equal to R/final/current.json
+ok   S11 E's CSRF login used the smoke's default account (no PARKIO_REAL_USER_EMAIL in the environment or the env file)
 ok   S10 E0 verified all fourteen services before the smoke gate
 ok   S10 manifest records every service's deployed image and config hash
 ok   S9 manifest records the remaining exposure from the D7 record (not null) and the image scan
@@ -79,6 +80,10 @@ ok   S8 trivy_db_meta reads both databases with their age
 ok   S8 D7 with a stale vulnerability DB -> FAIL before any start, latest tags pointed back
 ok   S8 D7 with a missing Java DB -> FAIL before any start, latest tags pointed back
 ok   S8 D7 with a scanner error -> FAIL before any start, latest tags pointed back
+ok   S11 T1's default account is the release smoke script's default
+ok   S11 PARKIO_REAL_USER_EMAIL from the environment wins, as in the smoke
+ok   S11 final with PARKIO_REAL_USER_EMAIL set logs in with that account and completes
+ok   S11 without the smoke password the gate still fails (no login attempted)
 ok   S6 nr_attached counts the check's stderr lines: 3/3, exit 0
 ok   S6 nr_attached counts the check's stdout lines: 3/3, exit 0
 ok   S6 nr_attached with one source detached (stderr): 2/3, exit 1

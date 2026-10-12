@@ -1115,8 +1115,18 @@ def cmd_nr(which):
 
 
 # ---------------------------------------------------------------- E (final)
+SMOKE_ACCOUNT_DEFAULT = "user@real-e2e.parkio.local"   # scripts/smoke-hosted-beta.sh, seeded-positive mode
+
+
+def seeded_account_email():
+    """The account the smoke logs in with: PARKIO_REAL_USER_EMAIL from the environment, else the smoke's default
+    (scripts/smoke-hosted-beta.sh). T1 v6 read it from the production env file only, which does not carry it: E stopped at
+    "seeded account available" although the smoke had just logged in (2026-10-12)."""
+    return os.environ.get("PARKIO_REAL_USER_EMAIL") or SMOKE_ACCOUNT_DEFAULT
+
+
 def csrf_checks():
-    email, password = env_value("PARKIO_REAL_USER_EMAIL"), os.environ.get("PARKIO_REAL_USER_PASSWORD", "")
+    email, password = seeded_account_email(), os.environ.get("PARKIO_REAL_USER_PASSWORD", "")
     if not email or not password:
         gate("CSRF checks: seeded account available (values not shown)", False)
         return

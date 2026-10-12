@@ -7,7 +7,7 @@
 #
 # launch
 #  1. Read-only pre-checks; any failure stops before anything starts or is written:
-#     - installed T1 v6 and t1-step.sh v6 checksums; the five smoke variables set (names only);
+#     - installed T1 v7 and t1-step.sh v7 checksums; the five smoke variables set (names only);
 #     - the release checkout clean at the PIN;
 #     - T1 state D7 ok and final not ok (a failed E may be run again);
 #     - the newest D7 launch COMPLETE (exit 0, T1 D7 ok, password count 0);
@@ -36,8 +36,8 @@ R="${EL_OUT:-$HOME/parkio-release-20261009}"                        # overrides:
 REL="${EL_REL:-/opt/parkio-release}"
 PIN="${EL_PIN:-f888a81b113c0c486ea0949067779443857e644d}"
 FINAL_DIR="${EL_FINAL_DIR:-/var/lib/parkio/azure-hosted-beta}"
-T1_SHA="${EL_T1_SHA256:-180385f9cd40d671d1348d6211283fecf88b61225dd9c1f54db7749f315caf79}"
-STEP_SHA="${EL_STEP_SHA256:-a3bf4f317a87251321211cfa39b1c9804dde86c78858bec31cf466d67d5a2539}"
+T1_SHA="${EL_T1_SHA256:-2670b41e58e75b8edcfc57c6ad4b4972cc4f3c5e14a45b0b8c7132bf07efe0d4}"
+STEP_SHA="${EL_STEP_SHA256:-3c0b692a1f86ef7fbe0489ac37f09dd9847166f3fac2877c597c9b063d337d33}"
 BUILT="user-service gamification-service notification-service moderation-service ai-validation-service analytics-service"
 TD="$R/tools"
 L="$R/e-launch"
@@ -206,10 +206,10 @@ launch() {
   me="$(id -un)"; grp="$(id -gn)"
   echo "E launcher | $(now) | release $REL @ ${PIN:0:12} | record $FINAL_DIR"
   echo "== 1. read-only pre-checks (nothing is started or written until all pass)"
-  if echo "$T1_SHA  $TD/t1-release-step.py" | sha256sum -c --quiet - >/dev/null 2>&1; then pass "T1 v6 installed (${T1_SHA:0:12})"
-  else bad "the installed T1 is not v6 ${T1_SHA:0:12}"; fi
-  if echo "$STEP_SHA  $TD/t1-step.sh" | sha256sum -c --quiet - >/dev/null 2>&1; then pass "t1-step.sh v6 installed (${STEP_SHA:0:12})"
-  else bad "the installed t1-step.sh is not v6 ${STEP_SHA:0:12}"; fi
+  if echo "$T1_SHA  $TD/t1-release-step.py" | sha256sum -c --quiet - >/dev/null 2>&1; then pass "T1 v7 installed (${T1_SHA:0:12})"
+  else bad "the installed T1 is not v7 ${T1_SHA:0:12}"; fi
+  if echo "$STEP_SHA  $TD/t1-step.sh" | sha256sum -c --quiet - >/dev/null 2>&1; then pass "t1-step.sh v7 installed (${STEP_SHA:0:12})"
+  else bad "the installed t1-step.sh is not v7 ${STEP_SHA:0:12}"; fi
   for v in $SMOKE_VARS; do [ -n "${!v:-}" ] || missing="$missing $v"; done
   if [ -z "$missing" ]; then pass "smoke session variables present (5; values not shown)"; else bad "smoke variables missing:$missing"; fi
   head="$(git --no-optional-locks -C "$REL" rev-parse HEAD 2>/dev/null)"

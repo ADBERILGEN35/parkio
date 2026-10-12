@@ -1,0 +1,45 @@
+E account diagnostic | 2026-10-12T13:39:59Z | read-only
+== A. the failed E run
+  T1 final: fail at 2026-10-12T13:35:10Z stamp 20261012T133335Z; failed gates: ['CSRF checks: seeded account available (values not shown)']
+  E launch 20261012T133335Z: exit=1 passwordOccurrences=0 t1Final=fail overall=partial 
+  E smoke log smoke-E-20261012T133335Z.txt: login PASS lines 1; === smoke summary: pass=12 fail=0 ===
+== B. the installed T1 (E2 CSRF checks)
+  T1 sha256 180385f9cd40d671
+  T1 line 1119:    email, password = env_value("PARKIO_REAL_USER_EMAIL"), os.environ.get("PARKIO_REAL_USER_PASSWORD", "")
+  T1 env_value(PARKIO_REAL_USER_EMAIL) on <W>/env: absent
+  env file lines starting PARKIO_REAL_USER_EMAIL=: 0
+  env file key names with REAL_USER or SMOKE: 
+  this shell: PARKIO_REAL_USER_EMAIL unset; PARKIO_REAL_USER_PASSWORD set (values not shown)
+== C. the smoke (scripts/smoke-hosted-beta.sh at the release checkout)
+  smoke line 50:EXPLICIT_EMAIL="${PARKIO_REAL_USER_EMAIL:-}"
+  smoke line 72:  EMAIL="${EXPLICIT_EMAIL:-<e-mail>}"
+  -> the smoke logs in with its built-in default account
+== D. verdict
+CAUSE CONFIRMED: E2 takes the account e-mail only from the production env file, which has none; the smoke takes
+PARKIO_REAL_USER_EMAIL from the environment or its built-in default and logged in. The password precondition holds.
+Fix: T1 v7 resolves the account exactly like the smoke. No account, password or deployment change.
+ok   g1.out exit 0
+ok   g1.out: T1 final: fail at 2026-10-12T13:35:10Z stamp 20261012T133335Z; failed gates: ['CSRF checks: seeded account available (values not shown)']
+ok   g1.out: login PASS lines 1; === smoke summary: pass=12 fail=0 ===
+ok   g1.out: email, password = env_value("PARKIO_REAL_USER_EMAIL"), os.environ.get("PARKIO_REAL_USER_PASSWORD", "")
+ok   g1.out: T1 env_value(PARKIO_REAL_USER_EMAIL) on /tmp/tmp.YJNoMpnd1L/env: absent
+ok   g1.out: env file lines starting PARKIO_REAL_USER_EMAIL=: 0
+ok   g1.out: this shell: PARKIO_REAL_USER_EMAIL unset; PARKIO_REAL_USER_PASSWORD set (values not shown)
+ok   g1.out: EXPLICIT_EMAIL="${PARKIO_REAL_USER_EMAIL:-}"
+ok   g1.out: EMAIL="${EXPLICIT_EMAIL:-<e-mail>}"
+ok   g1.out: the smoke logs in with its built-in default account
+ok   g1.out: CAUSE CONFIRMED
+ok   g1: the password is not printed
+ok   g1: no e-mail address printed
+ok   g1: no __pycache__ beside T1
+ok   n1.out exit 1
+ok   n1.out: differs: this shell sets PARKIO_REAL_USER_EMAIL
+ok   n1: the address is not printed
+ok   n2.out exit 1
+ok   n2.out: differs: T1 finds an e-mail in the env file (set)
+ok   n3.out exit 1
+ok   n3.out: differs: E's smoke log has no login PASS line
+ok   n4.out exit 1
+ok   n4.out: differs: the smoke password is not set in this shell
+ok   n4.out: CAUSE NOT CONFIRMED - send this output
+SELFTEST PASS
