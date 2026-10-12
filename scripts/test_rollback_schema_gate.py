@@ -5,7 +5,8 @@ The manifests are realistic. Their migrationVersions is this checkout's own list
 parkio_migration_versions_json writes it into every deploy manifest. Their images map is the
 services a rollback re-points, written the way parkio_write_manifest writes them. The hosted-beta
 image plan has the lines parkio_hosted_beta_image_plan prints, with this checkout's own digest pins
-from docker/compose.production.files. Each case edits one thing.
+from docker/compose.production.files. Since U13 those pin every app service, so the mixed-plan cases
+use the split production ran before U13 (see BUILT). Each case edits one thing.
 """
 from __future__ import annotations
 
@@ -35,6 +36,19 @@ def checkout_app_services() -> list:
     return out.split()
 
 
+def file_pins(entry: str) -> dict:
+    """{service: image} for every digest pin in one compose file."""
+    pins, service = {}, None
+    for line in (ROOT / entry).read_text(encoding="utf-8").splitlines():
+        key = re.fullmatch(r"  ([a-z][a-z0-9-]*):\s*", line)
+        if key:
+            service = key.group(1)
+        image = re.fullmatch(r"    image:\s*(\S+@sha256:[0-9a-f]{64})\s*", line)
+        if image and service:
+            pins[service] = image.group(1)
+    return pins
+
+
 def checkout_pins() -> dict:
     """{service: image} for every digest pin in the files docker/compose.production.files lists."""
     pins = {}
@@ -42,14 +56,7 @@ def checkout_pins() -> dict:
         entry = entry.strip()
         if not entry or entry.startswith("#"):
             continue
-        service = None
-        for line in (ROOT / entry).read_text(encoding="utf-8").splitlines():
-            key = re.fullmatch(r"  ([a-z][a-z0-9-]*):\s*", line)
-            if key:
-                service = key.group(1)
-            image = re.fullmatch(r"    image:\s*(\S+@sha256:[0-9a-f]{64})\s*", line)
-            if image and service:
-                pins[service] = image.group(1)
+        pins.update(file_pins(entry))
     return pins
 
 
@@ -58,13 +65,19 @@ SERVICES = sorted(MIGRATIONS)
 TAG = "sha-" + "c" * 40
 APP_SERVICES = checkout_app_services()
 PINS = checkout_pins()
-BUILT = [s for s in APP_SERVICES if s not in PINS]
+# U13: this checkout pins every app service, so its own image plan builds nothing and a rollback to one
+# of its deploys has nothing to re-point. The mixed-plan cases use the split production ran before U13,
+# which manifests written then still record: the services docker-compose.app-release-pins.yml pins were
+# built. PLAN_PINS are the pins of that mixed plan.
+U13_PINNED = set(file_pins("docker/docker-compose.app-release-pins.yml"))
+BUILT = [s for s in APP_SERVICES if s not in PINS] or [s for s in APP_SERVICES if s in U13_PINNED]
+PLAN_PINS = {s: image for s, image in PINS.items() if s not in BUILT}
 OTHER_DIGEST = "sha256:" + "0" * 64
 
 
 def plan(pins: dict = None, built: list = None) -> str:
     """An image plan as parkio_hosted_beta_image_plan prints it, in PARKIO_APP_SERVICES order."""
-    pins = PINS if pins is None else pins
+    pins = PLAN_PINS if pins is None else pins
     built = BUILT if built is None else built
     lines = []
     for service in APP_SERVICES:
@@ -76,14 +89,14 @@ def plan(pins: dict = None, built: list = None) -> str:
 
 
 def repinned(service: str) -> str:
-    return PINS[service].split("@")[0] + "@" + OTHER_DIGEST
+    return PLAN_PINS[service].split("@")[0] + "@" + OTHER_DIGEST
 
 
 def hosted_beta(git_sha: str, migrations: dict = None, pinned: dict = None) -> dict:
     """A hosted-beta manifest: `images` holds the built services, `pinnedImages` the digest pins."""
     recorded = manifest(git_sha, migrations, images=BUILT)
     recorded["deploymentProfile"] = "hosted-beta"
-    recorded["pinnedImages"] = dict(PINS if pinned is None else pinned)
+    recorded["pinnedImages"] = dict(PLAN_PINS if pinned is None else pinned)
     return recorded
 
 
@@ -132,7 +145,12 @@ class RealisticData(unittest.TestCase):
         self.assertIn("auth-service", PINS)
         self.assertTrue(MIGRATIONS["auth-service"])
         self.assertTrue(BUILT)
-        self.assertEqual(gate.read_plan(plan()), (BUILT, PINS))
+        self.assertEqual(gate.read_plan(plan()), (BUILT, PLAN_PINS))
+
+    def test_this_checkout_pins_every_app_service(self):
+        # U13: a clean checkout renders no mutable app tag.
+        self.assertEqual([s for s in APP_SERVICES if s not in PINS], [])
+        self.assertEqual(sorted(BUILT), sorted(U13_PINNED))
 
 
 class Compatible(Fixture):
@@ -262,10 +280,10 @@ class PinnedServices(Fixture):
         self.assert_refused(hosted_beta("a" * 40, target), hosted_beta("b" * 40), f"{service}: {newest}", plan())
 
     def test_a_pin_that_differs_from_the_deployed_release_is_refused_and_named(self):
-        changed = {**PINS, "auth-service": repinned("auth-service")}
+        changed = {**PLAN_PINS, "auth-service": repinned("auth-service")}
         self.assertEqual(self.run_gate(hosted_beta("a" * 40), hosted_beta("b" * 40), self.write("plan", plan(changed))), 3)
         self.assert_refused(hosted_beta("a" * 40), hosted_beta("b" * 40),
-                            f"would change digest pins the deployed release runs (auth-service: {PINS['auth-service']} -> "
+                            f"would change digest pins the deployed release runs (auth-service: {PLAN_PINS['auth-service']} -> "
                             f"{repinned('auth-service')})", plan(changed))
 
     def test_a_record_without_pinned_images_is_refused(self):
@@ -279,12 +297,19 @@ class PinnedServices(Fixture):
                 self.assert_refused(hosted_beta("a" * 40), deployed, "records no readable pinnedImages", plan())
 
     def test_a_pin_added_or_removed_since_the_deploy_is_refused(self):
-        added = {**PINS, BUILT[0]: f"ghcr.io/example/{BUILT[0]}@{OTHER_DIGEST}"}
+        added = {**PLAN_PINS, BUILT[0]: f"ghcr.io/example/{BUILT[0]}@{OTHER_DIGEST}"}
         self.assert_refused(hosted_beta("a" * 40), hosted_beta("b" * 40), f"{BUILT[0]}: <not pinned> ->",
                             plan(added, [s for s in BUILT if s != BUILT[0]]))
-        removed = {s: i for s, i in PINS.items() if s != "auth-service"}
+        removed = {s: i for s, i in PLAN_PINS.items() if s != "auth-service"}
         self.assert_refused(hosted_beta("a" * 40), hosted_beta("b" * 40),
-                            f"auth-service: {PINS['auth-service']} -> <not pinned>", plan(removed, BUILT + ["auth-service"]))
+                            f"auth-service: {PLAN_PINS['auth-service']} -> <not pinned>", plan(removed, BUILT + ["auth-service"]))
+
+    def test_a_deploy_of_this_checkout_has_nothing_to_re_point_so_its_rollback_is_refused(self):
+        # U13: this checkout pins every app service; its deploys record no built image.
+        target = {**hosted_beta("a" * 40, pinned=PINS), "images": {}}
+        deployed = {**hosted_beta("b" * 40, pinned=PINS), "images": {}}
+        self.assertEqual(self.run_gate(target, deployed, self.write("plan", plan(PINS, []))), 3)
+        self.assert_refused(target, deployed, "the target manifest records no images", plan(PINS, []))
 
     def test_no_pins_on_either_side_are_equal(self):
         everything = [s for s in APP_SERVICES]
