@@ -21,10 +21,10 @@ With the default hosted-beta profile:
 
 | Image | Meaning |
 |-------|---------|
-| `parkio-<service>` | The name the model gives a service it builds (user, gamification, notification, moderation, ai-validation, analytics). Deploy builds it and `up` runs it. |
+| `parkio-<service>` | The name the model gives a service it builds. Since U13 the production list pins every app service, so it builds none. Deploy builds such a service and `up` runs it. |
 | `parkio/<service>:sha-<fullGitSha>` | Immutable tag of that build, recorded in the manifest's `images` for rollback |
 | `parkio/<service>:beta-latest` | Mutable pointer to the last successful deploy |
-| `ghcr.io/…/<service>@sha256:…` | Digest pins from the pin files for gateway, auth, parking, media and web, recorded in `pinnedImages`. Deploy pulls them; it never builds them. |
+| `ghcr.io/…/<service>@sha256:…` | Digest pins from the pin files for all eleven app services, recorded in `pinnedImages`: gateway, auth, parking, media and web, and (U13, `docker/docker-compose.app-release-pins.yml`) user, gamification, notification, moderation, ai-validation and analytics. Deploy pulls them; it never builds them. |
 
 The other profiles build every app service as `parkio/<service>:sha-<fullGitSha>`.
 
@@ -49,6 +49,7 @@ docker/docker-compose.apps.yml
 docker/docker-compose.hosted-beta.yml       # port lockdown + TLS
 docker/docker-compose.azure-hosted-beta.yml
 docker/docker-compose.gmp-release-pins.yml
+docker/docker-compose.app-release-pins.yml
 docker/docker-compose.auth-registration-env.yml
 docker/docker-compose.auth-release-pin.yml
 docker/docker-compose.web-release-pin.yml
@@ -233,7 +234,7 @@ running `deploy-hosted-beta.sh` by hand.
 - **Identity.** Which host it is, and its `docker/.env`.
 - **Docker Compose version.**
 - **Platform.** It is `linux/amd64`, because the production model sets `platform: linux/amd64`.
-- **Registry access.** It can read the GHCR digest pins: gateway, auth, parking, media and web, as it already does for the MinIO images. Packages that are not public need a `docker login ghcr.io` with read access. Without it, the deploy stops at the pull, before any build.
+- **Registry access.** It can read the GHCR digest pins of all eleven app services (gateway, auth, parking, media and web; since U13 also user, gamification, notification, moderation, ai-validation and analytics), as it already does for the MinIO images. Packages that are not public need a `docker login ghcr.io` with read access. Without it, the deploy stops at the pull, before any build.
 
 **Operator step on that host (F-INV-3, #290): create the deploy state directory.**
 - Run once, before the next deploy: `sudo install -d -m 2775 -g <deployers group> /var/lib/parkio/hosted-beta`. The group must include the runner user and every operator who deploys or rolls back.

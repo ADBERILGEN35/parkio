@@ -1,0 +1,42 @@
+# Parkio app release pins (U13, CL-F11): the six app services the hosted-beta deploy built on the host.
+# Source / OCI revision: f888a81b113c0c486ea0949067779443857e644d (api; the release PIN running on
+# parkio-civo-prod since 2026-10-12, where D7 built these six on the host from the same revision).
+# Candidate images run 38263294393 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical +
+# library gates pass, fixed CRITICAL 0 / HIGH 0; final runtime filesystem without /usr/bin/pebble),
+# published by candidate-publish run 38268494840: single linux/amd64 manifests, registry config digest =
+# accepted image id.
+#   user-service          image id sha256:de2ea73b009d0a49aa77a63b7760fbeb5e31eec0d42d3b219fe96b4a3b98eaaa
+#   gamification-service  image id sha256:423104cdcc1c09a02ffa66e464ff4a19ef73ab773d35bcd955d9225c4729b5c2
+#   notification-service  image id sha256:b8a1f00eb53e054fd4bb95ffc16be55fcad311be7cf18edebbbefb2865d8ca6b
+#   moderation-service    image id sha256:da421fc2c279b90200f8c047496b32539f05d3b239012bfcfb10fe242bf8deb9
+#   ai-validation-service image id sha256:d1c38a1b8fdda58b241de42cf6901418003dc71702256fc150e6af391271d115
+#   analytics-service     image id sha256:66fc4d591e9e3f47df5bc4c0380a225ad6b0b5ffa3ee1eccfeadf3287f9c09f7
+# Rollback: none in this file. These pins replace host builds, not earlier pins: the host-built images running
+# when this file was added (parkio/<service>:sha-f888a81b113c0c486ea0949067779443857e644d on parkio-civo-prod)
+# were never published and have no registry digest. Changing these pins is a forward deploy. Committed
+# migrations are forward-fix only: deploying earlier images is not an accepted rollback unless their schema
+# compatibility with the live databases is proven first.
+# ONLY the six app services' image references. Do not broaden.
+# Applied via docker/compose.production.files (after the GMP pins, before the auth/web pins).
+#
+# Practical digest update: change ONLY the services.<service>.image lines below.
+name: parkio
+
+services:
+  user-service:
+    image: ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
+
+  gamification-service:
+    image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
+
+  notification-service:
+    image: ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942
+
+  moderation-service:
+    image: ghcr.io/adberilgen35/parkio/moderation-service@sha256:e2b0ff6471f0098aab3f70495e53bd84459980bcc08c8bfc344098c2531d2e38
+
+  ai-validation-service:
+    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640
+
+  analytics-service:
+    image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:ec01d727c0a06c6f4c7af3644ead17a1b79df022241e7c55be992e272a714d3a

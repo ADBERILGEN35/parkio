@@ -10,8 +10,9 @@
 #     = canonical list, with docker-compose.images.yml right after docker-compose.apps.yml
 #
 # Fails when a compose file is added to only one of these paths, when the hosted-beta entry
-# points render different models, and when a render disagrees with production on the
-# digest-pinned images or the auth registration settings. Models are compared by SHA-256:
+# points render different models, when a render disagrees with production on the
+# digest-pinned images or the auth registration settings, and when the production render leaves an
+# app service on a mutable tag (U13). Models are compared by SHA-256:
 # deploy and rollback of the hosted-beta profile render one model. The wrapper's model differs
 # from it, and the test proves that the Civo overlay is the only difference. The Azure model
 # differs by docker-compose.images.yml.
@@ -281,17 +282,23 @@ for label, services in renders.items():
         if auth.get(key) != auth_wrapper[key]:
             problems.append(f"{label}: auth-service {key} {auth.get(key)!r} != production")
 
+# U13 (CL-F11): production runs no app service from a mutable tag. Every app service resolves to a
+# digest in the production render, so a clean checkout renders no mutable app tag.
+app_pins = {name: wrapper[name]["image"] for name in pinned if name in app_services}
+unpinned = sorted(set(app_services) - set(app_pins))
+if unpinned:
+    problems.append(f"the production render does not pin these app services by digest: {', '.join(unpinned)}")
+
 # The hosted-beta manifests: the canonical files, built images under the deploy's tag, and the
 # production digest pins for everything else.
-app_pins = {name: wrapper[name]["image"] for name in pinned if name in app_services}
 for label, m in manifests.items():
     if m.get("deploymentProfile") != "hosted-beta":
         problems.append(f"{label} manifest profile {m.get('deploymentProfile')!r}, not hosted-beta")
     if m.get("composeFiles") != canonical:
         problems.append(f"{label} manifest composeFiles {m.get('composeFiles')} != docker/compose.production.files")
     images, pins, tag = m.get("images") or {}, m.get("pinnedImages") or {}, m.get("imageTag") or ""
-    if not images:
-        problems.append(f"{label} manifest records no built image")
+    if sorted(images) != unpinned:
+        problems.append(f"{label} manifest records built images {sorted(images)}, not the unpinned app services {unpinned}")
     if sorted(set(images) | set(pins)) != sorted(app_services) or set(images) & set(pins):
         problems.append(f"{label} manifest images {sorted(images)} and pins {sorted(pins)} do not split the app services")
     off = sorted(svc for svc, ref in images.items() if ref != f"parkio/{svc}:{tag}")
@@ -306,6 +313,7 @@ if problems:
     sys.exit(1)
 print(f"PASS: hosted-beta and azure-hosted-beta renders agree with production on {len(pinned)} digest-pinned "
       f"images ({', '.join(pinned)}) and {len(registration)} auth registration settings")
+print(f"PASS: every one of the {len(app_services)} app services is digest-pinned in the production render")
 print(f"PASS: deploy and rollback manifests record the canonical files, {len(manifests['deploy']['images'])} "
       f"built images and {len(app_pins)} app pins")
 PY

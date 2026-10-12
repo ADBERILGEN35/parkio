@@ -18,7 +18,7 @@ scripts/registry-recovery-images.sh list
 It reads `docker/compose.production.files`, takes every `image:` line that pins a
 `ghcr.io/adberilgen35/parkio` digest (including the `${VAR:-default}` defaults of the base
 compose file), adds `MINIO_IMAGE` and `MINIO_MC_IMAGE` from `docker/.env.example`, and refuses
-(exit 3) if a pin file names an image without a digest. On the current `api` it lists seven
+(exit 3) if a pin file names an image without a digest. On the current `api` it lists thirteen
 images:
 
 | Image | Role | Pinned by |
@@ -26,15 +26,11 @@ images:
 | `auth-service@sha256:…` | auth | `docker/docker-compose.auth-release-pin.yml` |
 | `web@sha256:…` | web SPA | `docker/docker-compose.web-release-pin.yml` |
 | `gateway-service@sha256:…`, `media-service@sha256:…`, `parking-service@sha256:…` | GMP services | `docker/docker-compose.gmp-release-pins.yml` |
+| `user-service@sha256:…`, `gamification-service@sha256:…`, `notification-service@sha256:…`, `moderation-service@sha256:…`, `ai-validation-service@sha256:…`, `analytics-service@sha256:…` | the six app services the deploy used to build on the host (U13) | `docker/docker-compose.app-release-pins.yml` |
 | `minio@sha256:…`, `mc@sha256:…` | object storage and its client (also used by backup and restore scripts) | `docker/docker-compose.yml` defaults and `docker/.env.example` |
 
 Not in the inventory, on purpose:
 
-- **user, moderation, gamification, notification, analytics and ai-validation** are not pulled.
-  The deployment wrapper builds them from the checkout at deploy time (`parkio/<service>:${PARKIO_IMAGE_TAG}`).
-  A fresh host needs the source at the pinned SHA and a build, not a registry pull. Giving them
-  digest pins is the U13 "six app services" task; once they are pinned, the inventory grows by
-  itself.
 - `fluent-bit-nr` belongs to the optional New Relic log path, which is not in the production set.
 - Rollback digests quoted in pin-file comments. Rolling back to an older pin is a deploy from
   that pin's file, which then puts the digest into this inventory.
@@ -115,5 +111,4 @@ the task evidence; the token never does.
   (`manifest unknown` in both cases). Only the dispatch run with the recovery credential proves
   that every inventory digest exists; treat the denial job as proof of the access control, not of
   the inventory's existence.
-- The six host-built services need source and a build on the new host; see the U13 pin task.
 - The live host's deploy credential, and whether it is read-only, are outside this document.
