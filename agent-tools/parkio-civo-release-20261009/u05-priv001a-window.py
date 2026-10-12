@@ -93,8 +93,19 @@ CREATE = "scripts/acceptance/create-priv001-synthetic-principal.sh"
 ERASE = "scripts/acceptance/erase-priv001-synthetic-principal.sh"
 INSPECT = "scripts/acceptance/inspect-priv001-synthetic-residue.sh"
 HARNESS_FILES = (CREATE, ERASE, INSPECT, "scripts/lib/priv001-synthetic.sh", "scripts/lib/dark-gateway-url.sh")
-# SHA-256 of each harness file at the merged PR #336 commit. Empty until #336 is merged: preflight then refuses.
-HARNESS_PINS = {}
+# SHA-256 of each harness file at the PR #338 merge commit 9ffdd377c188ebd28babd54089b5049d71610435 (api).
+HARNESS_PINS = {
+    "scripts/acceptance/create-priv001-synthetic-principal.sh":
+        "5d82417fe723ab9732fb8e4a8f1382ae9cb8885c9c1c6dc3330134c8a87731c6",
+    "scripts/acceptance/erase-priv001-synthetic-principal.sh":
+        "7b7e93657e2024ab8924b18cce65b934aafc2f82b17fec83af8cf0ec6f7f96ad",
+    "scripts/acceptance/inspect-priv001-synthetic-residue.sh":
+        "b04e23c5a717b1bd6cdf43344700afa7b5be145620bfea33135f98e5f37fcdae",
+    "scripts/lib/priv001-synthetic.sh":
+        "3f4fee89cec02c1c45cc2457d56f86b92dbc9d963b5428024da820e77db9896d",
+    "scripts/lib/dark-gateway-url.sh":
+        "f58eebaa7afd358fd90c681aec3968af66013cbcbf2d75445f7d63739be36b13",
+}
 SNAPSHOT_PIN = "d6bcc9a2e9201552d0f2f5fcac5bf286c6560822a7fe9792bbecf8445dd9ebd3"
 KEY_ERASURE, KEY_MODE = "PARKIO_ACCOUNT_ERASURE_ENABLED", "PARKIO_REGISTRATION_MODE"
 KEY_CREATION, KEY_TOKEN = "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED", "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"
@@ -234,7 +245,7 @@ def copy_verified(src_dir, dst_dir):
     """Copies the harness files into dst_dir (same layout) and the snapshot tool next to this file's copy."""
     hpins, spin = pins()
     if set(hpins) != set(HARNESS_FILES):
-        raise Stop("the harness pins are not set (PR #336 is not merged yet): no harness may run")
+        raise Stop("the harness pins are not set: no harness may run")
     for rel in HARNESS_FILES:
         src = os.path.join(src_dir, rel)
         if not os.path.isfile(src):
@@ -252,7 +263,7 @@ def copy_verified(src_dir, dst_dir):
 def verify_copies(d):
     hpins, spin = pins()
     if set(hpins) != set(HARNESS_FILES):
-        raise Stop("the harness pins are not set (PR #336 is not merged yet): no harness may run")
+        raise Stop("the harness pins are not set: no harness may run")
     bad = [rel for rel in HARNESS_FILES if sha_file(os.path.join(d, "harness", rel)) != hpins[rel]]
     if sha_file(os.path.join(d, "u05-window-snapshot.py")) != spin:
         bad.append("u05-window-snapshot.py")

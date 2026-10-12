@@ -555,7 +555,20 @@ python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r18.out" 2>&1
 has r18.out "integrity: scripts/lib/priv001-synthetic.sh do not match the pinned SHA-256"; has r18.out "PREFLIGHT FAIL"
 cp "$W/lib.bak" "$W/harness/scripts/lib/priv001-synthetic.sh"
 U05R_PINS= python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r18b.out" 2>&1
-has r18b.out "the harness pins are not set (PR #336 is not merged yet)"
+has r18b.out "integrity: scripts/acceptance/create-priv001-synthetic-principal.sh, scripts/acceptance/erase-priv001-synthetic-principal.sh"
+has r18b.out "PREFLIGHT FAIL"
+M=9ffdd377c188ebd28babd54089b5049d71610435
+if git -C "$HERE" cat-file -e "$M^{commit}" 2>/dev/null; then
+  python3 -I - "$TOOL" "$HERE" "$M" <<'PYX' && ok "r18: the embedded HARNESS_PINS equal the harness files at the #338 merge" || no "r18 pins differ from the merge"
+import hashlib, re, subprocess, sys
+src, here, m = sys.argv[1:4]
+pins = dict(re.findall(r'"(scripts/[^"]+)":\s*"([0-9a-f]{64})"', open(src).read()))
+assert len(pins) == 5
+for path, pin in pins.items():
+    blob = subprocess.run(["git", "-C", here, "show", f"{m}:{path}"], capture_output=True, check=True).stdout
+    assert hashlib.sha256(blob).hexdigest() == pin, path
+PYX
+else echo "SKIP r18: the #338 merge commit is not in this clone"; fi
 python3 -I - "$TOOL" "$SNAP" <<'PY' && ok "r18: the runner's embedded SNAPSHOT_PIN equals the committed snapshot tool" || no "r18 snapshot pin stale"
 import hashlib, re, sys
 src = open(sys.argv[1]).read()

@@ -103,8 +103,16 @@ Q "select count(*), count(*) filter (where consumed_at is null) from registratio
 
 4. **If it cannot be erased,** record the account id as an ORPHAN for the next authorized window. Never delete or change its rows by SQL.
 
-Harness pins (SHA-256 at the merged PR commit; the same values as `HARNESS_PINS` in the runner): filled in when the
-harness is pinned.
+Harness pins: the SHA-256 at the PR #338 merge commit `9ffdd377c188ebd28babd54089b5049d71610435`, the same values as
+`HARNESS_PINS` in the runner. `sha256sum` prints them in this order:
+
+```
+5d82417fe723ab9732fb8e4a8f1382ae9cb8885c9c1c6dc3330134c8a87731c6  scripts/acceptance/create-priv001-synthetic-principal.sh
+7b7e93657e2024ab8924b18cce65b934aafc2f82b17fec83af8cf0ec6f7f96ad  scripts/acceptance/erase-priv001-synthetic-principal.sh
+b04e23c5a717b1bd6cdf43344700afa7b5be145620bfea33135f98e5f37fcdae  scripts/acceptance/inspect-priv001-synthetic-residue.sh
+3f4fee89cec02c1c45cc2457d56f86b92dbc9d963b5428024da820e77db9896d  scripts/lib/priv001-synthetic.sh
+f58eebaa7afd358fd90c681aec3968af66013cbcbf2d75445f7d63739be36b13  scripts/lib/dark-gateway-url.sh
+```
 
 ## 4. The env file: only the window keys
 
