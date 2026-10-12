@@ -15,7 +15,7 @@ stamp or restoring outside the scripts).
 
 | Scenario | Status on current code | Path |
 |----------|------------------------|------|
-| Bad deploy | **Conditional** (no data restore): refused until a deploy made with the F-INV-3 change has recorded its manifest; then only when the schema gate passes | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). It refuses, exit 3, before anything changes, when the live schema has migrations the target release lacks, when the digest pins it would start differ from the deployed release's, or when the deployed release's recorded manifest is missing or unreadable (`parkio_assert_rollback_schema_compatible`, F-INV-3). A bad release that added a migration to a service the rollback changes cannot be rolled back; with the data restores below BLOCKED, its scripted recovery is a forward fix |
+| Bad deploy | **Refused while every app service is pinned (U13)** (no data restore); recovery is a forward fix | `scripts/rollback-hosted-beta.sh` (image tags, no DB restore). Since U13 the production list pins every app service, so it has nothing to re-point and refuses, exit 3, before anything changes ("image plan builds no service"). Its F-INV-3 refusals stay: the live schema has migrations the target release lacks, the digest pins it would start differ from the deployed release's, or the deployed release's recorded manifest is missing or unreadable (`parkio_assert_rollback_schema_compatible`). With the data restores below BLOCKED, the scripted recovery from a bad release is a forward fix: a deploy of corrected pins. A deploy of earlier pins is not an accepted rollback unless schema compatibility with the live databases is proven first |
 | Data corruption (one DB) | **BLOCKED** | `restore-database.sh` refuses production apply: `parkio_restore_refuse_standalone_database` (it does not replay erasures) and `parkio_restore_refuse_unverified_production`, exit 3 |
 | Full host loss | **BLOCKED** for data | `restore-hosted-beta.sh` refuses a non-dry-run production restore: `parkio_restore_refuse_unverified_production`, exit 3. Stamp preflight and `--dry-run` still run |
 | MinIO only | **BLOCKED** | `restore-hosted-beta.sh --only minio` is refused: `parkio_restore_refuse_unsupported_production_scope` (restored objects would not get erasures applied), exit 3 |
@@ -147,15 +147,24 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 
 ## Exact commands
 
-### Bad deploy (no data loss) — conditional (schema gate)
+### Bad deploy (no data loss) — forward fix; the rollback is refused while every app service is pinned
 
 ```bash
 cd /opt/parkio
-PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh
+PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/deploy-<sha>-<time>.json
 ```
 
-It refuses (exit 3) until a deploy made with the F-INV-3 change has recorded its manifest, and
-whenever the schema gate does not pass (see the rollback schema gate above).
+Since U13 the production list pins every app service, so this refuses (exit 3, "image plan builds
+no service") before anything changes: there is nothing to re-point. (Without `--manifest` it stops
+earlier, exit 2, as a usage error.) It also refuses until a deploy made with the F-INV-3 change has
+recorded its manifest, and whenever the schema gate does not pass (see the rollback schema gate
+above).
+
+Recover with a forward fix: merge the corrected pins through a reviewed pin PR, then deploy them on
+parkio-civo-prod with the canonical wrapper (`scripts/parkio-prod-compose.sh up -d --no-build
+--no-deps <service>`, see [gmp-release-pins.md](gmp-release-pins.md)). Committed migrations are
+forward-fix only, so a deploy of earlier pins is not an accepted rollback unless schema compatibility
+with the live databases is proven first.
 
 ### Single database corruption — BLOCKED
 

@@ -24,7 +24,7 @@ Paging architecture, secrets, silences, and the synthetic probe:
 - Identify which core service is down from the alert label.
 - `docker logs parkio-<service>-1 --tail 200`
 - Common causes: Flyway migration failure, DB unreachable, Kafka down, bad env secret.
-- Roll back if caused by a bad deploy: `scripts/rollback-hosted-beta.sh`.
+- If a bad deploy caused it, recover with a forward fix: a deploy of corrected pins. Since U13 every app service is digest-pinned, so `scripts/rollback-hosted-beta.sh` refuses (exit 3: nothing to re-point). Committed migrations are forward-fix only: a deploy of earlier pins is not an accepted rollback unless schema compatibility with the live databases is proven first ([rollback runbook](../beta/rollback-runbook.md)).
 
 ## Gateway5xx / GatewayHigh5xxRate {#gateway5xx}
 
@@ -100,7 +100,7 @@ auto-complete individually (see stale runbook).
 - Heap >90% of max for 10m. Inspect Grafana **Parkio - JVM** and `docker stats`.
 - Safe first action: confirm no leak (steady climb vs a traffic spike). Restarting a JVM drops the symptom and loses in-memory state — do that only after checking health and current requests.
 - Do not raise heap without checking host `HostHighMemoryUsage*` (10 JVMs on one VPS).
-- Escalation: roll back a recent deploy if the climb started after it.
+- Escalation: if the climb started after a recent deploy, recover with a forward fix (a deploy of corrected pins). A deploy of earlier pins is not an accepted rollback unless schema compatibility with the live databases is proven first (see the bad-deploy note above).
 
 ## BackupFailed / BackupStale / offsite / encryption {#backupfailed}
 

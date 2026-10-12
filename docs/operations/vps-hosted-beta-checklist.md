@@ -87,7 +87,10 @@ SSH tunnel: Grafana :3000, Prometheus :9090, Alertmanager :9093. Set `PARKIO_ALE
 
 ## 10. Rollback
 
-`PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh`
+Since U13 every app service is digest-pinned, so `./scripts/rollback-hosted-beta.sh` refuses (exit 3:
+nothing to re-point). Recover from a bad deploy with a forward fix: a deploy of corrected pins.
+Committed migrations are forward-fix only: a deploy of earlier pins is not an accepted rollback unless
+schema compatibility with the live databases is proven first. See `docs/beta/rollback-runbook.md`.
 
 ## Related
 

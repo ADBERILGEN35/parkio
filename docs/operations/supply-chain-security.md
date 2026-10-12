@@ -128,7 +128,9 @@ Rollback safety rests on **immutable, content-addressable image tags**:
   DB, with `ddl-auto: validate`. Roll image versions back **only** across compatible schema
   versions; a release that adds a non-backward-compatible migration is not image-rollback
   safe on its own — pair with a tested DB restore (see `runtime-sizing.md` §6 and the backup
-  restore drill). Prefer expand/contract migrations so image rollback stays safe.
+  restore drill). Prefer expand/contract migrations so image rollback stays safe. In production
+  a database restore is BLOCKED (see `disaster-recovery-runbook.md`), so there a release is
+  recovered with a forward fix.
 - **Provenance for forensics:** the `:sha-` tag + `provenance.json` + (when enabled)
   attestations tie any deployed image back to its exact commit and build.
 
