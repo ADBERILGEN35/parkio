@@ -79,8 +79,18 @@ parkio_priv001_generate_local_part() {
 # parkio_priv001_generate_password
 # Prints a 24-char password to stdout (caller must not log it).
 parkio_priv001_generate_password() {
-  openssl rand -base64 24 2>/dev/null | tr -d '/+=' | head -c 24
-  printf '\n'
+  # 24 characters from [A-Za-z0-9], regenerated until auth-service's PasswordPolicy holds (a lowercase letter,
+  # an uppercase letter and a digit): about 1.5% of raw draws have no digit and would fail registration.
+  local p i
+  for ((i = 0; i < 20; i++)); do
+    p="$(openssl rand -base64 24 2>/dev/null | tr -d '/+=' | head -c 24)" || p=""
+    if [ "${#p}" -eq 24 ] && [[ "$p" =~ [a-z] ]] && [[ "$p" =~ [A-Z] ]] && [[ "$p" =~ [0-9] ]]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  echo "ERROR: could not generate a password that meets the auth password policy." >&2
+  return 1
 }
 
 # parkio_priv001_require_invite_production_opt_in
@@ -90,7 +100,7 @@ parkio_priv001_require_invite_production_opt_in() {
   local confirm="${PARKIO_PRIV001_CONFIRM_SYNTHETIC_ONLY-}"
 
   if [ "$environment" != "invite-production" ]; then
-    echo "ERROR: PRIV-001A harness requires --environment invite-production (got '${environment:-}')." >&2
+    echo "ERROR: PRIV-001A harness requires --environment invite-production or civo-production (got '${environment:-}')." >&2
     return 2
   fi
   if [ "$confirm" != "yes" ]; then
@@ -135,9 +145,13 @@ parkio_priv001_require_opt_in() {
     echo "ERROR: PRIV-001A harness requires --confirm-synthetic-only." >&2
     return 2
   fi
-  local expected="${PARKIO_PRIV001_CIVO_HOST:-parkio-civo-prod}" actual
+  local expected="${PARKIO_PRIV001_CIVO_HOST:-parkio-civo-prod}" actual short
+  if [ -n "${PARKIO_PRIV001_CIVO_HOST:-}" ] && [ "$PARKIO_PRIV001_CIVO_HOST" != "parkio-civo-prod" ]; then
+    echo "WARNING: PARKIO_PRIV001_CIVO_HOST=${PARKIO_PRIV001_CIVO_HOST} is a test override; production runs never set it." >&2
+  fi
   actual="$(hostname 2>/dev/null || true)"
-  if [ "$actual" != "$expected" ]; then
+  short="$(hostname -s 2>/dev/null || true)"
+  if [ "$actual" != "$expected" ] && [ "$short" != "$expected" ]; then
     echo "ERROR: --environment civo-production runs only on ${expected} (this host: ${actual:-unknown})." >&2
     return 2
   fi
@@ -204,6 +218,62 @@ parkio_priv001_civo_http() {
   esac
 }
 
+# parkio_priv001_civo_resolve_all
+# Resolves the three containers the civo mode uses before anything is created (fails if one is missing or doubled).
+parkio_priv001_civo_resolve_all() {
+  local svc
+  for svc in gateway-service auth-service postgres-auth; do
+    parkio_priv001_civo_container "$svc" >/dev/null || return $?
+  done
+  return 0
+}
+
+# parkio_priv001_civo_registration_mode
+# Prints auth-service's registration mode (GET /api/v1/auth/registration-mode, public and read-only), or nothing.
+parkio_priv001_civo_registration_mode() {
+  local f code mode
+  f="$(mktemp "${TMPDIR:-/tmp}/priv001a-mode.XXXXXX")" || return 2
+  code="$(parkio_priv001_civo_http GET /api/v1/auth/registration-mode "" "" "$f")"
+  mode=""
+  if [ "$code" = "200" ]; then mode="$(parkio_priv001_json_get "$f" "mode" 2>/dev/null || true)"; fi
+  rm -f "$f"
+  printf '%s\n' "$mode"
+}
+
+# parkio_priv001_jwt_sub
+# Reads a JWT on stdin and prints its unverified "sub" claim (the auth user id); the token never reaches argv.
+parkio_priv001_jwt_sub() {
+  python3 -I -c 'import base64, json, sys
+t = sys.stdin.read().strip().split(".")
+try:
+    p = t[1] + "=" * (-len(t[1]) % 4)
+    print(json.loads(base64.urlsafe_b64decode(p)).get("sub", ""))
+except Exception:
+    print("")'
+}
+
+# parkio_priv001_civo_db_now
+# Prints the auth database clock in UTC (read-only session), like 2026-10-13T08:00:00.123456Z, or nothing.
+parkio_priv001_civo_db_now() {
+  local t
+  t="$(PARKIO_PRIV001_PSQL_READONLY=1 parkio_priv001_auth_psql -t -A \
+    -c "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');" | tail -1)" || t=""
+  if [[ "$t" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$ ]]; then printf '%s\n' "$t"; fi
+}
+
+# parkio_priv001_civo_invite_accounting <since>
+# Prints "<created>|<unconsumed>" for the invites created_by priv001a since <since> (read-only session).
+parkio_priv001_civo_invite_accounting() {
+  local since="${1-}" c
+  if ! [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z$ ]]; then
+    echo "ERROR: invite accounting needs a UTC time." >&2
+    return 2
+  fi
+  c="$(PARKIO_PRIV001_PSQL_READONLY=1 parkio_priv001_auth_psql -t -A \
+    -c "SELECT count(*) || '|' || count(*) FILTER (WHERE consumed_at IS NULL) FROM registration_invites WHERE created_by = 'priv001a' AND created_at >= '${since}'::timestamptz;" | tail -1)" || c=""
+  printf '%s\n' "$c"
+}
+
 # parkio_priv001_civo_create_invite <out file>
 # Creates one registration invite (POST /internal/auth/registration-invites) from inside the
 # auth-service container. The operator token and the gateway secret come from that container's own
@@ -214,14 +284,14 @@ parkio_priv001_civo_create_invite() {
   [ -n "$out" ] || { echo "ERROR: response file required." >&2; return 2; }
   auth="$(parkio_priv001_civo_container auth-service)" || return $?
   # shellcheck disable=SC2016
-  resp="$(docker exec -i "$auth" sh -c '
+  resp="$(docker exec "$auth" sh -c '
 t="${PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN:-}"
 if [ -z "$t" ]; then printf "\n%s" "NOTOKEN"; exit 0; fi
 printf "X-Parkio-Registration-Invite-Operator-Token: %s\nX-Gateway-Auth: %s\n" "$t" "${PARKIO_GATEWAY_INTERNAL_SECRET:-}" \
   | curl -sS -H @- -H "Content-Type: application/json" -H "Accept: application/json" \
       --data-binary "{\"createdBy\":\"priv001a\"}" -w "\n%{http_code}" --connect-timeout 10 --max-time 30 \
       http://localhost:8081/internal/auth/registration-invites
-' 2>/dev/null)" || true
+' </dev/null 2>/dev/null)" || true
   case "$resp" in
     *$'\n'*) printf '%s' "${resp%$'\n'*}" > "$out"; printf '%s\n' "${resp##*$'\n'}" ;;
     *) : > "$out"; printf '000\n' ;;
@@ -240,8 +310,12 @@ parkio_priv001_auth_psql() {
     # leaves the container; the managed/TLS settings below do not apply there.
     local pg
     pg="$(parkio_priv001_civo_container postgres-auth)" || return $?
+    # Never `-i`: psql takes its SQL from -c, and an attached stdin would drain the caller's (a script fed on stdin
+    # would silently lose its next commands). PARKIO_PRIV001_PSQL_READONLY=1 makes the session read-only.
+    local ro=()
+    if [ "${PARKIO_PRIV001_PSQL_READONLY:-}" = "1" ]; then ro=(-e "PGOPTIONS=-c default_transaction_read_only=on"); fi
     # shellcheck disable=SC2016
-    docker exec -i "$pg" sh -c 'exec psql --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' psql "$@"
+    docker exec ${ro[@]+"${ro[@]}"} "$pg" sh -c 'exec psql --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' psql "$@" </dev/null
     return $?
   fi
   local mode="${PARKIO_PG_MODE:-managed}"
@@ -413,7 +487,7 @@ process.stdout.write(cur==null?"":String(cur));' "$file" "$path"
 }
 
 # parkio_priv001_write_evidence_json <file> <acceptance_id> <auth_user_id> <fixture_matrix>
-#   [<environment> <registration> <verification>]   (civo-production; python3 only)
+#   [<environment> <registration> <verification> [<extra JSON object>]]   (civo-production; python3 only)
 parkio_priv001_write_evidence_json() {
   local path="$1"
   local acceptance_id="$2"
@@ -439,6 +513,8 @@ payload = {
 if len(sys.argv) > 7:
     payload.update({"environment": sys.argv[5], "registration": sys.argv[6], "verification": sys.argv[7],
                     "erasure": "canonical DELETE /api/v1/account (erase-priv001-synthetic-principal.sh)"})
+if len(sys.argv) > 8:
+    payload.update(json.loads(sys.argv[8]))
 with open(path, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
     f.write("\n")

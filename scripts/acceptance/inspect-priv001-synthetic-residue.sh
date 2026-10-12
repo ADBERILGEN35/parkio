@@ -122,7 +122,7 @@ SELECT json_build_object(
 SQL
 )
 
-OUT="$(parkio_priv001_auth_psql -t -A -c "$SQL")"
+OUT="$(PARKIO_PRIV001_PSQL_READONLY=1 parkio_priv001_auth_psql -t -A -c "$SQL")"
 # Validate JSON-ish and scan for secrets.
 printf '%s\n' "$OUT" | parkio_priv001_json_loads_stdin >/dev/null
 TMP="$(mktemp)"
