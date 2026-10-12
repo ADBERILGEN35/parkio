@@ -5,8 +5,8 @@
 > prints a warning. The supported production path is `scripts/parkio-prod-compose.sh` with
 > `docker/compose.production.files`. See `docs/azure/AZURE-DEPLOYMENT-PROFILE.md`.
 >
-> **U13:** the production list pins every app service, so a live rollback with this script is
-> refused (exit 3: nothing to re-point). Recover from a bad release with a forward fix, a deploy of
+> **U13:** the production list pins every app service, so a live hosted-beta or azure-hosted-beta
+> rollback with this script is refused (exit 3: nothing to re-point). Recover from a bad release with a forward fix, a deploy of
 > corrected pins. Committed migrations are forward-fix only (see "Every app service pinned" below).
 
 Restore a previous hosted-beta deployment using an immutable `sha-<gitSha>` image

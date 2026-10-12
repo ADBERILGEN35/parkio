@@ -296,8 +296,10 @@ docker exec -i parkio-postgres-parking \
 2. If migration partially applied outside Flyway: stop parking-service, restore
    DB from backup or finish DDL to match V17/V18, then `flyway repair` only with
    senior approval.
-3. Rollback path: restore `postgres-parking` volume/snapshot from pre-deploy
-   backup ([restore-runbook.md](./restore-runbook.md)), redeploy previous image.
+3. Recovery path: a forward fix (a deploy of corrected pins). A production database
+   restore is BLOCKED (`restore-database.sh` refuses production apply; see the DR runbook,
+   "Data corruption (one DB)"), and a deploy of an earlier image is not an accepted rollback
+   unless schema compatibility with the live databases is proven first.
 4. Index-only issues: use CONCURRENTLY rebuild docs — do not re-run Flyway
    create statements that already succeeded.
 
