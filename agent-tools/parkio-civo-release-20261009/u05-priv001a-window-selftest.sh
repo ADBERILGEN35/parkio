@@ -128,8 +128,8 @@ if a[:1] == ["exec"] and "psql" in a:
         print(f"{len(inv)}|{sum(1 for i in inv if not i['consumed'])}")
     elif sql.startswith("select count(*) from erasure_requests where"):
         t = since(">=")
-        m = re.search(r"auth_user_id <> '([0-9a-f-]+)'", sql)
-        print(sum(1 for r in db["requests"] if r["at"] >= t and (not m or r["uid"] != m.group(1))))
+        ours = re.findall(r"'([0-9a-f-]{36})'::uuid", sql.split("requested_at")[0])
+        print(sum(1 for r in db["requests"] if r["at"] >= t and r["uid"] not in ours))
     else:
         sys.stderr.write("fake docker: unknown sql " + sql); sys.exit(3)
     sys.exit(0)
@@ -261,11 +261,25 @@ if kind == "create":
     print(f"acceptance_id=PRIV001A-T\nauth_user_id={uid}")
     if opt("--evidence-file"): open(opt("--evidence-file"), "w").write("{}")
     done(0)
+if kind == "lib-invite":
+    e = svc("auth-service")["env"]
+    if e.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") != "true" or not e.get("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"):
+        open(a[0], "w").write('{"code":"FORBIDDEN"}'); print("403"); done(0)
+    tok = uuid.uuid4().hex + "-" + uuid.uuid4().hex[:10]
+    s["db"]["invites"].append({"at": time.time(), "consumed": False, "token": tok}); fw.save(s)
+    open(a[0], "w").write(json.dumps({"token": tok, "expiresAt": "2026-10-20T00:00:00Z"})); print("201"); done(0)
+if kind == "lib-verify":
+    open(os.path.join(os.environ["FW_DIR"], "verify-max-age.log"), "a").write(f"{a[1] if len(a) > 1 else ''}\n")
+    u = next((x for x in s["db"]["users"] if x["email"] == a[0] and x["status"] == "PENDING_VERIFICATION"), None)
+    if u is None: print("ERROR: verification did not return exactly one auth user id."); done(1)
+    u["status"] = "ACTIVE"; fw.save(s); print(u["id"]); done(0)
 if kind == "erase":
-    creds = dict(l.split("=", 1) for l in open(opt("--credentials-file")).read().splitlines() if "=" in l)
+    cpath = opt("--credentials-file")
+    creds = dict(l.split("=", 1) for l in open(cpath).read().splitlines() if "=" in l)
     u = next((x for x in s["db"]["users"] if x["id"] == creds.get("auth_user_id") or
               (not creds.get("auth_user_id") and x["email"] == creds["email"] and not x.get("tomb"))), None)
     if u is None: print("PRIV-001A: no auth account holds the credentials file's email (nothing to erase)."); done(4)
+    if not creds.get("auth_user_id"): open(cpath, "a").write(f"auth_user_id={u['id']}\n")
     if "--delete" in a:
         if u["status"] == "PENDING_VERIFICATION":
             u["status"] = "ACTIVE"; print("PRIV-001A: the account was PENDING_VERIFICATION; applied the allowlisted verification first")
@@ -315,7 +329,12 @@ for k in create erase inspect; do
   f="$W/harness/scripts/acceptance/$k-priv001-synthetic-principal.sh"; [ "$k" = inspect ] && f="$W/harness/scripts/acceptance/inspect-priv001-synthetic-residue.sh"
   printf '#!/usr/bin/env bash\nexec python3 -I "$FW_DIR/harness.py" %s "$@"\n' "$k" > "$f"
 done
-echo "# fake lib" > "$W/harness/scripts/lib/priv001-synthetic.sh"; echo "# fake dark url" > "$W/harness/scripts/lib/dark-gateway-url.sh"
+cat > "$W/harness/scripts/lib/priv001-synthetic.sh" <<'SH'
+# fake lib: the two functions the U04 subcommands call
+parkio_priv001_civo_create_invite() { python3 -I "$FW_DIR/harness.py" lib-invite "$1"; }
+parkio_priv001_mark_verified() { python3 -I "$FW_DIR/harness.py" lib-verify "$1" "$2"; }
+SH
+echo "# fake dark url" > "$W/harness/scripts/lib/dark-gateway-url.sh"
 chmod +x "$W/bin/"* "$W/release/scripts/parkio-prod-compose.sh"
 git -C "$W/release" init -q && git -C "$W/release" add -A && git -C "$W/release" -c user.name=t -c user.email=t@t commit -q -m pin
 python3 -I - "$W/harness" "$W/pins.json" <<'PY'
@@ -609,7 +628,7 @@ echo "=== R20b without --fault the default is none: analytics-service is never s
 fresh closed False
 start r20b.out; sleep 1.1
 FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r20b.out" 2>&1; echo "exit=$?" >> "$W/r20b.out"
-has r20b.out.start "(fault: none)"; has r20b.out "U05 PRIV-001A WINDOW PASS"
+has r20b.out.start "(scenario: u05, fault: none)"; has r20b.out "U05 PRIV-001A WINDOW PASS"
 calls | grep -q 'stop analytics-service' && no "r20b: analytics stopped by default" || ok "r20b: the default fault is none"
 
 echo "=== R21 preflight: drift, leftovers, lag, host, units ==="
@@ -661,6 +680,98 @@ python3 -I "$TOOLC" status --run "$RUN" > "$W/r25.out" 2>&1
 has r25.out '"verdict": "PASS"'; has r25.out '"units"'
 grep -q -e 'preset-operator-token' -e 'Pw-synthetic' "$W/r25.out" && no "r25 secret in status" || ok "r25: no secret in status"
 
+echo "=== R26 U04: hold, two browser registrations by invite, verification, stored credentials, cleanup ==="
+fresh closed False
+browser_register() {  # token email: what the web app's register call does in the fake world
+  python3 -I - "$W/world.json" "$1" "$2" <<'PYX'
+import json, sys, time, uuid
+p, tok, email = sys.argv[1:4]
+s = json.load(open(p))
+inv = next(i for i in s["db"]["invites"] if i.get("token") == tok and not i["consumed"])
+inv["consumed"] = True
+s["db"]["users"].append({"id": str(uuid.uuid4()), "email": email, "status": "PENDING_VERIFICATION", "at": time.time()})
+json.dump(s, open(p, "w"))
+PYX
+}
+A1=priv001a-20261013u04a1abcdef@priv001a.parkio.invalid; A2=priv001a-20261013u04a2abcdef@priv001a.parkio.invalid
+start r26.out --scenario u04; sleep 1.1
+(FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r26.out" 2>&1; echo "exit=$?" >> "$W/r26.out") &
+wait_for "$W/r26.out" "W2 U04 hold until" 60
+WIN="$W/private/$RUN/window.py"
+T1="$(python3 -I "$WIN" u04-invite --run "$RUN")"; T2="$(python3 -I "$WIN" u04-invite --run "$RUN")"
+[[ "$T1" =~ ^[A-Za-z0-9_-]{16,256}$ && "$T2" =~ ^[A-Za-z0-9_-]{16,256}$ && "$T1" != "$T2" ]] && ok "r26: two one-time invite tokens printed" || no "r26 tokens"
+A3=priv001a-20261013u04a3abcdef@priv001a.parkio.invalid
+printf 'email=%s\npassword=Pw-a1-synthetic-1234\n' "$A1" | python3 -I "$WIN" u04-creds --run "$RUN" --name A1 > "$W/r26c.out" 2>&1
+printf 'email=%s\npassword=Pw-a2-synthetic-1234\n' "$A2" | python3 -I "$WIN" u04-creds --run "$RUN" --name A2 >> "$W/r26c.out" 2>&1
+printf 'email=%s\npassword=Pw-a3-synthetic-1234\n' "$A3" | python3 -I "$WIN" u04-creds --run "$RUN" --name A3 >> "$W/r26c.out" 2>&1
+has r26c.out "stored creds-A1"; has r26c.out "stored creds-A2"; has r26c.out "stored creds-A3"
+printf 'email=%s\npassword=Pw-other-synthetic-12\n' "$A2" | python3 -I "$WIN" u04-creds --run "$RUN" --name A1 > "$W/r26e.out" 2>&1
+has r26e.out "STOP: creds-A1 already exists; use another name"
+printf 'email=%s\npassword=Pw-other-synthetic-12\n' "$A1" | python3 -I "$WIN" u04-creds --run "$RUN" --name A9 > "$W/r26f.out" 2>&1
+has r26f.out "STOP: creds-A1 already holds this email"
+grep -q '^password=Pw-a1-synthetic-1234$' "$W/private/$RUN/u04/creds-A1" && ok "r26: a refused overwrite leaves creds-A1 intact" || no "r26 creds-A1 changed"
+browser_register "$T1" "$A1"; browser_register "$T2" "$A2"
+python3 -I "$WIN" u04-verify --run "$RUN" --email "$A2" > "$W/r26v.out" 2>&1; has r26v.out "verified "
+ma="$(tail -1 "$W/verify-max-age.log")"
+[[ "$ma" =~ ^[0-9]+$ ]] && [ "$ma" -ge 60 ] && [ "$ma" -le 300 ] && ok "r26: verification bound to the window (max age ${ma} s)" || no "r26 max age '${ma}'"
+python3 -I "$WIN" u04-verify --run "$RUN" --email someone@gmail.com > "$W/r26w.out" 2>&1; has r26w.out "STOP: not a synthetic PRIV-001A email"
+printf 'email=someone@gmail.com\npassword=Pw-real-person-123456\n' | python3 -I "$WIN" u04-creds --run "$RUN" --name X > "$W/r26x.out" 2>&1
+has r26x.out "STOP: credentials need a synthetic PRIV-001A email"
+python3 -I "$WIN" u04-done --run "$RUN" > "$W/r26d.out" 2>&1; has r26d.out "U04 hold ends"
+wait_for "$W/r26.out" "exit=" 90
+has r26.out "A1: "; has r26.out "erased canonically (COMPLETE)"; has r26.out "W5 U04 accounting (read-only)"
+has r26.out "A3: no account (never registered, or already erased)"
+has r26.out "U05 WINDOW COMPARE PASS"; has r26.out "U05 PRIV-001A WINDOW PASS"; has r26.out "exit=0"
+report 'a = r["accounting"]; u = a["u04Accounts"]
+assert r["scenario"] == "u04" and r["verdict"] == "PASS" and a["invitesSinceW1"] == {"created": 2, "unconsumed": 0}
+assert [x["name"] for x in u] == ["A1", "A2", "A3"] and "id" not in u[2]
+assert all(x["status"] == "ERASED" and x["emailErased"] and x["request"] == "COMPLETE" for x in u[:2])
+assert a["syntheticAccountsSinceW1"] == [] and a["otherErasureRequestsSinceW1"] == 0' \
+  && ok "r26: report: 2 invites consumed, A1 (registered, never verified) and A2 erased, nothing left" || no "r26 report"
+[ "$(envsha)" = "$SHA0" ] && ok "r26: env byte-identical" || no "r26 env"
+[ -z "$(ls "$W/private/$RUN/u04" | grep '^creds-')" ] && ok "r26: the U04 credentials files are shredded after the verified restore" || no "r26 creds left"
+calls | grep -q 'analytics-service' && no "r26: analytics touched" || ok "r26: analytics-service never stopped or started"
+if grep -r -q -F -e "$T1" -e "$T2" -e "Pw-a1-synthetic" "$W/r26.out" "$W/evidence" "$W/private" 2>/dev/null; then
+  no "r26: an invite token or password reached a log, record or state"; else ok "r26: no invite token or password in any log, record or state"; fi
+
+echo "=== R27 U04: the hold ends without u04-done; an unused invite is an ORPHAN ==="
+fresh closed False
+export U05R_U04_HOLD=4
+start r27.out --scenario u04; sleep 1.1
+(FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r27.out" 2>&1; echo "exit=$?" >> "$W/r27.out") &
+wait_for "$W/r27.out" "W2 U04 hold until" 60
+python3 -I "$W/private/$RUN/window.py" u04-invite --run "$RUN" > /dev/null 2>&1
+wait_for "$W/r27.out" "exit=" 90
+unset U05R_U04_HOLD
+has r27.out "STOP: the U04 hold reached its end without u04-done"; has r27.out "restore U04 accounts: ok - no U04 credentials stored"
+has r27.out "ORPHAN: 1 priv001a invite(s) created since W1 are unconsumed"; has r27.out "U05 PRIV-001A WINDOW FAIL"
+[ "$(envsha)" = "$SHA0" ] && ok "r27: env byte-identical" || no "r27 env"
+
+echo "=== R29 U04: no time left to erase: the account is reported, the restore fails closed, credentials kept ==="
+fresh closed False
+export U05R_U04_ERASE_MIN=5000
+start r29.out --scenario u04; sleep 1.1
+(FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r29.out" 2>&1; echo "exit=$?" >> "$W/r29.out") &
+wait_for "$W/r29.out" "W2 U04 hold until" 60
+WIN="$W/private/$RUN/window.py"
+T1="$(python3 -I "$WIN" u04-invite --run "$RUN")"
+printf 'email=%s\npassword=Pw-a1-synthetic-1234\n' "$A1" | python3 -I "$WIN" u04-creds --run "$RUN" --name A1 > /dev/null 2>&1
+browser_register "$T1" "$A1"
+python3 -I "$WIN" u04-done --run "$RUN" > /dev/null 2>&1
+wait_for "$W/r29.out" "exit=" 90
+unset U05R_U04_ERASE_MIN
+has r29.out "NOT ERASED: "; has r29.out "restore U04 accounts: FAILED"; has r29.out "U05 PRIV-001A WINDOW FAIL"
+[ -f "$W/private/$RUN/u04/creds-A1" ] && ok "r29: the unerased account's credentials are kept" || no "r29 creds gone"
+[ "$(envsha)" = "$SHA0" ] && ok "r29: env byte-identical" || no "r29 env"
+calls | grep -q 'analytics-service' && no "r29: analytics touched" || ok "r29: analytics-service never stopped or started"
+
+echo "=== R28 U04 refusals ==="
+python3 -I "$W/private/$RUN/window.py" u04-invite --run "$RUN" > "$W/r28a.out" 2>&1; has r28a.out "STOP: no U04 hold is open for this run"
+python3 -I "$TOOLC" start --harness "$W/harness" --scenario u04 --fault analytics > "$W/r28b.out" 2>&1
+has r28b.out "NOT STARTED: --scenario must be u05 or u04, and u04 runs only with --fault none"
+
+# A broken heredoc or an early exit would skip checks silently: require the full count.
+[ "$pass" -ge 160 ] || no "only ${pass} checks ran (expected at least 160): the self-test did not run to the end"
 echo "=== summary: ${pass} ok, ${fail} FAIL ==="
 [ "$fail" -eq 0 ] && echo "SELFTEST PASS" || echo "SELFTEST FAIL"
 exit "$((fail > 0))"

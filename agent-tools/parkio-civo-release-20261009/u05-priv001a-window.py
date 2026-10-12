@@ -11,6 +11,15 @@ agent-tools/parkio-u05-priv001a-civo-20261012/LIVE-TEST-SPEC.md.
   sudo python3 -I u05-priv001a-window.py status [--run RUN]
   sudo python3 -I u05-priv001a-window.py restore [--run RUN] [--stop-window]               idempotent full restore
 
+--scenario u05 (default): the PRIV-001A acceptance below. --scenario u04 (Asana 1219001664327469): the same window
+  settings and safeguards, but W2 is a hold for an operator-driven browser acceptance against the live web app:
+    sudo python3 -I u05-priv001a-window.py u04-invite --run RUN          prints one one-time invite token (stdout only)
+    sudo python3 -I u05-priv001a-window.py u04-verify --run RUN --email E   allowlisted verification of a synthetic account
+    sudo python3 -I u05-priv001a-window.py u04-creds --run RUN --name N  stores email=/password= from stdin for cleanup
+    sudo python3 -I u05-priv001a-window.py u04-done --run RUN            ends the hold
+  After the hold every account with stored credentials is erased canonically before RESTORE_BY (the restore retries
+  within its own U04_RESTORE_CAP); accounts and invites are accounted for. Store an account's credentials BEFORE its
+  registration: the cleanup erases only accounts it holds credentials for (an unregistered one is reported as such).
 --fault none (default): criterion 2 only; analytics-service is never stopped.
 --fault analytics: criterion 3 with analytics-service stopped (at most 600 s), then criterion 2. It needs its own
   explicit authorization: it pauses all analytics processing and fires ServiceDown/CoreServiceDown.
@@ -87,6 +96,11 @@ POLL = cfg_int("U05R_POLL", 5)
 HARNESS_POLL = cfg("U05R_HARNESS_POLL", "15")
 HARNESS_TIMEOUT_CAP = cfg_int("U05R_HARNESS_TIMEOUT_CAP", 100000)
 STOP_TIMEOUT = 1200
+U04_HOLD = cfg_int("U05R_U04_HOLD", 1500)
+U04_ERASE_MIN = cfg_int("U05R_U04_ERASE_MIN", 120)      # no new DELETE with less time than this before the deadline
+U04_RESTORE_CAP = cfg_int("U05R_U04_RESTORE_CAP", 600)  # the restore's own bound for the U04 accounts
+SCENARIOS = ("u05", "u04")
+NAME_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 UNIT = "u05-priv001a-window"
 GUARD_ANALYTICS, GUARD_WINDOW = "u05-priv001a-guard-analytics", "u05-priv001a-guard-window"
 CREATE = "scripts/acceptance/create-priv001-synthetic-principal.sh"
@@ -638,6 +652,72 @@ def principal_row(st):
     return tuple(rows[0][:3])
 
 
+def u04_dir(run_id):
+    return os.path.join(run_dir(run_id), "u04")
+
+
+def extra_creds(st):
+    """The U04 accounts' credentials files (root-only), in name order."""
+    d = u04_dir(st["run"])
+    try:
+        return [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.startswith("creds-")]
+    except OSError:
+        return []
+
+
+def account_for(path):
+    """(id, status, email) of the account a credentials file names, or None."""
+    c = {}
+    if path and os.path.isfile(path):
+        for line in open(path).read().splitlines():
+            k, _, v = line.partition("=")
+            if k in ("auth_user_id", "email"):
+                c[k] = v
+    if c.get("auth_user_id") and UUID.match(c["auth_user_id"]):
+        rows = psql(f"select id, status, email from auth_users where id = '{c['auth_user_id']}'::uuid")
+    elif c.get("email") and SYNTHETIC_EMAIL.match(c["email"]):
+        rows = psql(f"select id, status, email from auth_users where email = '{c['email']}'")
+    else:
+        return None
+    return tuple(rows[0][:3]) if rows else None
+
+
+def erase_u04_accounts(st, deadline):
+    """Erases canonically every U04 account that has stored credentials and no erasure request yet, each within
+    <deadline> (epoch seconds). Every account is attempted; raises Stop afterwards if any is left unerased."""
+    results, failed = [], []
+    for f in extra_creds(st):
+        name = os.path.basename(f)[len("creds-"):]
+        a = account_for(f)
+        if a is None:
+            results.append(f"{name}: no account (never registered, or already erased)")
+            continue
+        uid, status, _ = a
+        req = request_row(uid)
+        if req:
+            results.append(f"{name}: {uid} erasure already requested ({req[0]}, {req[1]}/8 SUCCESS)")
+            continue
+        if status not in ("PENDING_VERIFICATION", "ACTIVE"):
+            results.append(f"{name}: {uid} is {status}")
+            continue
+        left = int(deadline - time.time())
+        if left < U04_ERASE_MIN:
+            failed.append(f"{name}: {uid} NOT ERASED: {max(left, 0)} s left before the deadline")
+            continue
+        t = min(420, left)
+        rc, text = harness(st, ERASE, "--credentials-file", f, "--delete", "--expect", "COMPLETE",
+                           "--timeout-seconds", str(max(30, min(240, t - 90))), "--poll-seconds", "10", timeout=t)
+        if rc == 0:
+            results.append(f"{name}: {uid} erased canonically (COMPLETE)")
+        elif request_row(uid):
+            results.append(f"{name}: {uid} DELETE sent; not COMPLETE yet")
+        else:
+            failed.append(f"{name}: the synthetic account {uid} could not be erased (harness exit {rc})")
+    if failed:
+        raise Stop("; ".join(results + failed))
+    return results
+
+
 def request_row(uid):
     rows = psql("select r.status, (select count(*) from erasure_service_acks a where a.erasure_request_id = r.id "
                 f"and a.status = 'SUCCESS') from erasure_requests r where r.auth_user_id = '{uid}'::uuid "
@@ -659,11 +739,23 @@ def accounting(st):
     acc["invitesSinceW1"] = {"created": int(rows[0][0]), "unconsumed": int(rows[0][1])}
     p = principal_row(st)
     uid = p[0] if p else None
+    ours = [uid] if uid else []
     if p:
         req = request_row(uid)
         acc["principal"] = {"id": uid, "status": p[1], "emailErased": p[2] == f"erased-{uid}@invalid.localhost",
                             "request": req[0] if req else None, "successAcks": req[1] if req else None}
-    cond = f"auth_user_id <> '{uid}'::uuid and " if uid else ""
+    if st.get("scenario") == "u04":
+        acc["u04Accounts"] = []
+        for f in extra_creds(st):
+            a = account_for(f)
+            entry = {"name": os.path.basename(f)[len("creds-"):]}
+            if a:
+                req = request_row(a[0])
+                entry.update(id=a[0], status=a[1], emailErased=a[2] == f"erased-{a[0]}@invalid.localhost",
+                             request=req[0] if req else None, successAcks=req[1] if req else None)
+                ours.append(a[0])
+            acc["u04Accounts"].append(entry)
+    cond = ("auth_user_id not in (" + ", ".join(f"'{x}'::uuid" for x in ours) + ") and ") if ours else ""
     acc["otherErasureRequestsSinceW1"] = int(scalar(f"select count(*) from erasure_requests where {cond}"
                                                     f"requested_at >= '{w1}'::timestamptz"))
     notes = []
@@ -672,11 +764,11 @@ def accounting(st):
     if acc["invitesSinceW1"]["unconsumed"]:
         notes.append(f"ORPHAN: {acc['invitesSinceW1']['unconsumed']} priv001a invite(s) created since W1 are unconsumed "
                      "(only their hash is stored; they expire after the invite TTL)")
-    pr = acc["principal"]
-    if pr and pr["request"] and pr["request"] != "COMPLETE":
-        notes.append(f"PENDING: the erasure of {pr['id']} is {pr['request']} with {pr['successAcks']}/8 SUCCESS")
-    if pr and pr["status"] == "ERASED" and not pr["emailErased"]:
-        notes.append(f"ORPHAN: {pr['id']} is ERASED without its tombstone email")
+    for pr in [acc["principal"]] + [x for x in acc.get("u04Accounts", []) if x.get("id")]:
+        if pr and pr["request"] and pr["request"] != "COMPLETE":
+            notes.append(f"PENDING: the erasure of {pr['id']} is {pr['request']} with {pr['successAcks']}/8 SUCCESS")
+        if pr and pr["status"] == "ERASED" and not pr["emailErased"]:
+            notes.append(f"ORPHAN: {pr['id']} is ERASED without its tombstone email")
     return acc, notes
 
 
@@ -814,6 +906,10 @@ def window(st, budget):
     st["phase"] = "W1-done"
     save_state(st)
 
+    if st.get("scenario") == "u04":
+        u04_window(st, budget)
+        return
+
     say("W2 synthetic principal")
     budget.need(300, "creating the principal")
     creds = os.path.join(run_dir(st["run"]), "creds")
@@ -903,6 +999,38 @@ def window(st, budget):
             or ins.get("participant_ack_count") != 8 or ins.get("tombstone_count") != 1
             or ins.get("hard_delete_residue_count") != 0 or ins.get("forbidden_user_id_hits") != 0):
         raise Stop(f"the residue inspection failed: {st['inspect']}")
+    st["phase"] = "W5-done"
+    save_state(st)
+
+
+def u04_window(st, budget):
+    """W2-W5 of the U04 scenario: a hold for the operator's browser acceptance, then canonical cleanup."""
+    d = u04_dir(st["run"])
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    budget.need(900, "the U04 hold and its cleanup")
+    end = min(time.time() + U04_HOLD, budget.t_w1 + RESTORE_BY - 600)
+    st["phase"] = "U04-HOLD"
+    st["u04HoldEnd"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(end))
+    save_state(st)
+    say(f"W2 U04 hold until {st['u04HoldEnd']}: the operator runs the browser acceptance (u04-invite, u04-verify, "
+        "u04-creds, u04-done)")
+    while not os.path.exists(os.path.join(d, "done")):
+        if time.time() >= end:
+            raise Stop("the U04 hold reached its end without u04-done")
+        time.sleep(max(1, POLL))
+    st["phase"] = "U04-DONE"
+    save_state(st)
+    say("W4 U04 cleanup: canonical erasure of every account with stored credentials")
+    for line in erase_u04_accounts(st, budget.t_w1 + RESTORE_BY):
+        say(f"  {line}")
+    say("W5 U04 accounting (read-only)")
+    acc, notes = accounting(st)
+    st["u04Accounting"] = acc
+    save_state(st)
+    if notes:
+        raise Stop("U04 accounting: " + "; ".join(notes))
+    if not acc.get("u04Accounts"):
+        raise Stop("U04: no account credentials were stored")
     st["phase"] = "W5-done"
     save_state(st)
 
@@ -1004,8 +1132,14 @@ def restore(st):
         st["guards"] = {"window": False, "analytics": False}
         return "both guard timers inactive"
 
+    def u04_step():
+        if st.get("scenario") != "u04":
+            return "not a U04 window"
+        return "; ".join(erase_u04_accounts(st, time.time() + U04_RESTORE_CAP)) or "no U04 credentials stored"
+
     step("analytics-service", analytics_step)
     step("synthetic principal", principal_step)
+    step("U04 accounts", u04_step)
     step("env file", env_step)
     step("auth-service", auth_step)
     step("erasure completion", completion_step)
@@ -1053,9 +1187,9 @@ def finish(st, ok, steps, window_ok, report_name="window-report.json"):
     notes += acc_notes
     secrets_removed = False
     if st.get("envRestore") in ("byte-identical", "already-restored", "not-changed") and restored.get("env file"):
-        creds_exist = os.path.isfile(st.get("credentials") or "")
-        keep_creds = creds_exist and (acc is None or any(n.startswith(("ORPHAN: synthetic", "PENDING")) for n in acc_notes))
-        shred([st.get("envBackup")] + ([] if keep_creds else [st.get("credentials")]))
+        all_creds = [c for c in [st.get("credentials")] + extra_creds(st) if c and os.path.isfile(c)]
+        keep_creds = bool(all_creds) and (acc is None or any(n.startswith(("ORPHAN: synthetic", "PENDING")) for n in acc_notes))
+        shred([st.get("envBackup")] + ([] if keep_creds else all_creds))
         tmp = os.path.join(run_dir(st["run"]), "tmp")
         for root, _, files in os.walk(tmp):
             shred([os.path.join(root, f) for f in files])
@@ -1069,7 +1203,7 @@ def finish(st, ok, steps, window_ok, report_name="window-report.json"):
     st["verdict"] = "PASS" if passed else "FAIL"
     st["finishedAt"] = now()
     save_state_quietly(st)
-    report = {k: st.get(k) for k in ("run", "fault", "w1", "phase", "verdict", "failure", "planned", "changedKeys",
+    report = {k: st.get(k) for k in ("run", "scenario", "fault", "w1", "phase", "verdict", "failure", "planned", "changedKeys",
                                      "envRestore", "envConflict", "restoreSteps", "accounting", "inspect", "deleteSent",
                                      "erasureRequestsAtW0", "analyticsStopSeconds", "lagW0", "lagW6", "secretsRemoved",
                                      "finishedAt")}
@@ -1189,6 +1323,102 @@ def cmd_restore(args):
     return 0 if ok else 1
 
 
+def lib_call(run_id, *fn_args, timeout=180):
+    """Runs one function of the verified harness library copy (civo-production opt-in)."""
+    d = run_dir(run_id)
+    verify_copies(d)
+    env = dict(os.environ, TMPDIR=os.path.join(d, "tmp"), PARKIO_PRIV001_ENVIRONMENT="civo-production",
+               PARKIO_PRIV001_CONFIRM_SYNTHETIC_ONLY="yes")
+    os.makedirs(env["TMPDIR"], mode=0o700, exist_ok=True)
+    lib = os.path.join(d, "harness", "scripts/lib/priv001-synthetic.sh")
+    return run(["bash", "-c", 'source "$1"; shift; "$@"', "u04", lib, *fn_args], env=env, timeout=timeout)
+
+
+def cmd_u04(args, action):
+    run_id = args.get("--run") or latest_run()
+    if not run_id:
+        print("STOP: no window run")
+        return 1
+    st = load_state(run_id)
+    d = u04_dir(run_id)
+    if (st.get("scenario") != "u04" or st.get("phase") != "U04-HOLD" or st.get("finishedAt")
+            or os.path.exists(os.path.join(d, "done"))):
+        print("STOP: no U04 hold is open for this run")
+        return 1
+    if not unit_active(f"{UNIT}-{run_id}.service"):
+        print("STOP: the window runner is not active")
+        return 1
+    lock = acquire(os.path.join(d, "u04.lock"), 60)
+    if lock is None:
+        print("STOP: another U04 command is running")
+        return 1
+    if action == "invite":
+        tmp = os.path.join(run_dir(run_id), "tmp")
+        out = os.path.join(tmp, f"u04-invite-{os.getpid()}.json")
+        os.makedirs(tmp, mode=0o700, exist_ok=True)
+        os.close(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        rc, o, e = lib_call(run_id, "parkio_priv001_civo_create_invite", out)
+        code = (o.strip().splitlines() or [""])[-1]
+        token = None
+        try:
+            if code in ("200", "201"):
+                token = json.load(open(out)).get("token")
+        except (OSError, ValueError):
+            token = None
+        shred([out])
+        if not token or not re.match(r"^[A-Za-z0-9_-]{16,256}$", token):
+            print(f"STOP: invite creation failed (http {code or '?'})")
+            return 1
+        with open(os.path.join(d, "invites.log"), "a") as f:
+            f.write(now() + "\n")
+        print(token, flush=True)
+        return 0
+    if action == "verify":
+        email = args.get("--email") or ""
+        if not SYNTHETIC_EMAIL.match(email):
+            print("STOP: not a synthetic PRIV-001A email")
+            return 1
+        max_age = max(60, min(3600, int(time.time() - float(st.get("w1Epoch") or 0)) + 60))
+        rc, o, e = lib_call(run_id, "parkio_priv001_mark_verified", email, str(max_age))
+        uid = (o.strip().splitlines() or [""])[-1]
+        if rc != 0 or not UUID.match(uid):
+            print("STOP: the allowlisted verification did not verify exactly one account")
+            return 1
+        with open(os.path.join(d, "verified.log"), "a") as f:
+            f.write(f"{now()} {uid}\n")
+        print(f"verified {uid}")
+        return 0
+    if action == "creds":
+        name = args.get("--name") or ""
+        if not NAME_RE.match(name):
+            print("STOP: --name must be 1-16 letters, digits or dashes")
+            return 1
+        fields = dict(line.split("=", 1) for line in sys.stdin.read().splitlines() if "=" in line)
+        email, password = fields.get("email", ""), fields.get("password", "")
+        if not SYNTHETIC_EMAIL.match(email) or not 12 <= len(password) <= 100 or any(c in password for c in "\r\n"):
+            print("STOP: credentials need a synthetic PRIV-001A email and a 12-100 character password")
+            return 1
+        path = os.path.join(d, f"creds-{name}")
+        if os.path.exists(path):
+            print(f"STOP: creds-{name} already exists; use another name")
+            return 1
+        for other in extra_creds(st):
+            if any(line == f"email={email}" for line in open(other).read().splitlines()):
+                print(f"STOP: {os.path.basename(other)} already holds this email")
+                return 1
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(f"acceptance_id=PRIV001A-U04-{run_id}-{name}\nemail={email}\npassword={password}\n")
+        print(f"stored creds-{name}")
+        return 0
+    if action == "done":
+        open(os.path.join(d, "done"), "w").close()
+        print("U04 hold ends; the window erases the stored accounts and restores")
+        return 0
+    print("STOP: unknown U04 action")
+    return 1
+
+
 def cmd_preflight(args):
     fault = args.get("--fault") or "none"
     os.makedirs(PRIVATE, mode=0o700, exist_ok=True)
@@ -1209,6 +1439,10 @@ def cmd_preflight(args):
 
 def cmd_start(args):
     fault = args.get("--fault") or "none"
+    scenario = args.get("--scenario") or "u05"
+    if scenario not in SCENARIOS or (scenario == "u04" and fault != "none"):
+        print("NOT STARTED: --scenario must be u05 or u04, and u04 runs only with --fault none")
+        return 1
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     d = run_dir(run_id)
     os.makedirs(PRIVATE, mode=0o700, exist_ok=True)
@@ -1228,7 +1462,7 @@ def cmd_start(args):
     os.makedirs(ev, exist_ok=True)
     os.chmod(EVIDENCE, 0o700)
     os.chmod(ev, 0o700)
-    st = {"run": run_id, "fault": fault, "evidence": ev, "phase": "W0", "guards": {},
+    st = {"run": run_id, "fault": fault, "scenario": scenario, "evidence": ev, "phase": "W0", "guards": {},
           "runnerSha": sha_file(os.path.join(d, "window.py"))}
     save_state(st)
     log = os.path.join(d, "window.log")
@@ -1239,7 +1473,7 @@ def cmd_start(args):
     if rc != 0:
         print(f"could not start the window unit: {err.strip()[:200]}")
         return 1
-    print(f"window {run_id} (fault: {fault}) started as {UNIT}-{run_id}.service; following {log}")
+    print(f"window {run_id} (scenario: {scenario}, fault: {fault}) started as {UNIT}-{run_id}.service; following {log}")
     print("(Ctrl-C or an SSH disconnect stops only this following; the window and its guards keep running)")
     if TEST:
         return 0
@@ -1281,7 +1515,7 @@ def cmd_status(args):
         print("no window run")
         return 0
     st = load_state(run_id)
-    show = {k: st.get(k) for k in ("run", "fault", "phase", "verdict", "failure", "w1", "changedKeys", "envRestore",
+    show = {k: st.get(k) for k in ("run", "scenario", "fault", "phase", "verdict", "failure", "w1", "changedKeys", "envRestore",
                                    "guards", "authUserId", "deleteSent", "accounting", "restoreSteps", "finishedAt")}
     show["units"] = {u: unit_active(u) for u in (f"{UNIT}-{run_id}.service", f"{GUARD_WINDOW}-{run_id}.timer",
                                                  f"{GUARD_ANALYTICS}-{run_id}.timer")}
@@ -1300,13 +1534,15 @@ def main():
     cmd, rest = argv[0], argv[1:]
     args, i = {}, 0
     while i < len(rest):
-        if rest[i] in ("--harness", "--run", "--fault"):
+        if rest[i] in ("--harness", "--run", "--fault", "--scenario", "--email", "--name"):
             args[rest[i]] = rest[i + 1] if i + 1 < len(rest) else ""
             i += 2
         else:
             args[rest[i]] = True
             i += 1
     try:
+        if cmd.startswith("u04-"):
+            return cmd_u04(args, cmd[len("u04-"):])
         return {"preflight": cmd_preflight, "start": cmd_start, "run": cmd_run, "restore": cmd_restore,
                 "status": cmd_status}.get(cmd, lambda a: (print(__doc__), 1)[1])(args)
     except Stop as e:
