@@ -23,7 +23,8 @@ compare (exit 0 PASS, 1 FAIL), project "parkio":
 - analytics-service: id, image, config hash and RestartCount identical (it is stopped and started, so StartedAt may
   differ);
 - the same container names; the same ids except auth-service's;
-- W6: the env file's SHA-256 equals W0's, the window keys equal W0's, and every rendered hash equals the running one.
+- W6: the env file's SHA-256 equals W0's, the window keys equal W0's, and the set of services whose running config differs
+  from the rendered one equals W0's (U13 recorded such pre-existing differences, D1; the window must add or clear none).
 Records: ~civo/parkio-release-20261009/u05-window/<W0|W6>-<stamp>.json (dir 700, file 600).
 """
 import hashlib, json, os, re, subprocess, sys, time
@@ -149,7 +150,8 @@ def cmd_snapshot(label):
     if hashes is None:
         print("  rendered config: UNAVAILABLE (the production wrapper's config --hash failed)")
     else:
-        print(f"  rendered config: {len(hashes)} services; running containers that differ from it: {drift or 'none'}")
+        print(f"  rendered config: {len(hashes)} services; running containers that differ from it: "
+              + (f"{len(drift)} (recorded as the baseline): {', '.join(drift)}" if drift else "none"))
     print(f"record: {path} sha256 {hashlib.sha256(open(path, 'rb').read()).hexdigest()}")
     return 0
 
@@ -172,10 +174,13 @@ def cmd_compare():
         problems.append("the env file's SHA-256 differs from W0")
     if a["envFile"]["keys"] != b["envFile"]["keys"]:
         problems.append(f"window keys differ from W0: {b['envFile']['keys']}")
-    if b.get("renderDrift"):
-        problems.append(f"running config differs from the rendered config: {b['renderDrift']}")
-    if b.get("rendered") is None:
-        problems.append("W6 has no rendered config to compare")
+    if b.get("rendered") is None or a.get("rendered") is None:
+        problems.append("W0 or W6 has no rendered config to compare")
+    else:
+        d0, d6 = set(a.get("renderDrift") or []), set(b.get("renderDrift") or [])
+        if d0 != d6:
+            problems.append("the services whose running config differs from the rendered config changed: "
+                            f"new {sorted(d6 - d0)}, no longer {sorted(d0 - d6)}")
     auth = [n for n in w6 if w6[n]["project"] == PROJECT and w6[n]["service"] == "auth-service"]
     if auth and w6[auth[0]].get("health") not in ("healthy", None):
         problems.append(f"auth-service health {w6[auth[0]].get('health')}")
@@ -188,7 +193,8 @@ def cmd_compare():
         return 1
     print(f"  {same} other containers identical (id, image, config hash, StartedAt, RestartCount, status); "
           "auth-service same image and config hash; analytics-service same id, image and config hash")
-    print("  env file byte-identical to W0; window keys equal W0; every running config equals the rendered config")
+    print("  env file byte-identical to W0; window keys equal W0; running-vs-rendered differences identical to W0 "
+          f"({len(a.get('renderDrift') or [])} pre-existing)")
     print("U05 WINDOW COMPARE PASS")
     return 0
 

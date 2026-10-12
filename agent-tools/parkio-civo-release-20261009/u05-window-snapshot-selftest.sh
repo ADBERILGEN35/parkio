@@ -3,7 +3,8 @@
 # (config --hash '*'). S1 only auth-service (recreated: new id, same image and hash) and analytics-service (new StartedAt)
 # differ -> PASS; S2 another container restarted -> FAIL naming it; S3 the env file differs -> FAIL; S4 a window key not
 # restored -> FAIL; S5 a running config differs from the rendered one -> FAIL; S6 auth-service on another image -> FAIL;
-# S7 a container added -> FAIL; S8 the operator token's value is never printed or stored; records 700/600.
+# S7 a container added -> FAIL; S8 the operator token's value is never printed or stored; records 700/600;
+# S9 a running-vs-rendered difference that already existed at W0 (U13 D1) is the baseline -> PASS.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/u05-window-snapshot.py"
 W="$(mktemp -d)"; trap 'rm -rf "${W:?}"' EXIT
@@ -39,7 +40,8 @@ cs = [c("parkio-auth-service-1", "auth-service", "a1"), c("parkio-analytics-serv
       c("parkio-gateway-service-1", "gateway-service", "c3"), c("parkio-minio", "minio", "d4"),
       c("parkio-postgres-auth", "postgres-auth", "e5")]
 rendered = {x["Config"]["Labels"]["com.docker.compose.service"]: x["Config"]["Labels"]["com.docker.compose.config-hash"] for x in cs}
-if mut in ("ok", "restart", "envdiff", "keydiff", "drift", "authimage", "added"):
+if mut in ("basedrift", "okdrift"): rendered["minio"] = "hash-canonical-minio"
+if mut in ("ok", "okdrift", "restart", "envdiff", "keydiff", "drift", "authimage", "added"):
     cs[0]["Id"] = "f6" * 8; cs[0]["State"]["StartedAt"] = "2026-10-13T09:40:00Z"
     cs[1]["State"]["StartedAt"] = "2026-10-13T09:20:00Z"
 if mut == "restart": cs[3]["State"]["StartedAt"] = "2026-10-13T09:10:00Z"
@@ -74,7 +76,11 @@ has s3.out "DIFF the env file's SHA-256 differs from W0"
 w0; state keydiff; envfile true; run w6d.out snapshot W6; run s4.out compare
 has s4.out "window keys differ from W0"; has s4.out "U05 WINDOW COMPARE FAIL"
 w0; state drift; envfile false; run w6e.out snapshot W6; run s5.out compare
-has s5.out "running config differs from the rendered config: ['gateway-service']"
+has s5.out "running config differs from the rendered config changed: new ['gateway-service'], no longer []"
+rm -f "$W"/out/*.json; state basedrift; envfile false; run w0d.out snapshot W0; sleep 1
+has w0d.out "running containers that differ from it: 1 (recorded as the baseline): minio"
+state okdrift; envfile false; run w6h.out snapshot W6; run s9.out compare
+has s9.out "U05 WINDOW COMPARE PASS"; has s9.out "(1 pre-existing)"
 w0; state authimage; envfile false; run w6f.out snapshot W6; run s6.out compare
 has s6.out "DIFF parkio-auth-service-1: image"
 w0; state added; envfile false; run w6g.out snapshot W6; run s7.out compare
