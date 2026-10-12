@@ -23,7 +23,8 @@ Set these once at the start of the session:
 RUN=$(sudo ls /root/u05-priv001a-window | grep -E '^[0-9]{8}T[0-9]{6}Z$' | tail -1); echo "$RUN"
 S=/root/u05-priv001a-window/$RUN                        # root-only: state.json, env.backup, creds, harness/, window.log
 EV=/home/civo/parkio-release-20261009/u05-window/$RUN   # evidence: W0/W6 snapshots, reports
-ENV=/opt/parkio/docker/.env.azure-hosted-beta
+ENV=$(sudo readlink -f /opt/parkio/docker/.env.azure-hosted-beta)    # the real file, as the runner resolves it
+sudo stat -c '%F %a %u:%g' "$ENV"; sudo grep -c $'\r' "$ENV" || true   # expected: regular file; 0 CRLF lines (2026-10-12)
 W() { (cd /opt/parkio-release && sudo PARKIO_ENV_FILE="$ENV" ./scripts/parkio-prod-compose.sh "$@"); }
 C() { sudo docker ps --filter label=com.docker.compose.project=parkio --filter "label=com.docker.compose.service=$1" --format '{{.Names}}'; }
 Q() { sudo docker exec -e "PGOPTIONS=-c default_transaction_read_only=on" "$(C postgres-auth)" sh -c \
@@ -152,6 +153,8 @@ sudo stat -c '%a %u:%g' "$ENV"; F envStat                     # must equal W0's 
 
 3. Check the result. `sudo grep -c '^PARKIO_ACCOUNT_ERASURE_ENABLED=true$' "$ENV"` must print 0 (and the same check applies to the other window values), and `sudo stat -c '%a %u:%g' "$ENV"` must show W0's mode and owner.
 
+The `sed` patterns assume LF line endings, which the host had on 2026-10-12. If the CRLF count at the top is not 0, stop and decide with the owner: these patterns would not match.
+
 - **If a window key now holds a value that neither W0 nor the window wrote,** stop. That is a concurrent owner change; decide with the owner.
 - **The other change stays** in the file. Record it with whoever made it.
 
@@ -192,8 +195,8 @@ Then repeat the two accounting queries of step 3. The expected result:
 ```
 sudo shred -u "$S/env.backup" "$S/creds"
 sudo find "$S/tmp" -type f -exec shred -u {} + ; sudo rm -rf "$S/tmp"
-sudo ls -a /opt/parkio/docker | grep -F '.env.azure-hosted-beta.u05-'    # an interrupted write's leftovers
-sudo shred -u /opt/parkio/docker/.env.azure-hosted-beta.u05-*           # only if listed: they hold the whole env
+# An interrupted write leaves "..env.azure-hosted-beta.u05-<pid>" next to the env file; it holds the whole env.
+sudo find "$(dirname "$ENV")" -maxdepth 1 -name ".$(basename "$ENV").u05-*" -print -exec shred -u {} +
 ```
 
 - **Keep `creds`** while an erasure is still open (step 3).
