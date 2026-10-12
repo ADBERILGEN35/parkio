@@ -2,7 +2,7 @@ v3 critical_ok=False library_ok=False targets=0 note=''
 v3 stderr has 'mkdir /root/.cache: permission denied': True
 ok   r1.out: v3 critical_ok=False library_ok=False targets=0 note=''
 ok   r1.out: v3 stderr has 'mkdir /root/.cache: permission denied': True
-D7 scan preparation | stamp 20261012T114842Z | release <W>/rel @ f888a81b113c | T1 v4 01ed008c8ef2
+D7 scan preparation | stamp 20261012T115454Z | release <W>/rel @ f888a81b113c | T1 v4 01ed008c8ef2
 
 A. T1 and the release checkout
   PASS release checkout clean at the PIN: HEAD f888a81b113c, 0 change(s)
@@ -23,8 +23,8 @@ D. Databases in D7's scanner cache <W>/out/trivy-cache (T1's command)
   PASS vulnerability DB downloaded as civo with T1's scanner command: exit 0
   Run: T1 trivy_base + --download-java-db-only
   PASS Java DB downloaded as civo with T1's scanner command: exit 0
-  PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated 2026-10-12T09:47:21.509023105Z (2.0 h ago), downloaded 2026-10-12T11:48:56.143835873Z
-  PASS D7's freshness gate: Java DB present and updated within 168 h: updated 2026-10-12T01:00:58.130815836Z (10.8 h ago), downloaded 2026-10-12T11:50:09.160879475Z
+  PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated 2026-10-12T09:47:21.509023105Z (2.2 h ago), downloaded 2026-10-12T11:55:08.784267749Z
+  PASS D7's freshness gate: Java DB present and updated within 168 h: updated 2026-10-12T01:00:58.130815836Z (10.9 h ago), downloaded 2026-10-12T11:56:25.480254059Z
   cache 3012 MiB, mode 700
 
 E. D7's abort path (rollback tags) and scan path (a host-built image by tag)
@@ -38,7 +38,7 @@ F. Free space
 
 gates passed 11/11
 D7 SCAN PREP COMPLETE - scanner, current databases and D7's scan and abort paths ready
-saved: <W>/out/scanprep-20261012T114842Z.txt / .json
+saved: <W>/out/scanprep-20261012T115454Z.txt / .json
 ok   p1.out exit 0
 ok   p1.out: PASS release checkout clean at the PIN
 ok   p1.out: PASS scanner present locally by its pinned digest
@@ -49,13 +49,14 @@ ok   p1.out: PASS vulnerability DB downloaded as civo with T1's scanner command
 ok   p1.out: PASS Java DB downloaded as civo with T1's scanner command
 ok   p1.out: PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated
 ok   p1.out: PASS D7's freshness gate: Java DB present and updated within 168 h: updated
-ok   p1.out: PASS the six rollback tags d7st20134-<service>:rollback-pre-22f96990 present: user-service
-ok   p1.out: Run: T1 trivy_scan d7st20134-notification-service:rollback-pre-22f96990
+ok   p1.out: PASS the six rollback tags d7st29771-<service>:rollback-pre-22f96990 present: user-service
+ok   p1.out: Run: T1 trivy_scan d7st29771-notification-service:rollback-pre-22f96990
 ok   p1.out: PASS both scans wrote a report as civo (docker socket, ignore file, JSON)
 ok   p1.out: the notification-service image running now (D7 replaces it), with today's databases: critical
 ok   p1.out: PASS free space on / >= 12 GiB after the downloads
 ok   p1.out: D7 SCAN PREP COMPLETE - scanner, current databases and D7's scan and abort paths ready
 ok   p1: T1 state and journal untouched
+ok   p1: no __pycache__ written beside the installed T1
 ok   p1: report .txt/.json mode 600
 ok   p1: cache mode 700 holds both databases
 ok   p1: JSON record has both DB metadata, six rollback tags, the baseline, scannerPulledByPrep=false
@@ -70,7 +71,7 @@ ok   p3.out exit 1
 ok   p3.out: STOP: the installed T1
 ok   p3: nothing written
 ok   p4.out exit 1
-ok   p4.out: FAIL the six rollback tags d7st20134-none-<service>:rollback-pre-22f96990 present: ; missing: user-service, gamification-service, notification-service, moderation-service, ai-validation-service, analytics-service
+ok   p4.out: FAIL the six rollback tags d7st29771-none-<service>:rollback-pre-22f96990 present: ; missing: user-service, gamification-service, notification-service, moderation-service, ai-validation-service, analytics-service
 ok   p4: no scan without the rollback tags
 ok   p4.out: D7 SCAN PREP NOT COMPLETE
 SELFTEST PASS

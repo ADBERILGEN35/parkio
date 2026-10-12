@@ -85,6 +85,7 @@ def main():
     if actual != T1_SHA:
         print(f"STOP: the installed T1 ({T1_PATH}) is not T1 v4 {T1_SHA[:12]} (found {actual[:12]}); nothing was changed")
         sys.exit(1)
+    sys.dont_write_bytecode = True        # loading T1 as a module must not leave a __pycache__ in the tools directory
     spec = importlib.util.spec_from_file_location("t1", T1_PATH)
     t1 = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(t1)

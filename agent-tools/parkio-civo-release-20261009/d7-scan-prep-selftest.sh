@@ -27,8 +27,9 @@ git clone --quiet --shared --no-checkout "$REPO" "$W/rel"
 git -C "$W/rel" sparse-checkout set --no-cone '/.trivyignore.yaml'
 git -C "$W/rel" -c advice.detachedHead=false checkout --quiet --detach "$PIN"
 for s in $SIX; do docker tag "parkio/$s:candidate-843ae7cb461b" "$P-$s:rollback-pre-22f96990"; done
-mkdir -p "$W/out"
-export D7S_T1="$T1V4" D7S_T1_SHA256="$(sha256sum "$T1V4" | cut -d' ' -f1)" T1_OUT="$W/out" T1_RELEASE="$W/rel" T1_PROJECT="$P"
+mkdir -p "$W/out" "$W/tools"
+cp "$T1V4" "$W/tools/t1-release-step.py"
+export D7S_T1="$W/tools/t1-release-step.py" D7S_T1_SHA256="$(sha256sum "$T1V4" | cut -d' ' -f1)" T1_OUT="$W/out" T1_RELEASE="$W/rel" T1_PROJECT="$P"
 fail=0
 ok() { echo "ok   $*"; }
 no() { echo "FAIL $*"; fail=1; }
@@ -76,6 +77,7 @@ check p1.out "the notification-service image running now (D7 replaces it), with 
 check p1.out "PASS free space on / >= 12 GiB after the downloads"
 check p1.out "D7 SCAN PREP COMPLETE - scanner, current databases and D7's scan and abort paths ready"
 [ ! -e "$W/out/state.json" ] && [ ! -e "$W/out/journal.tsv" ] && ok "p1: T1 state and journal untouched" || no "p1 touched T1 state"
+[ ! -e "$W/tools/__pycache__" ] && ok "p1: no __pycache__ written beside the installed T1" || no "p1 wrote a __pycache__ beside T1"
 R="$(ls "$W"/out/scanprep-*.txt | head -1)"
 [ "$(stat -c %a "$R")" = 600 ] && [ "$(stat -c %a "${R%.txt}.json")" = 600 ] && ok "p1: report .txt/.json mode 600" || no "p1 report mode"
 [ "$(stat -c %a "$W/out/trivy-cache")" = 700 ] && [ -s "$W/out/trivy-cache/db/trivy.db" ] && [ -s "$W/out/trivy-cache/java-db/trivy-java.db" ] \
