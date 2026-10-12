@@ -1,4 +1,4 @@
-# U05 PRIV-001A window: independent recovery procedure (version 2)
+# U05 PRIV-001A window: independent recovery procedure (version 3: also the U04 scenario)
 
 ## When to use it
 
@@ -36,6 +36,11 @@ F() { sudo python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print
 - `none`: only auth-service.
 - `analytics`: auth-service and analytics-service.
 
+`F scenario` tells you which accounts the window created:
+- `u05` (or `None`, a version-2 run): one principal, credentials in `$S/creds`.
+- `u04`: browser-registered accounts, one credentials file each in `$S/u04/creds-<name>`, and one line per created
+  invite in `$S/u04/invites.log`. Wherever a step below names `$S/creds`, repeat it for each of these files.
+
 ## 1. Stop everything still running from the window
 
 ```
@@ -70,6 +75,9 @@ Q "select count(*), count(*) filter (where consumed_at is null) from registratio
 ```
 
 - **No row from the first query:** no synthetic account is left. An erased account keeps only its tombstone email, so it no longer matches.
+- **U04:** the second query must show as many created invites as `$S/u04/invites.log` has lines
+  (`sudo wc -l < "$S/u04/invites.log"`). A listed account with no credentials file is an ORPHAN (its registration was
+  not preceded by `u04-creds`): record it, never change it by SQL.
 - **An unconsumed invite:** record it as an ORPHAN. Only the invite's hash is stored, so no one can use it, and it expires after the invite TTL (P7D).
 
 **For each account the first query lists:**
@@ -186,20 +194,20 @@ sudo U05W_OUT="$EV" U05W_CHANGED="$CH" python3 -I "$S/u05-window-snapshot.py" co
 
 Then repeat the two accounting queries of step 3. The expected result:
 - no listed account;
-- the invites since W1 show `1|0`: one created, none unconsumed.
+- the invites since W1 show `1|0` (U04: `<lines of invites.log>|0`): every invite created, none unconsumed.
 
 ## 7. Clean up
 
 **After a verified restore with no open erasure:**
 
 ```
-sudo shred -u "$S/env.backup" "$S/creds"
+sudo shred -u "$S/env.backup" "$S/creds"                   # U04: "$S/env.backup" "$S"/u04/creds-*
 sudo find "$S/tmp" -type f -exec shred -u {} + ; sudo rm -rf "$S/tmp"
 # An interrupted write leaves "..env.azure-hosted-beta.u05-<pid>" next to the env file; it holds the whole env.
 sudo find "$(dirname "$ENV")" -maxdepth 1 -name ".$(basename "$ENV").u05-*" -print -exec shred -u {} +
 ```
 
-- **Keep `creds`** while an erasure is still open (step 3).
+- **Keep `creds`** (U04: every `u04/creds-*`) while an erasure is still open (step 3).
 - **The rest of `$S`** holds no secret value and stays as evidence: `state.json`, `window.log` and the verified copies.
 
 **Report:** the steps taken, the outputs of step 6, and every ORPHAN or PENDING item.
