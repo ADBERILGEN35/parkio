@@ -22,7 +22,8 @@ Choose one documented incident strategy with the incident commander:
   switch forward to that server. **BLOCKED on the current code**, as in
   [disaster-recovery-runbook.md](disaster-recovery-runbook.md): there is no verified erasure
   coverage (`verifiedCoverage=false`), so a restored copy must not be exposed (see its
-  "Incident response while data recovery is BLOCKED").
+  "Incident response while data recovery is BLOCKED"). No script refuses an Azure PITR restore:
+  this is an operator rule.
 
 There are no dual writes. Every accepted account erasure is irreversible across
 restore/rollback: tombstones are replayed before login or traffic is enabled.

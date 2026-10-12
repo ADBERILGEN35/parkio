@@ -188,12 +188,13 @@ or apply on production (`parkio_restore_refuse_standalone_database`,
     consumer offset reset.
 - **No consistency claim.** A restore from one backup set is not claimed to give a consistent
   projection. See "Backup and restore ordering (U12)" in `docs/architecture/event-contracts.md`.
-- **Coordinated restore prerequisite (U12-R decision, 2026-10-13).** If a production data restore
+- **Coordinated restore prerequisite (U12-R decision, 2026-10-12).** If a production data restore
   is ever unblocked, the user and gamification databases are restored together from the same
-  backup set, whose dumps run user before gamification. No event produced after that backup may
-  reach the restored user-service. This is the only supported way. It is a precondition, not a
-  consistency guarantee, and no procedure exists to reconcile or reset user-service's projection
-  versions.
+  backup set, whose dumps run user before gamification. No event produced between that backup and
+  the restore may reach the restored user-service: not through a DLT redrive, a consumer offset
+  reset, or a consumer whose committed offset is older than those events and reads them normally.
+  This is the only supported way. It is a precondition, not a consistency guarantee, and no
+  procedure exists to reconcile or reset user-service's projection versions.
 
 ### Full stack restore (same or new VPS) — BLOCKED for data
 
