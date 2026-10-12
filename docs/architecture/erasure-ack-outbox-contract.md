@@ -16,29 +16,52 @@ participants add schema. Media adds three tables or columns:
 
 Analytics adds DLQ columns to its existing outbox for its new relay (V10).
 
-## Rollout status (`api` `89f66ca4`, 2026-10-02)
+## Rollout status (deployed 2026-10-12; production acceptance 2026-10-12)
 
-Source merge, deployment and production acceptance are separate states. This
-table records the source state of `api` after the last participant merge
-(#140).
+Source merge, deployment and production acceptance are separate states.
 
-| Participant | PR | Source on `api` | Deployed | Production acceptance |
-|-------------|----|-----------------|----------|-----------------------|
-| gamification | #132 | merged (`1146211f`) | not established | not run |
-| user | #133 | merged (`5e417266`) | not established | not run |
-| moderation | #135 | merged (`6ac15ad8`) | not established | not run |
-| parking | #137 | merged (`5617866c`) | not established | not run |
-| analytics | #138 | merged (`294dd4c9`) | not established | not run |
-| ai-validation | #139 | merged (`f3778407`) | not established | not run |
-| notification | #140 | merged (`89f66ca4`) | not established | not run |
-| media | #141 | merged (`01f7e442`) | not established | not run |
+| Participant | PR | Source on `api` | Deployed image id (parkio-civo-prod, release PIN `f888a81b`) | Production acceptance |
+|-------------|----|-----------------|--------------------------------------------------------------|-----------------------|
+| gamification | #132 | merged (`1146211f`) | `sha256:adb2efbca96b` | PASS, 2026-10-12 |
+| user | #133 | merged (`5e417266`) | `sha256:f699b9866e1e` | PASS, 2026-10-12 |
+| moderation | #135 | merged (`6ac15ad8`) | `sha256:0d77f5cbab95` | PASS, 2026-10-12 |
+| parking | #137 | merged (`5617866c`) | `sha256:3888df056491` | PASS, 2026-10-12 |
+| analytics | #138 | merged (`294dd4c9`) | `sha256:86ffd98aab28` | PASS, 2026-10-12 |
+| ai-validation | #139 | merged (`f3778407`) | `sha256:c9ee9a69e5df` | PASS, 2026-10-12 |
+| notification | #140 | merged (`89f66ca4`) | `sha256:df23b8da8c97` | PASS, 2026-10-12 |
+| media | #141 | merged (`01f7e442`) | `sha256:db3065e39a70` | PASS, 2026-10-12 |
 
-"Not established": the repository holds no evidence that an image built from
-the merged source runs anywhere. Deployment pins and the PRIV-001A runtime
-acceptance are tracked outside this document. No participant's source on `api`
-sends the HTTP ACK any more. A service still running an image built from earlier
-source keeps the HTTP ACK inside its erase transaction (the U05 defect) until it
-is redeployed.
+- **Deployed.** Release PIN `f888a81b113c0c486ea0949067779443857e644d`, deployed 2026-10-12:
+  - media and parking: published images, D6a and D6b;
+  - the other six: built on the host from the PIN, D7.
+
+  Every participant's migrations are applied. The image ids are those of the host's deployed manifest (final
+  acceptance E, 2026-10-12T14:07:07Z):
+  - gamification: `sha256:adb2efbca96b1d84bcff51b4890afd5d4cdf0fbb45556112d584a252244f8fc1`
+  - user: `sha256:f699b9866e1e54a2f8c93038bb96912dc00a5a1912ff4b21b7dd9a77c5bc837e`
+  - moderation: `sha256:0d77f5cbab954d746f068ce2342dd3b092a75215a27dff0f464a4dd25be1b7af`
+  - parking: `sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9`
+  - analytics: `sha256:86ffd98aab2871be4f939aa281b6e3df5a7fc46d29ee69ef0de712180a87146b`
+  - ai-validation: `sha256:c9ee9a69e5dfb03982339e04a058ea7bed186f0d2af15411126228151baf1043`
+  - notification: `sha256:df23b8da8c9751a44d90e971071ee6d35c90277108b3c2291d66e839f61244c1`
+  - media: `sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72`
+- **Production acceptance (PRIV-001A, 2026-10-12).**
+  - One synthetic principal was registered through the invite route and deleted canonically.
+  - The request reached `COMPLETE` with a `SUCCESS` ACK from all eight participants. The account ended `ERASED`,
+    with its tombstone email.
+  - Request id `c741c998-9c77-4d34-8188-3be88e92772d`; window run `20261012T222911Z`.
+  - The window's temporary settings were restored, and the snapshot comparison found every other container
+    unchanged.
+- **A failed or unconfirmable participant (criterion 3).** This was proven by isolated fault injection on the
+  deployed commit, not by stopping a production service:
+  - `AccountErasureParticipantContractPostgresIT` at `f888a81b`: 57 tests, 0 failures. A missing ACK, for every
+    participant, leaves the request `IN_PROGRESS`; a `FAILED` ACK gives `FAILED_RETRYING`; invalid statuses and
+    duplicate ACKs never count. None of them reaches `COMPLETE`.
+  - The Backend integration tests on `f888a81b` (CI run 38238604432) passed.
+  - Participants ACK only `SUCCESS`, after their erase commits, so a failing participant sends no ACK.
+- **No HTTP ACK.** No participant's source on `api` sends the HTTP ACK any more. A service still running an image
+  built from earlier source would keep the HTTP ACK inside its erase transaction (the U05 defect) until it is
+  redeployed.
 
 ## Participant side
 
@@ -466,7 +489,9 @@ Per participant subtask:
     confirmed retries with capped backoff (object-lock retention, another
     bucket, a write of unknown outcome). The request stays `IN_PROGRESS` and
     `AccountErasureStuck` fires. How operators resolve a stuck job is an open
-    decision.
+    decision. Until it is made, operators diagnose and escalate per
+    `docs/operations/dlq-redrive-runbook.md`, "Media: an object that cannot be
+    confirmed gone".
   - **V14 edited in place.** V14 changed after its first review, while no
     release contained it. Check at rollout that no database applied an earlier
     V14. V15 and V16 only add.
