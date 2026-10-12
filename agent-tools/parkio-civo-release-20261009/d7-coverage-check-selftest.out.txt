@@ -1,0 +1,68 @@
+D7 image coverage check | stamp 20261012T130927Z | T1 v4 01ed008c8ef2 | read-only for the deployment
+
+A. Identity: the D7 record, the release tags and the running containers
+  PASS T1 state D7 ok; its record PASS with the built image ids: D7 ok stamp 20261012T123453Z, record PASS, 3 built image ids
+  PASS notification-service: <p>/notification-service:test = the image D7 built = the running container's image: tag 8f092313e9dc, built 8f092313e9dc, running 8f092313e9dc running
+
+B. Databases in a fresh scanner cache <W>/cache (T1's command)
+  PASS vulnerability DB downloaded: exit 0
+  PASS Java DB downloaded: exit 0
+  PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated 2026-10-12T09:47:21.509023105Z (3.4 h ago), downloaded 2026-10-12T13:09:44.91193045Z
+  PASS D7's freshness gate: Java DB present and updated within 168 h: updated 2026-10-12T01:00:58.130815836Z (12.2 h ago), downloaded 2026-10-12T13:11:06.686926068Z
+
+C. notification-service (<p>/notification-service:test)
+  PASS notification-service: T1's D7 gate again (CRITICAL fixed; HIGH/CRITICAL fixed libraries): targets Java (0)
+  PASS notification-service: full inventory report written: exit 0
+  targets: <p>/notification-service:test (ubuntu 26.04) [os-pkgs/ubuntu]; Java [lang-pkgs/jar]
+  PASS notification-service: Java target scanned: 117 packages, 117 of them from 116 JAR files inside app.jar/BOOT-INF/lib: at least 50 required
+  PASS notification-service: spring-core and spring-boot among them: spring-core 6.2.19, spring-boot 3.5.15, jackson-databind 2.21.7, kafka-clients 3.9.2, lz4-java 1.10.1, postgresql 42.7.12, flyway-core 11.7.2, tomcat-embed-core 10.1.59
+  PASS notification-service: OS packages scanned (<p>/notification-service:test (ubuntu 26.04)): 140 packages
+  PASS notification-service: no usr/bin/pebble target
+  PASS notification-service: the policy recomputed from the inventory gives T1's result: critical fixed 0, library HIGH/CRITICAL fixed 0
+  vulnerabilities in <p>/notification-service:test (ubuntu 26.04): LOW/affected 4, MEDIUM/affected 38, MEDIUM/fixed 2
+  vulnerabilities in Java: LOW/fixed 1, MEDIUM/fixed 8
+  suppressed by the release's ignore file: CVE-2026-106451, CVE-2026-47884, CVE-2026-47890
+
+D. Meaning of "targets Java (0)" in D7's scan lines
+  T1's library scan lists every scanned target with the number of findings that fail the policy. "Java" is the
+  target that holds every package read from JAR files. (0) means none of them fails the policy (HIGH/CRITICAL
+  with a fixed version, after the ignore file). It does not mean that no Java packages were found: their number
+  per image is in the C lines above and in the saved inventories.
+
+gates passed 13/13
+D7 COVERAGE CHECK PASS - the packaged Java dependencies and OS packages of the six images were scanned and pass
+saved: <W>/out/coverage-20261012T130927Z/
+ok   g1.out exit 0
+ok   g1.out: PASS T1 state D7 ok; its record PASS with the built image ids
+ok   g1.out: PASS notification-service: d7cov56747/notification-service:test = the image D7 built = the running container's image
+ok   g1.out: PASS D7's freshness gate: vulnerability DB present and updated within 48 h
+ok   g1.out: PASS notification-service: T1's D7 gate again (CRITICAL fixed; HIGH/CRITICAL fixed libraries): targets Java (0)
+ok   g1.out: PASS notification-service: full inventory report written
+ok   g1.out: JAR files inside app.jar/BOOT-INF/lib
+ok   g1.out: PASS notification-service: spring-core and spring-boot among them: spring-core 6.2.19
+ok   g1.out: PASS notification-service: OS packages scanned (d7cov56747/notification-service:test (ubuntu 26.04))
+ok   g1.out: PASS notification-service: no usr/bin/pebble target
+ok   g1.out: PASS notification-service: the policy recomputed from the inventory gives T1's result
+ok   g1.out: suppressed by the release's ignore file: CVE-2026-106451
+ok   g1.out: D. Meaning of "targets Java (0)"
+ok   g1.out: D7 COVERAGE CHECK PASS
+ok   g1: Java package count reported
+ok   g1: coverage dir 700, files 600
+ok   g1: reduced report (no image config) and summary agree: >= 50 BOOT-INF/lib packages, result PASS
+ok   g1: the test's shared cache was kept (D7C_KEEP_CACHE)
+ok   n1.out exit 1
+ok   n1.out: PASS analytics-service: T1's D7 gate again (CRITICAL fixed; HIGH/CRITICAL fixed libraries)
+ok   n1.out: FAIL analytics-service: Java target scanned: 0 packages, 0 of them from 0 JAR files
+ok   n1.out: FAIL analytics-service: spring-core and spring-boot among them
+ok   n1.out: FAIL analytics-service: OS packages scanned
+ok   n1.out: D7 COVERAGE CHECK NOT COMPLETE - do not run E
+ok   n2.out exit 1
+ok   n2.out: FAIL moderation-service: T1's D7 gate again
+ok   n2.out: findings: CVE-2026-78667 stdlib v1.26.7
+ok   n2.out: FAIL moderation-service: no usr/bin/pebble target
+ok   n3.out exit 1
+ok   n3.out: FAIL notification-service: d7cov56747/notification-service:test = the image D7 built = the running container's image
+ok   n3: no scan after an identity failure
+ok   n4.out exit 1
+ok   n4.out: STOP: the installed T1
+SELFTEST PASS
