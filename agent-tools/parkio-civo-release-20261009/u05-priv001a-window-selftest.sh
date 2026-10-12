@@ -1,32 +1,37 @@
 #!/usr/bin/env bash
-# Local self-test of u05-priv001a-window.py together with the real u05-window-snapshot.py, in a fake world.
-# The fake world holds the containers, the auth database rows and the env file; a fake production wrapper renders the
-# erasure flag through the shared app anchor (every app service's rendered config changes while it is on), recreates
-# auth-service with `up -d --no-deps` and stops/starts analytics-service; fake docker, systemd-run and systemctl record
-# every call; fake harness scripts enforce what the real services enforce (invite route only with mode=invite and invite
-# creation on, DELETE only with the flag on, IN_PROGRESS only while analytics is stopped).
-# R1 happy path (W0 mode closed, token unset): PASS; guards armed before the change and disarmed; analytics stopped and
-#    started (never `up`), within the limit; only auth-service recreated; env restored byte-identically; cleanup proof;
-#    compare PASS; backup and credentials removed; the generated token in no log, record, state or report;
-# R2 mode open, R3 a duplicate window key -> preflight FAIL, nothing changed;
-# R4 creating the principal fails -> restored at once (env byte-identical, auth recreated, analytics never stopped), FAIL;
-# R5 an unrelated concurrent env edit during the window -> only the window keys reverted, the other edit kept;
-# R6 a window key changed by someone else -> CONFLICT: the file is left as it is, auth-service not recreated;
-# R7 the request completes early (no IN_PROGRESS) -> FAIL, analytics started, env restored;
-# R8 the runner dies after stopping analytics -> `restore --analytics-only` (the analytics guard) starts it, nothing else;
-#    then `restore --guard` (the window guard) kills the runner unit and restores everything;
-# R9 an operator token already set -> it is not touched; mode already invite -> not touched.
+# Local self-test of u05-priv001a-window.py (v2) together with the real u05-window-snapshot.py, in a fake world.
+# The fake world holds the containers (State times included), the auth database rows, the consumer lag, the systemd
+# timers and the env file. A fake production wrapper renders the erasure flag through the shared app anchor (every app
+# service's rendered config changes while it is on), recreates auth-service with `up -d --no-deps --no-build` and
+# stops/starts analytics-service. Fake docker, systemd-run and systemctl record every call; `systemctl kill` kills the
+# runner and its harness children. Fake harness scripts behave like PR #336's: credentials before the register call,
+# the invite route only with mode=invite and invite creation on, DELETE only with the flag on, a PENDING account verified
+# before --delete, IN_PROGRESS only while analytics is stopped, exit 4 when no account exists.
+# Scenarios (R1-R27) are listed in the summary at the end.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/u05-priv001a-window.py"; SNAP="$HERE/u05-window-snapshot.py"
-W="$(mktemp -d)"; trap 'rm -rf "${W:?}"' EXIT
+W="$(mktemp -d)"; trap 'kill $(jobs -p) 2>/dev/null; rm -rf "${W:?}"' EXIT
 mkdir -p "$W/bin" "$W/harness/scripts/acceptance" "$W/harness/scripts/lib" "$W/release/scripts"
 
 cat > "$W/fakeworld.py" <<'PY'
-import hashlib, json, os, re, sys, time, uuid
+import calendar, hashlib, json, os, re, sys, time, uuid
 STATE = os.environ["FW_STATE"]
-def load(): return json.load(open(STATE))
-def save(s): json.dump(s, open(STATE, "w"))
+def load():
+    for _ in range(50):
+        try:
+            return json.load(open(STATE))
+        except ValueError:
+            time.sleep(0.05)
+    return json.load(open(STATE))
+def save(s):
+    tmp = STATE + f".{os.getpid()}"
+    json.dump(s, open(tmp, "w")); os.replace(tmp, STATE)
 def log(s, what): s.setdefault("calls", []).append(what)
+def ts(t=None):
+    t = time.time() if t is None else t
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%09dZ" % int((t % 1) * 1e9)
+def epoch(iso):
+    return calendar.timegm(time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S"))
 APP = ["auth-service", "user-service", "parking-service", "media-service", "moderation-service", "gamification-service",
        "notification-service", "analytics-service", "ai-validation-service", "gateway-service"]
 def env_file_values():
@@ -44,13 +49,13 @@ def rendered_env(service, vals):
     return env
 def chash(service, image, env):
     return hashlib.sha256(json.dumps([service, image, sorted(env.items())]).encode()).hexdigest()
-def init(mode, token_set, erasure="false", extra=""):
-    lines = [f"PARKIO_ACCOUNT_ERASURE_ENABLED={erasure}", f"PARKIO_REGISTRATION_MODE={mode}",
+def init(mode, token_set, extra="", knobs=None):
+    lines = ["PARKIO_ACCOUNT_ERASURE_ENABLED=false", f"PARKIO_REGISTRATION_MODE={mode}",
              "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false", "POSTGRES_AUTH_PASSWORD=db-secret-xyz"]
     if token_set: lines.append("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=preset-operator-token-" + "x" * 30)
     if extra: lines.append(extra)
     open(os.environ["FW_ENV"], "w").write("\n".join(lines) + "\n")
-    os.chmod(os.environ["FW_ENV"], 0o600)
+    os.chmod(os.environ["FW_ENV"], 0o640)
     vals = env_file_values()
     cs = {}
     for svc in APP + ["postgres-auth", "kafka", "minio", "nr-collector"]:
@@ -58,16 +63,18 @@ def init(mode, token_set, erasure="false", extra=""):
         env = rendered_env(svc, vals)
         img = "sha256:img-" + svc
         cs[name] = {"Id": uuid.uuid4().hex * 2, "Image": img, "service": svc, "project": "parkio" if svc != "nr-collector" else "nr",
-                    "status": "running", "startedAt": "2026-10-12T12:49:14Z", "restartCount": 0, "health": "healthy",
-                    "env": env, "hash": chash(svc, img, env)}
-    save({"containers": cs, "db": {"users": [], "invites": [], "requests": []}, "calls": []})
+                    "status": "running", "startedAt": "2026-10-12T12:49:14.123456789Z", "finishedAt": "0001-01-01T00:00:00Z",
+                    "restartCount": 0, "health": "healthy", "env": env, "hash": chash(svc, img, env)}
+    save({"containers": cs, "db": {"users": [], "invites": [], "requests": [{"uid": "00000000-0000-4000-8000-000000000001",
+          "status": "COMPLETE", "at": time.time() - 86400, "acks": 8}]},
+          "calls": [], "timers": [], "lag": 0, "knobs": knobs or {}})
 PY
 
 cat > "$W/bin/docker" <<'PY'
 #!/usr/bin/env python3
-import json, os, re, sys
+import json, os, re, sys, time
 sys.path.insert(0, os.environ["FW_DIR"]); import fakeworld as fw
-a = sys.argv[1:]; s = fw.load()
+a = sys.argv[1:]; s = fw.load(); k = s.get("knobs", {})
 if a[:2] == ["ps", "-a"]:
     print("\n".join(c["Id"][:12] for c in s["containers"].values())); sys.exit(0)
 if a[:1] == ["inspect"]:
@@ -77,26 +84,54 @@ if a[:1] == ["inspect"]:
                     "Config": {"Labels": {"com.docker.compose.project": c["project"], "com.docker.compose.service": c["service"],
                                           "com.docker.compose.config-hash": c["hash"]},
                                "Env": [f"{k}={v}" for k, v in c["env"].items()]},
-                    "State": {"Status": c["status"], "StartedAt": c["startedAt"], "Health": {"Status": c["health"]}}})
+                    "State": {"Status": c["status"], "StartedAt": c["startedAt"], "FinishedAt": c["finishedAt"],
+                              "Health": {"Status": c["health"]}}})
     print(json.dumps(out)); sys.exit(0)
-if a[:2] == ["exec", "-i"] and "psql" in a:
-    sql = a[-1]; db = s["db"]
-    def users(): return db["users"]
-    if sql == "select count(*) from erasure_requests": print(len(db["requests"]))
-    elif "from auth_users where email like 'priv001a-%" in sql: print(sum(1 for u in users() if u["email"].startswith("priv001a-")))
-    elif "(email like 'erased-%@invalid.localhost')::text" in sql:
+if a[:1] == ["exec"] and "kafka-consumer-groups" in a:
+    fw.log(s, "lag " + a[-1]); fw.save(s)
+    if k.get("lagUnreadable"): sys.exit(1)
+    an = next(c for c in s["containers"].values() if c["service"] == "analytics-service")
+    restarted = an["startedAt"] != "2026-10-12T12:49:14.123456789Z"
+    lag = 0 if an["status"] == "running" and not (k.get("lagStuckAfterRestart") and restarted) else 42
+    print(f"\nGROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID")
+    print(f"{a[-1]} parkio.some.topic 0 100 {100 + lag} {lag} consumer-1 /10.0.0.9 analytics")
+    sys.exit(0)
+if a[:1] == ["exec"] and "psql" in a:
+    if "PGOPTIONS=-c default_transaction_read_only=on" not in a:
+        sys.stderr.write("fake docker: psql without a read-only session\n"); sys.exit(5)
+    sql = a[-1]; db = s["db"]; users = db["users"]
+    def since(op):
+        m = re.search(r"created_at " + op + r" '([^']+)'::timestamptz", sql) or re.search(r"requested_at >= '([^']+)'::timestamptz", sql)
+        return fw.epoch(m.group(1))
+    def row(u): return f"{u['id']}|{u['status']}|{u.get('tomb') or u['email']}"
+    if sql == "select count(*) from erasure_requests":
+        print(len(db["requests"]))
+    elif sql.startswith("select id, status, email from auth_users where id ="):
         uid = re.search(r"id = '([0-9a-f-]+)'", sql).group(1)
-        print(next(("true" if u["email"].startswith("erased-") else "false") for u in users() if u["id"] == uid))
-    elif sql.startswith("select status from auth_users"):
-        uid = re.search(r"id = '([0-9a-f-]+)'", sql).group(1)
-        print(next(u["status"] for u in users() if u["id"] == uid))
+        print("\n".join(row(u) for u in users if u["id"] == uid))
+    elif sql.startswith("select id, status, email from auth_users where email ="):
+        em = re.search(r"email = '([^']+)'", sql).group(1)
+        print("\n".join(row(u) for u in users if (u.get("tomb") or u["email"]) == em))
+    elif sql.startswith("select r.status, (select count(*) from erasure_service_acks"):
+        uid = re.search(r"auth_user_id = '([0-9a-f-]+)'", sql).group(1)
+        rq = [r for r in db["requests"] if r["uid"] == uid]
+        if rq: print(f"{rq[-1]['status']}|{rq[-1]['acks']}")
+    elif sql.startswith("select id, status from auth_users where email like 'priv001a-%"):
+        t = since(">=")
+        print("\n".join(f"{u['id']}|{u['status']}" for u in users if not u.get("tomb") and u["at"] >= t))
+    elif sql.startswith("select count(*) from auth_users where email like 'priv001a-%"):
+        t = since("<")
+        print(sum(1 for u in users if not u.get("tomb") and u["at"] < t))
     elif "from registration_invites" in sql:
-        inv = [i for i in db["invites"] if i["created_by"] == "priv001a"]
-        print(sum(1 for i in inv if not i["consumed"]) if "consumed_at is null" in sql else len(inv))
-    elif "from erasure_requests where auth_user_id <>" in sql:
-        uid = re.search(r"auth_user_id <> '([0-9a-f-]+)'", sql).group(1)
-        print(sum(1 for r in db["requests"] if r["uid"] != uid))
-    else: sys.stderr.write("fake docker: unknown sql " + sql); sys.exit(3)
+        t = since(">=")
+        inv = [i for i in db["invites"] if i["at"] >= t]
+        print(f"{len(inv)}|{sum(1 for i in inv if not i['consumed'])}")
+    elif sql.startswith("select count(*) from erasure_requests where"):
+        t = since(">=")
+        m = re.search(r"auth_user_id <> '([0-9a-f-]+)'", sql)
+        print(sum(1 for r in db["requests"] if r["at"] >= t and (not m or r["uid"] != m.group(1))))
+    else:
+        sys.stderr.write("fake docker: unknown sql " + sql); sys.exit(3)
     sys.exit(0)
 sys.stderr.write(f"fake docker: unhandled {a}\n"); sys.exit(2)
 PY
@@ -106,229 +141,513 @@ cat > "$W/release/scripts/parkio-prod-compose.sh" <<'SH'
 exec python3 -I "$FW_DIR/compose.py" "$@"
 SH
 cat > "$W/compose.py" <<'PY'
-import os, sys, time, uuid
+import os, sys, time
 sys.path.insert(0, os.environ["FW_DIR"]); import fakeworld as fw
-a = sys.argv[1:]; s = fw.load(); fw.log(s, " ".join(a))
+a = sys.argv[1:]; s = fw.load(); k = s.get("knobs", {}); fw.log(s, " ".join(a)); fw.save(s)
 vals = fw.env_file_values()
 def find(svc): return next(n for n, c in s["containers"].items() if c["service"] == svc and c["project"] == "parkio")
 if a[:3] == ["config", "--hash", "*"]:
     for c in s["containers"].values():
         if c["project"] == "parkio":
-            print(c["service"], fw.chash(c["service"], c["Image"], fw.rendered_env(c["service"], vals)))
-elif a == ["up", "-d", "--no-deps", "auth-service"]:
-    n = find("auth-service"); c = s["containers"][n]
+            h = fw.chash(c["service"], c["Image"], fw.rendered_env(c["service"], vals))
+            if k.get("authDriftAtW0") and c["service"] == "auth-service": h = "drifted"
+            print(c["service"], h)
+    sys.exit(0)
+if a == ["up", "-d", "--no-deps", "--no-build", "auth-service"]:
+    if k.get("slowUp"): time.sleep(k["slowUp"])
+    s = fw.load(); n = find("auth-service"); c = s["containers"][n]
     c["env"] = fw.rendered_env("auth-service", vals); c["hash"] = fw.chash("auth-service", c["Image"], c["env"])
-    c["Id"] = os.urandom(32).hex(); c["startedAt"] = time.strftime("%Y-%m-%dT%H:%M:%S.%fZ", time.gmtime())
+    c["Id"] = os.urandom(32).hex(); c["startedAt"] = fw.ts()
 elif a == ["stop", "analytics-service"]:
-    s["containers"][find("analytics-service")]["status"] = "exited"
+    c = s["containers"][find("analytics-service")]; c["status"] = "exited"; c["health"] = None; c["finishedAt"] = fw.ts()
 elif a == ["start", "analytics-service"]:
-    c = s["containers"][find("analytics-service")]; c["status"] = "running"
-    c["startedAt"] = time.strftime("%Y-%m-%dT%H:%M:%S.%fZ", time.gmtime())
+    if k.get("startFails"): sys.stderr.write("fake compose: start failed\n"); sys.exit(1)
+    c = s["containers"][find("analytics-service")]; c["status"] = "running"; c["health"] = "healthy"; c["startedAt"] = fw.ts()
 else:
-    fw.save(s); sys.stderr.write(f"fake compose: unhandled {a}\n"); sys.exit(2)
-fw.save(s)
+    sys.stderr.write(f"fake compose: unhandled {a}\n"); sys.exit(2)
+s2 = fw.load(); s2["containers"] = s["containers"]; fw.save(s2)
 PY
 
 cat > "$W/bin/systemd-run" <<'PY'
 #!/usr/bin/env python3
 import os, sys
 sys.path.insert(0, os.environ["FW_DIR"]); import fakeworld as fw
-s = fw.load(); fw.log(s, "systemd-run " + " ".join(sys.argv[1:])); fw.save(s)
+s = fw.load(); a = sys.argv[1:]; fw.log(s, "systemd-run " + " ".join(a))
+if any(x.startswith("--on-active=") for x in a):
+    s["timers"].append(a[a.index("--unit") + 1] + ".timer")
+fw.save(s)
 PY
 cat > "$W/bin/systemctl" <<'PY'
 #!/usr/bin/env python3
-import os, sys
+import glob, os, signal, sys
 sys.path.insert(0, os.environ["FW_DIR"]); import fakeworld as fw
-s = fw.load(); fw.log(s, "systemctl " + " ".join(sys.argv[1:])); fw.save(s)
+s = fw.load(); a = sys.argv[1:]; k = s.get("knobs", {})
+def runner_alive(unit):
+    run = unit[len("u05-priv001a-window-"):-len(".service")]
+    try:
+        pid = int(open(os.path.join(os.environ["U05R_PRIVATE"], run, "runner.pid")).read())
+        os.kill(pid, 0)
+        return pid if open(f"/proc/{pid}/stat").read().split()[2] != "Z" else None
+    except (OSError, ValueError):
+        return None
+if a[:1] == ["is-active"]:
+    u = a[1]
+    act = (u in s["timers"]) if u.endswith(".timer") else bool(runner_alive(u)) if u.startswith("u05-priv001a-window-") else False
+    print("active" if act else "inactive"); sys.exit(0 if act else 3)
+fw.log(s, "systemctl " + " ".join(a))
+if a[:1] == ["stop"] and a[1].endswith(".timer"):
+    if not k.get("disarmFails") and a[1] in s["timers"]: s["timers"].remove(a[1])
+elif a[:2] == ["kill", "--signal=SIGKILL"]:
+    pid = runner_alive(a[2])
+    if pid:
+        os.kill(pid, signal.SIGKILL)
+        for f in glob.glob(os.path.join(os.environ["FW_DIR"], "harness-pids", "*")):
+            try: os.killpg(int(os.path.basename(f)), signal.SIGKILL)
+            except OSError: pass
+elif a[:1] == ["list-units"]:
+    live = list(s["timers"])
+    for f in glob.glob(os.path.join(os.environ["U05R_PRIVATE"], "*", "runner.pid")):
+        u = f"u05-priv001a-window-{os.path.basename(os.path.dirname(f))}.service"
+        if runner_alive(u): live.append(u)
+    print("\n".join(f"{u} loaded active running x" for u in live))
+fw.save(s)
 PY
 
 cat > "$W/harness.py" <<'PY'
-import json, os, re, sys, time, uuid
+import json, os, re, signal, sys, time, uuid
 sys.path.insert(0, os.environ["FW_DIR"]); import fakeworld as fw
 kind, a = sys.argv[1], sys.argv[2:]
-s = fw.load(); sc = os.environ.get("FW_SCENARIO", "")
+os.makedirs(os.path.join(os.environ["FW_DIR"], "harness-pids"), exist_ok=True)
+pidf = os.path.join(os.environ["FW_DIR"], "harness-pids", str(os.getpgrp())); open(pidf, "w").close()
+s = fw.load(); k = s.get("knobs", {}); sc = os.environ.get("FW_SCENARIO", "")
 def opt(n): return a[a.index(n) + 1] if n in a else None
-auth = next(c for c in s["containers"].values() if c["service"] == "auth-service")
-analytics = next(c for c in s["containers"].values() if c["service"] == "analytics-service")
+def svc(name): return next(c for c in s["containers"].values() if c["service"] == name)
+def done(rc):
+    try: os.remove(pidf)
+    except OSError: pass
+    sys.exit(rc)
 if kind == "create":
-    if sc == "create_fail": print("ERROR: register failed http=500"); sys.exit(1)
-    e = auth["env"]
-    if e.get("PARKIO_REGISTRATION_MODE") != "invite" or e.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") != "true" or not e.get("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"):
-        print("ERROR: invite creation failed http=403"); sys.exit(1)
-    uid = str(uuid.uuid4()); email = "priv001a-20261013090000abcdef12@priv001a.parkio.invalid"
-    s["db"]["users"].append({"id": uid, "email": email, "status": "ACTIVE"})
-    s["db"]["invites"].append({"created_by": "priv001a", "consumed": True})
-    fw.save(s)
-    open(opt("--credentials-file"), "w").write(f"auth_user_id={uid}\nemail={email}\npassword=pw-synthetic-123456\naccess_token=eyJfake.tok\n")
+    if "--dry-run-guards" in a:
+        if k.get("hostRefused"): print("ERROR: --environment civo-production runs only on parkio-civo-prod (this host: x)."); done(2)
+        print("PASS: dry-run guards"); done(0)
+    e = svc("auth-service")["env"]
+    if e.get("PARKIO_REGISTRATION_MODE") != "invite":
+        print("ERROR: registration mode is CLOSED; the window must set PARKIO_REGISTRATION_MODE=invite first (no invite was created)."); done(1)
+    if e.get("PARKIO_REGISTRATION_INVITE_CREATION_ENABLED") != "true" or not e.get("PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"):
+        print("ERROR: invite creation failed http=403"); done(1)
+    td = os.path.join(os.environ["TMPDIR"], "priv001a-civo.fake"); os.makedirs(td, exist_ok=True)
+    open(os.path.join(td, "login.json"), "w").write('{"accessToken": "eyJfake-tmp-token"}')
+    creds = opt("--credentials-file"); email = "priv001a-20261013090000abcdef12@priv001a.parkio.invalid"
+    inv = {"at": time.time(), "consumed": False}; s["db"]["invites"].append(inv); fw.save(s)
+    print("PRIV-001A: invite=PASS")
+    open(creds, "w").write(f"acceptance_id=PRIV001A-T\nemail={email}\npassword=Pw-synthetic-123456\n")
+    if sc == "register_fail": print("ERROR: register failed http=503"); done(1)
+    uid = str(uuid.uuid4()); inv["consumed"] = True
+    s["db"]["users"].append({"id": uid, "email": email, "status": "PENDING_VERIFICATION", "at": time.time()}); fw.save(s)
+    open(creds, "w").write(f"acceptance_id=PRIV001A-T\nauth_user_id={uid}\nemail={email}\npassword=Pw-synthetic-123456\n")
+    print(f"PRIV-001A: register=PASS user_id={uid} status=PENDING_VERIFICATION")
+    if sc == "create_hang": time.sleep(60)
+    if sc == "verify_fail": print("ERROR: verification did not return exactly one auth user id."); done(1)
+    next(u for u in s["db"]["users"] if u["id"] == uid)["status"] = "ACTIVE"; fw.save(s)
+    print("PRIV-001A: verify=PASS")
+    if sc == "login_fail": print("ERROR: login failed http=503"); done(1)
+    open(creds, "a").write("access_token=eyJfake.tok\nrefresh_token=rt-fake\n")
+    print("PRIV-001A: login=PASS status=ACTIVE")
     if sc == "concurrent_edit": open(os.environ["FW_ENV"], "a").write("OTHER_CONCURRENT=1\n")
     if sc == "conflict_edit":
         t = open(os.environ["FW_ENV"]).read().replace("PARKIO_ACCOUNT_ERASURE_ENABLED=true", "PARKIO_ACCOUNT_ERASURE_ENABLED=maybe")
         open(os.environ["FW_ENV"], "w").write(t)
-    print("PRIV-001A: invite=PASS\nPRIV-001A: login=PASS status=ACTIVE\nPASS: PRIV-001A synthetic principal created")
-    print(f"auth_user_id={uid}")
+    print("PRIV-001A: invite accounting PASS (created 1, unconsumed 0)\nPASS: PRIV-001A synthetic principal created")
+    print(f"acceptance_id=PRIV001A-T\nauth_user_id={uid}")
     if opt("--evidence-file"): open(opt("--evidence-file"), "w").write("{}")
-    sys.exit(0)
+    done(0)
 if kind == "erase":
     creds = dict(l.split("=", 1) for l in open(opt("--credentials-file")).read().splitlines() if "=" in l)
-    u = next(x for x in s["db"]["users"] if x["id"] == creds["auth_user_id"])
+    u = next((x for x in s["db"]["users"] if x["id"] == creds.get("auth_user_id") or
+              (not creds.get("auth_user_id") and x["email"] == creds["email"] and not x.get("tomb"))), None)
+    if u is None: print("PRIV-001A: no auth account holds the credentials file's email (nothing to erase)."); done(4)
     if "--delete" in a:
-        if auth["env"].get("PARKIO_ACCOUNT_ERASURE_ENABLED") != "true": print("ERROR: DELETE failed http=403"); sys.exit(1)
-        s["db"]["requests"].append({"uid": u["id"], "status": "IN_PROGRESS"}); u["status"] = "ERASURE_IN_PROGRESS"; fw.save(s)
-        print("PRIV-001A: delete=ACCEPTED http=202 status=IN_PROGRESS")
-    req = next((r for r in s["db"]["requests"] if r["uid"] == u["id"]), None)
+        if u["status"] == "PENDING_VERIFICATION":
+            u["status"] = "ACTIVE"; print("PRIV-001A: the account was PENDING_VERIFICATION; applied the allowlisted verification first")
+        if u["status"] != "ACTIVE": print(f"ERROR: --delete needs account {u['id']} ACTIVE"); done(1)
+        if svc("auth-service")["env"].get("PARKIO_ACCOUNT_ERASURE_ENABLED") != "true": print("ERROR: DELETE failed http=403"); done(1)
+        s["db"]["requests"].append({"uid": u["id"], "status": "IN_PROGRESS", "at": time.time(), "acks": 7}); u["status"] = "ERASURE_IN_PROGRESS"
+        fw.save(s); print("PRIV-001A: delete=ACCEPTED http=200 status=IN_PROGRESS")
+        if sc == "die_in_w3" and opt("--expect") == "IN_PROGRESS":
+            pid = int(open(os.path.join(os.environ["U05R_PRIVATE"], os.environ["FW_RUN"], "runner.pid")).read())
+            os.kill(pid, signal.SIGKILL); done(1)
+    req = next((r for r in reversed(s["db"]["requests"]) if r["uid"] == u["id"]), None)
+    ev = opt("--evidence-file")
     if opt("--expect") == "IN_PROGRESS":
-        ok = analytics["status"] == "exited" and sc != "complete_early" and req is not None
-        if ok: time.sleep(int(opt("--hold-seconds") or 1))
-        print("  request=IN_PROGRESS auth=ERASURE_IN_PROGRESS success=7/8 missing=analytics" if ok else "  request=COMPLETE")
-        print(f"PRIV-001A erasure observation: expect=IN_PROGRESS verdict={'PASS' if ok else 'FAIL'}")
-        if opt("--evidence-file"): open(opt("--evidence-file"), "w").write("{}")
-        sys.exit(0 if ok else 1)
-    ok = analytics["status"] == "running" and req is not None
+        if svc("analytics-service")["status"] == "exited": time.sleep(int(opt("--hold-seconds") or 1))
+        s = fw.load(); an = svc("analytics-service")
+        ok = an["status"] == "exited" and sc != "complete_early" and req is not None
+        obs = {"request_status": "IN_PROGRESS", "successCount": 7, "missing": ["analytics"], "auth_state": "ERASURE_IN_PROGRESS"}
+        if sc == "wrong_shape": obs.update(successCount=0, missing=["user", "parking", "media", "moderation", "gamification", "notification", "analytics", "ai-validation"])
+        if not ok:
+            obs = {"request_status": "COMPLETE", "successCount": 8, "missing": [], "auth_state": "ERASED"}
+        print(f"  request={obs['request_status']} success={obs['successCount']}/8")
+        print(f"PRIV-001A erasure observation: expect=IN_PROGRESS status={obs['request_status']} verdict={'PASS' if ok else 'FAIL'}")
+        if ev: json.dump({"verdict": "PASS" if ok else "FAIL", "observations": [obs]}, open(ev, "w"))
+        done(0 if ok else 1)
+    s = fw.load(); req = next((r for r in reversed(s["db"]["requests"]) if r["uid"] == u["id"]), None)
+    ok = svc("analytics-service")["status"] == "running" and req is not None
     if ok:
-        req["status"] = "COMPLETE"; u["status"] = "ERASED"; u["email"] = f"erased-{uuid.uuid4()}@invalid.localhost"; fw.save(s)
-    print("  request=COMPLETE auth=ERASED success=8/8" if ok else "  request=IN_PROGRESS")
-    print(f"PRIV-001A erasure observation: expect=COMPLETE verdict={'PASS' if ok else 'FAIL'}")
-    if opt("--evidence-file"): open(opt("--evidence-file"), "w").write("{}")
-    sys.exit(0 if ok else 1)
+        req["status"] = "COMPLETE"; req["acks"] = 8
+        uu = next(x for x in s["db"]["users"] if x["id"] == u["id"]); uu["status"] = "ERASED"; uu["tomb"] = f"erased-{u['id']}@invalid.localhost"
+        fw.save(s)
+    obs = {"request_status": "COMPLETE" if ok else "IN_PROGRESS", "successCount": 8 if ok else 7,
+           "missing": [] if ok else ["analytics"], "auth_state": "ERASED" if ok else "ERASURE_IN_PROGRESS"}
+    print(f"  request={obs['request_status']} auth={obs['auth_state']} success={obs['successCount']}/8")
+    print(f"PRIV-001A erasure observation: expect=COMPLETE status={obs['request_status']} verdict={'PASS' if ok else 'FAIL'}")
+    if ev: json.dump({"verdict": "PASS" if ok else "FAIL", "observations": [obs]}, open(ev, "w"))
+    done(0 if ok else 1)
 if kind == "inspect":
-    print('{"auth_state" : "ERASED", "participant_acks" : {"analytics" : "SUCCESS"}}'); sys.exit(0)
+    uid = opt("--auth-user-id"); u = next(x for x in s["db"]["users"] if x["id"] == uid)
+    req = next((r for r in reversed(s["db"]["requests"]) if r["uid"] == uid), None)
+    print("PRIV-001A residue inspection (read-only)"); print(f"auth_user_id={uid}")
+    print(json.dumps({"auth_state": u["status"], "erasure_request_status": req["status"] if req else "ABSENT",
+                      "participant_ack_count": req["acks"] if req else 0, "tombstone_count": 1 if u.get("tomb") else 0,
+                      "hard_delete_residue_count": 0, "forbidden_user_id_hits": 0}, separators=(", ", " : ")))
+    done(0)
 PY
 for k in create erase inspect; do
   f="$W/harness/scripts/acceptance/$k-priv001-synthetic-principal.sh"; [ "$k" = inspect ] && f="$W/harness/scripts/acceptance/inspect-priv001-synthetic-residue.sh"
   printf '#!/usr/bin/env bash\nexec python3 -I "$FW_DIR/harness.py" %s "$@"\n' "$k" > "$f"
 done
-: > "$W/harness/scripts/lib/priv001-synthetic.sh"; : > "$W/harness/scripts/lib/dark-gateway-url.sh"
+echo "# fake lib" > "$W/harness/scripts/lib/priv001-synthetic.sh"; echo "# fake dark url" > "$W/harness/scripts/lib/dark-gateway-url.sh"
 chmod +x "$W/bin/"* "$W/release/scripts/parkio-prod-compose.sh"
 git -C "$W/release" init -q && git -C "$W/release" add -A && git -C "$W/release" -c user.name=t -c user.email=t@t commit -q -m pin
+python3 -I - "$W/harness" "$W/pins.json" <<'PY'
+import hashlib, json, os, sys
+h, out = sys.argv[1:3]
+files = ["scripts/acceptance/create-priv001-synthetic-principal.sh", "scripts/acceptance/erase-priv001-synthetic-principal.sh",
+         "scripts/acceptance/inspect-priv001-synthetic-residue.sh", "scripts/lib/priv001-synthetic.sh", "scripts/lib/dark-gateway-url.sh"]
+json.dump({"harness": {f: hashlib.sha256(open(os.path.join(h, f), "rb").read()).hexdigest() for f in files}}, open(out, "w"))
+PY
+cp "$TOOL" "$W/tools-u05-priv001a-window.py"; cp "$SNAP" "$W/u05-window-snapshot.py"; TOOLC="$W/tools-u05-priv001a-window.py"
 export FW_DIR="$W" FW_STATE="$W/world.json" FW_ENV="$W/env"
 export U05R_TEST=1 U05W_TEST=1 U05R_RELEASE="$W/release" U05R_PIN="$(git -C "$W/release" rev-parse HEAD)" U05R_ENV_FILE="$W/env" \
-  U05R_PRIVATE="$W/private" U05R_EVIDENCE="$W/evidence" U05R_SNAPSHOT="$SNAP" U05R_DOCKER="$W/bin/docker" \
-  U05R_SYSTEMD_RUN="$W/bin/systemd-run" U05R_SYSTEMCTL="$W/bin/systemctl" U05R_HOLD=1 U05R_COMPLETE_TIMEOUT=5 \
-  U05R_HEALTH_TIMEOUT=5 U05R_POLL=0 U05W_OWNER="$(id -un)" U05R_OWNER="$(id -un)"
+  U05R_PRIVATE="$W/private" U05R_EVIDENCE="$W/evidence" U05R_DOCKER="$W/bin/docker" U05R_SYSTEMD_RUN="$W/bin/systemd-run" \
+  U05R_SYSTEMCTL="$W/bin/systemctl" U05R_HOLD=1 U05R_COMPLETE_TIMEOUT=5 U05R_HEALTH_TIMEOUT=5 U05R_POLL=0 U05R_LAG_WAIT=2 \
+  U05R_HARNESS_POLL=1 U05R_PINS="$W/pins.json" U05W_OWNER="$(id -un)" U05R_OWNER="$(id -un)"
 mkdir -p "$W/private" "$W/evidence"
-fail=0
-ok() { echo "ok   $*"; }
-no() { echo "FAIL $*"; fail=1; }
+pass=0; fail=0
+ok() { echo "ok   $*"; pass=$((pass + 1)); }
+no() { echo "FAIL $*"; fail=$((fail + 1)); }
 has() { if grep -qF -- "$2" "$W/$1"; then ok "$1: $2"; else no "$1: $2"; fi; }
 hasnt() { if grep -qF -- "$2" "$W/$1"; then no "$1: unexpected $2"; else ok "$1: no $2"; fi; }
 calls() { python3 -I -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["calls"]))' "$W/world.json"; }
-fresh() { rm -rf "$W/private"/* "$W/evidence"/*; python3 -I -c "import sys; sys.path.insert(0, '$W'); import fakeworld as fw; fw.init('$1', $2, extra='${3:-}')"; }
-window() {  # out scenario
-  FW_SCENARIO="${2:-}" python3 -I "$TOOL" start --harness "$W/harness" > "$W/$1.start" 2>&1
-  RUN="$(ls "$W/private" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | tail -1)"
-  FW_SCENARIO="${2:-}" python3 -I "$TOOL" run --run "$RUN" > "$W/$1" 2>&1; echo "exit=$?" >> "$W/$1"
+envsha() { sha256sum "$W/env" | cut -d' ' -f1; }
+fresh() {  # mode token_set [extra-line] [knobs-json]
+  rm -rf "$W/private"/* "$W/evidence"/* "$W/harness-pids"
+  python3 -I -c "import json,sys; sys.path.insert(0, '$W'); import fakeworld as fw; fw.init('$1', $2, extra='${3:-}', knobs=json.loads('''${4:-{\}}'''))"
+  SHA0="$(envsha)"
 }
-token_of() { sed -n 's/^PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=//p' "$W/env" | tail -1; }
+start() {  # out [args...]
+  local out="$1"; shift
+  python3 -I "$TOOLC" start --harness "$W/harness" "$@" > "$W/$out.start" 2>&1
+  RUN="$(ls "$W/private" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | tail -1)"
+}
+window() {  # out scenario [start args...] (default: --fault analytics)
+  local out="$1" sc="$2"; shift 2
+  if [ "$#" -eq 0 ]; then set -- --fault analytics; fi
+  start "$out" "$@"; sleep 1.1
+  FW_SCENARIO="$sc" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/$out" 2>&1; echo "exit=$?" >> "$W/$out"
+}
+report() { python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); exec(sys.argv[2])' "$W/evidence/$RUN/window-report.json" "$1"; }
+wait_for() {  # file pattern seconds
+  local i; for i in $(seq 1 $(( $3 * 10 ))); do grep -qF -- "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1
+}
+wait_call() {  # pattern seconds
+  local i; for i in $(seq 1 $(( $2 * 10 ))); do calls | grep -qF -- "$1" && return 0; sleep 0.1; done; return 1
+}
 
-# R1
-fresh closed False; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
+echo "=== R1 happy path (fault analytics; mode closed; token unset) ==="
+fresh closed False
 window r1.out ""
-sed -e "s#$W#<W>#g" "$W/r1.out" | head -60
+sed -e "s#$W#<W>#g" "$W/r1.out" | head -80
 has r1.out "U05 PRIV-001A WINDOW PASS"; has r1.out "exit=0"
 has r1.out "env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED, PARKIO_REGISTRATION_MODE, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"
-has r1.out "<generated, 48 chars, never shown>"; has r1.out "env file restore: byte-identical"; has r1.out "U05 WINDOW COMPARE PASS"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && ok "r1: env file byte-identical to W0" || no "r1 env sha"
+has r1.out "<generated, 48 chars, never shown>"; has r1.out "restore env file: ok - byte-identical"; has r1.out "U05 WINDOW COMPARE PASS"
+has r1.out "restore guards: ok - both guard timers inactive"; has r1.out "(limit 600 s; Docker State times)"
+[ "$(envsha)" = "$SHA0" ] && ok "r1: env file byte-identical to W0" || no "r1 env sha"
+[ "$(stat -c %a "$W/env")" = 640 ] && ok "r1: env file mode unchanged (640)" || no "r1 env mode"
 calls > "$W/r1.calls"
-python3 -I - "$W/r1.calls" <<'PY' && ok "r1: guards before the change, only auth recreated, analytics stopped and started (never up), guards disarmed" || no "r1 call order"
+python3 -I - "$W/r1.calls" "$RUN" <<'PY' && ok "r1: guard before each change; KillMode=mixed; only auth recreated (--no-build); analytics stopped/started, never up; timers disarmed" || no "r1 call order"
 import sys
-c = [l for l in open(sys.argv[1]).read().splitlines()]
-i_wguard = next(i for i, l in enumerate(c) if "u05-priv001a-guard-window" in l and l.startswith("systemd-run"))
-i_up = [i for i, l in enumerate(c) if l == "up -d --no-deps auth-service"]
-i_aguard = next(i for i, l in enumerate(c) if "u05-priv001a-guard-analytics" in l and l.startswith("systemd-run"))
-i_stop = c.index("stop analytics-service"); i_start = c.index("start analytics-service")
-assert i_wguard < i_up[0] and len(i_up) == 2 and i_aguard < i_stop < i_start
-assert not any(l.startswith("up") and "analytics" in l for l in c)
-assert not any(l.startswith("up") and "auth-service" not in l for l in c)
-assert any(l == "systemctl stop u05-priv001a-guard-analytics.timer" for l in c)
-assert any(l == "systemctl stop u05-priv001a-guard-window.timer" for l in c)
+c = open(sys.argv[1]).read().splitlines(); run = sys.argv[2]
+unit = next(l for l in c if l.startswith(f"systemd-run --unit u05-priv001a-window-{run} "))
+assert "--property=KillMode=mixed" in unit and "--property=TimeoutStopSec=1200" in unit and "/window.py run --run" in unit
+iw = next(i for i, l in enumerate(c) if l.startswith(f"systemd-run --unit u05-priv001a-guard-window-{run} "))
+assert "--on-active=2520" in c[iw] and "StandardOutput=append:" in c[iw] and f"/private/{run}/window.py restore --guard" in c[iw]
+up = [i for i, l in enumerate(c) if l == "up -d --no-deps --no-build auth-service"]
+ia = next(i for i, l in enumerate(c) if l.startswith(f"systemd-run --unit u05-priv001a-guard-analytics-{run} "))
+assert "--on-active=510" in c[ia]
+istop, istart = c.index("stop analytics-service"), c.index("start analytics-service")
+assert iw < up[0] and len(up) == 2 and ia < istop < istart
+assert not any(l.startswith("up") and ("analytics" in l or "auth-service" not in l) for l in c)
+assert f"systemctl stop u05-priv001a-guard-analytics-{run}.timer" in c and f"systemctl stop u05-priv001a-guard-window-{run}.timer" in c
 PY
-RUN="$(ls "$W/private" | tail -1)"
-[ ! -e "$W/private/$RUN/env.backup" ] && [ ! -e "$W/private/$RUN/creds" ] && ok "r1: env backup and credentials removed after the verified restore" || no "r1 secrets left"
-python3 -I - "$W/evidence/$RUN/window-report.json" <<'PY' && ok "r1: report (cleanup proof, analytics stop within the limit)" || no "r1 report"
-import json, sys
-r = json.load(open(sys.argv[1]))
-p = r["cleanupProof"]
+[ ! -e "$W/private/$RUN/env.backup" ] && [ ! -e "$W/private/$RUN/creds" ] && [ ! -e "$W/private/$RUN/tmp" ] \
+  && ok "r1: env backup, credentials and harness temp files shredded after the verified restore" || no "r1 secrets left"
+report 'a = r["accounting"]; p = a["principal"]
 assert r["verdict"] == "PASS" and r["compare"] == "PASS" and r["envRestore"] == "byte-identical" and r["deleteSent"] is True
-assert p["syntheticEmailsLeft"] == 0 and p["principalState"] == "ERASED" and p["invitesCreatedInWindow"] == 1 and p["invitesUnconsumed"] == 0
-assert 0 <= r["analyticsStoppedSeconds"] <= 600
-PY
+assert a["syntheticAccountsSinceW1"] == [] and a["invitesSinceW1"] == {"created": 1, "unconsumed": 0}
+assert p["status"] == "ERASED" and p["emailErased"] and p["request"] == "COMPLETE" and p["successAcks"] == 8
+assert 0 <= r["analyticsStopSeconds"] <= 600 and r["lagW0"] == 0 and r["lagW6"] == 0 and r["notes"] == []
+assert r["inspect"]["tombstone_count"] == 1 and all(s["ok"] for s in r["restoreSteps"])' \
+  && ok "r1: report: accounting clean, 1 invite consumed, principal ERASED 8/8, stop measured, lag back to 0, inspect" || no "r1 report"
 if grep -r -q -E 'PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=[A-Za-z0-9_-]{40,}' "$W/r1.out" "$W/evidence" "$W/private" 2>/dev/null; then
   no "r1: a generated token reached a log, record or state"; else ok "r1: no generated token in any log, record or state"; fi
-grep -q 'db-secret-xyz' "$W/r1.out" "$W/evidence" -r && no "r1: another env secret leaked" || ok "r1: no other env secret in output or evidence"
+grep -r -q -e 'db-secret-xyz' -e 'Pw-synthetic' -e 'eyJfake' "$W/r1.out" "$W/evidence" && no "r1: a secret leaked" || ok "r1: no env secret, password or token in output or evidence"
+"$W/bin/docker" exec parkio-postgres-auth sh -c 'exec psql' psql "select count(*) from erasure_requests" > /dev/null 2>&1; rc=$?
+[ "$rc" = 5 ] && ok "r1: the fake refuses a psql outside a read-only session, so every runner query above ran read-only" || no "r1 read-only control rc=$rc"
 
-# R2, R3
-fresh open False; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
-python3 -I "$TOOL" preflight --harness "$W/harness" > "$W/r2.out" 2>&1; echo "exit=$?" >> "$W/r2.out"
+echo "=== R2/R3 preflight refusals change nothing ==="
+fresh open False
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r2.out" 2>&1; echo "exit=$?" >> "$W/r2.out"
 has r2.out "PARKIO_REGISTRATION_MODE is open"; has r2.out "PREFLIGHT FAIL"
-python3 -I "$TOOL" start --harness "$W/harness" > "$W/r2b.out" 2>&1; has r2b.out "NOT STARTED"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && [ -z "$(calls | grep -v '^systemctl list-units')" ] && ok "r2: nothing changed; only the read-only unit listing ran" || no "r2 changed something"
+python3 -I "$TOOLC" start --harness "$W/harness" > "$W/r2b.out" 2>&1; has r2b.out "NOT STARTED"
+[ "$(envsha)" = "$SHA0" ] && [ -z "$(calls | grep -v -E '^(systemctl list-units|config --hash|lag )')" ] \
+  && ok "r2: nothing changed; only read-only listings ran" || no "r2 changed something"
+[ -z "$(ls "$W/private" | grep -E '^[0-9]{8}T')" ] && ok "r2: no run directory left" || no "r2 run dir left"
 fresh closed False "PARKIO_ACCOUNT_ERASURE_ENABLED=false"
-python3 -I "$TOOL" preflight --harness "$W/harness" > "$W/r3.out" 2>&1; has r3.out "more than once"; has r3.out "PREFLIGHT FAIL"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r3.out" 2>&1; has r3.out "more than once"; has r3.out "PREFLIGHT FAIL"
 
-# R4
-fresh closed False; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
-window r4.out create_fail
-has r4.out "STOP: Stop: creating the synthetic principal failed"; has r4.out "env file restore: byte-identical"
-has r4.out "U05 PRIV-001A WINDOW FAIL"; has r4.out "exit=1"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && ok "r4: env byte-identical" || no "r4 env"
+echo "=== R4 register fails: the invite is an ORPHAN, nothing else is left ==="
+fresh closed False
+window r4.out register_fail
+has r4.out "STOP: creating the synthetic principal failed"; has r4.out "restore env file: ok - byte-identical"
+has r4.out "restore synthetic principal: ok - no synthetic principal exists"
+has r4.out "ORPHAN: 1 priv001a invite(s) created since W1 are unconsumed"; has r4.out "U05 PRIV-001A WINDOW FAIL"
+[ "$(envsha)" = "$SHA0" ] && ok "r4: env byte-identical" || no "r4 env"
 calls | grep -q 'stop analytics-service' && no "r4: analytics was stopped" || ok "r4: analytics never stopped"
-[ "$(calls | grep -c '^up -d --no-deps auth-service$')" = 2 ] && ok "r4: auth-service recreated back" || no "r4 auth recreate count"
 
-# R5
-fresh closed False
-window r5.out concurrent_edit
-has r5.out "env file restore: targeted"
-grep -q '^OTHER_CONCURRENT=1$' "$W/env" && ok "r5: the concurrent edit kept" || no "r5 concurrent edit lost"
-python3 -I - "$W/env" <<'PY' && ok "r5: the window keys reverted to their W0 values" || no "r5 keys"
-import sys
-t = open(sys.argv[1]).read()
-assert "PARKIO_ACCOUNT_ERASURE_ENABLED=false" in t and "PARKIO_REGISTRATION_MODE=closed" in t
-assert "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false" in t and "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN" not in t
+echo "=== R5/R6/R7 a create that stops after registration: the principal is erased in the restore ==="
+for sc in verify_fail login_fail create_hang; do
+  fresh closed False
+  if [ "$sc" = create_hang ]; then export U05R_HARNESS_TIMEOUT_CAP=4; fi
+  window "r5-$sc.out" "$sc"
+  unset U05R_HARNESS_TIMEOUT_CAP
+  has "r5-$sc.out" "STOP: creating the synthetic principal failed"
+  has "r5-$sc.out" "restore synthetic principal: ok - principal"; has "r5-$sc.out" "erased canonically (COMPLETE)"
+  report 'a = r["accounting"]; assert a["syntheticAccountsSinceW1"] == [] and a["principal"]["status"] == "ERASED"
+assert a["invitesSinceW1"]["unconsumed"] == 0 and r["verdict"] == "FAIL" and not any(n.startswith(("ORPHAN", "PENDING")) for n in r["notes"])' \
+    && ok "r5-$sc: no orphan left; verdict FAIL (the window did not complete)" || no "r5-$sc accounting"
+  [ "$(envsha)" = "$SHA0" ] && ok "r5-$sc: env byte-identical" || no "r5-$sc env"
+done
+has r5-create_hang.out "timed out after 4 s"
+
+echo "=== R8/R9 any other change to the env file stops the automatic restore (owner: abort, never overwrite) ==="
+for sc in concurrent_edit conflict_edit; do
+  fresh closed False
+  window "r8-$sc.out" "$sc"
+  has "r8-$sc.out" "restore env file: FAILED - CONFLICT: the env file was changed by someone else during the window; nothing was written"
+  has "r8-$sc.out" "restore auth-service: FAILED - skipped: the env file is not restored"
+  has "r8-$sc.out" "W6 comparison skipped: the env file or auth-service is not restored (RECOVERY.md)"
+  has "r8-$sc.out" "U05 PRIV-001A WINDOW FAIL"
+  [ "$(calls | grep -c '^up -d --no-deps --no-build auth-service$')" = 1 ] && ok "r8-$sc: auth-service not recreated by the restore" || no "r8-$sc auth"
+  [ -e "$W/private/$RUN/env.backup" ] && ok "r8-$sc: the W1 backup is kept for RECOVERY.md" || no "r8-$sc backup removed"
+  if [ "$sc" = concurrent_edit ]; then
+    grep -q '^OTHER_CONCURRENT=1$' "$W/env" && ok "r8-$sc: the other edit is kept (nothing was written)" || no "r8-$sc other edit lost"
+  else
+    grep -q '^PARKIO_ACCOUNT_ERASURE_ENABLED=maybe$' "$W/env" && ok "r8-$sc: the file is left as it is" || no "r8-$sc file changed"
+  fi
+done
+python3 -I - "$W/private" <<'PY' && ok "r8: the conflict report names the window keys still set, without values" || no "r8 conflict report"
+import glob, json, sys
+st = json.load(open(sorted(glob.glob(sys.argv[1] + "/*/state.json"))[-1]))
+c = st["envConflict"]; assert "PARKIO_REGISTRATION_MODE" in c["windowKeysStillSet"] and "PARKIO_ACCOUNT_ERASURE_ENABLED" not in c["windowKeysStillSet"]
 PY
-has r5.out "DIFF the env file's SHA-256 differs from W0"
 
-# R6
+echo "=== R10 the request completes early: criterion 3 fails, everything restored ==="
 fresh closed False
-window r6.out conflict_edit
-has r6.out "CONFLICT: a window key was changed by someone else (PARKIO_ACCOUNT_ERASURE_ENABLED"
-grep -q '^PARKIO_ACCOUNT_ERASURE_ENABLED=maybe$' "$W/env" && ok "r6: the file left as it is" || no "r6 file changed"
-[ "$(calls | grep -c '^up -d --no-deps auth-service$')" = 1 ] && ok "r6: auth-service not recreated by the restore" || no "r6 auth recreated"
-has r6.out "exit=1"
+window r10.out complete_early
+has r10.out "criterion 3 (IN_PROGRESS while analytics is down) did not hold"; has r10.out "restore analytics-service: ok - started"
+[ "$(envsha)" = "$SHA0" ] && ok "r10: env byte-identical" || no "r10 env"
+window r10b.out wrong_shape
+has r10b.out "criterion 3: expected 7/8 SUCCESS with only analytics missing, got 0/8"
 
-# R7
-fresh closed False; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
-window r7.out complete_early
-has r7.out "criterion 3 (IN_PROGRESS while analytics is down) did not hold"; has r7.out "analytics-service started"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && ok "r7: env byte-identical" || no "r7 env"
+echo "=== R11 the runner dies in W3: the analytics guard, then the window guard ==="
+fresh closed False
+window r11.out die_in_w3
+python3 -I "$W/private/$RUN/window.py" restore --analytics-only --run "$RUN" > "$W/r11a.out" 2>&1; echo "exit=$?" >> "$W/r11a.out"
+has r11a.out "analytics guard: analytics-service started by its guard"; has r11a.out "exit=0"
+[ "$(envsha)" != "$SHA0" ] && ok "r11: the analytics guard touched nothing else (env still in its window state)" || no "r11a env"
+cp "$W/private/$RUN/state.json" "$W/r11-state-before"
+python3 -I "$W/private/$RUN/window.py" restore --guard --run "$RUN" > "$W/r11b.out" 2>&1; echo "exit=$?" >> "$W/r11b.out"
+has r11b.out "restore synthetic principal: ok - erasure already requested (IN_PROGRESS, 7/8 SUCCESS)"
+has r11b.out "restore env file: ok - byte-identical"; has r11b.out "restore erasure completion: ok - request COMPLETE, 8/8 SUCCESS"
+has r11b.out "U05 WINDOW COMPARE PASS"; has r11b.out "U05 PRIV-001A RESTORE COMPLETE"
+[ "$(envsha)" = "$SHA0" ] && ok "r11: env byte-identical after the window guard" || no "r11 env"
 
-# R8: the runner dies after stopping analytics
-fresh closed False; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
-python3 -I "$TOOL" start --harness "$W/harness" > /dev/null 2>&1
-RUN="$(ls "$W/private" | tail -1)"
-python3 -I - "$TOOL" "$RUN" > /dev/null 2>&1 <<'PY'
-import importlib.util, os, sys, time
-spec = importlib.util.spec_from_file_location("w", sys.argv[1]); w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
-st = w.load_state(sys.argv[2])
-st["harness"] = st["harness"]; st["w1"] = w.now(); st["w0Values"] = {w.KEY_ERASURE: "false", w.KEY_MODE: "closed", w.KEY_CREATION: "false"}
-st["w0TokenSet"] = False; w.save_state(st)
-w.snapshot("W0", st)
-w.apply_changes(st); w.recreate_auth({w.KEY_ERASURE: "true"}); st["phase"] = "W3"; st["analyticsStoppedAt"] = time.time(); w.save_state(st)
-w.analytics("stop")
+echo "=== R12 analytics-service cannot be started: the env and auth-service are still restored ==="
+fresh closed False '' '{"startFails": true}'
+window r12.out ""
+has r12.out "STOP: start analytics-service failed (exit 1)"; has r12.out "restore analytics-service: FAILED - start analytics-service failed"
+has r12.out "restore env file: ok - byte-identical"; has r12.out "restore auth-service: ok - recreated with the W0 settings"
+has r12.out "restore guards: ok - both guard timers inactive"; has r12.out "PENDING: the erasure of"; has r12.out "U05 PRIV-001A WINDOW FAIL"
+[ "$(envsha)" = "$SHA0" ] && ok "r12: env byte-identical despite the analytics failure" || no "r12 env"
+
+echo "=== R13 SIGTERM during W3: the runner restores ==="
+fresh closed False
+export U05R_HOLD=8
+start r13.out --fault analytics; sleep 1.1
+(FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r13.out" 2>&1; echo "exit=$?" >> "$W/r13.out") &
+wait_call "stop analytics-service" 30 && sleep 1 && kill -TERM "$(cat "$W/private/$RUN/runner.pid")"
+wait_for "$W/r13.out" "exit=" 60
+unset U05R_HOLD; export U05R_HOLD=1
+has r13.out "STOP: SIGTERM received"; has r13.out "restore analytics-service: ok - started"; has r13.out "restore env file: ok - byte-identical"
+has r13.out "U05 PRIV-001A WINDOW FAIL"
+[ "$(envsha)" = "$SHA0" ] && ok "r13: env byte-identical" || no "r13 env"
+
+echo "=== R14 SIGTERM during the restore is ignored ==="
+fresh closed False '' '{"slowUp": 3}'
+start r14.out --fault analytics; sleep 1.1
+(FW_SCENARIO="register_fail" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r14.out" 2>&1; echo "exit=$?" >> "$W/r14.out") &
+wait_for "$W/r14.out" "restore (the runner holds the run lock)" 60 && sleep 0.5 && kill -TERM "$(cat "$W/private/$RUN/runner.pid")"
+wait_for "$W/r14.out" "exit=" 90
+has r14.out "restore auth-service: ok - recreated with the W0 settings"; has r14.out "U05 PRIV-001A WINDOW FAIL"
+[ "$(envsha)" = "$SHA0" ] && ok "r14: the restore finished despite a SIGTERM" || no "r14 env"
+
+echo "=== R15 a manual restore while the runner is alive ==="
+fresh closed False
+export U05R_HOLD=20
+start r15.out --fault analytics; sleep 1.1
+(FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r15.out" 2>&1; echo "exit=$?" >> "$W/r15.out") &
+wait_call "stop analytics-service" 30
+python3 -I "$W/private/$RUN/window.py" restore --run "$RUN" > "$W/r15a.out" 2>&1; echo "exit=$?" >> "$W/r15a.out"
+has r15a.out "STOP: the window runner is still active and restores by itself"; has r15a.out "exit=1"
+python3 -I "$W/private/$RUN/window.py" restore --stop-window --run "$RUN" > "$W/r15b.out" 2>&1; echo "exit=$?" >> "$W/r15b.out"
+unset U05R_HOLD; export U05R_HOLD=1
+has r15b.out "restore: the window runner was stopped"; has r15b.out "restore env file: ok - byte-identical"; has r15b.out "U05 PRIV-001A RESTORE COMPLETE"
+calls | grep -q "systemctl kill --signal=SIGKILL u05-priv001a-window-$RUN.service" && ok "r15: --stop-window killed the runner unit first" || no "r15 kill"
+[ "$(envsha)" = "$SHA0" ] && ok "r15: env byte-identical" || no "r15 env"
+
+echo "=== R16 the window guard fires while the runner restores: it waits, then checks ==="
+fresh closed False '' '{"slowUp": 4}'
+export U05R_GUARD_LOCK_WAIT=30
+start r16.out --fault analytics; sleep 1.1
+(FW_SCENARIO="register_fail" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r16.out" 2>&1; echo "exit=$?" >> "$W/r16.out") &
+wait_for "$W/r16.out" "restore (the runner holds the run lock)" 60
+python3 -I "$W/private/$RUN/window.py" restore --guard --run "$RUN" > "$W/r16g.out" 2>&1; echo "exit=$?" >> "$W/r16g.out"
+wait_for "$W/r16.out" "exit=" 60
+unset U05R_GUARD_LOCK_WAIT
+has r16.out "U05 PRIV-001A WINDOW FAIL"; has r16g.out "the window already finished at"; has r16g.out "U05 PRIV-001A RESTORE CHECK COMPLETE"
+calls | grep -q "systemctl kill" && no "r16: the guard killed the runner during its restore" || ok "r16: the guard waited for the runner's restore (no kill)"
+report 'assert r["verdict"] == "FAIL" and r["failure"] == "creating the synthetic principal failed"' \
+  && ok "r16: the runner's own report and verdict are kept" || no "r16 report overwritten"
+ls "$W/evidence/$RUN" | grep -q '^restore-check-' && ok "r16: the guard's check is a separate record" || no "r16 no check record"
+
+echo "=== R17 the deadline stops the window before the restore budget runs out ==="
+fresh closed False
+export U05R_RESTORE_BY=330
+window r17.out ""
+unset U05R_RESTORE_BY
+has r17.out "STOP: deadline: the failure case and the recovery needs about 601 s"; has r17.out "restore env file: ok - byte-identical"
+calls | grep -q 'stop analytics-service' && no "r17: analytics stopped after the deadline" || ok "r17: analytics never stopped"
+
+echo "=== R18 integrity ==="
+fresh closed False
+cp "$W/harness/scripts/lib/priv001-synthetic.sh" "$W/lib.bak"; echo "# tampered" >> "$W/harness/scripts/lib/priv001-synthetic.sh"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r18.out" 2>&1
+has r18.out "integrity: scripts/lib/priv001-synthetic.sh do not match the pinned SHA-256"; has r18.out "PREFLIGHT FAIL"
+cp "$W/lib.bak" "$W/harness/scripts/lib/priv001-synthetic.sh"
+U05R_PINS= python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r18b.out" 2>&1
+has r18b.out "the harness pins are not set (PR #336 is not merged yet)"
+python3 -I - "$TOOL" "$SNAP" <<'PY' && ok "r18: the runner's embedded SNAPSHOT_PIN equals the committed snapshot tool" || no "r18 snapshot pin stale"
+import hashlib, re, sys
+src = open(sys.argv[1]).read()
+pin = re.search(r'^SNAPSHOT_PIN = "([0-9a-f]{64})"', src, re.M).group(1)
+assert pin == hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
 PY
-python3 -I "$TOOL" restore --analytics-only --run "$RUN" > "$W/r8a.out" 2>&1; echo "exit=$?" >> "$W/r8a.out"
-has r8a.out "analytics-service started"; has r8a.out "exit=0"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" != "$SHA0" ] && ok "r8: the analytics guard touched nothing else" || no "r8a changed env"
-python3 -I "$TOOL" restore --guard --run "$RUN" > "$W/r8b.out" 2>&1; echo "exit=$?" >> "$W/r8b.out"
-has r8b.out "guard: the window runner was stopped"; has r8b.out "env file restore: byte-identical"; has r8b.out "U05 PRIV-001A RESTORE PASS"
-calls | grep -q "systemctl kill --signal=SIGKILL u05-priv001a-window-$RUN.service" && ok "r8: the guard killed the runner unit first" || no "r8 kill"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && ok "r8: env byte-identical after the guard" || no "r8 env"
 
-# R9
-fresh invite True; SHA0="$(sha256sum "$W/env" | cut -d' ' -f1)"
-window r9.out ""
-has r9.out "env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED ("
-grep -E 'env keys changed:' "$W/r9.out" | grep -q 'PARKIO_REGISTRATION_MODE' && no "r9: the mode was changed" || ok "r9: the mode (already invite) was not changed"
-has r9.out "U05 PRIV-001A WINDOW PASS"
-[ "$(sha256sum "$W/env" | cut -d' ' -f1)" = "$SHA0" ] && ok "r9: env byte-identical; the preset token untouched" || no "r9 env"
+echo "=== R19 contract: the runner parses the real harness formats (PR #336) ==="
+python3 -I - "$TOOL" <<'PY' && ok "r19: register/auth_user_id/delete lines, erase evidence and inspect JSON formats" || no "r19 contract"
+import json, re, sys
+src = open(sys.argv[1]).read()
+uid = "0b6f3c1e-2d4a-4b8c-9e1f-123456789abc"
+create_out = (f'PRIV-001A: registration mode INVITE; containers resolved\nPRIV-001A: invite=PASS\n'
+              f'PRIV-001A: register=PASS user_id={uid} status=PENDING_VERIFICATION\nPRIV-001A: verify=PASS\n'
+              f'PASS: PRIV-001A synthetic principal created\nacceptance_id=PRIV001A-X\nauth_user_id={uid}\n')
+assert re.search(r"register=PASS user_id=([0-9a-f-]{36})", create_out).group(1) == uid
+assert re.search(r"^auth_user_id=([0-9a-f-]{36})$", create_out, re.M).group(1) == uid
+assert "delete=ACCEPTED" in "PRIV-001A: delete=ACCEPTED http=200 status=IN_PROGRESS"
+ev = {"observations": [{"acks": {}, "at": "x", "auth_state": "ERASURE_IN_PROGRESS", "missing": ["analytics"],
+                        "other_requests_since_window_start": 0, "participants": 8, "request_count": 1,
+                        "request_status": "IN_PROGRESS", "successCount": 7}]}
+last = ev["observations"][-1]
+assert last["successCount"] == 7 and last["missing"] == ["analytics"] and last["request_status"] == "IN_PROGRESS"
+ins = 'PRIV-001A residue inspection (read-only)\nauth_user_id=x\n{"auth_state" : "ERASED", "participant_ack_count" : 8, "tombstone_count" : 1}'
+assert json.loads(re.search(r"\{.*\}", ins, re.S).group(0))["tombstone_count"] == 1
+for needle in ('register=PASS user_id=([0-9a-f-]{36})', '"successCount"', '"missing"', '"request_status"', '"tombstone_count"'):
+    assert needle in src, needle
+PY
+
+echo "=== R20 --fault none: criterion 2 only, analytics-service never touched ==="
+fresh closed False
+window r20.out "" --fault none
+has r20.out "W3 DELETE with every participant running"; has r20.out "U05 WINDOW COMPARE PASS"; has r20.out "U05 PRIV-001A WINDOW PASS"
+calls | grep -q 'analytics-service' && no "r20: analytics-service was stopped or started" || ok "r20: analytics-service never stopped or started"
+calls | grep 'guard-analytics' | grep -q '^systemd-run' && no "r20 analytics guard armed" || ok "r20: no analytics guard armed"
+
+echo "=== R20b without --fault the default is none: analytics-service is never stopped ==="
+fresh closed False
+start r20b.out; sleep 1.1
+FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r20b.out" 2>&1; echo "exit=$?" >> "$W/r20b.out"
+has r20b.out.start "(fault: none)"; has r20b.out "U05 PRIV-001A WINDOW PASS"
+calls | grep -q 'stop analytics-service' && no "r20b: analytics stopped by default" || ok "r20b: the default fault is none"
+
+echo "=== R21 preflight: drift, leftovers, lag, host, units ==="
+fresh closed False '' '{"authDriftAtW0": true}'
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21a.out" 2>&1; has r21a.out "auth-service already differ from the rendered config"
+fresh closed False
+touch "$W/.env.u05-12345"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21b.out" 2>&1; has r21b.out "an interrupted write left 1 temporary env file(s)"
+rm -f "$W/.env.u05-12345"
+fresh closed False '' '{"lagUnreadable": true}'
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21c.out" 2>&1; has r21c.out "cannot read the consumer lag of parkio.analytics"
+fresh closed False '' '{"hostRefused": true}'
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21d.out" 2>&1; has r21d.out "the harness's own guards refuse this host"
+
+echo "=== R22 analytics lag that does not drain after the restart is a FAIL ==="
+fresh closed False '' '{"lagStuckAfterRestart": true}'
+window r22.out ""
+has r22.out "analytics consumer lag 84 did not return to the W0 level 0"; has r22.out "U05 PRIV-001A WINDOW FAIL"
+
+echo "=== R23 a guard timer that will not stop is a FAIL ==="
+fresh closed False '' '{"disarmFails": true}'
+window r23.out ""
+has r23.out "is still active after the stop"; has r23.out "U05 PRIV-001A WINDOW FAIL"
+
+echo "=== R24 a preset token and mode invite are not touched ==="
+fresh invite True
+window r24.out ""
+has r24.out "env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED ("
+grep -E 'env keys changed:' "$W/r24.out" | grep -q 'PARKIO_REGISTRATION_MODE' && no "r24: the mode was changed" || ok "r24: the mode (already invite) was not changed"
+has r24.out "U05 PRIV-001A WINDOW PASS"
+[ "$(envsha)" = "$SHA0" ] && ok "r24: env byte-identical; the preset token untouched" || no "r24 env"
+
+echo "=== R24b an empty token line is replaced and restored; its value never leaves the env file ==="
+fresh closed False "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN="
+window r24b.out "" --fault none
+has r24b.out "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=<generated, 48 chars, never shown>"; has r24b.out "U05 PRIV-001A WINDOW PASS"
+[ "$(envsha)" = "$SHA0" ] && ok "r24b: env byte-identical (the empty token line is back)" || no "r24b env"
+python3 -I - "$W/private/$RUN/state.json" <<'PYX' && ok "r24b: the state keeps the empty original token line, never the generated value" || no "r24b state"
+import json, sys
+st = json.load(open(sys.argv[1]))
+p = next(x for x in st["patches"] if x["key"] == "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN")
+assert p["original"] == "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=\n" and not p["appended"]
+PYX
+if grep -r -q -E 'PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=[A-Za-z0-9_-]{40,}' "$W/r24b.out" "$W/evidence" "$W/private" 2>/dev/null; then
+  no "r24b: the generated token leaked"; else ok "r24b: the generated token is in no log, record or state"; fi
+
+echo "=== R25 status shows the units and no secret ==="
+python3 -I "$TOOLC" status --run "$RUN" > "$W/r25.out" 2>&1
+has r25.out '"verdict": "PASS"'; has r25.out '"units"'
+grep -q -e 'preset-operator-token' -e 'Pw-synthetic' "$W/r25.out" && no "r25 secret in status" || ok "r25: no secret in status"
+
+echo "=== summary: ${pass} ok, ${fail} FAIL ==="
 [ "$fail" -eq 0 ] && echo "SELFTEST PASS" || echo "SELFTEST FAIL"
-exit "$fail"
+exit "$((fail > 0))"

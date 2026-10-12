@@ -1,15 +1,15 @@
-U05 window snapshot W0 | 2026-10-12T20:20:33Z | read-only
+U05 window snapshot W0 | 2026-10-12T22:01:54Z | read-only
   containers: 5 (5 running)
-  env file sha256 6d80ee86d62d7140…; PARKIO_ACCOUNT_ERASURE_ENABLED=false, PARKIO_REGISTRATION_MODE=closed, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=set
+  env file sha256 57b23eb64993dd2e…; PARKIO_ACCOUNT_ERASURE_ENABLED=false, PARKIO_REGISTRATION_MODE=closed, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=set
   rendered config: 5 services; running containers that differ from it: none
-record: <W>/out/W0-20261012T202033Z.json sha256 826883ed4f096475b10e5c80396cf91edb6574b849c268633ceb3594a4ee42e5
+record: <W>/out/W0-20261012T220154Z.json sha256 9cb4a7f2c534610192d9b52b2934d4aba8931338c9419659f68ca91a823e620b
 exit=0
 ok   w0.out: containers: 5 (5 running)
 ok   w0.out: PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=set
 ok   w0.out: rendered config: 5 services; running containers that differ from it: none
-U05 window compare | W0 2026-10-12T20:20:33Z -> W6 2026-10-12T20:20:34Z | 5 containers
-  3 other containers identical (id, image, config hash, StartedAt, RestartCount, status); auth-service same image and config hash; analytics-service same id, image and config hash
-  env file byte-identical to W0; window keys equal W0; running-vs-rendered differences identical to W0 (0 pre-existing)
+U05 window compare | W0 2026-10-12T22:01:54Z -> W6 2026-10-12T22:01:55Z | 5 containers
+  3 other containers identical (id, image, config hash, StartedAt, RestartCount, status); auth-service same image, configHash, status, health; analytics-service same id, image, configHash, restartCount, status, health
+  env file byte-identical to W0, same mode and owner; window keys equal W0; running-vs-rendered differences identical to W0 (0 pre-existing)
 U05 WINDOW COMPARE PASS
 exit=0
 ok   s1.out: 3 other containers identical
@@ -29,4 +29,10 @@ ok   s9.out: U05 WINDOW COMPARE PASS
 ok   s9.out: (1 pre-existing)
 ok   s6.out: DIFF parkio-auth-service-1: image
 ok   s7.out: container set changed: added ['parkio-extra']
+ok   s10.out: DIFF parkio-analytics-service-1: health healthy -> starting
+ok   s10.out: U05 WINDOW COMPARE FAIL
+ok   s11.out: DIFF parkio-analytics-service-1: startedAt
+ok   s11.out: U05 WINDOW COMPARE FAIL
+ok   s12.out: the env file's mode or owner differ from W0: 0o640
+ok   s12.out: U05 WINDOW COMPARE FAIL
 SELFTEST PASS

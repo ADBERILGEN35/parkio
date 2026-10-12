@@ -1,92 +1,219 @@
-2026-10-12T20:28:19Z W0 preflight and snapshot (read-only)
-    U05 window snapshot W0 | 2026-10-12T20:28:19Z | read-only
+=== R1 happy path (fault analytics; mode closed; token unset) ===
+2026-10-12T22:02:08Z W0 preflight and snapshot (read-only; fault: analytics)
+    U05 window snapshot W0 | 2026-10-12T22:02:08Z | read-only
       containers: 14 (14 running)
       env file sha256 6007296f72591411…; PARKIO_ACCOUNT_ERASURE_ENABLED=false, PARKIO_REGISTRATION_MODE=closed, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=unset
       rendered config: 13 services; running containers that differ from it: none
-    record: <W>/evidence/20261012T202819Z/W0-20261012T202819Z.json sha256 1a611bd7f51a8e0dc6a18c8de38ce79520128a35af5f3391afb0559d0fbbf385
-2026-10-12T20:28:19Z W1 guards first, then the env change and auth-service
-2026-10-12T20:28:19Z   env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED, PARKIO_REGISTRATION_MODE, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN (values: PARKIO_ACCOUNT_ERASURE_ENABLED=true, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true, PARKIO_REGISTRATION_MODE=invite, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=<generated, 48 chars, never shown>)
-2026-10-12T20:28:20Z W2 synthetic principal
-2026-10-12T20:28:20Z   create-priv001-synthetic-principal.sh exit 0
+    record: <W>/evidence/20261012T220207Z/W0-20261012T220208Z.json sha256 e65c0affbf2c71733c3186b93413d852d835be72d87fe921326472b57cff15c9
+2026-10-12T22:02:08Z W1 the window guard first, then the env change and auth-service
+2026-10-12T22:02:08Z   env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED, PARKIO_REGISTRATION_MODE, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN (values: PARKIO_ACCOUNT_ERASURE_ENABLED=true, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true, PARKIO_REGISTRATION_MODE=invite, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=<generated, 48 chars, never shown>)
+2026-10-12T22:02:09Z W2 synthetic principal
+2026-10-12T22:02:09Z   create-priv001-synthetic-principal.sh exit 0
     PRIV-001A: invite=PASS
+    PRIV-001A: register=PASS user_id=75666d8c-de73-49f9-8f49-1ca34c57d7ed status=PENDING_VERIFICATION
+    PRIV-001A: verify=PASS
     PRIV-001A: login=PASS status=ACTIVE
+    PRIV-001A: invite accounting PASS (created 1, unconsumed 0)
     PASS: PRIV-001A synthetic principal created
-    auth_user_id=9fb031e6-b9cb-4348-9358-57244f9b096f
-2026-10-12T20:28:20Z W3 failure case: analytics-service stopped, DELETE, IN_PROGRESS must hold
-2026-10-12T20:28:21Z   erase-priv001-synthetic-principal.sh exit 0
-    PRIV-001A: delete=ACCEPTED http=202 status=IN_PROGRESS
-      request=IN_PROGRESS auth=ERASURE_IN_PROGRESS success=7/8 missing=analytics
-    PRIV-001A erasure observation: expect=IN_PROGRESS verdict=PASS
-2026-10-12T20:28:21Z W4 recovery: analytics-service started, COMPLETE with 8/8 SUCCESS
-2026-10-12T20:28:21Z   analytics-service was stopped for 1 s (limit 600 s)
-2026-10-12T20:28:21Z   erase-priv001-synthetic-principal.sh exit 0
+    acceptance_id=PRIV001A-T
+    auth_user_id=75666d8c-de73-49f9-8f49-1ca34c57d7ed
+2026-10-12T22:02:09Z W3 failure case: analytics-service stopped, DELETE, IN_PROGRESS must hold
+2026-10-12T22:02:10Z   erase-priv001-synthetic-principal.sh exit 0
+    PRIV-001A: delete=ACCEPTED http=200 status=IN_PROGRESS
+      request=IN_PROGRESS success=7/8
+    PRIV-001A erasure observation: expect=IN_PROGRESS status=IN_PROGRESS verdict=PASS
+2026-10-12T22:02:10Z W4 recovery: analytics-service started, COMPLETE with 8/8 SUCCESS
+2026-10-12T22:02:10Z   analytics-service was stopped for 1 s (limit 600 s; Docker State times)
+2026-10-12T22:02:10Z   erase-priv001-synthetic-principal.sh exit 0
     request=COMPLETE auth=ERASED success=8/8
-    PRIV-001A erasure observation: expect=COMPLETE verdict=PASS
-2026-10-12T20:28:21Z W5 inspection and cleanup proof (read-only)
-2026-10-12T20:28:21Z   inspect-priv001-synthetic-residue.sh exit 0
-    {"auth_state" : "ERASED", "participant_acks" : {"analytics" : "SUCCESS"}}
-2026-10-12T20:28:21Z   cleanup proof: syntheticEmailsLeft=0, principalState=ERASED, principalEmailErased=true, invitesCreatedInWindow=1, invitesUnconsumed=0, otherErasureRequestsSinceW1=0
-2026-10-12T20:28:21Z W6 restore checks, snapshot and comparison
-2026-10-12T20:28:21Z   env file restore: byte-identical
-2026-10-12T20:28:21Z   auth-service recreated with the restored settings
-    U05 window snapshot W6 | 2026-10-12T20:28:21Z | read-only
+    PRIV-001A erasure observation: expect=COMPLETE status=COMPLETE verdict=PASS
+2026-10-12T22:02:10Z W5 inspection (read-only)
+2026-10-12T22:02:10Z   inspect-priv001-synthetic-residue.sh exit 0
+    PRIV-001A residue inspection (read-only)
+    auth_user_id=75666d8c-de73-49f9-8f49-1ca34c57d7ed
+    {"auth_state" : "ERASED", "erasure_request_status" : "COMPLETE", "participant_ack_count" : 8, "tombstone_count" : 1, "hard_delete_residue_count" : 0, "forbidden_user_id_hits" : 0}
+2026-10-12T22:02:10Z restore (the runner holds the run lock)
+2026-10-12T22:02:10Z   restore analytics-service: ok - running; stopped for 1 s
+2026-10-12T22:02:10Z   restore synthetic principal: ok - erasure already requested (COMPLETE, 8/8 SUCCESS)
+2026-10-12T22:02:10Z   restore env file: ok - byte-identical
+2026-10-12T22:02:10Z   restore auth-service: ok - recreated with the W0 settings
+2026-10-12T22:02:10Z   restore erasure completion: ok - request COMPLETE
+2026-10-12T22:02:10Z   restore guards: ok - both guard timers inactive
+2026-10-12T22:02:10Z W6 checks, snapshot, comparison and accounting
+    U05 window snapshot W6 | 2026-10-12T22:02:11Z | read-only
       containers: 14 (14 running)
       env file sha256 6007296f72591411…; PARKIO_ACCOUNT_ERASURE_ENABLED=false, PARKIO_REGISTRATION_MODE=closed, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=unset
       rendered config: 13 services; running containers that differ from it: none
-    record: <W>/evidence/20261012T202819Z/W6-20261012T202821Z.json sha256 79bd715ea10a612138c6af89b9da2f0b638fbf05e32f242d929fee8e92dab33e
-    U05 window compare | W0 2026-10-12T20:28:19Z -> W6 2026-10-12T20:28:21Z | 14 containers
-      12 other containers identical (id, image, config hash, StartedAt, RestartCount, status); auth-service same image and config hash; analytics-service same id, image and config hash
-      env file byte-identical to W0; window keys equal W0; running-vs-rendered differences identical to W0 (0 pre-existing)
+    record: <W>/evidence/20261012T220207Z/W6-20261012T220211Z.json sha256 56803d2886f7adeae9bc68c596822b2578c96cd5d5a90efc406f4fed8476657b
+    U05 window compare | W0 2026-10-12T22:02:08Z -> W6 2026-10-12T22:02:11Z | 14 containers
+      12 other containers identical (id, image, config hash, StartedAt, RestartCount, status); auth-service same image, configHash, status, health; analytics-service same id, image, configHash, restartCount, status, health
+      env file byte-identical to W0, same mode and owner; window keys equal W0; running-vs-rendered differences identical to W0 (0 pre-existing)
     U05 WINDOW COMPARE PASS
-2026-10-12T20:28:21Z report: <W>/evidence/20261012T202819Z/window-report.json sha256 c056ff9f6bc36ee55b251abbc9a6f07cddd6527d97e564f19d0b40b79d9cb885
-2026-10-12T20:28:21Z U05 PRIV-001A WINDOW PASS
+2026-10-12T22:02:11Z report: <W>/evidence/20261012T220207Z/window-report.json sha256 72359f9cbc789345f3b527b584653c76290652f5f552df2a2eee9d0799df005e
+2026-10-12T22:02:11Z U05 PRIV-001A WINDOW PASS
 exit=0
 ok   r1.out: U05 PRIV-001A WINDOW PASS
 ok   r1.out: exit=0
 ok   r1.out: env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED, PARKIO_REGISTRATION_MODE, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN
 ok   r1.out: <generated, 48 chars, never shown>
-ok   r1.out: env file restore: byte-identical
+ok   r1.out: restore env file: ok - byte-identical
 ok   r1.out: U05 WINDOW COMPARE PASS
+ok   r1.out: restore guards: ok - both guard timers inactive
+ok   r1.out: (limit 600 s; Docker State times)
 ok   r1: env file byte-identical to W0
-ok   r1: guards before the change, only auth recreated, analytics stopped and started (never up), guards disarmed
-ok   r1: env backup and credentials removed after the verified restore
-ok   r1: report (cleanup proof, analytics stop within the limit)
+ok   r1: env file mode unchanged (640)
+ok   r1: guard before each change; KillMode=mixed; only auth recreated (--no-build); analytics stopped/started, never up; timers disarmed
+ok   r1: env backup, credentials and harness temp files shredded after the verified restore
+ok   r1: report: accounting clean, 1 invite consumed, principal ERASED 8/8, stop measured, lag back to 0, inspect
 ok   r1: no generated token in any log, record or state
-ok   r1: no other env secret in output or evidence
+ok   r1: no env secret, password or token in output or evidence
+ok   r1: the fake refuses a psql outside a read-only session, so every runner query above ran read-only
+=== R2/R3 preflight refusals change nothing ===
 ok   r2.out: PARKIO_REGISTRATION_MODE is open
 ok   r2.out: PREFLIGHT FAIL
 ok   r2b.out: NOT STARTED
-ok   r2: nothing changed; only the read-only unit listing ran
+ok   r2: nothing changed; only read-only listings ran
+ok   r2: no run directory left
 ok   r3.out: more than once
 ok   r3.out: PREFLIGHT FAIL
-ok   r4.out: STOP: Stop: creating the synthetic principal failed
-ok   r4.out: env file restore: byte-identical
+=== R4 register fails: the invite is an ORPHAN, nothing else is left ===
+ok   r4.out: STOP: creating the synthetic principal failed
+ok   r4.out: restore env file: ok - byte-identical
+ok   r4.out: restore synthetic principal: ok - no synthetic principal exists
+ok   r4.out: ORPHAN: 1 priv001a invite(s) created since W1 are unconsumed
 ok   r4.out: U05 PRIV-001A WINDOW FAIL
-ok   r4.out: exit=1
 ok   r4: env byte-identical
 ok   r4: analytics never stopped
-ok   r4: auth-service recreated back
-ok   r5.out: env file restore: targeted
-ok   r5: the concurrent edit kept
-ok   r5: the window keys reverted to their W0 values
-ok   r5.out: DIFF the env file's SHA-256 differs from W0
-ok   r6.out: CONFLICT: a window key was changed by someone else (PARKIO_ACCOUNT_ERASURE_ENABLED
-ok   r6: the file left as it is
-ok   r6: auth-service not recreated by the restore
-ok   r6.out: exit=1
-ok   r7.out: criterion 3 (IN_PROGRESS while analytics is down) did not hold
-ok   r7.out: analytics-service started
-ok   r7: env byte-identical
-ok   r8a.out: analytics-service started
-ok   r8a.out: exit=0
-ok   r8: the analytics guard touched nothing else
-ok   r8b.out: guard: the window runner was stopped
-ok   r8b.out: env file restore: byte-identical
-ok   r8b.out: U05 PRIV-001A RESTORE PASS
-ok   r8: the guard killed the runner unit first
-ok   r8: env byte-identical after the guard
-ok   r9.out: env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED (
-ok   r9: the mode (already invite) was not changed
-ok   r9.out: U05 PRIV-001A WINDOW PASS
-ok   r9: env byte-identical; the preset token untouched
+=== R5/R6/R7 a create that stops after registration: the principal is erased in the restore ===
+ok   r5-verify_fail.out: STOP: creating the synthetic principal failed
+ok   r5-verify_fail.out: restore synthetic principal: ok - principal
+ok   r5-verify_fail.out: erased canonically (COMPLETE)
+ok   r5-verify_fail: no orphan left; verdict FAIL (the window did not complete)
+ok   r5-verify_fail: env byte-identical
+ok   r5-login_fail.out: STOP: creating the synthetic principal failed
+ok   r5-login_fail.out: restore synthetic principal: ok - principal
+ok   r5-login_fail.out: erased canonically (COMPLETE)
+ok   r5-login_fail: no orphan left; verdict FAIL (the window did not complete)
+ok   r5-login_fail: env byte-identical
+ok   r5-create_hang.out: STOP: creating the synthetic principal failed
+ok   r5-create_hang.out: restore synthetic principal: ok - principal
+ok   r5-create_hang.out: erased canonically (COMPLETE)
+ok   r5-create_hang: no orphan left; verdict FAIL (the window did not complete)
+ok   r5-create_hang: env byte-identical
+ok   r5-create_hang.out: timed out after 4 s
+=== R8/R9 any other change to the env file stops the automatic restore (owner: abort, never overwrite) ===
+ok   r8-concurrent_edit.out: restore env file: FAILED - CONFLICT: the env file was changed by someone else during the window; nothing was written
+ok   r8-concurrent_edit.out: restore auth-service: FAILED - skipped: the env file is not restored
+ok   r8-concurrent_edit.out: W6 comparison skipped: the env file or auth-service is not restored (RECOVERY.md)
+ok   r8-concurrent_edit.out: U05 PRIV-001A WINDOW FAIL
+ok   r8-concurrent_edit: auth-service not recreated by the restore
+ok   r8-concurrent_edit: the W1 backup is kept for RECOVERY.md
+ok   r8-concurrent_edit: the other edit is kept (nothing was written)
+ok   r8-conflict_edit.out: restore env file: FAILED - CONFLICT: the env file was changed by someone else during the window; nothing was written
+ok   r8-conflict_edit.out: restore auth-service: FAILED - skipped: the env file is not restored
+ok   r8-conflict_edit.out: W6 comparison skipped: the env file or auth-service is not restored (RECOVERY.md)
+ok   r8-conflict_edit.out: U05 PRIV-001A WINDOW FAIL
+ok   r8-conflict_edit: auth-service not recreated by the restore
+ok   r8-conflict_edit: the W1 backup is kept for RECOVERY.md
+ok   r8-conflict_edit: the file is left as it is
+ok   r8: the conflict report names the window keys still set, without values
+=== R10 the request completes early: criterion 3 fails, everything restored ===
+ok   r10.out: criterion 3 (IN_PROGRESS while analytics is down) did not hold
+ok   r10.out: restore analytics-service: ok - started
+ok   r10: env byte-identical
+ok   r10b.out: criterion 3: expected 7/8 SUCCESS with only analytics missing, got 0/8
+=== R11 the runner dies in W3: the analytics guard, then the window guard ===
+u05-priv001a-window-selftest.sh: line 352: 27289 Killed                  FW_SCENARIO="$sc" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/$out" 2>&1
+ok   r11a.out: analytics guard: analytics-service started by its guard
+ok   r11a.out: exit=0
+ok   r11: the analytics guard touched nothing else (env still in its window state)
+ok   r11b.out: restore synthetic principal: ok - erasure already requested (IN_PROGRESS, 7/8 SUCCESS)
+ok   r11b.out: restore env file: ok - byte-identical
+ok   r11b.out: restore erasure completion: ok - request COMPLETE, 8/8 SUCCESS
+ok   r11b.out: U05 WINDOW COMPARE PASS
+ok   r11b.out: U05 PRIV-001A RESTORE COMPLETE
+ok   r11: env byte-identical after the window guard
+=== R12 analytics-service cannot be started: the env and auth-service are still restored ===
+ok   r12.out: STOP: start analytics-service failed (exit 1)
+ok   r12.out: restore analytics-service: FAILED - start analytics-service failed
+ok   r12.out: restore env file: ok - byte-identical
+ok   r12.out: restore auth-service: ok - recreated with the W0 settings
+ok   r12.out: restore guards: ok - both guard timers inactive
+ok   r12.out: PENDING: the erasure of
+ok   r12.out: U05 PRIV-001A WINDOW FAIL
+ok   r12: env byte-identical despite the analytics failure
+=== R13 SIGTERM during W3: the runner restores ===
+ok   r13.out: STOP: SIGTERM received
+ok   r13.out: restore analytics-service: ok - started
+ok   r13.out: restore env file: ok - byte-identical
+ok   r13.out: U05 PRIV-001A WINDOW FAIL
+ok   r13: env byte-identical
+=== R14 SIGTERM during the restore is ignored ===
+ok   r14.out: restore auth-service: ok - recreated with the W0 settings
+ok   r14.out: U05 PRIV-001A WINDOW FAIL
+ok   r14: the restore finished despite a SIGTERM
+=== R15 a manual restore while the runner is alive ===
+ok   r15a.out: STOP: the window runner is still active and restores by itself
+ok   r15a.out: exit=1
+u05-priv001a-window-selftest.sh: line 518: 28696 Killed                  FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/r15.out" 2>&1
+ok   r15b.out: restore: the window runner was stopped
+ok   r15b.out: restore env file: ok - byte-identical
+ok   r15b.out: U05 PRIV-001A RESTORE COMPLETE
+ok   r15: --stop-window killed the runner unit first
+ok   r15: env byte-identical
+=== R16 the window guard fires while the runner restores: it waits, then checks ===
+ok   r16.out: U05 PRIV-001A WINDOW FAIL
+ok   r16g.out: the window already finished at
+ok   r16g.out: U05 PRIV-001A RESTORE CHECK COMPLETE
+ok   r16: the guard waited for the runner's restore (no kill)
+ok   r16: the runner's own report and verdict are kept
+ok   r16: the guard's check is a separate record
+=== R17 the deadline stops the window before the restore budget runs out ===
+ok   r17.out: STOP: deadline: the failure case and the recovery needs about 601 s
+ok   r17.out: restore env file: ok - byte-identical
+ok   r17: analytics never stopped
+=== R18 integrity ===
+ok   r18.out: integrity: scripts/lib/priv001-synthetic.sh do not match the pinned SHA-256
+ok   r18.out: PREFLIGHT FAIL
+ok   r18b.out: the harness pins are not set (PR #336 is not merged yet)
+ok   r18: the runner's embedded SNAPSHOT_PIN equals the committed snapshot tool
+=== R19 contract: the runner parses the real harness formats (PR #336) ===
+ok   r19: register/auth_user_id/delete lines, erase evidence and inspect JSON formats
+=== R20 --fault none: criterion 2 only, analytics-service never touched ===
+ok   r20.out: W3 DELETE with every participant running
+ok   r20.out: U05 WINDOW COMPARE PASS
+ok   r20.out: U05 PRIV-001A WINDOW PASS
+ok   r20: analytics-service never stopped or started
+ok   r20: no analytics guard armed
+=== R20b without --fault the default is none: analytics-service is never stopped ===
+ok   r20b.out.start: (fault: none)
+ok   r20b.out: U05 PRIV-001A WINDOW PASS
+ok   r20b: the default fault is none
+=== R21 preflight: drift, leftovers, lag, host, units ===
+ok   r21a.out: auth-service already differ from the rendered config
+ok   r21b.out: an interrupted write left 1 temporary env file(s)
+ok   r21c.out: cannot read the consumer lag of parkio.analytics
+ok   r21d.out: the harness's own guards refuse this host
+=== R22 analytics lag that does not drain after the restart is a FAIL ===
+ok   r22.out: analytics consumer lag 84 did not return to the W0 level 0
+ok   r22.out: U05 PRIV-001A WINDOW FAIL
+=== R23 a guard timer that will not stop is a FAIL ===
+ok   r23.out: is still active after the stop
+ok   r23.out: U05 PRIV-001A WINDOW FAIL
+=== R24 a preset token and mode invite are not touched ===
+ok   r24.out: env keys changed: PARKIO_ACCOUNT_ERASURE_ENABLED, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED (
+ok   r24: the mode (already invite) was not changed
+ok   r24.out: U05 PRIV-001A WINDOW PASS
+ok   r24: env byte-identical; the preset token untouched
+=== R24b an empty token line is replaced and restored; its value never leaves the env file ===
+ok   r24b.out: PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=<generated, 48 chars, never shown>
+ok   r24b.out: U05 PRIV-001A WINDOW PASS
+ok   r24b: env byte-identical (the empty token line is back)
+ok   r24b: the state keeps the empty original token line, never the generated value
+ok   r24b: the generated token is in no log, record or state
+=== R25 status shows the units and no secret ===
+ok   r25.out: "verdict": "PASS"
+ok   r25.out: "units"
+ok   r25: no secret in status
+=== summary: 139 ok, 0 FAIL ===
 SELFTEST PASS

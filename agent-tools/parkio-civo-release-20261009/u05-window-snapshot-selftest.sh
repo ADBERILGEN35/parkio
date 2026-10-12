@@ -4,7 +4,9 @@
 # differ -> PASS; S2 another container restarted -> FAIL naming it; S3 the env file differs -> FAIL; S4 a window key not
 # restored -> FAIL; S5 a running config differs from the rendered one -> FAIL; S6 auth-service on another image -> FAIL;
 # S7 a container added -> FAIL; S8 the operator token's value is never printed or stored; records 700/600;
-# S9 a running-vs-rendered difference that already existed at W0 (U13 D1) is the baseline -> PASS.
+# S9 a running-vs-rendered difference that already existed at W0 (U13 D1) is the baseline -> PASS;
+# S10 analytics-service unhealthy at W6 -> FAIL; S11 with U05W_CHANGED=auth-service (no analytics fault) a restarted
+# analytics-service -> FAIL; S12 the env file's mode changed -> FAIL.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/u05-window-snapshot.py"
 W="$(mktemp -d)"; trap 'rm -rf "${W:?}"' EXIT
@@ -48,6 +50,9 @@ if mut == "restart": cs[3]["State"]["StartedAt"] = "2026-10-13T09:10:00Z"
 if mut == "drift": rendered["gateway-service"] = "hash-other"
 if mut == "authimage": cs[0]["Image"] = "sha256:img-other"
 if mut == "added": cs.append(c("parkio-extra", "extra", "g7"))
+if mut == "analyticsunhealthy":
+    cs[0]["Id"] = "f6" * 8; cs[1]["State"]["Health"]["Status"] = "starting"
+
 json.dump({"containers": cs, "rendered": rendered}, open(path, "w"))
 PY
 }
@@ -85,5 +90,11 @@ w0; state authimage; envfile false; run w6f.out snapshot W6; run s6.out compare
 has s6.out "DIFF parkio-auth-service-1: image"
 w0; state added; envfile false; run w6g.out snapshot W6; run s7.out compare
 has s7.out "container set changed: added ['parkio-extra']"
+w0; state analyticsunhealthy; envfile false; run w6i.out snapshot W6; run s10.out compare
+has s10.out "DIFF parkio-analytics-service-1: health healthy -> starting"; has s10.out "U05 WINDOW COMPARE FAIL"
+w0; state ok; envfile false; U05W_CHANGED=auth-service run w6j.out snapshot W6; U05W_CHANGED=auth-service run s11.out compare
+has s11.out "DIFF parkio-analytics-service-1: startedAt"; has s11.out "U05 WINDOW COMPARE FAIL"
+w0; state ok; envfile false; chmod 640 "$W/env"; run w6k.out snapshot W6; run s12.out compare
+has s12.out "the env file's mode or owner differ from W0: 0o640"; has s12.out "U05 WINDOW COMPARE FAIL"
 [ "$fail" -eq 0 ] && echo "SELFTEST PASS" || echo "SELFTEST FAIL"
 exit "$fail"

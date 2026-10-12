@@ -16,15 +16,17 @@ It also records:
 - the rendered config hash of every service (the production wrapper's `config --hash '*'`, read-only)
   against each running container's config-hash label.
 
-compare (exit 0 PASS, 1 FAIL), project "parkio":
-- every container except auth-service and analytics-service: id, image, config hash, StartedAt, RestartCount and
-  status identical;
-- auth-service: image and config hash equal to W0 (it is recreated twice, so its id and StartedAt may differ);
-- analytics-service: id, image, config hash and RestartCount identical (it is stopped and started, so StartedAt may
-  differ);
-- the same container names; the same ids except auth-service's;
-- W6: the env file's SHA-256 equals W0's, the window keys equal W0's, and the set of services whose running config differs
-  from the rendered one equals W0's (U13 recorded such pre-existing differences, D1; the window must add or clear none).
+compare (exit 0 PASS, 1 FAIL), project "parkio". U05W_CHANGED names the services the window may touch (default
+"auth-service,analytics-service"; the runner passes "auth-service" alone when analytics-service is never stopped):
+- every other container: id, image, config hash, StartedAt, RestartCount and status identical;
+- auth-service: image, config hash, status and health equal to W0 (it is recreated twice, so its id, StartedAt and
+  RestartCount may differ);
+- analytics-service, when listed: id, image, config hash, RestartCount, status and health equal to W0 (it is stopped and
+  started, so StartedAt may differ);
+- the same container names;
+- W6: the env file's SHA-256, mode and owner equal W0's, the window keys equal W0's, and the set of services whose
+  running config differs from the rendered one equals W0's (U13 recorded such pre-existing differences, D1; the window
+  must add or clear none).
 Records: ~civo/parkio-release-20261009/u05-window/<W0|W6>-<stamp>.json (dir 700, file 600).
 """
 import hashlib, json, os, re, subprocess, sys, time
@@ -38,8 +40,10 @@ PROJECT = os.environ.get("U05W_PROJECT", "parkio")
 TEST = bool(os.environ.get("U05W_TEST"))
 KEYS_BY_VALUE = ("PARKIO_ACCOUNT_ERASURE_ENABLED", "PARKIO_REGISTRATION_MODE", "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED")
 TOKEN_KEY = "PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN"
-ALLOWED = {"auth-service": ("image", "configHash", "status", "health"),
-           "analytics-service": ("id", "image", "configHash", "restartCount", "status")}
+# The keys compared for a service the window may touch; every other container is compared on STRICT.
+CHECKED = {"auth-service": ("image", "configHash", "status", "health"),
+           "analytics-service": ("id", "image", "configHash", "restartCount", "status", "health")}
+CHANGED = tuple(x for x in os.environ.get("U05W_CHANGED", "auth-service,analytics-service").split(",") if x in CHECKED)
 STRICT = ("id", "image", "configHash", "startedAt", "restartCount", "status")
 
 
@@ -73,7 +77,8 @@ def containers():
         rows.append({"name": c.get("Name", "").lstrip("/"), "id": c.get("Id"), "image": c.get("Image"),
                      "project": lab.get("com.docker.compose.project"), "service": lab.get("com.docker.compose.service"),
                      "configHash": lab.get("com.docker.compose.config-hash"), "status": st.get("Status"),
-                     "startedAt": st.get("StartedAt"), "restartCount": c.get("RestartCount"),
+                     "startedAt": st.get("StartedAt"), "finishedAt": st.get("FinishedAt"),
+                     "restartCount": c.get("RestartCount"),
                      "health": (st.get("Health") or {}).get("Status")})
     return sorted(rows, key=lambda r: r["name"])
 
@@ -93,7 +98,9 @@ def env_facts():
             values[m.group(1)] = v
     keys = {k: values.get(k, "(absent)") for k in KEYS_BY_VALUE}
     keys[TOKEN_KEY] = "set" if values.get(TOKEN_KEY) else "unset"
-    return {"sha256": hashlib.sha256(data).hexdigest(), "keys": keys}
+    st = os.stat(os.path.realpath(ENV_FILE))
+    return {"sha256": hashlib.sha256(data).hexdigest(), "keys": keys, "mode": oct(st.st_mode & 0o7777),
+            "owner": f"{st.st_uid}:{st.st_gid}"}
 
 
 def rendered():
@@ -166,12 +173,14 @@ def cmd_compare():
     for name in sorted(set(w0) & set(w6)):
         x, y = w0[name], w6[name]
         svc = x["service"] if x["project"] == PROJECT else None
-        keys = ALLOWED.get(svc, STRICT)
+        keys = CHECKED[svc] if svc in CHANGED else STRICT
         diff = [k for k in keys if x.get(k) != y.get(k)]
         if diff:
             problems.append(f"{name}: " + ", ".join(f"{k} {str(x.get(k))[:19]} -> {str(y.get(k))[:19]}" for k in diff))
     if a["envFile"]["sha256"] != b["envFile"]["sha256"]:
         problems.append("the env file's SHA-256 differs from W0")
+    if (a["envFile"].get("mode"), a["envFile"].get("owner")) != (b["envFile"].get("mode"), b["envFile"].get("owner")):
+        problems.append(f"the env file's mode or owner differ from W0: {b['envFile'].get('mode')} {b['envFile'].get('owner')}")
     if a["envFile"]["keys"] != b["envFile"]["keys"]:
         problems.append(f"window keys differ from W0: {b['envFile']['keys']}")
     if b.get("rendered") is None or a.get("rendered") is None:
@@ -187,14 +196,14 @@ def cmd_compare():
     print(f"U05 window compare | W0 {a['at']} -> W6 {b['at']} | {len(w0)} containers")
     for p in problems:
         print(f"  DIFF {p}")
-    same = len([n for n in set(w0) & set(w6) if w0[n]["service"] not in ALLOWED or w0[n]["project"] != PROJECT])
+    same = len([n for n in set(w0) & set(w6) if w0[n]["service"] not in CHANGED or w0[n]["project"] != PROJECT])
     if problems:
         print("U05 WINDOW COMPARE FAIL")
         return 1
     print(f"  {same} other containers identical (id, image, config hash, StartedAt, RestartCount, status); "
-          "auth-service same image and config hash; analytics-service same id, image and config hash")
-    print("  env file byte-identical to W0; window keys equal W0; running-vs-rendered differences identical to W0 "
-          f"({len(a.get('renderDrift') or [])} pre-existing)")
+          + "; ".join(f"{s} same {', '.join(CHECKED[s])}" for s in CHANGED))
+    print("  env file byte-identical to W0, same mode and owner; window keys equal W0; running-vs-rendered differences "
+          f"identical to W0 ({len(a.get('renderDrift') or [])} pre-existing)")
     print("U05 WINDOW COMPARE PASS")
     return 0
 

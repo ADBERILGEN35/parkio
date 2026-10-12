@@ -1,101 +1,194 @@
-# U05 PRIV-001A window: independent recovery procedure
+# U05 PRIV-001A window: independent recovery procedure (version 2)
+
+## When to use it
 
 Use this only when the window runner (`u05-priv001a-window.py`) **and** its guards did not restore everything. For example:
-- the runner and the guards both failed;
-- the runner reported CONFLICT or "RESTORE FAILED".
+- the runner reported `CONFLICT`, `RESTORE INCOMPLETE` or a FAILED restore step;
+- the runner and the guards both failed.
 
-It needs only:
-- the production wrapper and `docker` (for the read-only checks);
-- `sha256sum`, `cp` and a text editor;
-- the snapshot tool.
+## What it needs
 
-It does not use the runner's code. Run every command on **parkio-civo-prod** as civo with sudo, in an SSH session.
+It does not use the runner's code. It needs only:
+- the production wrapper;
+- `docker`, `systemctl`, `sha256sum`, `stat`, `sed`, `cp` and `shred`;
+- the verified copies that the runner left in the run directory: the harness and the snapshot tool.
 
-Notation:
-- **`RUN`:** the newest directory under `/root/u05-priv001a-window/` (`sudo ls /root/u05-priv001a-window`).
-- **`S`:** `/root/u05-priv001a-window/$RUN`. It is root-only and holds `state.json`, `env.backup` and `creds`.
-- **`ENV`:** `/opt/parkio/docker/.env.azure-hosted-beta`.
-- **`W`:** `cd /opt/parkio-release && sudo PARKIO_ENV_FILE=$ENV ./scripts/parkio-prod-compose.sh`.
+Run every command on **parkio-civo-prod** as civo with sudo, in one SSH session. Never print the env file, and never print the operator token's line.
 
-## 1. Stop anything still running from the window
+## Notation
+
+Set these once at the start of the session:
+
+```
+RUN=$(sudo ls /root/u05-priv001a-window | grep -E '^[0-9]{8}T[0-9]{6}Z$' | tail -1); echo "$RUN"
+S=/root/u05-priv001a-window/$RUN                        # root-only: state.json, env.backup, creds, harness/, window.log
+EV=/home/civo/parkio-release-20261009/u05-window/$RUN   # evidence: W0/W6 snapshots, reports
+ENV=/opt/parkio/docker/.env.azure-hosted-beta
+W() { (cd /opt/parkio-release && sudo PARKIO_ENV_FILE="$ENV" ./scripts/parkio-prod-compose.sh "$@"); }
+C() { sudo docker ps --filter label=com.docker.compose.project=parkio --filter "label=com.docker.compose.service=$1" --format '{{.Names}}'; }
+Q() { sudo docker exec -e "PGOPTIONS=-c default_transaction_read_only=on" "$(C postgres-auth)" sh -c \
+      'exec psql -X -q -At -F "|" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' psql "$1"; }   # read-only queries
+F() { sudo python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s.get(sys.argv[2]))' "$S/state.json" "$1"; }
+```
+
+`F fault` tells you which services the window touched:
+- `none`: only auth-service.
+- `analytics`: auth-service and analytics-service.
+
+## 1. Stop everything still running from the window
 
 ```
 sudo systemctl list-units --all --plain --no-legend 'u05-priv001a-*'
-sudo systemctl kill --signal=SIGKILL "u05-priv001a-window-$RUN.service"   # if it is listed as running
-sudo systemctl stop u05-priv001a-guard-analytics.timer u05-priv001a-guard-window.timer
+sudo systemctl kill --signal=SIGKILL "u05-priv001a-window-$RUN.service"            # only if listed as active
+sudo systemctl kill --signal=SIGKILL "u05-priv001a-guard-window-$RUN.service" \
+                                     "u05-priv001a-guard-analytics-$RUN.service"   # only if listed as active
+sudo systemctl stop "u05-priv001a-guard-window-$RUN.timer" "u05-priv001a-guard-analytics-$RUN.timer"
+sudo systemctl list-units --all --plain --no-legend 'u05-priv001a-*'                # expected: nothing active
 ```
 
-## 2. analytics-service first (its approved stop limit is 10 minutes)
+Kill a guard **service** that is already running before you stop the timers. Stopping a timer does not stop a guard that has fired.
+
+## 2. analytics-service
 
 ```
-cd /opt/parkio-release && sudo PARKIO_ENV_FILE=/opt/parkio/docker/.env.azure-hosted-beta ./scripts/parkio-prod-compose.sh start analytics-service
+sudo docker ps --filter label=com.docker.compose.service=analytics-service --format '{{.Names}} {{.Status}}'
+W start analytics-service           # only if it is not running
 ```
 
-Use `start`, never `up`. While the env file still holds the window values, `up` would recreate the container.
+- **Use `start`, never `up`.** While the env file still holds the window values, `up` would recreate the container.
+- **Wait for `(healthy)`.**
 
-## 3. The synthetic principal, if it was never deleted
+## 3. Accounting (read-only), then the synthetic principal
 
-**Check the state:**
-- `sudo python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s.get("authUserId"), s.get("deleteSent"))' "$S/state.json"`.
-
-**If `authUserId` is set and `deleteSent` is not `true`:** erase the principal canonically **before** the flag is turned off (step 4). The flag is still on at this point. Use the harness at the reviewed commit:
+Every account and invite the window created is counted from W1:
 
 ```
-sudo bash <harness>/scripts/acceptance/erase-priv001-synthetic-principal.sh --environment civo-production \
-  --confirm-synthetic-only --credentials-file "$S/creds" --delete --expect COMPLETE --timeout-seconds 900
+W1=$(F w1); echo "$W1"
+Q "select id, status from auth_users where email like 'priv001a-%@priv001a.parkio.invalid' and created_at >= '$W1'::timestamptz"
+Q "select count(*), count(*) filter (where consumed_at is null) from registration_invites where created_by = 'priv001a' and created_at >= '$W1'::timestamptz"
 ```
 
-**If it cannot be erased,** record the principal as an orphan (its `authUserId`) for the next authorized window. Never delete its rows by SQL.
+- **No row from the first query:** no synthetic account is left. An erased account keeps only its tombstone email, so it no longer matches.
+- **An unconsumed invite:** record it as an ORPHAN. Only the invite's hash is stored, so no one can use it, and it expires after the invite TTL (P7D).
+
+**For each account the first query lists:**
+
+1. Look for its erasure request:
+
+   ```
+   Q "select status, requested_at from erasure_requests where auth_user_id = '<id>'::uuid order by requested_at desc limit 1"
+   ```
+
+2. **If a request exists,** do not send another DELETE. Wait for it to reach COMPLETE: analytics-service is running after step 2. Observe it with the harness, read-only:
+
+   ```
+   sudo bash "$S/harness/scripts/acceptance/erase-priv001-synthetic-principal.sh" --environment civo-production \
+     --confirm-synthetic-only --credentials-file "$S/creds" --expect COMPLETE --timeout-seconds 600
+   ```
+
+3. **If no request exists,** erase the account canonically **before** step 4 turns the flag off.
+
+   First check the conditions:
+   - the running auth-service must still have the flag on: `sudo docker exec "$(C auth-service)" printenv PARKIO_ACCOUNT_ERASURE_ENABLED` prints `true`;
+   - the harness copy must match the pins below: `sudo sha256sum "$S"/harness/scripts/acceptance/*.sh "$S"/harness/scripts/lib/*.sh`.
+
+   Then erase:
+
+   ```
+   sudo bash "$S/harness/scripts/acceptance/erase-priv001-synthetic-principal.sh" --environment civo-production \
+     --confirm-synthetic-only --credentials-file "$S/creds" --delete --expect COMPLETE --timeout-seconds 600
+   ```
+
+   The harness binds the DELETE to the file's synthetic account. A PENDING_VERIFICATION account is verified first, which works only within an hour of its registration. Exit 4 means the file's account was never registered.
+
+4. **If it cannot be erased,** record the account id as an ORPHAN for the next authorized window. Never delete or change its rows by SQL.
+
+Harness pins (SHA-256 at the merged PR commit; the same values as `HARNESS_PINS` in the runner): filled in when the
+harness is pinned.
 
 ## 4. The env file: only the window keys
 
 **4a. Compare the file with the two hashes the runner recorded:**
 
 ```
-sudo sha256sum /opt/parkio/docker/.env.azure-hosted-beta
-sudo python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("W0", s["envSha0"]); print("W1", s["envSha1"]); print("keys", s["changedKeys"])' "$S/state.json"
+sudo sha256sum "$ENV"; echo "W0 $(F envSha0)"; echo "W1 $(F envSha1)"; F changedKeys
 ```
 
-**4b. The file is exactly what W1 wrote** (its hash equals `W1`). Restore the W1 backup byte for byte:
+**4b. The hash equals W0.** The file is already restored. Go to step 5.
+
+**4c. The hash equals W1.** The file is exactly what W1 wrote. Restore the backup byte for byte. Use plain `cp`, not `cp -p`, so the live file keeps its mode and owner:
 
 ```
-sudo cp -p "$S/env.backup" /opt/parkio/docker/.env.azure-hosted-beta && sudo sha256sum /opt/parkio/docker/.env.azure-hosted-beta
+sudo cp "$S/env.backup" "$ENV" && sudo sha256sum "$ENV"      # must equal W0
+sudo stat -c '%a %u:%g' "$ENV"; F envStat                     # must equal W0's mode and owner
 ```
 
-The new hash must equal `W0`.
+**4d. The hash equals neither.** Someone else changed the file during the window. Do **not** copy the backup over it. Revert only the window's own lines.
 
-**4c. The hash equals neither.** Someone else changed the file during the window. Do **not** copy the backup over it. Edit only the keys listed in `changedKeys`:
+1. Print what the window changed. The token line is listed only when its W0 value was empty:
 
-| Key | What to do |
-|---|---|
-| `PARKIO_ACCOUNT_ERASURE_ENABLED` | Put the W0 line back. It is in `state.json` → `patches[].original`, or the line is removed if `appended` is true. |
-| `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED` | The same. |
-| `PARKIO_REGISTRATION_MODE` | Back to its W0 line, but only if it is in `changedKeys`. |
-| `PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN` | Only if it is in `changedKeys`: the runner created it, so remove that line (`appended` true). If it replaced an empty line, put back an empty value. |
+   ```
+   sudo python3 -I -c 'import json,sys; [print(p["key"], "appended" if p["appended"] else "replaced", repr(p["original"])) for p in json.load(open(sys.argv[1]))["patches"]]' "$S/state.json"
+   ```
 
-- **If one of these keys now holds a value that neither W0 nor the runner wrote,** stop. That is a concurrent owner change; decide with the owner.
-- **Never print the operator token line.** When you edit, delete the line without displaying it, for example: `sudo sed -i '/^PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=/d' <file>`. Use this only when the runner appended the line.
+2. For each key, apply the exact line edit:
+
+   | Window change | Command |
+   |---|---|
+   | `PARKIO_ACCOUNT_ERASURE_ENABLED`, appended | `sudo sed -i '/^PARKIO_ACCOUNT_ERASURE_ENABLED=true$/d' "$ENV"` |
+   | `PARKIO_ACCOUNT_ERASURE_ENABLED`, replaced | `sudo sed -i 's/^PARKIO_ACCOUNT_ERASURE_ENABLED=true$/<original line>/' "$ENV"` |
+   | `PARKIO_REGISTRATION_INVITE_CREATION_ENABLED`, replaced | `sudo sed -i 's/^PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=true$/<original line>/' "$ENV"` |
+   | `PARKIO_REGISTRATION_MODE`, replaced (only if listed) | `sudo sed -i 's/^PARKIO_REGISTRATION_MODE=invite$/<original line>/' "$ENV"` |
+   | `PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN`, appended (only if listed) | `sudo sed -i '/^PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=/d' "$ENV"`. The runner created that line. |
+   | `PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN`, replaced (only if listed) | Put the empty original line back: `sudo sed -i 's/^PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=.*$/<original line>/' "$ENV"` |
+
+3. Check the result. `sudo grep -c '^PARKIO_ACCOUNT_ERASURE_ENABLED=true$' "$ENV"` must print 0 (and the same check applies to the other window values), and `sudo stat -c '%a %u:%g' "$ENV"` must show W0's mode and owner.
+
+- **If a window key now holds a value that neither W0 nor the window wrote,** stop. That is a concurrent owner change; decide with the owner.
+- **The other change stays** in the file. Record it with whoever made it.
 
 ## 5. auth-service with the restored settings
 
+Do this only after step 4:
+
 ```
-cd /opt/parkio-release && sudo PARKIO_ENV_FILE=/opt/parkio/docker/.env.azure-hosted-beta ./scripts/parkio-prod-compose.sh up -d --no-deps auth-service
+W up -d --no-deps --no-build auth-service
+sudo docker ps --filter label=com.docker.compose.service=auth-service --format '{{.Names}} {{.Status}}'   # wait for (healthy)
+sudo docker exec "$(C auth-service)" printenv PARKIO_ACCOUNT_ERASURE_ENABLED PARKIO_REGISTRATION_MODE PARKIO_REGISTRATION_INVITE_CREATION_ENABLED
 ```
 
-Then wait for `healthy`: `sudo docker ps --filter label=com.docker.compose.service=auth-service --format '{{.Names}} {{.Status}}'`.
+Never print the operator token variable.
 
 ## 6. Verify
 
+Use the verified snapshot copy in `$S`, with the run's evidence directory:
+
 ```
-sudo python3 -I /home/civo/parkio-release-20261009/tools/u05-window-snapshot.py snapshot W6
-sudo python3 -I /home/civo/parkio-release-20261009/tools/u05-window-snapshot.py compare
+CH=auth-service; [ "$(F fault)" = analytics ] && CH=auth-service,analytics-service
+sudo U05W_OUT="$EV" U05W_CHANGED="$CH" python3 -I "$S/u05-window-snapshot.py" snapshot W6
+sudo U05W_OUT="$EV" U05W_CHANGED="$CH" python3 -I "$S/u05-window-snapshot.py" compare
 ```
 
 - **Expected:** `U05 WINDOW COMPARE PASS`.
-- **If the env file kept a concurrent change (4c),** the comparison reports `the env file's SHA-256 differs from W0`. That is expected; record it with the change's owner.
+- **After 4d,** the comparison also reports `the env file's SHA-256 differs from W0`. That is expected; record it.
 - **Any other DIFF** is a real difference and must be reported.
+
+Then repeat the two accounting queries of step 3. The expected result:
+- no listed account;
+- the invites since W1 show `1|0`: one created, none unconsumed.
 
 ## 7. Clean up
 
-- **After a verified restore:** `sudo shred -u "$S/env.backup" "$S/creds"`. The rest of `$S` (`state.json`, `window.log`) holds no secret value and stays as evidence.
-- **Report:** the steps taken and the outputs of step 6.
+**After a verified restore with no open erasure:**
+
+```
+sudo shred -u "$S/env.backup" "$S/creds"
+sudo find "$S/tmp" -type f -exec shred -u {} + ; sudo rm -rf "$S/tmp"
+sudo ls -a /opt/parkio/docker | grep -F '.env.azure-hosted-beta.u05-'    # an interrupted write's leftovers
+sudo shred -u /opt/parkio/docker/.env.azure-hosted-beta.u05-*           # only if listed: they hold the whole env
+```
+
+- **Keep `creds`** while an erasure is still open (step 3).
+- **The rest of `$S`** holds no secret value and stays as evidence: `state.json`, `window.log` and the verified copies.
+
+**Report:** the steps taken, the outputs of step 6, and every ORPHAN or PENDING item.
