@@ -1,0 +1,103 @@
+N4 check | stamp 20261012T105044Z | env file <W>/live/docker/.env.azure-hosted-beta | release <W>/release | read-only
+
+A. Env file (names, non-secret values and set/absent only)
+  env file: mode 600, owner <user>
+  PARKIO_PUSH_DELIVERY_PROVIDER: expo (1 line)
+  PARKIO_PUSH_DELIVERY_ENABLED: true (1 line)
+  PARKIO_EXPO_ACCESS_TOKEN: set (1 line)
+  PARKIO_LOGIN_THROTTLE_HMAC_KEY: set (left untouched)
+  PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS: empty (left untouched)
+  PASS PARKIO_PUSH_DELIVERY_ENABLED on at most one standard line (a disable writes exactly that line): 1 line(s)
+  PASS the HMAC key is set and its _PREVIOUS line is present (empty since 2026-10-08); a disable preserves both: PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS empty
+
+B. Backups beside the env file
+  .env.azure-hosted-beta.bak-20261010T120000Z: mode 600; PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED absent; PARKIO_EXPO_ACCESS_TOKEN empty
+
+C. Running notification-service
+  container 561ac354b269 started 2026-10-12T10:50:42.602834712Z health healthy; image fd7dc98638c8; config hash a4500f50e8b1
+  its push settings: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN set
+  PASS exactly one running notification-service
+
+D. Release model (read-only render)
+  notification-service in the model: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN set; config hash a4500f50e8b1
+  running container = release model config: yes
+  running image = n4probe-release/notification-service:sha-test84462: yes
+
+E. The disable change, simulated (Compose interpolation; nothing written)
+  PASS notification-service would get PARKIO_PUSH_DELIVERY_ENABLED=false, provider and token unchanged: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED false; PARKIO_EXPO_ACCESS_TOKEN set
+  PASS only notification-service's config hash would change: changed: notification-service
+
+gates passed 5/5
+N4 CHECK COMPLETE
+report saved: <W>/out/N4-check-20261012T105044Z.txt
+ok   c1.out exit 0
+ok   c1.out: PARKIO_PUSH_DELIVERY_PROVIDER: expo (1 line)
+ok   c1.out: PARKIO_PUSH_DELIVERY_ENABLED: true (1 line)
+ok   c1.out: PARKIO_EXPO_ACCESS_TOKEN: set (1 line)
+ok   c1.out: PARKIO_LOGIN_THROTTLE_HMAC_KEY: set (left untouched)
+ok   c1.out: PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS: empty (left untouched)
+ok   c1.out: PASS the HMAC key is set and its _PREVIOUS line is present
+ok   c1.out: .bak-20261010T120000Z: mode 600; PARKIO_PUSH_DELIVERY_PROVIDER noop; PARKIO_PUSH_DELIVERY_ENABLED absent; PARKIO_EXPO_ACCESS_TOKEN empty
+ok   c1.out: its push settings: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED true; PARKIO_EXPO_ACCESS_TOKEN set
+ok   c1.out: running container = release model config: yes
+ok   c1.out: PASS notification-service would get PARKIO_PUSH_DELIVERY_ENABLED=false, provider and token unchanged
+ok   c1.out: PASS only notification-service's config hash would change: changed: notification-service
+ok   c1.out: N4 CHECK COMPLETE
+ok   c1.out: no secret value in the output or the reports
+ok   c1: env file and containers unchanged
+ok   c1: no backup written
+ok   d1.out exit 1
+ok   d1.out: is not the release image
+ok   d1.out: nothing was changed
+ok   d1: env file and container unchanged
+N4 disable | stamp 20261012T105044Z | env file <W>/live/docker/.env.azure-hosted-beta | release <W>/release | push incident
+
+A. Preconditions (nothing changes here)
+  env file: mode 600, owner <user>
+  PARKIO_PUSH_DELIVERY_PROVIDER: expo (1 line)
+  PARKIO_PUSH_DELIVERY_ENABLED: true (1 line)
+  PARKIO_EXPO_ACCESS_TOKEN: set (1 line)
+  PARKIO_LOGIN_THROTTLE_HMAC_KEY: set (left untouched)
+  PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS: empty (left untouched)
+  running notification-service: container 561ac354b269, release image, health healthy
+
+B. Backup and write (only PARKIO_PUSH_DELIVERY_ENABLED)
+  backup .env.azure-hosted-beta.bak-n4-20261012T105044Z: identical content, mode 600, same owner/group
+  PASS env file: only PARKIO_PUSH_DELIVERY_ENABLED changed (now false); provider, token and HMAC keys unchanged; mode and owner unchanged
+  PASS only notification-service's release config changes: changed: notification-service
+
+C. Recreate notification-service alone (its environment is read only when the container is created)
+  Run: cd <W>/release && PARKIO_ENV_FILE=<W>/live/docker/.env.azure-hosted-beta ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps notification-service
+  PASS wrapper exit 0: exit 0
+  PASS notification-service recreated and healthy within 60 s: d6a71e9c3c43 healthy
+  PASS notification-service runs the same release image
+  PASS its environment: delivery disabled, provider and token unchanged: PARKIO_PUSH_DELIVERY_PROVIDER expo; PARKIO_PUSH_DELIVERY_ENABLED false; PARKIO_EXPO_ACCESS_TOKEN set
+  PASS no other container of the project changed: 1 before, 1 after
+  undo: set PARKIO_PUSH_DELIVERY_ENABLED back to true (or cp -p .env.azure-hosted-beta.bak-n4-20261012T105044Z back) and recreate notification-service the same way
+
+gates passed 7/7
+N4 DISABLE COMPLETE
+report saved: <W>/out/N4-disable-20261012T105044Z.txt
+ok   d2.out exit 0
+ok   d2.out: PASS env file: only PARKIO_PUSH_DELIVERY_ENABLED changed (now false)
+ok   d2.out: PASS only notification-service's release config changes: changed: notification-service
+ok   d2.out: PASS wrapper exit 0
+ok   d2.out: PASS notification-service recreated and healthy within 60 s
+ok   d2.out: PASS notification-service runs the same release image
+ok   d2.out: PASS its environment: delivery disabled, provider and token unchanged
+ok   d2.out: PASS no other container of the project changed
+ok   d2.out: N4 DISABLE COMPLETE
+ok   d2.out: no secret value in the output or the reports
+ok   d2: the env file differs from the backup in exactly the ENABLED line; the backup equals the original
+ok   d2: backup identical to the original, mode 600
+ok   d2: only notification-service was recreated
+ok   d2: the new container has delivery disabled
+ok   d3.out exit 1
+ok   d3.out: is already false; nothing to change
+ok   d3: nothing changed
+ok   d4.out exit 1
+ok   d4.out: must be on at most one standard line (found 2
+ok   d4: nothing changed
+ok   u1.out exit 2
+ok   u1.out: usage: n4-push-recovery.py check | disable --push-incident
+SELFTEST PASS
