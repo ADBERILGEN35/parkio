@@ -54,5 +54,8 @@ ok   S5 rollback notification refused: not reproducible (env changed since it st
 ok   S5 rollback web via recorded inputs restores the previous image and hash
 ok   S5 final with a broken CSRF check -> FAIL, no manifest
 ok   S5 final with parkio.user behind on a score partition -> FAIL (U12 B)
+ok   S6 nr_attached counts the check's stderr lines: 3/3, exit 0
+ok   S6 nr_attached counts the check's stdout lines: 3/3, exit 0
+ok   S6 nr_attached with one source detached (stderr): 2/3, exit 1
 all checks passed
 SELFTEST PASS

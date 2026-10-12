@@ -7,7 +7,8 @@
 #   bash ~/parkio-release-20261009/tools/nr-step.sh resume    after D6b
 #   bash ~/parkio-release-20261009/tools/nr-step.sh check     read-only snapshot only
 #
-# 1. The installed T1 copy must match its pinned SHA-256; sudo is validated once, so T1's own sudo calls do not prompt.
+# 1. The installed T1 copy must match its pinned SHA-256 (T1 v2, 2026-10-12: counts the helper check's stderr); sudo
+#    is validated once, so T1's own sudo calls do not prompt.
 # 2. Snapshot before (read-only): the states of the source unit, the transport unit (it runs the budget gate and the
 #    collector), the guard timer and the guard service; for every container of the transport project
 #    parkio-nr-log-continuous (nr-budget-gate, fluent-bit-nr-pilot): id, state, Docker health, start time and restart
@@ -26,7 +27,7 @@ set -uo pipefail
 MODE="${1:-}"
 R="${NR_OUT:-$HOME/parkio-release-20261009}"
 T1="${NR_T1:-$R/tools/t1-release-step.py}"
-T1_SHA="${NR_T1_SHA256:-fe46981663f687b3cdffab716862f5191fe6b1cfda4465636ed8b5ebab9f9fb6}"   # override: self-test only
+T1_SHA="${NR_T1_SHA256:-31f5f9a3dd3945faae6eeec38996fb3c53846d4d8ca867a769dc2e3ea4c3136b}"   # override: self-test only
 NRP=parkio-nr-log-continuous
 UNITS="parkio-nr-log-source.service parkio-nr-log-continuous.service parkio-nr-log-continuous-guard.timer parkio-nr-log-continuous-guard.service"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"

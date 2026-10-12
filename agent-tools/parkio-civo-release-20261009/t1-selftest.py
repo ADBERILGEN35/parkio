@@ -114,6 +114,7 @@ class Host:
         self.units = {"parkio-nr-log-source.service": "active", "parkio-nr-log-continuous.service": "active",
                       "parkio-nr-log-continuous-guard.timer": "active", "parkio-nr-log-continuous-guard.service": "inactive"}
         self.attached = 3
+        self.nr_stream = "stderr"
         self.smoke_fail = 0
         self.pebble_present = set()
         self.trivy_fail = {}
@@ -148,8 +149,11 @@ class Host:
                 self.units[cmd[3]] = "inactive"
             return "", 0, ""
         if cmd[:2] == ["sudo", "env"]:
-            lines = [f"source-{i} live-helper={'attached' if i < self.attached else 'detached'}" for i in range(3)]
-            return "\n".join(lines) + "\n", 0 if self.attached == 3 else 1, ""
+            # like resolve_production_sources.sh --check-live-helper: PASS/FAIL lines on stderr, stdout empty
+            lines = "".join(f"source-preflight PASS: service=s{i} live-helper={'attached' if i < self.attached else 'detached'} "
+                            f"id={i}\n" for i in range(3))
+            rc = 0 if self.attached == 3 else 1
+            return (lines, rc, "") if self.nr_stream == "stdout" else ("", rc, lines)
         if cmd[0] == "journalctl":
             return "guard checks\ncontinuous-guard PASS\n", 0, ""
         if cmd[0] == "scripts/alerting-live-backup-stale-acceptance.sh":
@@ -401,6 +405,17 @@ def t1(host, *argv, pin=PIN, counter=[0]):
     return code, buf.getvalue()
 
 
+def module(host, counter=[100]):
+    """T1 loaded with the fake host's run(), for unit-level checks."""
+    counter[0] += 1
+    os.environ.update(T1_RELEASE=host.rel, T1_LIVE=host.live, T1_ENV_FILE=host.env_file, T1_OUT=host.out, T1_FINAL_DIR=host.final)
+    spec = importlib.util.spec_from_file_location(f"t1m_{counter[0]}", TOOL)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    m.run = host.run
+    return m
+
+
 def receipt(host, minutes_ago):
     d = os.path.join(host.out, "backup")
     os.makedirs(d, exist_ok=True)
@@ -606,6 +621,18 @@ def main():
     h.committed[("parkio.user", "parkio.gamification.score")][3] = 5
     code, out = t1(h, "final")
     check("S5 final with parkio.user behind on a score partition -> FAIL (U12 B)", code == 1 and "behind: [3]" in out)
+
+    # S6 (2026-10-12 regression): the live helper check prints its lines on stderr; D3 counted 0/0 from stdout only
+    h = fresh()
+    for stream in ("stderr", "stdout"):
+        h.nr_stream, h.attached = stream, 3
+        rc, attached, total = module(h).nr_attached()
+        check(f"S6 nr_attached counts the check's {stream} lines: 3/3, exit 0", (rc, attached, total) == (0, 3, 3),
+              f"{rc} {attached}/{total}")
+    h.nr_stream, h.attached = "stderr", 2
+    rc, attached, total = module(h).nr_attached()
+    check("S6 nr_attached with one source detached (stderr): 2/3, exit 1", (rc, attached, total) == (1, 2, 3),
+          f"{rc} {attached}/{total}")
 
     for root in ROOTS:
         shutil.rmtree(root, ignore_errors=True)

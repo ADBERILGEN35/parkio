@@ -431,7 +431,9 @@ def nr_state():
 
 def nr_attached():
     rc, out, err = run(NR_CHECK, timeout=120)
-    lines = [ln for ln in out.splitlines() if "live-helper=" in ln]
+    # resolve_production_sources.sh --check-live-helper prints its PASS/FAIL lines on stderr and leaves stdout empty
+    # (2026-10-12: D3 read stdout only and counted 0/0 while the check had passed); count both streams.
+    lines = [ln for ln in (out + "\n" + err).splitlines() if "live-helper=" in ln]
     attached = [ln for ln in lines if "live-helper=attached" in ln]
     return rc, len(attached), len(lines)
 
