@@ -23,7 +23,7 @@ stamp or restoring outside the scripts).
 
 **One compose file set (CL-F12).**
 - With the default hosted-beta profile, deploy, rollback and DR render `docker/compose.production.files` exactly, so they share one model: the production pins and settings.
-- The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. A pin is rolled back by reverting its pin file, then deploying.
+- The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. Since U13 the list pins every app service, so there is nothing to re-point and the rollback is refused (exit 3). A pin moves back only by reverting its pin file and deploying; committed migrations are forward-fix only, so that is not an accepted rollback unless schema compatibility with the live databases is proven first.
 - Start the stack only through those scripts, never with a hand-written `-f` list.
 - `scripts/test-canonical-production-file-set.sh` checks the file set.
 - **The rollback schema gate (F-INV-3, owner decision 2026-10-05).**

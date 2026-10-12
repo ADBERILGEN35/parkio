@@ -12,8 +12,10 @@
 > - **Before the next deploy,** follow the [release step](#release-step-before-the-next-hosted-beta-deploy-cl-f12).
 
 Safe, repeatable deployment of Parkio application images for **hosted-beta**.
-Images are always built from the **current git commit** and tagged so rollback
-can restore a previous SHA without rebuilding.
+A service the compose list does not pin is built from the **current git commit** and
+tagged so rollback can restore a previous SHA without rebuilding. With the default
+hosted-beta profile the list pins every app service (U13), so a deploy builds none and
+pulls the digest pins.
 
 ## Image tagging
 
@@ -188,14 +190,12 @@ What the script does:
 # From manifest
 jq -r .gitSha deploy-artifacts/current.json
 
-# From a running container label: a service the deploy builds
+# From a running container label
 docker inspect parkio-user-service-1 \
   --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
 ```
 
-These must match `git rev-parse HEAD` after a successful deploy.
-
-With the default hosted-beta profile, only the services the deploy builds carry this commit: user, gamification, notification, moderation, ai-validation and analytics. The digest-pinned services (gateway, auth, parking, media and web) carry their pin's source commit. Check those against `pinnedImages` in the manifest, for example `docker inspect parkio-gateway-service-1 --format '{{.Image}}'` against the pin.
+A service the deploy builds carries `git rev-parse HEAD`. With the default hosted-beta profile the deploy builds none (U13): every app service is digest-pinned and carries its pin's source commit, which the pin file's header names. Check each against `pinnedImages` in the manifest, for example `docker inspect parkio-gateway-service-1 --format '{{.Image}}'` against the pin. The other profiles build every app service from `HEAD`.
 
 ## Release step: before the next hosted-beta deploy (CL-F12)
 
@@ -252,7 +252,7 @@ running `deploy-hosted-beta.sh` by hand.
 - **Production settings.** Tracing off, memory limits, Kafka heap, the production Prometheus command, and parking-service's municipal and ranking settings with their production defaults.
 - **Service and image names.**
   - The unpinned services run as `parkio-<service>`.
-  - A rollback to a deploy made before this change points those back at the recorded `sha-` tags, and keeps the current pins for the five pinned services.
+  - A rollback to a deploy made before this change points those back at the recorded `sha-` tags, and keeps the current pins for the five pinned services. Since U13 the list pins all eleven, so such a rollback has nothing to re-point and is refused (exit 3).
 - **Env file.** It needs no new variable. `PARKIO_IMAGE_TAG` is no longer read by this profile.
 
 ## Avoiding stale images

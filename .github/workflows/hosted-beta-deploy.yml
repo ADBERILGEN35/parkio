@@ -5,8 +5,10 @@
 #
 # The deploy and rollback jobs run the default hosted-beta profile. It renders
 # docker/compose.production.files (CL-F12): deploy builds the services that list does not
-# pin and pulls the digest pins, and rollback re-points the built ones. Before the next
-# deploy, confirm the parkio-beta runner host: docs/beta/deploy-runbook.md, "Release step".
+# pin and pulls the digest pins, and rollback re-points the built ones. Since U13 the list
+# pins every app service, so a deploy builds none and a rollback, with nothing to re-point,
+# is refused. Before the next deploy, confirm the parkio-beta runner host:
+# docs/beta/deploy-runbook.md, "Release step".
 #
 # Jobs:
 #   build-images  — build + tag all app images, write deploy manifest artifact
