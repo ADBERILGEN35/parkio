@@ -2,11 +2,12 @@
 # PRIV-001A — read-only residual classification for a synthetic principal.
 #
 # Never mutates. Never dumps email, password hash, tokens, or message bodies.
-# Requires the same production opt-in flags as the create harness.
+# Requires the same production opt-in flags as the create harness
+# (--environment invite-production | civo-production, --confirm-synthetic-only).
 #
 # Usage:
 #   scripts/acceptance/inspect-priv001-synthetic-residue.sh \
-#     --environment invite-production \
+#     --environment invite-production|civo-production \
 #     --confirm-synthetic-only \
 #     --auth-user-id <uuid> \
 #     [--email priv001a-...@priv001a.parkio.invalid]
@@ -32,7 +33,7 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/acceptance/inspect-priv001-synthetic-residue.sh \
-    --environment invite-production \
+    --environment invite-production|civo-production \
     --confirm-synthetic-only \
     --auth-user-id <uuid> \
     [--email priv001a-<id>@priv001a.parkio.invalid]
@@ -62,7 +63,7 @@ if [ -z "${PARKIO_DEPLOYMENT_PROFILE:-}" ] && [ "$ENVIRONMENT" = "invite-product
   export PARKIO_DEPLOYMENT_PROFILE=invite-production
 fi
 
-parkio_priv001_require_invite_production_opt_in
+parkio_priv001_require_opt_in
 
 if ! printf '%s' "$AUTH_USER_ID" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
   echo "ERROR: --auth-user-id must be a lowercase UUID." >&2
@@ -86,6 +87,17 @@ SELECT json_build_object(
       JOIN erasure_requests r ON r.id = a.erasure_request_id
       WHERE r.auth_user_id = '${AUTH_USER_ID}'::uuid
   ),
+  'participant_acks', COALESCE((
+      SELECT json_object_agg(a.service_name, a.status ORDER BY a.service_name)
+      FROM erasure_service_acks a
+      JOIN erasure_requests r ON r.id = a.erasure_request_id
+      WHERE r.auth_user_id = '${AUTH_USER_ID}'::uuid
+  ), '{}'::json),
+  'erasure_request_status', COALESCE((
+      SELECT status FROM erasure_requests
+      WHERE auth_user_id = '${AUTH_USER_ID}'::uuid
+      ORDER BY requested_at DESC LIMIT 1
+  ), 'ABSENT'),
   'tombstone_count', (SELECT count(*)::int FROM erased_user_tombstones WHERE auth_user_id = '${AUTH_USER_ID}'::uuid),
   'hard_delete_residue_count', (
       SELECT count(*)::int FROM auth_users
@@ -110,7 +122,7 @@ SELECT json_build_object(
 SQL
 )
 
-OUT="$(parkio_priv001_auth_psql -t -A -c "$SQL")"
+OUT="$(PARKIO_PRIV001_PSQL_READONLY=1 parkio_priv001_auth_psql -t -A -c "$SQL")"
 # Validate JSON-ish and scan for secrets.
 printf '%s\n' "$OUT" | parkio_priv001_json_loads_stdin >/dev/null
 TMP="$(mktemp)"

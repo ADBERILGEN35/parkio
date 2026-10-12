@@ -5,8 +5,14 @@
 # Does NOT call DELETE /api/v1/account (canonical erasure is a later package).
 #
 # Required:
-#   --environment invite-production
+#   --environment invite-production | civo-production
 #   --confirm-synthetic-only
+#
+# civo-production (parkio-civo-prod only; see scripts/lib/priv001-synthetic.sh "Civo production
+# mode"): registration needs a one-time invite. It is created inside the auth-service container
+# from that container's own operator token, so the live window must already have enabled invite
+# creation. The gateway and the auth database are reached with `docker exec`; no password, token or
+# invite is put on a command line. --gateway-url does not apply there and is refused.
 #
 # Optional:
 #   --gateway-url http://127.0.0.1:8080   (dark gateway allowlist only)
@@ -49,6 +55,7 @@ CREDENTIALS_FILE=""
 EVIDENCE_FILE=""
 SKIP_SEED=0
 DRY_RUN_GUARDS=0
+GATEWAY_URL_GIVEN=0
 
 usage() {
   cat <<'EOF'
@@ -84,6 +91,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --gateway-url)
       GATEWAY_URL="${2-}"
+      GATEWAY_URL_GIVEN=1
       shift 2
       ;;
     --max-age-seconds)
@@ -125,8 +133,15 @@ if [ -z "${PARKIO_DEPLOYMENT_PROFILE:-}" ] && [ "$ENVIRONMENT" = "invite-product
   export PARKIO_DEPLOYMENT_PROFILE=invite-production
 fi
 
-parkio_priv001_require_invite_production_opt_in
-parkio_validate_dark_gateway_url "$GATEWAY_URL"
+parkio_priv001_require_opt_in
+if parkio_priv001_is_civo; then
+  if [ "$GATEWAY_URL_GIVEN" = "1" ]; then
+    echo "ERROR: --gateway-url does not apply to civo-production (the gateway is reached inside its container)." >&2
+    exit 2
+  fi
+else
+  parkio_validate_dark_gateway_url "$GATEWAY_URL"
+fi
 
 ACCEPTANCE_ID="PRIV001A-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 4 2>/dev/null || printf '%04x' "$RANDOM")"
 LOCAL_PART="$(parkio_priv001_generate_local_part)"
@@ -138,8 +153,15 @@ if [ "$DRY_RUN_GUARDS" = "1" ]; then
   echo "acceptance_id=${ACCEPTANCE_ID}"
   echo "synthetic_domain=${PRIV001_SYNTHETIC_DOMAIN}"
   echo "email_form=priv001a-<id>@${PRIV001_SYNTHETIC_DOMAIN}"
-  echo "verification=allowlisted-managed-auth-sql"
-  echo "erasure=canonical-DELETE-/api/v1/account-later"
+  if parkio_priv001_is_civo; then
+    echo "environment=civo-production"
+    echo "registration=one-time-operator-invite"
+    echo "verification=allowlisted-auth-sql-docker-exec"
+    echo "erasure=canonical-DELETE-/api/v1/account (erase-priv001-synthetic-principal.sh)"
+  else
+    echo "verification=allowlisted-managed-auth-sql"
+    echo "erasure=canonical-DELETE-/api/v1/account-later"
+  fi
   exit 0
 fi
 
@@ -165,6 +187,162 @@ cleanup_secrets_on_error() {
   :
 }
 trap cleanup_secrets_on_error ERR
+
+# civo-production: invite -> register -> allowlisted verification -> login -> /auth/me, every request
+# made through parkio_priv001_civo_http (curl config on stdin inside the gateway container).
+priv001_civo_create() {
+  local work code invite auth_user_id auth_status verified_id access refresh login_status me_code matrix mode t0 counts
+  work="$(mktemp -d "${TMPDIR:-/tmp}/priv001a-civo.XXXXXX")"
+  chmod 700 "$work"
+  # shellcheck disable=SC2064
+  trap "rm -rf -- '$work'" EXIT
+
+  # Everything that can refuse is checked before an invite exists (an invite's raw token cannot be recovered).
+  parkio_priv001_civo_resolve_all
+  mode="$(parkio_priv001_civo_registration_mode)"
+  case "$mode" in
+    INVITE) ;;
+    CLOSED)
+      echo "ERROR: registration mode is CLOSED; the window must set PARKIO_REGISTRATION_MODE=invite first (no invite was created)." >&2
+      exit 1 ;;
+    OPEN)
+      echo "ERROR: registration mode is OPEN; an invite would never be consumed. Refusing (no invite was created)." >&2
+      exit 1 ;;
+    *)
+      echo "ERROR: cannot read the registration mode (got '${mode:-nothing}'); no invite was created." >&2
+      exit 1 ;;
+  esac
+  t0="$(parkio_priv001_civo_db_now)"
+  if [ -z "$t0" ]; then
+    echo "ERROR: cannot read the auth database clock; no invite was created." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: registration mode INVITE; containers resolved"
+
+  echo "PRIV-001A: requesting one registration invite (operator token stays inside auth-service)"
+  code="$(parkio_priv001_civo_create_invite "$work/invite.json")"
+  case "$code" in
+    200|201) ;;
+    NOTOKEN)
+      echo "ERROR: auth-service has no PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN; the live window has not set up invite creation." >&2
+      exit 1 ;;
+    *)
+      echo "ERROR: invite creation failed http=${code} (invite creation must be enabled for the window)." >&2
+      grep -E '"code"|"status"|"message"' "$work/invite.json" 2>/dev/null | head -n 5 >&2 || true
+      exit 1 ;;
+  esac
+  invite="$(parkio_priv001_json_get "$work/invite.json" "token")"
+  rm -f "$work/invite.json"
+  if ! [[ "$invite" =~ ^[A-Za-z0-9_-]{16,256}$ ]]; then
+    echo "ERROR: invite response holds no URL-safe token." >&2
+    echo "NOTE: an invite (created_by=priv001a) may exist unconsumed until it expires (PARKIO_REGISTRATION_INVITE_TTL, default P7D)." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: invite=PASS"
+
+  # The credentials file holds every known field from here on, so a failure after registration never
+  # loses the password, and erase-priv001-synthetic-principal.sh --delete can still finish and erase the account.
+  write_creds() {
+    {
+      printf 'acceptance_id=%s\n' "$ACCEPTANCE_ID"
+      [ -z "${auth_user_id:-}" ] || printf 'auth_user_id=%s\n' "$auth_user_id"
+      printf 'email=%s\n' "$EMAIL"
+      printf 'password=%s\n' "$PASSWORD"
+      [ -z "${access:-}" ] || printf 'access_token=%s\n' "$access"
+      [ -z "${refresh:-}" ] || printf 'refresh_token=%s\n' "$refresh"
+    } > "$CREDENTIALS_FILE"
+    chmod 600 "$CREDENTIALS_FILE"
+  }
+  write_creds
+
+  echo "PRIV-001A: registering synthetic principal (acceptance_id=${ACCEPTANCE_ID})"
+  code="$(parkio_priv001_civo_http POST /api/v1/auth/register \
+    "$(printf '{"email":"%s","password":"%s","locale":"en","inviteToken":"%s"}' "$EMAIL" "$PASSWORD" "$invite")" \
+    "" "$work/register.json")"
+  invite=""
+  if [ "$code" != "201" ] && [ "$code" != "200" ]; then
+    echo "ERROR: register failed http=${code}" >&2
+    grep -E '"code"|"status"|"message"' "$work/register.json" 2>/dev/null | head -n 5 >&2 || true
+    echo "NOTE: one unconsumed invite (created_by=priv001a) remains until it expires (PARKIO_REGISTRATION_INVITE_TTL, default P7D)." >&2
+    exit 1
+  fi
+  auth_user_id="$(parkio_priv001_json_get "$work/register.json" "user.id")"
+  auth_status="$(parkio_priv001_json_get "$work/register.json" "user.status")"
+  rm -f "$work/register.json"
+  if [ -z "$auth_user_id" ]; then
+    echo "ERROR: register response missing user.id" >&2
+    exit 1
+  fi
+  if [ "$auth_status" != "PENDING_VERIFICATION" ]; then
+    echo "ERROR: expected PENDING_VERIFICATION, got ${auth_status}" >&2
+    exit 1
+  fi
+  write_creds
+  echo "PRIV-001A: register=PASS user_id=${auth_user_id} status=${auth_status}"
+
+  echo "PRIV-001A: applying allowlisted verification mutation"
+  verified_id="$(parkio_priv001_mark_verified "$EMAIL" "$MAX_AGE")"
+  if [ "$verified_id" != "$auth_user_id" ]; then
+    echo "ERROR: verified id mismatch (TOCTOU / unexpected row)." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: verify=PASS"
+
+  code="$(parkio_priv001_civo_http POST /api/v1/auth/login \
+    "$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD")" "" "$work/login.json")"
+  if [ "$code" != "200" ]; then
+    echo "ERROR: login failed http=${code}" >&2
+    grep -E '"code"|"status"|"message"' "$work/login.json" 2>/dev/null | head -n 5 >&2 || true
+    exit 1
+  fi
+  access="$(parkio_priv001_json_get "$work/login.json" "accessToken")"
+  refresh="$(parkio_priv001_json_get "$work/login.json" "refreshToken")"
+  login_status="$(parkio_priv001_json_get "$work/login.json" "user.status")"
+  rm -f "$work/login.json"
+  if [ -z "$access" ] || [ "$login_status" != "ACTIVE" ]; then
+    echo "ERROR: login did not yield ACTIVE authenticated session." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: login=PASS status=${login_status}"
+
+  write_creds
+
+  # The invite must have been consumed by this registration (read-only, session-level read-only).
+  counts="$(parkio_priv001_civo_invite_accounting "$t0")"
+  if [ "$counts" != "1|0" ]; then
+    echo "ERROR: invite accounting since ${t0}: created|unconsumed = ${counts:-?} (want 1|0)." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: invite accounting PASS (created 1, unconsumed 0)"
+  matrix="auth_principal=SEEDED;registration=ONE_TIME_OPERATOR_INVITE"
+  if [ "$SKIP_SEED" = "0" ]; then
+    me_code="$(parkio_priv001_civo_http GET /api/v1/auth/me "" "$access" "$work/me.json")"
+    rm -f "$work/me.json"
+    if [ "$me_code" = "200" ]; then matrix="${matrix};auth_me=SEEDED"; else matrix="${matrix};auth_me=NOT_REQUIRED"; fi
+  fi
+  PASSWORD=""
+  access=""
+  refresh=""
+
+  parkio_priv001_write_evidence_json "$EVIDENCE_FILE" "$ACCEPTANCE_ID" "$auth_user_id" "$matrix" \
+    "civo-production" "POST /api/v1/auth/register with a one-time operator invite" "allowlisted-auth-sql-docker-exec" \
+    "{\"registrationMode\": \"INVITE\", \"inviteAccounting\": {\"since\": \"${t0}\", \"created\": 1, \"unconsumed\": 0}}"
+  parkio_priv001_secret_scan_text "$EVIDENCE_FILE"
+
+  echo "PASS: PRIV-001A synthetic principal created"
+  echo "acceptance_id=${ACCEPTANCE_ID}"
+  echo "auth_user_id=${auth_user_id}"
+  echo "credentials_file=${CREDENTIALS_FILE}"
+  echo "evidence_file=${EVIDENCE_FILE}"
+  echo "fixture_matrix=${matrix}"
+  echo "NOTE: password/JWT written only to credentials_file (mode 600); not printed."
+  echo "NOTE: cleanup must use DELETE /api/v1/account (erase-priv001-synthetic-principal.sh)."
+  exit 0
+}
+
+if parkio_priv001_is_civo; then
+  priv001_civo_create
+fi
 
 echo "PRIV-001A: registering synthetic principal (acceptance_id=${ACCEPTANCE_ID})"
 
