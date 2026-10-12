@@ -6,7 +6,8 @@
 > today, and nothing live changes. `deploy-hosted-beta.sh` and `rollback-hosted-beta.sh` print
 > a warning when they run it. Known gaps compared with the wrapper:
 > - it cannot build digest-pinned services ("build tag cannot contain a digest"), so a fresh
->   build-and-deploy stops at the first pinned service; rendering, dry-run and rollback work;
+>   build-and-deploy stops at the first pinned service; rendering and dry-run work. Since U13 the
+>   list pins every app service, so a rollback has nothing to re-point and is refused (exit 3);
 > - it adds `docker/docker-compose.images.yml` (build arguments and `parkio/<service>:sha-…`
 >   names for the unpinned services);
 > - it has no Civo Alertmanager overlay.
