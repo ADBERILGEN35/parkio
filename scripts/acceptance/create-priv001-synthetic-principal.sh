@@ -191,11 +191,33 @@ trap cleanup_secrets_on_error ERR
 # civo-production: invite -> register -> allowlisted verification -> login -> /auth/me, every request
 # made through parkio_priv001_civo_http (curl config on stdin inside the gateway container).
 priv001_civo_create() {
-  local work code invite auth_user_id auth_status verified_id access refresh login_status me_code matrix
+  local work code invite auth_user_id auth_status verified_id access refresh login_status me_code matrix mode t0 counts
   work="$(mktemp -d "${TMPDIR:-/tmp}/priv001a-civo.XXXXXX")"
   chmod 700 "$work"
   # shellcheck disable=SC2064
   trap "rm -rf -- '$work'" EXIT
+
+  # Everything that can refuse is checked before an invite exists (an invite's raw token cannot be recovered).
+  parkio_priv001_civo_resolve_all
+  mode="$(parkio_priv001_civo_registration_mode)"
+  case "$mode" in
+    INVITE) ;;
+    CLOSED)
+      echo "ERROR: registration mode is CLOSED; the window must set PARKIO_REGISTRATION_MODE=invite first (no invite was created)." >&2
+      exit 1 ;;
+    OPEN)
+      echo "ERROR: registration mode is OPEN; an invite would never be consumed. Refusing (no invite was created)." >&2
+      exit 1 ;;
+    *)
+      echo "ERROR: cannot read the registration mode (got '${mode:-nothing}'); no invite was created." >&2
+      exit 1 ;;
+  esac
+  t0="$(parkio_priv001_civo_db_now)"
+  if [ -z "$t0" ]; then
+    echo "ERROR: cannot read the auth database clock; no invite was created." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: registration mode INVITE; containers resolved"
 
   echo "PRIV-001A: requesting one registration invite (operator token stays inside auth-service)"
   code="$(parkio_priv001_civo_create_invite "$work/invite.json")"
@@ -213,9 +235,25 @@ priv001_civo_create() {
   rm -f "$work/invite.json"
   if ! [[ "$invite" =~ ^[A-Za-z0-9_-]{16,256}$ ]]; then
     echo "ERROR: invite response holds no URL-safe token." >&2
+    echo "NOTE: an invite (created_by=priv001a) may exist unconsumed until it expires (PARKIO_REGISTRATION_INVITE_TTL, default P7D)." >&2
     exit 1
   fi
   echo "PRIV-001A: invite=PASS"
+
+  # The credentials file holds every known field from here on, so a failure after registration never
+  # loses the password: erase-priv001-synthetic-principal.sh --delete can still finish and erase the account.
+  write_creds() {
+    {
+      printf 'acceptance_id=%s\n' "$ACCEPTANCE_ID"
+      [ -z "${auth_user_id:-}" ] || printf 'auth_user_id=%s\n' "$auth_user_id"
+      printf 'email=%s\n' "$EMAIL"
+      printf 'password=%s\n' "$PASSWORD"
+      [ -z "${access:-}" ] || printf 'access_token=%s\n' "$access"
+      [ -z "${refresh:-}" ] || printf 'refresh_token=%s\n' "$refresh"
+    } > "$CREDENTIALS_FILE"
+    chmod 600 "$CREDENTIALS_FILE"
+  }
+  write_creds
 
   echo "PRIV-001A: registering synthetic principal (acceptance_id=${ACCEPTANCE_ID})"
   code="$(parkio_priv001_civo_http POST /api/v1/auth/register \
@@ -225,6 +263,7 @@ priv001_civo_create() {
   if [ "$code" != "201" ] && [ "$code" != "200" ]; then
     echo "ERROR: register failed http=${code}" >&2
     grep -E '"code"|"status"|"message"' "$work/register.json" 2>/dev/null | head -n 5 >&2 || true
+    echo "NOTE: one unconsumed invite (created_by=priv001a) remains until it expires (PARKIO_REGISTRATION_INVITE_TTL, default P7D)." >&2
     exit 1
   fi
   auth_user_id="$(parkio_priv001_json_get "$work/register.json" "user.id")"
@@ -238,6 +277,7 @@ priv001_civo_create() {
     echo "ERROR: expected PENDING_VERIFICATION, got ${auth_status}" >&2
     exit 1
   fi
+  write_creds
   echo "PRIV-001A: register=PASS user_id=${auth_user_id} status=${auth_status}"
 
   echo "PRIV-001A: applying allowlisted verification mutation"
@@ -265,16 +305,15 @@ priv001_civo_create() {
   fi
   echo "PRIV-001A: login=PASS status=${login_status}"
 
-  {
-    printf 'acceptance_id=%s\n' "$ACCEPTANCE_ID"
-    printf 'auth_user_id=%s\n' "$auth_user_id"
-    printf 'email=%s\n' "$EMAIL"
-    printf 'password=%s\n' "$PASSWORD"
-    printf 'access_token=%s\n' "$access"
-    printf 'refresh_token=%s\n' "$refresh"
-  } > "$CREDENTIALS_FILE"
-  chmod 600 "$CREDENTIALS_FILE"
+  write_creds
 
+  # The invite must have been consumed by this registration (read-only, session-level read-only).
+  counts="$(parkio_priv001_civo_invite_accounting "$t0")"
+  if [ "$counts" != "1|0" ]; then
+    echo "ERROR: invite accounting since ${t0}: created|unconsumed = ${counts:-?} (want 1|0)." >&2
+    exit 1
+  fi
+  echo "PRIV-001A: invite accounting PASS (created 1, unconsumed 0)"
   matrix="auth_principal=SEEDED;registration=ONE_TIME_OPERATOR_INVITE"
   if [ "$SKIP_SEED" = "0" ]; then
     me_code="$(parkio_priv001_civo_http GET /api/v1/auth/me "" "$access" "$work/me.json")"
@@ -286,7 +325,8 @@ priv001_civo_create() {
   refresh=""
 
   parkio_priv001_write_evidence_json "$EVIDENCE_FILE" "$ACCEPTANCE_ID" "$auth_user_id" "$matrix" \
-    "civo-production" "POST /api/v1/auth/register with a one-time operator invite" "allowlisted-auth-sql-docker-exec"
+    "civo-production" "POST /api/v1/auth/register with a one-time operator invite" "allowlisted-auth-sql-docker-exec" \
+    "{\"registrationMode\": \"INVITE\", \"inviteAccounting\": {\"since\": \"${t0}\", \"created\": 1, \"unconsumed\": 0}}"
   parkio_priv001_secret_scan_text "$EVIDENCE_FILE"
 
   echo "PASS: PRIV-001A synthetic principal created"
