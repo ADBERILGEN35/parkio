@@ -1,0 +1,62 @@
+NR attachment diagnostic | <host> | 2026-10-12T09:37:14Z | read-only
+== A. T1's exact check, stdout and stderr captured separately
+  exit code 0; stdout 0 line(s), 0 with live-helper=attached; stderr 3 line(s), 3 with live-helper=attached
+  T1 nr_attached() parses stdout only -> counts 0/0 attached; nr-step.sh (stdout and stderr merged) -> counts 3
+  stderr: source-preflight PASS: service=gateway-service live-helper=attached id=111111111111 spool=readable
+  stderr: source-preflight PASS: service=auth-service live-helper=attached id=222222222222 spool=readable
+  stderr: source-preflight PASS: service=parking-service live-helper=attached id=333333333333 spool=readable
+== B. independent comparison with the current containers
+  gateway-service: container 111111111111 started 2026-10-12T09:32:14.000000000Z
+    helper status attached, container 111111111111, updated 2026-10-12T09:32:24.000000000Z
+    cursor container 111111111111, last log line read 2026-10-12T09:37:09.000000000Z (5 s ago)
+    spool readable yes, 43 bytes, last written 0 s ago
+    -> ATTACHED to the current container
+  auth-service: container 222222222222 started 2026-10-11T08:37:14.000000000Z
+    helper status attached, container 222222222222, updated 2026-10-12T09:32:24.000000000Z
+    cursor container 222222222222, last log line read 2026-10-12T09:37:09.000000000Z (5 s ago)
+    spool readable yes, 43 bytes, last written 0 s ago
+    -> ATTACHED to the current container
+  parking-service: container 333333333333 started 2026-10-11T07:13:54.000000000Z
+    helper status attached, container 333333333333, updated 2026-10-12T09:32:24.000000000Z
+    cursor container 333333333333, last log line read 2026-10-12T09:37:09.000000000Z (5 s ago)
+    spool readable yes, 43 bytes, last written 0 s ago
+    -> ATTACHED to the current container
+  independently attached: 3 of 3
+== C. helper journal since 2026-10-11T07:13:54.000000000Z (ATTACHED lines only)
+  2026-10-12T09:32:20+0000 source-helper ATTACHED service=gateway-service id=111111111111 since=2026-10-12T09:32:18Z
+== D. NR units and transport containers
+  unit parkio-nr-log-source.service: active
+  unit parkio-nr-log-continuous.service: active
+  unit parkio-nr-log-continuous-guard.timer: active
+  unit parkio-nr-log-continuous-guard.service: active
+  container nr-budget-gate aaaa running healthy started 2026-10-10T08:00:00Z restarts 0
+  container fluent-bit-nr-pilot bbbb running healthy started 2026-10-10T08:00:01Z restarts 0
+
+NR ATTACHMENT VERIFIED - 3 of 3 sources attached to the current gateway, auth and parking containers;
+the check exits 0 and prints its PASS lines on stderr, so a parser that reads stdout only counts 0/0
+ok   s1.out exit 0
+ok   s1.out: exit code 0; stdout 0 line(s), 0 with live-helper=attached; stderr 3 line(s), 3 with live-helper=attached
+ok   s1.out: T1 nr_attached() parses stdout only -> counts 0/0 attached; nr-step.sh (stdout and stderr merged) -> counts 3
+ok   s1.out: stderr: source-preflight PASS: service=gateway-service live-helper=attached id=111111111111 spool=readable
+ok   s1.out: gateway-service: container 111111111111 started
+ok   s1.out: helper status attached, container 111111111111
+ok   s1.out: -> ATTACHED to the current container
+ok   s1.out: independently attached: 3 of 3
+ok   s1.out: source-helper ATTACHED service=gateway-service id=111111111111 since=2026-10-12T09:32:18Z
+ok   s1.out: unit parkio-nr-log-source.service: active
+ok   s1.out: container nr-budget-gate aaaa running healthy
+ok   s1.out: NR ATTACHMENT VERIFIED - 3 of 3 sources attached
+ok   s1: only ATTACHED journal lines printed
+ok   s1.out: no log content printed
+ok   s2.out exit 1
+ok   s2.out: FAIL gateway-service is not attached to its current container (status attached; status file names 999999999999
+ok   s2.out: NR ATTACHMENT NOT VERIFIED
+ok   s2.out: no log content printed
+ok   s3.out exit 1
+ok   s3.out: FAIL the check exited 1
+ok   s3.out: stderr: source-preflight FAIL: gateway-service live helper identity
+ok   s4.out exit 1
+ok   s4.out: FAIL gateway-service: 2 running container(s), expected exactly 1
+ok   s5.out exit 1
+ok   s5.out: cursor names 999999999999
+SELFTEST PASS
