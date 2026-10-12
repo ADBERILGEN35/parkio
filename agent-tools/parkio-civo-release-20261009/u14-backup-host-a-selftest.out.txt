@@ -1,0 +1,80 @@
+U14 run A (backup host) | 2026-10-12T17:46:50Z | stamp 2026-10-12T11-18-41Z | read-only, no restore
+== 0. preconditions
+  release checkout <W>/release at the PIN 0ec0ab0c620a, clean; backup-dated-acceptance.sh sha256 3014cc2a7820e0cb
+  backup job: '30 3 * * *' as root, approved command; cron variables applied: SHELL PATH MAILTO
+  deployment profile azure-hosted-beta; offsite kind s3; operational passphrase set (value not shown)
+  stamp 2026-10-12T11-18-41Z: 6863 bytes; newer local stamps: 0; free under <W>/tmproot 890947 MiB
+
+== 1. backup-dated-acceptance.sh --stamp-dir <stamp> --decrypt (the backup job's environment)
+  stamp 2026-10-12T11-18-41Z | localSha256sums 20e39d76ecd9858a36186c21d124fdf3abb0a144c22a60317ea40e4f989c9cc8 | offsite s3 | verdict INCOMPLETE
+  complete          PASS     stamp preflight PASS (full scope): COMPLETE binds SHA256SUMS, files verified, minioOk=1
+  remote-presence   PASS     15/15 expected objects listed; missing=[] size_mismatch=[] unexpected=[]
+  remote-integrity  PASS     pulled copy: 13 files verified, nothing outside the seal; SHA256SUMS digest 20e39d76ecd9858a36186c21d124fdf3abb0a144c22a60317ea40e4f989c9cc8 is the sealed stamp's
+  decrypt           PASS     11 encrypted artifacts decrypt and decompress (streamed, nothing written)
+  isolated-restore  NOT_RUN  outcome 5 runs on a disposable drill host (--pulled)
+  (acceptance exit 4: 4 = no FAIL, but outcome 5 is NOT_RUN here by design; 1 = at least one FAIL)
+  outcome 4 uses the host's operational passphrase: it proves the stamp opens with the key the backup used,
+  not that an independently held recovery copy of that passphrase exists (see the custody check).
+
+== 2. custody check (independently held recovery copy of the passphrase; optional)
+  Type the passphrase from the independently held recovery copy, or press Enter to skip.
+  It is not echoed, not stored and not printed.
+  Recovery passphrase: 
+  custody check: PASS - the recovery copy opens all 11 encrypted artifacts of this stamp (streamed, nothing written)
+
+== 3. reuse of the release's P5b evidence
+  SHA-256 of SHA256SUMS 20e39d76ecd9858a36186c21d124fdf3abb0a144c22a60317ea40e4f989c9cc8: matches the P5b receipt (PASS, verified 2026-10-12T11:25:00Z, offsite identical True)
+
+evidence: <W>/out/u14/20261012T174650Z-2026-10-12T11-18-41Z/backup-host/ (acceptance.json acceptance.md custody-check.json local-preflight.json remote-listing.tsv run.json )
+acceptance.json sha256 6d5fdec81a32e3d47a3db4d45bb5738c94f61b556d66f972aa715eba74b64ed2
+temporary copy and raw logs deleted: yes
+U14 A RECORDED
+wrapper exit=0
+ok   c1.out: wrapper exit=0
+ok   c1.out: U14 A RECORDED
+ok   c1.out: /complete +PASS/
+ok   c1.out: /remote-presence +PASS/
+ok   c1.out: /remote-integrity +PASS/
+ok   c1.out: /decrypt +PASS/
+ok   c1.out: /isolated-restore +NOT_RUN/
+ok   c1.out: custody check: PASS - the recovery copy opens all 11 encrypted artifacts
+ok   c1.out: matches the P5b receipt (PASS, verified 2026-10-12T11:25:00Z
+ok   c1.out: temporary copy and raw logs deleted: yes
+ok   c1.out: outcome 4 uses the host's operational passphrase
+ok   c1: evidence dir 700, files 600
+ok   c1: the six evidence files
+ok   c1: nothing left under the temporary root
+ok   c1: custody-check.json and run.json
+ok   c1.out: no passphrase in the output or the evidence
+ok   c2.out: custody check: NOT_RUN - skipped by the operator
+ok   c2.out: /decrypt +PASS/
+ok   c2.out: U14 A RECORDED
+ok   c2.out: no passphrase in the output or the evidence
+ok   c3.out: custody check: FAIL - 11 of 11 encrypted artifacts do not open with the recovery copy
+ok   c3.out: /decrypt +PASS/
+ok   c3.out: U14 A RECORDED
+ok   c3.out: no passphrase in the output or the evidence
+ok   c4.out: /complete +FAIL .*erasure-ledger/
+ok   c4.out: /remote-presence +PASS/
+ok   c4.out: /remote-integrity +PASS/
+ok   c4.out: /decrypt +PASS/
+ok   c4.out: U14 A RECORDED
+ok   c4.out: no passphrase in the output or the evidence
+ok   c5.out: /remote-integrity +FAIL/
+ok   c5.out: /decrypt +NOT_RUN/
+ok   c5.out: custody check: NOT_RUN - no verified copy (remote-integrity FAIL)
+ok   c5.out: U14 A RECORDED
+ok   c5.out: no passphrase in the output or the evidence
+ok   c6.out: STOP: the release checkout
+ok   c6.out: local change(s)
+ok   c6.out: wrapper exit=1
+ok   c7.out: is not the reviewed
+ok   c7.out: wrapper exit=1
+ok   c8.out:     2026-10-12T11-18-41Z
+ok   c8.out: STOP: stamp 2026-10-01T03-30-00Z has no COMPLETE
+ok   c8.out: wrapper exit=1
+ok   c9.out: job line(s) for the backup entry point (want exactly 1)
+ok   c9.out: wrapper exit=1
+ok   c6-c9: nothing pulled, no evidence
+ok   c10: the cron reader is byte-identical to P5b's
+SELFTEST PASS
