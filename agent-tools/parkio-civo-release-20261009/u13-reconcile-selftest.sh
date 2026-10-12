@@ -65,9 +65,11 @@ FROM busybox:latest
 LABEL u13t=other
 EOF
 sed -i "/^  svc-other:/,/^  svc-built:/ s#image: .*#image: $P-other-image:v1#" "$W/live/docker/docker-compose.yml"
+# a parkio service that only the dirty live checkout defines
+printf '  svc-extra:\n    image: busybox:latest\n    command: ["sleep", "3600"]\n' >> "$W/live/docker/docker-compose.yml"
 printf 'PARKIO_DOMAIN=example\nFOO_ENABLED=true\nBAR_FLAG=false\nFEATURE_X=\nSERVICE_API_TOKEN=%s\n' "$SECRET" > "$W/env"; chmod 600 "$W/env"
 (cd "$W/rel" && PARKIO_ENV_FILE="$W/env" ./scripts/parkio-prod-compose.sh up -d --build svc-pinned svc-built >/dev/null 2>&1)
-(cd "$W/live" && docker compose -p "$P" --env-file "$W/env" -f docker/docker-compose.yml up -d svc-tag svc-other >/dev/null 2>&1)
+(cd "$W/live" && docker compose -p "$P" --env-file "$W/env" -f docker/docker-compose.yml up -d svc-tag svc-other svc-extra >/dev/null 2>&1)
 cat > "$W/other/docker/docker-compose.yml" <<EOF
 services:
   helper:
@@ -76,7 +78,7 @@ services:
 EOF
 (cd "$W/other" && docker compose -p "$P-other" -f docker/docker-compose.yml up -d >/dev/null 2>&1)
 docker run -d --name "$P-plain" busybox:latest sleep 3600 >/dev/null
-echo '{"status": "complete", "steps": {"D7": {"status": "ok", "stamp": "20261012T123453Z"}}}' > "$W/out/state.json"
+echo '{"status": "complete", "steps": {"D7": {"status": "ok", "stamp": "20261012T123453Z"}}, "u12": {"dltUserEndBefore": {"0": 5}}}' > "$W/out/state.json"
 echo '{"result": "PASS", "u12": {"dltUserEndBefore": {"0": 7, "1": 0, "2": 3}, "scoreEndBefore": {"0": 10}, "Tg": "2026-10-12T12:49:14.1Z", "scoreEndAtTg": {"0": 12}}}' > "$W/out/steps/D7-20261012T123453Z.json"
 export U13R_T1="$T1" U13R_T1_SHA256="$(sha256sum "$T1" | cut -d' ' -f1)" U13R_PIN="$PIN" T1_RELEASE="$W/rel" T1_LIVE="$W/live" \
   T1_ENV_FILE="$W/env" T1_OUT="$W/out" T1_PROJECT="$P"
@@ -90,12 +92,15 @@ sed -e "s#$W#<W>#g" -e "s#$P#<p>#g" "$W/r1.out" | cut -c1-200
 [ "$rc" = 0 ] && ok "r1 exit 0" || no "r1 exit $rc"
 grep -q "HEAD ${PIN:0:12} (= PIN), clean" "$W/r1.out" && ok "r1: release checkout = PIN, clean" || no "r1 release head"
 grep -q "live checkout .*1 changed path(s)" "$W/r1.out" && ok "r1: the dirty live checkout reported (1 changed path)" || no "r1 live changes"
-for c in "svc-pinned-1 .*pinned " "svc-other-1 .*pinned-other " "svc-built-1 .*release-built " "svc-tag-1 .*canonical-tag " "helper-1 .*outside " "$P-plain .*unknown "; do
+for c in "svc-pinned-1 .*pinned " "svc-other-1 .*pinned-other " "svc-built-1 .*release-built " "svc-tag-1 .*canonical-tag " "helper-1 .*outside " "svc-extra-1 .*outside " "$P-plain .*unknown "; do
   grep -E -q -- "$c" "$W/r1.out" && ok "r1: class $c" || no "r1: class $c"
 done
 grep -E -q "svc-pinned-1 .*self-check ok canonical =" "$W/r1.out" && ok "r1: canonical-created service self-check ok and equal to canonical" || no "r1 pinned self-check"
 grep -E -q "svc-tag-1 .*self-check ok canonical ≠" "$W/r1.out" && ok "r1: live-created service self-check ok, differs from canonical" || no "r1 tag self-check"
 has r1.out "differs from canonical in: environment[EXTRA_TOKEN]"
+has r1.out "ref busybox:latest | another Compose project, own reference by tag"
+has r1.out "ref busybox:latest | a parkio service the canonical render lacks, own reference by tag"
+has r1.out "source: steps/D7-20261012T123453Z.json"
 has r1.out "rev fakepin"
 has r1.out "canonical services without a running container: svc-absent"
 has r1.out "FOO_ENABLED: true"; has r1.out "BAR_FLAG: false"; has r1.out "FEATURE_X: empty"
@@ -117,5 +122,10 @@ assert r["problems"] == [] and r["u12"]["dltUserEndBefore"] == {"0": 7, "1": 0, 
 PY
 U13R_T1_SHA256="$(printf '0%.0s' $(seq 64))" python3 -I "$TOOL" > "$W/r2.out" 2>&1; rc=$?
 [ "$rc" = 1 ] && grep -q "STOP: the installed T1" "$W/r2.out" && ok "r2: wrong T1 checksum -> STOP" || no "r2 exit $rc"
+mv "$W/out/steps/D7-20261012T123453Z.json" "$W/d7.bak"; sleep 1
+python3 -I "$TOOL" > "$W/r3.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "r3 exit 0 (D7 record unreadable, state.json u12 used)" || no "r3 exit $rc"
+has r3.out "source: state.json u12"; has r3.out 'dltUserEndBefore: {"0": 5}'
+mv "$W/d7.bak" "$W/out/steps/D7-20261012T123453Z.json"
 [ "$fail" -eq 0 ] && echo "SELFTEST PASS" || echo "SELFTEST FAIL"
 exit "$fail"

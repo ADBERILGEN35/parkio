@@ -208,6 +208,8 @@ def main():
             if inputs.get("missing"):
                 groups[key]["error"] = None          # recorded files gone: no re-render possible (a finding, not a failure)
             g = groups[key]
+            if row["service"] not in g["hashes"] and not inputs.get("missing") and g["model"] is not None:
+                g["hashes"][row["service"]] = t1.recorded_hash(inputs, row["service"])   # Compose without --hash '*'
             row["inputs"] = {"workingDir": inputs.get("workingDir"), "files": [os.path.basename(f) for f in inputs.get("files") or []],
                              "envFile": os.path.basename(inputs.get("envFile") or ""), "missing": inputs.get("missing")}
             row["recordedHash"] = g["hashes"].get(row["service"])
@@ -227,7 +229,10 @@ def main():
         elif canon_svc is None:
             cls = "outside"
         elif "@sha256:" in cref:
-            cls = "pinned" if t1.image_id(cref) == image_id else "pinned-other"
+            pin_digest = cref.split("@", 1)[1]
+            same = (t1.image_id(cref) == image_id or image_id == pin_digest
+                    or any(d.endswith("@" + pin_digest) for d in row["repoDigests"]))
+            cls = "pinned" if same else "pinned-other"
         elif canon_svc.get("build"):
             cls = "release-built"
         else:
@@ -237,6 +242,8 @@ def main():
         row["differences"] = differences(live_svc, canon_svc) if canon_svc is not None and not row["equalsCanonical"] else []
         if cls == "outside":
             row["ownReference"] = "digest" if "@sha256:" in (row["ref"] or "") else "tag"
+            row["outsideReason"] = ("another Compose project" if row["project"] != t1.PROJECT
+                                    else "a parkio service the canonical render lacks")
         rows.append(row)
     rows.sort(key=lambda r: (r["project"] or "~", r["service"] or r["name"]))
     for r in rows:
@@ -246,7 +253,8 @@ def main():
         say(f"  {r['name'][:40]:40} {r['class']:13} {(r['state'] or '-')}/{r['health'] or '-'} img {t1.short(r['imageId'])} "
             f"digest {dig} rev {(r['revision'] or '-')[:12]} self-check {sc} "
             f"canonical {'=' if r['equalsCanonical'] else ('-' if r['equalsCanonical'] is None else '≠')}")
-        say(f"      ref {(r['ref'] or '-')[:120]}")
+        say(f"      ref {(r['ref'] or '-')[:120]}"
+            + (f" | {r['outsideReason']}, own reference by {r['ownReference']}" if r.get("outsideReason") else ""))
         if r["differences"]:
             say(f"      differs from canonical in: {', '.join(r['differences'])[:600]}")
         if r.get("inputs"):
@@ -285,11 +293,15 @@ def main():
     say("F. U12 cutoff values from the D7 record")
     state = t1.load_state()
     d7 = (state.get("steps") or {}).get("D7") or {}
+    source = f"steps/D7-{d7.get('stamp')}.json"
     try:
         rec = json.load(open(os.path.join(t1.OUT, "steps", f"D7-{d7.get('stamp')}.json"), encoding="utf-8"))
         u12 = rec.get("u12") or {}
     except (OSError, ValueError):
         u12 = {}
+    if not u12:
+        u12, source = state.get("u12") or {}, "state.json u12 (T1 copies the D7 record's values there)"
+    say(f"  source: {source}")
     for k in ("dltUserEndBefore", "scoreEndBefore", "Tg", "scoreEndAtTg"):
         say(f"  {k}: {json.dumps(u12.get(k), sort_keys=True)}")
     rep["u12"] = {k: u12.get(k) for k in ("dltUserEndBefore", "scoreEndBefore", "Tg", "scoreEndAtTg")}
