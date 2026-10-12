@@ -1,0 +1,33 @@
+U12 replay evidence (criterion 5) | 2026-10-12T19:35:39Z | read-only
+== 0. release U12 record: T_g 2026-10-12T12:49:14Z; 6 score partitions; 3 DLT partitions at cutoff C
+== 1-3. results
+  dlt       PASS     parkio.dlt.user retains 0 records and its end offsets equal cutoff C: no pre-U12 event can be replayed from it
+  group     PASS     parkio.user committed offsets on parkio.gamification.score are at or past the T_g ends on every partition with pre-T_g records
+  residual  RECORDED parkio.gamification.score still retains 21000 record(s) from before T_g; they reach user-service only through an offset reset of parkio.user (a procedural control), not through a DLT replay; none can remain after 2026-11-18T12:54Z (T_g + segment.ms + retention.ms + the check interval)
+evidence: <W>/out/u12/20261012T193539Z/replay-evidence.json sha256 6310a862e1d98c3eb8ce5db8f9e06a2ce66f48ca11238687f7b59179ea30fa81
+U12 REPLAY EVIDENCE RECORDED - 2 PASS, 1 RECORDED
+tool exit=0
+ok   r1.out: tool exit=0
+ok   r1.out: T_g 2026-10-12T12:49:14Z; 6 score partitions; 3 DLT partitions at cutoff C
+ok   r1.out: dlt       PASS     parkio.dlt.user retains 0 records and its end offsets equal cutoff C
+ok   r1.out: group     PASS     parkio.user committed offsets on parkio.gamification.score are at or past the T_g ends
+ok   r1.out: residual  RECORDED parkio.gamification.score still retains 21000 record(s) from before T_g
+ok   r1.out: none can remain after 2026-11-18T12:54Z
+ok   r1.out: U12 REPLAY EVIDENCE RECORDED - 2 PASS, 1 RECORDED
+ok   r1: record 700/600
+ok   r1: record fields
+ok   r2.out: dlt       INSPECT  parkio.dlt.user retains 2 record(s); 2 written since cutoff C
+ok   r2.out: tool exit=0
+ok   r3.out: group     FINDING  parkio.user committed offsets on parkio.gamification.score are behind the T_g ends on partitions [2]
+ok   r4.out: residual  PASS     parkio.gamification.score retains no record from before T_g: none can be replayed by any path
+ok   r4.out: U12 REPLAY EVIDENCE RECORDED - 3 PASS
+ok   r5.out: retention.ms or segment.ms unreadable, so no end date
+ok   r5.out: tool exit=0
+ok   r5: retention read from the dynamic configs
+ok   r6.out: STOP: the release state has no complete U12 record
+ok   r6.out: tool exit=1
+ok   r7.out: STOP: cannot read the offsets of parkio.dlt.user
+ok   r7.out: tool exit=1
+ok   r6-r7: no record
+ok   r8: only kafka-get-offsets, consumer-groups --describe, configs --describe
+SELFTEST PASS
