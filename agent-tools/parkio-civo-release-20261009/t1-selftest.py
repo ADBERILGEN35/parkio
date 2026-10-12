@@ -121,6 +121,9 @@ class Host:
         self.smoke_fail = 0
         self.pebble_present = set()
         self.trivy_fail = {}
+        self.trivy_error = set()      # services whose scans write no report (scanner error, exit 1)
+        self.db_age = {"vulnerabilityDb": 3, "javaDb": 20}   # hours; None = that database's metadata missing
+        self.now = lambda: datetime.now(timezone.utc)        # the clock T1 sees (t1() sets the fake one)
         self.build_fail = set()
         self.skip_migration = set()
         self.parking_rows = "0"
@@ -330,12 +333,25 @@ class Host:
         if a[:2] == ["image", "rm"]:
             return "", 0, ""
         if a[0] == "run":
+            cache = next((x.rsplit(":", 1)[0] for x in a if x.endswith(":/trivy-cache")), None)
+            if cache is None or a[a.index("--cache-dir") + 1] != "/trivy-cache":
+                return "", 1, "2026-10-12T11:29:56Z\tFATAL\tFatal error\trun error: mkdir /root/.cache: permission denied"
+            for sub, name in (("db", "vulnerabilityDb"), ("java-db", "javaDb")):
+                if self.db_age.get(name) is not None:
+                    os.makedirs(os.path.join(cache, sub), exist_ok=True)
+                    at = (self.now() - timedelta(hours=self.db_age[name])).strftime("%Y-%m-%dT%H:%M:%S.123456789Z")
+                    path = os.path.join(cache, sub, "metadata.json")
+                    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as fh:
+                        json.dump({"Version": 2 if sub == "db" else 1, "UpdatedAt": at, "NextUpdate": at, "DownloadedAt": at}, fh)
             ref = a[-1]
             svc = ref.split("/")[1].split(":")[0]
+            if svc in self.trivy_error:
+                return "", 1, "2026-10-12T11:29:56Z\tFATAL\tFatal error\trun error: init error: DB error"
             lib = "--pkg-types" in a
-            rc = 1 if self.trivy_fail.get(svc) == ("library" if lib else "critical") else 0
-            res = {"Results": [{"Target": f"{ref} (ubuntu 26.04)", "Vulnerabilities": []}, {"Target": "Java"}]}
-            return json.dumps(res), rc, ""
+            failing = self.trivy_fail.get(svc) == ("library" if lib else "critical")
+            vulns = [{"VulnerabilityID": "CVE-2026-0001", "PkgName": "org.example:lib", "InstalledVersion": "1.0"}] if failing else []
+            res = {"Results": [{"Target": f"{ref} (ubuntu 26.04)", "Vulnerabilities": []}, {"Target": "Java", "Vulnerabilities": vulns}]}
+            return json.dumps(res), 1 if failing else 0, ""
         if a[0] == "exec":
             rest = [x for x in a[1:] if x not in ("-i",)]
             if "amtool" in rest:
@@ -421,6 +437,7 @@ def t1(host, *argv, pin=PIN, counter=[0]):
     m.run, m.http, m.free_bytes = host.run, host.http, (lambda p: 50 * 1024 ** 3)
     m.time = types.SimpleNamespace(time=time.time, sleep=lambda s: None)
     m.datetime = FakeDatetime
+    host.now = lambda: FakeDatetime.now(timezone.utc)
     buf = io.StringIO()
     code = 0
     old = sys.argv
@@ -443,6 +460,7 @@ def module(host, counter=[100]):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     m.run = host.run
+    host.now = lambda: datetime.now(timezone.utc)
     return m
 
 
@@ -530,6 +548,16 @@ def main():
           < out.index("D7.4 Run:"))
     check("S1 D7 recorded the remaining exposure", "remaining exposure (recorded, not cleaned)" in out)
     check("S1 D7 tagged parkio/<svc>:sha-<pin8>", f"parkio/user-service:sha-{PIN[:8]}" in h.images)
+    d7rec = [f for f in os.listdir(os.path.join(h.out, "steps")) if f.startswith("D7-") and f.endswith(".json")]
+    d7j = json.load(open(os.path.join(h.out, "steps", sorted(d7rec)[-1]))) if d7rec else {}
+    check("S8 D7 recorded both databases and gated their freshness before starting",
+          all((d7j.get("trivyDb") or {}).get(k) for k in ("vulnerabilityDb", "javaDb"))
+          and "PASS scan databases: vulnerability DB present and updated within 48 h: updated" in out
+          and "PASS scan databases: Java DB present and updated within 168 h: updated" in out
+          and out.index("scan databases: Java DB") < out.index("D7.4 Run:"), out[-900:])
+    check("S8 D7 scanned with the cache at /trivy-cache, never under /root",
+          all(c[c.index("--cache-dir") + 1] == "/trivy-cache" and not any(":/root" in x for x in c)
+              for c, _ in h.calls if c[:2] == ["docker", "run"]))
     code, out = t1(h, "final"); outputs.append(out)
     check("S1 final ok", code == 0, out[-1200:])
     man = os.path.join(h.final, "deployed-manifest.json")
@@ -701,6 +729,53 @@ def main():
     h2.guard_fail = True
     code, out = t1(h2, "nr-resume")
     check("S7 start path with a failing guard run -> FAIL", code == 1 and "0 PASS, 1 FAIL" in out, out[-400:])
+
+    # S8 (2026-10-12 regression): T1 v3 mounted the scanner cache under /root, which the scanner cannot reach as civo
+    # ('mkdir /root/.cache: permission denied'); a scan without a report was not told apart from findings; no DB record
+    h = fresh()
+    m = module(h)
+    base = m.trivy_base("/c")
+    check("S8 trivy_base: cache at /trivy-cache (= --cache-dir), as civo's uid, nothing under /root",
+          "/c:/trivy-cache" in base and base[base.index("--cache-dir") + 1] == "/trivy-cache"
+          and base[base.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}" and not any("/root" in x for x in base), str(base))
+    cache = os.path.join(h.out, "trivy-cache")
+    os.makedirs(cache, exist_ok=True)
+    h.trivy_error.add("user-service")
+    crit, lib, targets, note = m.trivy_scan("parkio/user-service:sha-x", cache)
+    check("S8 a scan without a report fails with the scanner's error, not as a finding",
+          (crit, lib) == (False, False) and "critical scan wrote no report (exit 1)" in note
+          and "library scan wrote no report (exit 1)" in note and "DB error" in note, note)
+    h.trivy_error.clear()
+    h.trivy_fail["user-service"] = "library"
+    crit, lib, targets, note = m.trivy_scan("parkio/user-service:sha-x", cache)
+    check("S8 a library finding fails the library gate and names the finding", (crit, lib) == (True, False)
+          and "findings: CVE-2026-0001 org.example:lib 1.0" in note, f"{crit} {lib} {note}")
+    meta = m.trivy_db_meta(cache)
+    check("S8 trivy_db_meta reads both databases with their age", meta["vulnerabilityDb"]["ageHours"] == 3.0
+          and meta["javaDb"]["ageHours"] == 20.0, str(meta))
+    for label, ages, needle in (("a stale vulnerability DB", {"vulnerabilityDb": 60, "javaDb": 20},
+                                 "FAIL scan databases: vulnerability DB present and updated within 48 h: updated"),
+                                ("a missing Java DB", {"vulnerabilityDb": 3, "javaDb": None},
+                                 "FAIL scan databases: Java DB present and updated within 168 h: missing"),
+                                ("a scanner error", None, "critical scan wrote no report")):
+        h = fresh(); receipt(h, 10)
+        t1(h, "plan")
+        for s in ("D2a", "D2b", "D2c"):
+            t1(h, "step", s)
+        t1(h, "nr-pause")
+        for s in ("D3", "D4", "D5", "D6a", "D6b"):
+            t1(h, "step", s)
+        t1(h, "nr-resume")
+        before = {s: h.containers[s]["id"] for s in BUILT}
+        if ages is None:
+            h.trivy_error.add("analytics-service")
+        else:
+            h.db_age = ages
+        code, out = t1(h, "step", "D7")
+        check(f"S8 D7 with {label} -> FAIL before any start, latest tags pointed back", code == 1 and needle in out
+              and "D7.4 Run:" not in out and all(h.containers[s]["id"] == before[s] for s in BUILT)
+              and all(h.images[f"parkio-{s}:latest"] == h.images[f"parkio-{s}:rollback-pre-22f96990"] for s in BUILT),
+              out[-900:])
 
     # S6 (2026-10-12 regression): the live helper check prints its lines on stderr; D3 counted 0/0 from stdout only
     h = fresh()

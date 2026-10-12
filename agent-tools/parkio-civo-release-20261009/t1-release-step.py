@@ -59,6 +59,8 @@ SITE = os.environ.get("T1_SITE", "https://parkio.dev")
 WRAPPER = "./scripts/parkio-prod-compose.sh"
 WAITLIST_OVERLAY = "docker/docker-compose.waitlist-ops-inbox.yml"
 TRIVY = os.environ.get("T1_TRIVY", "aquasec/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e")
+TRIVY_CACHE_MOUNT = "/trivy-cache"     # not under /root: the scanner runs with civo's uid and the image's /root is 0700
+DB_MAX_AGE = {"vulnerabilityDb": 48 * 3600, "javaDb": 7 * 24 * 3600}   # trivy-db is rebuilt every 6 h, the Java DB daily
 MIN_FREE = 12 * 1024 ** 3
 BACKUP_MAX_AGE = 2 * 3600
 BUILT = ["user-service", "gamification-service", "notification-service", "moderation-service", "ai-validation-service",
@@ -533,28 +535,81 @@ def pebble_in(ref, role):
         run(["docker", "rm", "-v", cid])
 
 
-def trivy_scan(ref, cache):
-    """Security CI's container policy: CRITICAL fixed (all packages) and HIGH/CRITICAL fixed (libraries), with the release's
-    ignore file. Returns (critical_ok, library_ok, targets)."""
+def trivy_base(cache):
+    """The pinned scanner as T1 runs it: civo's uid plus the docker socket's group, the cache bind-mounted at /trivy-cache (a
+    path that uid can reach - the image's /root is 0700, so a cache under /root fails with 'mkdir /root/.cache: permission
+    denied', 2026-10-12) and the release's ignore file."""
     try:
         sock_gid = os.stat("/var/run/docker.sock").st_gid
     except OSError:
         sock_gid = os.getgid()
-    base = ["docker", "run", "--rm", "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}", "--group-add", str(sock_gid),
+    return ["docker", "run", "--rm", "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}", "--group-add", str(sock_gid),
             "-e", "HOME=/tmp", "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
-            "-v", f"{cache}:/root/.cache/trivy", "-v", f"{os.path.join(REL, '.trivyignore.yaml')}:/work/.trivyignore.yaml:ro",
+            "-v", f"{cache}:{TRIVY_CACHE_MOUNT}", "-v", f"{os.path.join(REL, '.trivyignore.yaml')}:/work/.trivyignore.yaml:ro",
             "-w", "/work", TRIVY, "image", "--scanners", "vuln", "--ignorefile", ".trivyignore.yaml",
-            "--cache-dir", "/root/.cache/trivy", "--quiet"]
-    rc_c, out_c, err_c = run(base + ["--severity", "CRITICAL", "--ignore-unfixed", "--exit-code", "1", "--format", "json",
-                                     ref], timeout=3600)
-    rc_l, out_l, err_l = run(base + ["--pkg-types", "library", "--severity", "HIGH,CRITICAL", "--ignore-unfixed",
-                                     "--exit-code", "1", "--format", "json", ref], timeout=3600)
-    targets = []
+            "--cache-dir", TRIVY_CACHE_MOUNT, "--quiet"]
+
+
+def trivy_json(args, cache):
+    """(exit code, report, stderr). The report is None when the scanner wrote no JSON report: an error, not a finding (Trivy
+    exits 1 for both)."""
+    rc, out, err = run(trivy_base(cache) + args, timeout=3600)
     try:
-        targets = [f"{t.get('Target')} ({len(t.get('Vulnerabilities') or [])})" for t in json.loads(out_l).get("Results") or []]
+        report = json.loads(out)
     except ValueError:
-        pass
-    return (rc_c == 0, rc_l == 0, targets, first_error(err_c if rc_c not in (0, 1) else err_l if rc_l not in (0, 1) else ""))
+        report = None
+    return rc, (report if isinstance(report, dict) else None), err
+
+
+def findings(report):
+    return [f"{v.get('VulnerabilityID')} {v.get('PkgName')} {v.get('InstalledVersion')}"   # no '@': the report masks e-mail shapes
+            for t in (report or {}).get("Results") or [] for v in t.get("Vulnerabilities") or []]
+
+
+def trivy_scan(ref, cache):
+    """Security CI's container policy: CRITICAL fixed (all packages) and HIGH/CRITICAL fixed (libraries), with the release's
+    ignore file. Returns (critical_ok, library_ok, targets, note). A scan without a report fails with the scanner's first error
+    line; the note lists the findings that fail the policy."""
+    rc_c, rep_c, err_c = trivy_json(["--severity", "CRITICAL", "--ignore-unfixed", "--exit-code", "1", "--format", "json", ref],
+                                    cache)
+    rc_l, rep_l, err_l = trivy_json(["--pkg-types", "library", "--severity", "HIGH,CRITICAL", "--ignore-unfixed",
+                                     "--exit-code", "1", "--format", "json", ref], cache)
+    targets = [f"{t.get('Target')} ({len(t.get('Vulnerabilities') or [])})" for t in (rep_l or {}).get("Results") or []]
+    notes = []
+    if rep_c is None:
+        notes.append(f"critical scan wrote no report (exit {rc_c}): {first_error(err_c)}")
+    if rep_l is None:
+        notes.append(f"library scan wrote no report (exit {rc_l}): {first_error(err_l)}")
+    found = sorted(set(findings(rep_c) + findings(rep_l)))
+    if found:
+        notes.append("findings: " + ", ".join(found[:12]) + (f" (+{len(found) - 12} more)" if len(found) > 12 else ""))
+    return rc_c == 0 and rep_c is not None, rc_l == 0 and rep_l is not None, targets, "; ".join(notes)
+
+
+def trivy_db_meta(cache):
+    """The vulnerability DB and Java DB in the scanner cache: {name: {Version, UpdatedAt, NextUpdate, DownloadedAt, ageHours}}
+    or None when missing."""
+    meta = {}
+    for name, sub in (("vulnerabilityDb", "db"), ("javaDb", "java-db")):
+        try:
+            m = json.load(open(os.path.join(cache, sub, "metadata.json"), encoding="utf-8"))
+            updated = datetime.strptime(str(m.get("UpdatedAt", ""))[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            meta[name] = {k: m.get(k) for k in ("Version", "UpdatedAt", "NextUpdate", "DownloadedAt")}
+            meta[name]["ageHours"] = round((datetime.now(timezone.utc) - updated).total_seconds() / 3600, 1)
+        except (OSError, ValueError, TypeError):
+            meta[name] = None
+    return meta
+
+
+def db_current(meta):
+    """[(gate name, ok, detail)] - both databases present and no older than DB_MAX_AGE."""
+    out = []
+    for name, m in meta.items():
+        limit = DB_MAX_AGE[name] / 3600
+        label = {"vulnerabilityDb": "vulnerability DB", "javaDb": "Java DB"}[name]
+        out.append((f"{label} present and updated within {limit:.0f} h", bool(m) and m["ageHours"] <= limit,
+                    f"updated {m['UpdatedAt']} ({m['ageHours']} h ago), downloaded {m['DownloadedAt']}" if m else "missing"))
+    return out
 
 
 # ---------------------------------------------------------------- common pre-checks
@@ -949,6 +1004,10 @@ def cmd_d7(state, record, planned):
         gate(f"{svc} scan: CRITICAL fixed gate and HIGH/CRITICAL library gate", crit and lib,
              f"critical {'pass' if crit else 'FAIL'}, library {'pass' if lib else 'FAIL'}; targets {', '.join(targets) or '-'}"
              + (f"; {note}" if note else ""))
+    meta = trivy_db_meta(cache)
+    record["trivyDb"] = meta
+    for name, ok, detail in db_current(meta):
+        gate(f"scan databases: {name}", ok, detail)
     run(["rm", "-rf", cache])
     if pulled:
         run(["docker", "image", "rm", TRIVY])

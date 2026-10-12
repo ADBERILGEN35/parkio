@@ -1,0 +1,76 @@
+v3 critical_ok=False library_ok=False targets=0 note=''
+v3 stderr has 'mkdir /root/.cache: permission denied': True
+ok   r1.out: v3 critical_ok=False library_ok=False targets=0 note=''
+ok   r1.out: v3 stderr has 'mkdir /root/.cache: permission denied': True
+D7 scan preparation | stamp 20261012T114842Z | release <W>/rel @ f888a81b113c | T1 v4 01ed008c8ef2
+
+A. T1 and the release checkout
+  PASS release checkout clean at the PIN: HEAD f888a81b113c, 0 change(s)
+
+B. Scanner aquasec/trivy (pinned digest a8ca29078522)
+  PASS scanner present locally by its pinned digest: image a8ca29078522
+  PASS scanner runs (trivy --version, throwaway container, no network): Version: 0.64.1
+
+C. The release's .trivyignore.yaml (read-only)
+  PASS release ignore file present: sha256 99e5f1b72bc4fa06
+  suppressed CVE-2026-14257: expired_at 2026-10-31 (Trivy applies it only before that date)
+  suppressed CVE-2026-47884: expired_at 2026-11-05 (Trivy applies it only before that date)
+  suppressed CVE-2026-47890: expired_at 2026-11-07 (Trivy applies it only before that date)
+  suppressed CVE-2026-47892: expired_at 2026-11-07 (Trivy applies it only before that date)
+
+D. Databases in D7's scanner cache <W>/out/trivy-cache (T1's command)
+  Run: T1 trivy_base + --download-db-only
+  PASS vulnerability DB downloaded as civo with T1's scanner command: exit 0
+  Run: T1 trivy_base + --download-java-db-only
+  PASS Java DB downloaded as civo with T1's scanner command: exit 0
+  PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated 2026-10-12T09:47:21.509023105Z (2.0 h ago), downloaded 2026-10-12T11:48:56.143835873Z
+  PASS D7's freshness gate: Java DB present and updated within 168 h: updated 2026-10-12T01:00:58.130815836Z (10.8 h ago), downloaded 2026-10-12T11:50:09.160879475Z
+  cache 3012 MiB, mode 700
+
+E. D7's abort path (rollback tags) and scan path (a host-built image by tag)
+  PASS the six rollback tags <p>-<service>:rollback-pre-22f96990 present: user-service db21f797fa91, gamification-service aac5b5205d1a, notification-service 45dfea93d1b5, moderation-service f87a3dc49f1e, ai-validation-service d3bcfa0ea147, analytics-service b1425c56260f
+  Run: T1 trivy_scan <p>-notification-service:rollback-pre-22f96990
+  PASS both scans wrote a report as civo (docker socket, ignore file, JSON): targets Java (1), usr/bin/pebble (3)
+  the notification-service image running now (D7 replaces it), with today's databases: critical pass, library FAIL; findings: CVE-2026-106451 at.yawk.lz4:lz4-java 1.10.1, CVE-2026-78667 stdlib v1.26.7, CVE-2026-78669 stdlib v1.26.7, CVE-2026-97031 stdlib v1.26.7
+
+F. Free space
+  PASS free space on / >= 12 GiB after the downloads (D7's pre-check): 865.8 GiB
+
+gates passed 11/11
+D7 SCAN PREP COMPLETE - scanner, current databases and D7's scan and abort paths ready
+saved: <W>/out/scanprep-20261012T114842Z.txt / .json
+ok   p1.out exit 0
+ok   p1.out: PASS release checkout clean at the PIN
+ok   p1.out: PASS scanner present locally by its pinned digest
+ok   p1.out: PASS scanner runs (trivy --version, throwaway container, no network): Version: 0.64.1
+ok   p1.out: PASS release ignore file present
+ok   p1.out: suppressed CVE-2026-47884: expired_at 2026-11-05
+ok   p1.out: PASS vulnerability DB downloaded as civo with T1's scanner command
+ok   p1.out: PASS Java DB downloaded as civo with T1's scanner command
+ok   p1.out: PASS D7's freshness gate: vulnerability DB present and updated within 48 h: updated
+ok   p1.out: PASS D7's freshness gate: Java DB present and updated within 168 h: updated
+ok   p1.out: PASS the six rollback tags d7st20134-<service>:rollback-pre-22f96990 present: user-service
+ok   p1.out: Run: T1 trivy_scan d7st20134-notification-service:rollback-pre-22f96990
+ok   p1.out: PASS both scans wrote a report as civo (docker socket, ignore file, JSON)
+ok   p1.out: the notification-service image running now (D7 replaces it), with today's databases: critical
+ok   p1.out: PASS free space on / >= 12 GiB after the downloads
+ok   p1.out: D7 SCAN PREP COMPLETE - scanner, current databases and D7's scan and abort paths ready
+ok   p1: T1 state and journal untouched
+ok   p1: report .txt/.json mode 600
+ok   p1: cache mode 700 holds both databases
+ok   p1: JSON record has both DB metadata, six rollback tags, the baseline, scannerPulledByPrep=false
+ok   p1: no scanner container left (--rm)
+ok   p2.out exit 0
+ok   p2.out: PASS scanner pulled by its pinned digest
+ok   p2.out: PASS scanner runs (trivy --version, throwaway container, no network): Version: 0.64.1
+ok   p2.out: PASS both scans wrote a report as civo
+ok   p2.out: note: this step pulled the scanner; D7 keeps it. After E: docker image rm aquasec/trivy@sha256:de90a656e79b175a294abe85cb8b99670fab83ebf339cccd163e6f584846809a
+ok   p2: the pulled scanner is present
+ok   p3.out exit 1
+ok   p3.out: STOP: the installed T1
+ok   p3: nothing written
+ok   p4.out exit 1
+ok   p4.out: FAIL the six rollback tags d7st20134-none-<service>:rollback-pre-22f96990 present: ; missing: user-service, gamification-service, notification-service, moderation-service, ai-validation-service, analytics-service
+ok   p4: no scan without the rollback tags
+ok   p4.out: D7 SCAN PREP NOT COMPLETE
+SELFTEST PASS

@@ -26,6 +26,8 @@ ok   S1 D7 ok
 ok   S1 D7 checked pebble absent and scanned before starting
 ok   S1 D7 recorded the remaining exposure
 ok   S1 D7 tagged parkio/<svc>:sha-<pin8>
+ok   S8 D7 recorded both databases and gated their freshness before starting
+ok   S8 D7 scanned with the cache at /trivy-cache, never under /root
 ok   S1 final ok
 ok   S1 deployed-manifest.json written and equal to R/final/current.json
 ok   S1 manifest: gitSha, pins, six images, migrations read from the databases
@@ -62,6 +64,13 @@ ok   S7 latest run older than 180 s -> FAIL
 ok   S7 systemd result not success -> FAIL
 ok   S7 a FAIL since the timer started -> FAIL
 ok   S7 start path with a failing guard run -> FAIL
+ok   S8 trivy_base: cache at /trivy-cache (= --cache-dir), as civo's uid, nothing under /root
+ok   S8 a scan without a report fails with the scanner's error, not as a finding
+ok   S8 a library finding fails the library gate and names the finding
+ok   S8 trivy_db_meta reads both databases with their age
+ok   S8 D7 with a stale vulnerability DB -> FAIL before any start, latest tags pointed back
+ok   S8 D7 with a missing Java DB -> FAIL before any start, latest tags pointed back
+ok   S8 D7 with a scanner error -> FAIL before any start, latest tags pointed back
 ok   S6 nr_attached counts the check's stderr lines: 3/3, exit 0
 ok   S6 nr_attached counts the check's stdout lines: 3/3, exit 0
 ok   S6 nr_attached with one source detached (stderr): 2/3, exit 1
