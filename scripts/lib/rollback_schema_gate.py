@@ -27,6 +27,8 @@ The gate fails closed (exit 3) in each of these cases:
 - either manifest is missing or unreadable;
 - with --image-plan: the plan is unreadable or malformed, the record has no pinnedImages, or the
   plan's pins differ from them;
+- with --image-plan: the plan builds no service (every app service is digest-pinned, U13), so the
+  rollback would re-point nothing and only rewrite the deployed release's record;
 - `migrationVersions` is absent or malformed. It must be an object mapping each service to a list of
   distinct V-script names, one per version;
 - the target records no images;
@@ -133,6 +135,10 @@ def check(target: dict, deployed: dict, plan: str = None) -> str:
     if plan is not None:
         built, pins = read_plan(plan)
         check_pins(deployed, pins)
+        if not built:
+            raise Refused("this checkout's image plan builds no service: every app service is digest-pinned (U13), so "
+                          "this rollback would re-point nothing and only rewrite the deployed release's record. "
+                          "Committed migrations are forward-fix only; move pins through a deploy")
         repointed = sorted(built)
     ahead = {}
     for service in repointed:

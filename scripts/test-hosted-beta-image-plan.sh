@@ -10,7 +10,10 @@
 #     keeps this checkout's pins, and starts with `up --no-build`, also for a manifest written
 #     before CL-F12 that recorded all eleven services;
 #   - rollback refuses, before it re-points or starts anything, a target that did not build a
-#     service the model builds, a recorded image that is not present, and a pin it cannot pull.
+#     service the model builds, a recorded image that is not present, and a pin it cannot pull;
+#   - with every app service pinned (U13), deploy builds and tags nothing and records no built
+#     image, and the schema gate refuses a rollback to that deploy, or to a deploy made before U13:
+#     neither has anything to re-point.
 #
 # The scripts under test run from a temporary tree. The fake docker answers from a canned compose
 # model and records every call. The preflight, the smoke test and the web guards have their own
@@ -421,6 +424,59 @@ rollback_state
 rm -f "$state/images/$(image_key "ghcr.io/example/parkio/web@$(digest 5)")"
 echo "ghcr.io/example/parkio/web@$(digest 5)" > "$state/pull-fails"
 refused pin "a pin that cannot be pulled" "$manifest_a" "cannot pull the pinned web image"
+
+# U13: the production list pins every app service. Deploy then builds and tags nothing, pulls only a
+# missing pin and records no built image; a rollback to that deploy re-points nothing.
+PINNED=(gateway-service auth-service parking-service media-service web user-service gamification-service
+  notification-service moderation-service ai-validation-service analytics-service)
+BUILT=()
+reset_state
+for i in $(seq 1 10); do have_image "ghcr.io/example/parkio/${PINNED[i - 1]}@$(digest "$i")"; done
+RUN_STATE_DIR="$work/all-pinned-state" run "$work/deploy-all-pinned" ./scripts/deploy-hosted-beta.sh --allow-dirty --skip-smoke
+if [ "$rc" -eq 0 ] && ! calls | grep -Eq '^(BUILD|TAG) ' && [ "$(calls | grep -c '^PULL ')" -eq 1 ] \
+  && calls | grep -qx "PULL --platform linux/amd64 ghcr.io/example/parkio/analytics-service@$(digest 11)" \
+  && [ "$(calls | tail -n 1)" = "UP -d --no-build" ]; then
+  pass "with every app service pinned, deploy builds and tags nothing, pulls only the missing pin and starts with up -d --no-build"
+else
+  bad "deploy with every app service pinned: exit $rc, calls: $(calls | tr '\n' ';')"; tail -n 15 "$work/out" >&2
+fi
+manifest_p="$(find "$work/deploy-all-pinned" -maxdepth 1 -name 'deploy-*.json' | head -n 1)"
+if [ -n "$manifest_p" ] && python3 - "$manifest_p" "${PINNED[*]}" <<'PY'
+import json, sys
+m, pinned = json.load(open(sys.argv[1])), sys.argv[2].split()
+ok = (m["images"] == {} and m["imageDigests"] == {} and sorted(m["pinnedImages"]) == sorted(pinned)
+      and all("@sha256:" in ref for ref in m["pinnedImages"].values()))
+sys.exit(0 if ok else 1)
+PY
+then
+  pass "the deploy manifest records no built image and all eleven pins"
+else
+  bad "the deploy manifest with every app service pinned"; cat "$manifest_p" >&2 2>/dev/null || true
+fi
+# Nothing is left to re-point: the schema gate (F-INV-3) refuses such a target before anything
+# changes.
+rollback_state
+RUN_STATE_DIR="$work/all-pinned-state" run "$work/rollback-all-pinned" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_p" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "the target manifest records no images" "$work/out" \
+  && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) '; then
+  pass "a rollback to a deploy that built nothing is refused (exit 3) before it changes anything"
+else
+  bad "rollback with every app service pinned: exit $rc, calls: $(calls | tr '\n' ';')"; tail -n 15 "$work/out" >&2
+fi
+# A rollback from this checkout to a deploy made before U13 (it built six services) would re-point nothing and only
+# rewrite the deployed record: refused before anything changes, the record kept.
+rollback_state
+cp "$work/all-pinned-state/deployed-manifest.json" "$work/all-pinned-record.json"
+RUN_STATE_DIR="$work/all-pinned-state" run "$work/rollback-pre-u13" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "image plan builds no service" "$work/out" && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) ' \
+  && cmp -s "$work/all-pinned-record.json" "$work/all-pinned-state/deployed-manifest.json"; then
+  pass "a rollback to a deploy made before U13 is refused (exit 3) before it changes anything; the deployed record is kept"
+else
+  bad "rollback to a pre-U13 deploy with every app service pinned: exit $rc, calls: $(calls | tr '\n' ';')"
+  tail -n 15 "$work/out" >&2
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "=== hosted-beta image plan: $failures FAILED ===" >&2

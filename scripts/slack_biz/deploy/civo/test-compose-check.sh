@@ -5,6 +5,8 @@
 #      script itself; a fake docker records the arguments it receives.
 #   2. select-compose-base.sh in throw-away git repositories: a pull request into api, a run on api
 #      itself, a branch run, and an api→master merge whose tree equals api's.
+#   3. app_pin_moves.py (U13): the only accepted image change is a move of one of the six host-built
+#      app services from build-only to exactly its digest pin in the app pin file.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${COMPOSE_CHECK_SCRIPT:-$HERE/validate-compose-integration.sh}"
@@ -94,6 +96,59 @@ fi
 # is the candidate (U09 defect 1).
 if [ "$(g rev-parse "api^{tree}")" = "$(g rev-parse "$B^{tree}")" ]; then
   pass "(before) the old rule picks api for a run on api: the candidate's own tree"
+fi
+
+echo "=== U13 app pin moves (app_pin_moves.py) ==="
+if python3 -B - "$HERE" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from app_pin_moves import SERVICES, accepted_moves
+
+def pin(svc, n=1):
+    return f"ghcr.io/adberilgen35/parkio/{svc}@sha256:{n:064x}"
+
+def pin_file(images):
+    return "name: parkio\n\nservices:\n" + "\n".join(f"  {s}:\n    image: {i}\n" for s, i in images.items())
+
+built = {"build": {"context": ".."}}
+base = {s: dict(built) for s in SERVICES}
+base["parking-service"] = {"image": pin("parking-service"), "build": {"context": ".."}}
+good = {s: pin(s) for s in SERVICES}
+head = {s: dict(built, image=good[s]) for s in SERVICES}
+head["parking-service"] = dict(base["parking-service"])
+results = []
+def case(name, got, want):
+    results.append(got == want)
+    print(("PASS " if got == want else "FAIL ") + name + ("" if got == want else f": got {got}"))
+
+case("each of the six moves from build-only to exactly its pin", accepted_moves(base, head, pin_file(good)), good)
+other = dict(head, **{"user-service": dict(built, image=pin("user-service", 2))})
+case("a head image that is not the pin file's is not accepted",
+     sorted(accepted_moves(base, other, pin_file(good))), sorted(s for s in SERVICES if s != "user-service"))
+pinned_base = dict(base, **{"user-service": dict(built, image=pin("user-service", 3))})
+case("a base that already names an image (a later pin change) is not accepted",
+     "user-service" in accepted_moves(pinned_base, head, pin_file(good)), False)
+not_built = dict(base, **{"user-service": {}})
+case("a base service that does not build is not accepted",
+     "user-service" in accepted_moves(not_built, head, pin_file(good)), False)
+seventh = dict(good, **{"parking-service": pin("parking-service", 4)})
+head7 = dict(head, **{"parking-service": dict(built, image=pin("parking-service", 4))})
+case("a service outside the six is never accepted", "parking-service" in accepted_moves(base, head7, pin_file(seventh)), False)
+tag = dict(good, **{"user-service": "ghcr.io/adberilgen35/parkio/user-service:sha-abc"})
+headtag = dict(head, **{"user-service": dict(built, image=tag["user-service"])})
+case("a tag instead of a digest is not accepted", "user-service" in accepted_moves(base, headtag, pin_file(tag)), False)
+foreign = dict(good, **{"user-service": f"ghcr.io/someone/parkio/user-service@sha256:{1:064x}"})
+headf = dict(head, **{"user-service": dict(built, image=foreign["user-service"])})
+case("another registry path is not accepted", "user-service" in accepted_moves(base, headf, pin_file(foreign)), False)
+twice = pin_file(good) + "  user-service:\n    image: " + good["user-service"] + "\n"
+case("a pin file naming a service twice is not accepted", "user-service" in accepted_moves(base, head, twice), False)
+case("no pin file accepts nothing", accepted_moves(base, head, ""), {})
+sys.exit(0 if all(results) else 1)
+PY
+then
+  pass "U13 app pin moves: accepted only for the exact build-only -> pin-file digest move of the six"
+else
+  bad "U13 app pin moves"
 fi
 
 if [ "$fails" -ne 0 ]; then

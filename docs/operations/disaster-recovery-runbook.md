@@ -23,7 +23,7 @@ stamp or restoring outside the scripts).
 
 **One compose file set (CL-F12).**
 - With the default hosted-beta profile, deploy, rollback and DR render `docker/compose.production.files` exactly, so they share one model: the production pins and settings.
-- The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. A pin is rolled back by reverting its pin file, then deploying.
+- The rollback points the services that list builds back at the image tags its target manifest records, keeps this checkout's digest pins, and starts with `up --no-build`. Since U13 the list pins every app service, so there is nothing to re-point and the rollback is refused (exit 3). A pin moves back only by reverting its pin file and deploying; committed migrations are forward-fix only, so that is not an accepted rollback unless schema compatibility with the live databases is proven first.
 - Start the stack only through those scripts, never with a hand-written `-f` list.
 - `scripts/test-canonical-production-file-set.sh` checks the file set.
 - **The rollback schema gate (F-INV-3, owner decision 2026-10-05).**
@@ -119,8 +119,8 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
    store. The host needs read access to the registry of the digest-pinned images (GHCR): log in
    with the recovery credential from the secrets store and run
    `scripts/registry-recovery-images.sh pull`, which pulls and verifies every pinned private
-   digest (see [registry-pull-recovery.md](registry-pull-recovery.md)). The six host-built
-   services are built from the checkout, not pulled.
+   digest (see [registry-pull-recovery.md](registry-pull-recovery.md)). Every app service is
+   pinned by digest (U13), so none is built on the new host.
 3. Copy the backup set from offsite (`BACKUP_MC_DEST`) to `BACKUP_DIR` and verify it
    (`sha256sum -c <stamp>/SHA256SUMS`, `test -f <stamp>/COMPLETE`).
 4. Run the stamp preflight only:
@@ -143,8 +143,7 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 - Secrets in `docker/.env` (store separately)
 - SPA static assets in the `web` image (rebuild from git at known SHA)
 - Container images: pulled again from GHCR with the recovery credential
-  ([registry-pull-recovery.md](registry-pull-recovery.md)); the six host-built services are
-  rebuilt from the checkout
+  ([registry-pull-recovery.md](registry-pull-recovery.md)); every app service is pinned by digest
 
 ## Exact commands
 
