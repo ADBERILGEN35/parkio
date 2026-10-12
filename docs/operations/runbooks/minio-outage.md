@@ -27,7 +27,7 @@ Disable upload UX if needed
 
 ## Containment
 
-Restore MinIO or backup mirror
+Bring the MinIO service (container and its storage) back up. Restoring objects from the backup mirror is BLOCKED in production (see the [DR runbook](../disaster-recovery-runbook.md), "MinIO only").
 
 ## Rollback
 
