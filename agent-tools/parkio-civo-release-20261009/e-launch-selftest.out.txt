@@ -1,9 +1,9 @@
 bash <tools>/e-launch.sh launch; echo LAUNCH_EXIT=$?
 [?2004hbash-5.1$ bash <tools>/e-launch.sh launch; echo LAUNCH_EXIT=$?
-[?2004lE launcher | 2026-10-12T13:12:27Z | release <W>/rel @ 995bbc5bf8a9 | record <W>/E1-var/azure-hosted-beta
+[?2004lE launcher | 2026-10-12T13:26:23Z | release <W>/rel @ 40c93ed56e2c | record <W>/E1-var/azure-hosted-beta
 == 1. read-only pre-checks (nothing is started or written until all pass)
-  PASS T1 v5 installed (0fd96e85aa17)
-  PASS t1-step.sh v5 installed (85f58c6452d2)
+  PASS T1 v6 installed (0fd96e85aa17)
+  PASS t1-step.sh v6 installed (85f58c6452d2)
   PASS smoke session variables present (5; values not shown)
   PASS release checkout clean at the PIN
   PASS T1 state: D7 ok, final -
@@ -18,28 +18,28 @@ bash <tools>/e-launch.sh launch; echo LAUNCH_EXIT=$?
   Run: sudo install -d -m 0755 -o <user> -g <user> <W>/E1-var/azure-hosted-beta
   PASS <W>/E1-var/azure-hosted-beta created: <user>:<user> 755, writable
 == 3. start E independent of this session
-  runner pid 65162 in its own process group under nohup; records in <W>/E1/e-launch/20261012T131227Z (dir 700, files 600)
+  runner pid 77579 in its own process group under nohup; records in <W>/E1/e-launch/20261012T132623Z (dir 700, files 600)
   Ctrl-C or a dropped connection ends only this view. Reconnect: bash <tools>/e-launch.sh status | follow
 == 4. the E log, live
-e-launch runner 20261012T131227Z | pid 65162 | 2026-10-12T13:12:27Z | t1-step.sh final follows
+e-launch runner 20261012T132623Z | pid 77579 | 2026-10-12T13:26:23Z | t1-step.sh final follows
 T1 step wrapper | final | stub
 stub line 1
 stub line 2
 T1 final: OK
-e-launch runner finished | 2026-10-12T13:12:29Z | t1-step final exit=0 | T1 final ok | state complete | password occurrences 0
+e-launch runner finished | 2026-10-12T13:26:23Z | t1-step final exit=0 | T1 final ok | state complete | password occurrences 0
 
-E launch 20261012T131227Z | launched 2026-10-12T13:12:27Z | runner pid 65162 started 2026-10-12T13:12:27Z
-  log <W>/E1/e-launch/20261012T131227Z/e.log (600)
+E launch 20261012T132623Z | launched 2026-10-12T13:26:23Z | runner pid 77579 started 2026-10-12T13:26:23Z
+  log <W>/E1/e-launch/20261012T132623Z/e.log (600)
   T1 state: D7 ok, final ok, overall complete
-  finished 2026-10-12T13:12:29Z; t1-step final exit=0; smoke password found in the E log, records, smoke log and release record: 0 time(s) (value never shown)
+  finished 2026-10-12T13:26:23Z; t1-step final exit=0; smoke password found in the E log, records, smoke log and release record: 0 time(s) (value never shown)
   T1 final: OK
   release record <W>/E1-var/azure-hosted-beta/deployed-manifest.json = R/final/current.json (sha256 6b568ae124f78df1), remaining exposure recorded
 E COMPLETE - the release record is written; now: unset PARKIO_REAL_USER_PASSWORD
 LAUNCH_EXIT=0
 [?2004hbash-5.1$ exit
 [?2004lexit
-ok   e1.out: PASS T1 v5 installed
-ok   e1.out: PASS t1-step.sh v5 installed
+ok   e1.out: PASS T1 v6 installed
+ok   e1.out: PASS t1-step.sh v6 installed
 ok   e1.out: PASS smoke session variables present (5; values not shown)
 ok   e1.out: PASS release checkout clean at the PIN
 ok   e1.out: PASS T1 state: D7 ok, final -

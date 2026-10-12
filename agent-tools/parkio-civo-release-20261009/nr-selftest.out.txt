@@ -1,4 +1,4 @@
-NR pause | <host> | 2026-10-12T13:12:25Z | plan section 8, option N1
+NR pause | <host> | 2026-10-12T13:26:22Z | plan section 8, option N1
 == 1. T1 copy and sudo
   T1 copy matches 30721719d271
   sudo validated
@@ -43,7 +43,7 @@ T1 nr-pause | stamp 20261012T093000Z (stub)
 -- T1 status
   state in-progress; D2c=ok, status=ok
 NR PAUSE COMPLETE - only the guard timer is stopped; source, transport, budget gate and collector unchanged
-saved: <W>/out/steps/NR-pause-20261012T131225Z.txt
+saved: <W>/out/steps/NR-pause-20261012T132622Z.txt
 ok   p1.out exit 0
 ok   p1.out: unit parkio-nr-log-continuous-guard.timer: active
 ok   p1.out: container nr-budget-gate: id aaaaaaaaaaaa state running health healthy

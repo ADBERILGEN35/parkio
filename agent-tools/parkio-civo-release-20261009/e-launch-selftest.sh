@@ -75,7 +75,7 @@ secret_free() {
 # E1
 mk E1; pty "$W/e1.out" 6 "bash $TOOL launch"
 sed -e "s#$W#<W>#g" "$W/e1.out" | grep -v -E '^\[\?2004|^bash-|^exit$' | head -45
-for s in "PASS T1 v5 installed" "PASS t1-step.sh v5 installed" "PASS smoke session variables present (5; values not shown)" \
+for s in "PASS T1 v6 installed" "PASS t1-step.sh v6 installed" "PASS smoke session variables present (5; values not shown)" \
          "PASS release checkout clean at the PIN" "PASS T1 state: D7 ok, final -" \
          "PASS D7 launch 20261012T123453Z COMPLETE (exit 0, T1 D7 ok, password count 0)" \
          "PASS coverage check 20261012T130000Z PASS for the six images D7 built" "absent: created after sudo" \

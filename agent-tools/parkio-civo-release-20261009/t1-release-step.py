@@ -14,9 +14,11 @@
   python3 -I /tmp/t1-release-step.py step D6b      parking-service (V41 gate)
   python3 -I /tmp/t1-release-step.py nr-resume     three sources attached -> restart the guard timer and one guard run
   python3 -I /tmp/t1-release-step.py step D7       build the six, check them (pebble absent, Security CI scan), then start them
-  python3 -I /tmp/t1-release-step.py final         E: smoke gate, CSRF/refresh/logout checks, U12 B/C, Flyway, then the D7
-                                                   record, a passing d7-coverage-check of the six built images and the
-                                                   release tags unchanged, and the final record (remaining exposure kept)
+  python3 -I /tmp/t1-release-step.py final         E: every service still the container its step started (image, config
+                                                   hash = record and release model), smoke gate, CSRF/refresh/logout
+                                                   checks, U12 B/C, Flyway, then the D7 record, a passing
+                                                   d7-coverage-check of the six built images and the release tags
+                                                   unchanged, and the final record (remaining exposure kept)
   python3 -I /tmp/t1-release-step.py rollback <service>   schema gate first (no override); previous inputs from /opt/parkio
   python3 -I /tmp/t1-release-step.py status
 
@@ -1149,6 +1151,20 @@ def cmd_final():
     missing = session_ready()
     gate("smoke session prepared (variables present, values not shown)", not missing, ", ".join(missing))
     say("")
+    say("E0. Deployed identities: each service runs the container its step started, unchanged (read-only)")
+    deployed = state.get("services") or {}
+    for svc in SERVICES:
+        rec, c = deployed.get(svc) or {}, container(svc) or {}
+        target = model_hash(svc)
+        diffs = [n for n, bad in (("no step record", not rec), ("container", c.get("id") != rec.get("container")),
+                                  ("image", c.get("image") != rec.get("image")), ("config hash", c.get("hash") != rec.get("hash")),
+                                  ("release model", c.get("hash") != target or target is None),
+                                  ("state", c.get("status") != "running" or c.get("health") not in ("healthy", None)))
+                 if bad]
+        gate(f"{svc}: container {(c.get('id') or '-')[:12]}, image {short(c.get('image'))}, config hash {(c.get('hash') or '-')[:12]}"
+             " = its step's record and the release model; running/healthy", not diffs,
+             f"differs: {', '.join(diffs)}" if diffs else f"{c.get('status')}/{c.get('health') or 'no healthcheck'}")
+    say("")
     say("E1. Smoke gate")
     rc, passed, failed, sha, log = run_smoke("E")
     gate("smoke exit 0 and fail=0", rc == 0 and failed == 0, f"pass={passed} fail={failed}; log sha256 {sha[:16]}")
@@ -1232,6 +1248,8 @@ def cmd_final():
         "rollbackCommand": "python3 -I t1-release-step.py rollback <service> (schema gate; forward fix after a committed migration)",
         "evidence": {"smokeLogSha256": sha, "journalSha256": sha256_file(journal_path), "plannedRecordStamp": load_plan().get("stamp")},
         "remainingExposure": d7rec.get("remainingExposure"),
+        "deployed": {s: {"image": (deployed.get(s) or {}).get("image"), "configHash": (deployed.get(s) or {}).get("hash")}
+                     for s in SERVICES},
         "imageScan": {"d7Record": f"steps/D7-{d7.get('stamp')}.json", "databases": d7rec.get("trivyDb"),
                       "coverageRecord": f"coverage-{cov.get('stamp')}/summary.json",
                       "coverage": {s: {k: (covered.get(s) or {}).get(k) for k in ("javaPackages", "javaFromBootInfLib",

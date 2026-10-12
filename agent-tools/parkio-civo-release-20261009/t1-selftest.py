@@ -580,6 +580,20 @@ def main():
           and "FAIL a passing coverage check (d7-coverage-check) covers the six built images" in out
           and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
     coverage(h)
+    keep = dict(h.containers["moderation-service"])
+    h.containers["moderation-service"]["id"] = "c999-recreated-after-D7"
+    code, out = t1(h, "final")
+    check("S10 final with a service recreated after its step -> FAIL in E0, no manifest", code == 1
+          and "differs: container" in out and "FAIL moderation-service: container c999-recreat," in out
+          and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
+    h.containers["moderation-service"] = keep
+    keep_hash = h.containers["caddy"]["hash"]
+    h.containers["caddy"]["hash"] = "hash-drifted"
+    code, out = t1(h, "final")
+    check("S10 final with a config hash that drifted from the record and the model -> FAIL, no manifest", code == 1
+          and "FAIL caddy: container" in out and "differs: config hash, release model" in out
+          and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
+    h.containers["caddy"]["hash"] = keep_hash
     moved = h.images[f"parkio/user-service:sha-{PIN[:8]}"]
     h.images[f"parkio/user-service:sha-{PIN[:8]}"] = "sha256:moved"
     code, out = t1(h, "final")
@@ -593,6 +607,10 @@ def main():
     check("S1 deployed-manifest.json written and equal to R/final/current.json", os.path.exists(man)
           and open(man).read() == open(os.path.join(h.out, "final", "current.json")).read())
     mj = json.load(open(man)) if os.path.exists(man) else {}
+    check("S10 E0 verified all fourteen services before the smoke gate", out.count(" = its step's record and the release model; running/healthy") == 14
+          and out.index("E0. Deployed identities") < out.index("E1. Smoke gate"), out[-300:])
+    check("S10 manifest records every service's deployed image and config hash", len(mj.get("deployed") or {}) == 14
+          and all(v.get("image") and v.get("configHash") for v in (mj.get("deployed") or {}).values()))
     check("S9 manifest records the remaining exposure from the D7 record (not null) and the image scan",
           "pebble present" in json.dumps(mj.get("remainingExposure")) and mj.get("imageScan", {}).get("databases")
           and len(mj.get("imageScan", {}).get("coverage") or {}) == 6
