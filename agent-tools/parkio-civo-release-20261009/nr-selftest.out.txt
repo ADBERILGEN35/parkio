@@ -1,0 +1,91 @@
+NR pause | <host> | 2026-10-12T09:17:03Z | plan section 8, option N1
+== 1. T1 copy and sudo
+  T1 copy matches 30721719d271
+  sudo validated
+== 2. before
+-- NR before
+  unit parkio-nr-log-source.service: active
+  unit parkio-nr-log-continuous.service: active
+  unit parkio-nr-log-continuous-guard.timer: active
+  unit parkio-nr-log-continuous-guard.service: inactive
+  container fluent-bit-nr-pilot: id bbbbbbbbbbbb state running health healthy started 2026-10-10T08:00:01.000000000Z restarts 0
+  container nr-budget-gate: id aaaaaaaaaaaa state running health healthy started 2026-10-10T08:00:00.000000000Z restarts 0
+  PASS: service=gateway-service live-helper=attached id=c0ffee0003 spool=readable
+  PASS: service=auth-service live-helper=attached id=c0ffee0002 spool=readable
+  PASS: service=parking-service live-helper=attached id=c0ffee0001 spool=readable
+  sources attached: 3 of 3
+  PASS source and transport active
+  PASS budget gate and collector running and healthy
+  PASS three sources attached
+== 3. t1-release-step.py nr-pause (running...)
+T1 nr-pause | stamp 20261012T093000Z (stub)
+  PASS guard timer stopped: inactive
+  t1 nr-pause exit=0
+== 4. after
+-- NR after
+  unit parkio-nr-log-source.service: active
+  unit parkio-nr-log-continuous.service: active
+  unit parkio-nr-log-continuous-guard.timer: inactive
+  unit parkio-nr-log-continuous-guard.service: inactive
+  container fluent-bit-nr-pilot: id bbbbbbbbbbbb state running health healthy started 2026-10-10T08:00:01.000000000Z restarts 0
+  container nr-budget-gate: id aaaaaaaaaaaa state running health healthy started 2026-10-10T08:00:00.000000000Z restarts 0
+  PASS: service=gateway-service live-helper=attached id=c0ffee0003 spool=readable
+  PASS: service=auth-service live-helper=attached id=c0ffee0002 spool=readable
+  PASS: service=parking-service live-helper=attached id=c0ffee0001 spool=readable
+  sources attached: 3 of 3
+  PASS T1 nr-pause exit 0
+  PASS source and transport active
+  PASS budget gate and collector running and healthy
+  PASS the same transport containers, not restarted (ids and start times unchanged)
+  PASS three sources attached
+  PASS guard timer stopped
+  PASS guard service not running
+-- T1 status
+  state in-progress; D2c=ok, status=ok
+NR PAUSE COMPLETE - only the guard timer is stopped; source, transport, budget gate and collector unchanged
+saved: <W>/out/steps/NR-pause-20261012T091703Z.txt
+ok   p1.out exit 0
+ok   p1.out: unit parkio-nr-log-continuous-guard.timer: active
+ok   p1.out: container nr-budget-gate: id aaaaaaaaaaaa state running health healthy
+ok   p1.out: service=gateway-service live-helper=attached
+ok   p1.out: sources attached: 3 of 3
+ok   p1.out: T1 nr-pause | stamp 20261012T093000Z (stub)
+ok   p1.out: t1 nr-pause exit=0
+ok   p1.out: PASS guard timer stopped
+ok   p1.out: PASS guard service not running
+ok   p1.out: PASS budget gate and collector running and healthy
+ok   p1.out: PASS the same transport containers, not restarted (ids and start times unchanged)
+ok   p1.out: state in-progress; D2c=ok, status=ok
+ok   p1.out: NR PAUSE COMPLETE - only the guard timer is stopped; source, transport, budget gate and collector unchanged
+ok   report 600
+ok   report holds the T1 output, the helper lines and the verdict
+ok   timer stopped by T1 only
+ok   p2.out exit 1
+ok   p2.out: FAIL budget gate and collector running and healthy
+ok   p2.out: STOP: the NR pipeline is not intact before the pause - nothing was changed
+ok   p2: T1 not called
+ok   p3.out exit 1
+ok   p3.out: FAIL three sources attached: 2 of 3
+ok   p3: T1 not called
+ok   p4.out exit 1
+ok   p4.out: STOP: the installed T1 copy does not match 000000000000 - nothing was changed
+ok   p4: T1 not called
+ok   p5.out exit 1
+ok   p5.out: FAIL the same transport containers, not restarted (ids and start times unchanged)
+ok   p5.out: STOP: NR pause not verified (1 failed check(s))
+ok   p6.out exit 1
+ok   p6.out: FAIL T1 nr-pause exit 0
+ok   p7.out exit 0
+ok   p7.out: container fluent-bit-nr-pilot: id cccccccccccc state exited
+ok   p7.out: NR PAUSE COMPLETE
+ok   c1.out exit 0
+ok   c1.out: NR CHECK DONE (read-only)
+ok   c1: T1 not called
+ok   r1.out exit 0
+ok   r1.out: PASS guard timer active
+ok   r1.out: NR RESUME COMPLETE - guard timer running again; transport unchanged
+ok   r2.out exit 1
+ok   r2.out: FAIL T1 nr-resume exit 0
+ok   u1.out exit 2
+ok   u1.out: usage: nr-step.sh pause|resume|check
+SELFTEST PASS
