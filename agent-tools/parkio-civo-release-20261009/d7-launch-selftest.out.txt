@@ -1,0 +1,102 @@
+bash <tools>/d7-launch.sh launch; echo LAUNCH_EXIT=$?
+[?2004hbash-5.1$ bash <tools>/d7-launch.sh launch; echo LAUNCH_EXIT=$?
+[?2004lD7 launcher | 2026-10-12T12:27:57Z | release <W>/rel @ 104464ce6fbb
+== 1. read-only pre-checks (nothing is started or written until all pass)
+  PASS T1 v4 installed (e89b6b5df926)
+  PASS t1-step.sh v4 installed (00f55e996af3)
+  PASS scan preparation 20261012T120335Z exit 0
+  PASS smoke session variables present (5; values not shown)
+  PASS verified backup 2026-10-12T11-47-57Z (PASS): D7 must start before 2026-10-12T13:47:57Z - 79 min left
+  PASS release checkout clean at the PIN
+  PASS T1 state: nr-resume ok, no D7 or final entry
+  PASS launch lock free
+  PASS no earlier launch without an exit record
+  PASS no t1-step.sh D7 / T1 step D7 process running
+  PASS free space on / 871 GiB (>= 12)
+  PASS no backup or pg_dump process
+  PASS logind keeps user processes after logout (KillUserProcesses not set, default no)
+== 2. sudo (t1-step.sh validates it again without a prompt)
+== 3. start D7 independent of this session
+  runner pid 48236 in its own process group under nohup; records in <W>/L1/d7-launch/20261012T122757Z (dir 700, files 600)
+  Ctrl-C or a dropped connection ends only this view. Reconnect: bash <tools>/d7-launch.sh status | follow
+== 4. the D7 log, live
+d7-launch runner 20261012T122757Z | pid 48236 | 2026-10-12T12:27:57Z | t1-step.sh D7 follows
+T1 step wrapper | D7 | stub
+stub line 1
+stub line 2
+T1 D7: OK
+d7-launch runner finished | 2026-10-12T12:27:57Z | t1-step D7 exit=0 | T1 D7 ok | password occurrences 0
+
+D7 launch 20261012T122757Z | launched 2026-10-12T12:27:57Z | runner pid 48236 started 2026-10-12T12:27:57Z
+  log <W>/L1/d7-launch/20261012T122757Z/d7.log (600)
+  T1 state: D7 ok, final -, overall partial
+  finished 2026-10-12T12:27:57Z; t1-step D7 exit=0; smoke password found in the D7 log, records and smoke log: 0 time(s) (value never shown)
+  T1 D7: OK
+D7 COMPLETE - E may follow
+LAUNCH_EXIT=0
+[?2004hbash-5.1$ exit
+[?2004lexit
+ok   l1.out: PASS T1 v4 installed
+ok   l1.out: PASS t1-step.sh v4 installed
+ok   l1.out: PASS scan preparation 20261012T120335Z exit 0
+ok   l1.out: PASS smoke session variables present (5; values not shown)
+ok   l1.out: min left
+ok   l1.out: PASS release checkout clean at the PIN
+ok   l1.out: PASS T1 state: nr-resume ok, no D7 or final entry
+ok   l1.out: PASS launch lock free
+ok   l1.out: PASS logind keeps user processes after logout
+ok   l1.out: stub line 2
+ok   l1.out: d7-launch runner finished
+ok   l1.out: D7 COMPLETE - E may follow
+ok   l1.out: LAUNCH_EXIT=0
+ok   L1 launch dirs mode 700
+ok   L1 launch files mode 600
+ok   L1 exit 0, password count 0, T1 D7 ok recorded
+ok   L1 the runner and t1-step.sh argv carry no password
+ok   L1: the password is in no file (log, records, PID/exit/result, argv capture)
+ok   L1 status after completion exit 0
+ok   l1s.out: D7 COMPLETE - E may follow
+ok   L2 second launch refused (exit 1), nothing started
+ok   l2.out: FAIL T1 state: nr-resume ok, D7 ok, final - - a D7 that ran or is running is not launched again
+ok   l2.out: STOP: 1 pre-check(s) failed - D7 was not started, nothing was written
+ok   l3.out: (view ended by Ctrl-C; D7 continues in its own process group)
+ok   l3.out: D7 RUNNING - follow with
+ok   l3.out: LAUNCH_EXIT=3
+ok   L3 D7 ran to the end after Ctrl-C
+ok   L3 status COMPLETE (exit 0)
+ok   L3 the log has every line
+ok   L3: the password is in no file (log, records, PID/exit/result, argv capture)
+ok   L4 runner 48630 alive after the terminal disappeared
+ok   L4 status RUNNING (exit 3)
+ok   L4 launch while running refused
+ok   l4d.out: FAIL another D7 runner holds the launch lock
+ok   l4d.out: earlier launch(es) without an exit record
+ok   l4d.out: FAIL a D7 process is already running
+ok   L4 D7 ran to the end
+ok   L4 follow after reconnect: COMPLETE (exit 0)
+ok   l4f.out: stub line 10
+ok   L4: the password is in no file (log, records, PID/exit/result, argv capture)
+ok   l5.out: t1-step D7 exit=1
+ok   l5.out: T1 D7 failed gates: stub gate
+ok   l5.out: D7 FAILED - do not run E; send this output
+ok   l5.out: LAUNCH_EXIT=1
+d7-launch-selftest.sh: line 56: 48586 Done                    ( echo "bash $TOOL launch"; sleep 20 )
+     48587 Killed                  | script -qfec "bash --norc --noprofile -i" /dev/null > /dev/null 2>&1
+ok   l6.out: smoke password found in the D7 log, records and smoke log: 1 time(s) (value never shown)
+ok   l6.out: D7 FAILED - do not run E
+ok   L6 only the stub's own leak line shows it (the launcher never prints it)
+ok   L7 stale -> STOP before anything, nothing written
+ok   L7 scanprep -> STOP before anything, nothing written
+ok   L7 smoke -> STOP before anything, nothing written
+ok   L7 t1sha -> STOP before anything, nothing written
+ok   L7 logind -> STOP before anything, nothing written
+ok   L7 dirty -> STOP before anything, nothing written
+ok   L7 nrresume -> STOP before anything, nothing written
+ok   L8 status without a launch exit 1
+ok   l8.out: NO D7 LAUNCH found
+ok   L9 status exit 1
+ok   l9.out: D7 RUNNER ENDED WITHOUT AN EXIT RECORD
+ok   L9 launch refused
+ok   l9l.out: 1 earlier launch(es) without an exit record
+ok   usage exit 2
+SELFTEST PASS
