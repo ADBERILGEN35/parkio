@@ -78,7 +78,8 @@ def gateway(method, path, headers, body):
             inv = s["invites"].get(data.get("inviteToken") or "")
             if not inv or inv["state"] != "issued":
                 return 403, {"code": "REGISTRATION_INVITE_INVALID"}
-            inv["state"] = "consumed"
+            if not s.get("inviteNotConsumed"):      # the knob models a registration that bypasses the invite
+                inv["state"] = "consumed"
         uid = str(uuid.uuid4())
         s["users"][data["email"]] = {"id": uid, "status": "PENDING_VERIFICATION", "password": secret(s, data["password"])}
         save(s)
@@ -129,6 +130,11 @@ def psql(sql):
         sys.stderr.write("ERROR:  cannot execute UPDATE in a read-only transaction\n")
         sys.exit(1)
     s = load()
+    if "'request_status'" in sql and s.get("observeFails", 0) > 0:
+        s["observeFails"] -= 1
+        save(s)
+        sys.stderr.write("psql: error: connection to server lost\n")
+        sys.exit(1)
     if sql.lstrip().startswith("BEGIN;") and "UPDATE auth_users" in sql:
         m = re.search(r"WHERE email = '([^']+)'", sql)
         u = s["users"].get(m.group(1)) if m else None
@@ -530,8 +536,26 @@ has "$T/o3.out" "login failed http=503"; has "$T/o3.out" "exit=1"
 state 1 on on "" 0
 sed '/^auth_user_id=/d' "$T/creds-o3" > "$T/creds-o3-noid"; chmod 600 "$T/creds-o3-noid"
 run o3e.out bash "$ERASE" "${OPTS[@]}" --credentials-file "$T/creds-o3-noid" --delete --expect COMPLETE --timeout-seconds 3 --poll-seconds 1
-has "$T/o3e.out" "found by the allowlisted email (the file had none)"
+has "$T/o3e.out" "found by the allowlisted email (the file had none; it is added now)"
+grep -q '^auth_user_id=' "$T/creds-o3-noid" && ok "o3e: the found id is added to the credentials file" || no "o3e id not added"
 has "$T/o3e.out" "expect=COMPLETE status=COMPLETE verdict=PASS"; has "$T/o3e.out" "exit=0"
+
+echo "=== the invite accounting refuses a registration that did not consume its invite ==="
+state 1 on on "" 0; knob inviteNotConsumed true
+run a1.out bash "$CREATE" "${OPTS[@]}" --credentials-file "$T/creds-a1" --evidence-file "$T/a1-evidence.json"
+has "$T/a1.out" "created|unconsumed = 1|1 (want 1|0)"; has "$T/a1.out" "exit=1"
+[ ! -s "$T/a1-evidence.json" ] && ok "a1: no evidence is written when the accounting fails" || no "a1: evidence written"
+
+echo "=== a failed status query is retried; three in a row end the observation as FAIL ==="
+state 1 on on "" 0; knob observeFails 1
+run q1.out bash "$ERASE" "${OPTS[@]}" --credentials-file "$CREDS" --expect COMPLETE --timeout-seconds 3 --poll-seconds 1
+has "$T/q1.out" "WARNING: read-only status query failed."; has "$T/q1.out" "expect=COMPLETE status=COMPLETE verdict=PASS"
+state 1 on on "" 0; knob observeFails 3
+run q3.out bash "$ERASE" "${OPTS[@]}" --credentials-file "$CREDS" --expect COMPLETE --timeout-seconds 30 --poll-seconds 1 \
+  --evidence-file "$T/q3-evidence.json"
+has "$T/q3.out" "three consecutive status queries failed"; has "$T/q3.out" "verdict=FAIL"; has "$T/q3.out" "exit=1"
+python3 -I -c 'import json,sys; e=json.load(open(sys.argv[1])); assert e["failReason"] == "three consecutive status queries failed" and e["verdict"] == "FAIL"' "$T/q3-evidence.json" \
+  && ok "q3: the evidence records the failure reason" || no "q3 evidence"
 
 echo "=== civo-production inspect ==="
 state 1 on on "" 0

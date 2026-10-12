@@ -23,9 +23,12 @@
 # erased-<auth_user_id>@invalid.localhost. --delete also needs the row to be ACTIVE and the fresh
 # login's token subject to equal auth_user_id, so the DELETE can only reach that account.
 # A create that stopped after registration still leaves a usable file (it is written before the
-# register call): without auth_user_id the account is found by its allowlisted email, and with
-# --delete a PENDING_VERIFICATION account first gets the same allowlisted verification as create.
-# Exit codes: 0 PASS, 1 FAIL, 2 usage or guard, 4 no account holds the file's email (nothing to erase).
+# register call): without auth_user_id the account is found by its allowlisted email (and the id is
+# then added to the file), and with --delete a PENDING_VERIFICATION account first gets the same
+# allowlisted verification as create. That verification only accepts an account registered within the
+# last hour; an older PENDING_VERIFICATION account cannot be erased by this tool.
+# Exit codes: 0 PASS, 1 FAIL, 2 usage or guard, 4 no account holds the file's email (never registered,
+# or already erased: an erased account keeps only its tombstone email, so pass its auth_user_id).
 #
 # The request's status, every participant's ACK and the account state are read with read-only
 # SELECTs in a read-only session through the postgres-auth container: after the DELETE the account's
@@ -150,11 +153,13 @@ account_row() {  # account_row <SQL condition>: prints "id|email|status" of the 
 if [ -z "$AUTH_USER_ID" ]; then
   row="$(account_row "email = '${EMAIL}'")" || exit 1  # allowlisted: priv001a-[a-z0-9]+@priv001a.parkio.invalid
   if [ -z "$row" ]; then
-    echo "PRIV-001A: no auth account holds the credentials file's email (nothing to erase)."
+    echo "PRIV-001A: no auth account holds the credentials file's email (nothing to erase): it was never registered, or it"
+    echo "PRIV-001A: was erased already (an erased account keeps only its tombstone email; pass its auth_user_id instead)."
     exit 4
   fi
   AUTH_USER_ID="${row%%|*}"
-  echo "PRIV-001A: auth_user_id=${AUTH_USER_ID} found by the allowlisted email (the file had none)"
+  printf 'auth_user_id=%s\n' "$AUTH_USER_ID" >> "$CREDENTIALS_FILE"
+  echo "PRIV-001A: auth_user_id=${AUTH_USER_ID} found by the allowlisted email (the file had none; it is added now)"
 else
   row="$(account_row "id = '${AUTH_USER_ID}'::uuid")" || exit 1
   if [ -z "$row" ]; then
@@ -177,7 +182,10 @@ DELETE_STATUS=""
 if [ "$DO_DELETE" = "1" ] && [ "$DB_EMAIL" = "$EMAIL" ] && [ "$DB_STATUS" = "PENDING_VERIFICATION" ]; then
   # A create that stopped after registration: the same allowlisted verification as create, so the
   # account can log in and be erased canonically.
-  verified_id="$(parkio_priv001_mark_verified "$EMAIL" 3600)" || exit 1
+  verified_id="$(parkio_priv001_mark_verified "$EMAIL" 3600)" || {
+    echo "HINT: the allowlisted verification accepts only an account registered within the last hour." >&2
+    exit 1
+  }
   if [ "$verified_id" != "$AUTH_USER_ID" ]; then
     echo "ERROR: verification returned another row; refusing." >&2
     exit 1
@@ -281,7 +289,7 @@ while :; do
   failures=0
   status="$(field request_status)"
   elapsed=$(( $(date +%s) - start ))
-  if [ "$status" = "FAILED_RETRYING" ]; then
+  if [ "$status" = "FAILED_RETRYING" ] && [ "$EXPECT" = "IN_PROGRESS" ]; then
     reason="the request is FAILED_RETRYING (a participant sent a FAILED ACK)"
     break
   fi
@@ -289,7 +297,10 @@ while :; do
     if [ "$status" = "COMPLETE" ] && [ "$(field missing)" = "0" ] && [ "$(field auth_state)" = "ERASED" ]; then
       verdict="PASS"; break
     fi
-    if [ "$elapsed" -ge "$TIMEOUT" ]; then reason="not COMPLETE with 8/8 SUCCESS and ERASED within ${TIMEOUT}s"; break; fi
+    if [ "$elapsed" -ge "$TIMEOUT" ]; then
+      reason="not COMPLETE with 8/8 SUCCESS and ERASED within ${TIMEOUT}s (last status ${status})"
+      break
+    fi
   else
     if [ "$status" = "COMPLETE" ]; then reason="the request reached COMPLETE during the hold"; break; fi
     if [ "$elapsed" -ge "$HOLD" ]; then
