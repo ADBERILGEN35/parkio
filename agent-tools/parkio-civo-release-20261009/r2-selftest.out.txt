@@ -1,0 +1,84 @@
+ok   s2.out exit 2
+ok   s2.out: STOP: the two entries are empty or differ - nothing was sent
+ok   s3-short.out exit 2
+ok   s3-short.out: shorter than 12 characters
+ok   s3-nodigit.out exit 2
+ok   s3-nodigit.out: has no digit
+ok   s3-nolower.out exit 2
+ok   s3-nolower.out: has no lower-case letter
+ok   s3-noupper.out exit 2
+ok   s3-noupper.out: has no upper-case letter
+ok   s3-quote.out exit 2
+ok   s3-quote.out: contains a double quote or a backslash
+ok   s3-space.out exit 2
+ok   s3-space.out: contains a space, a control character or a non-ASCII character
+ok   s3-unicode.out exit 2
+ok   s3-unicode.out: contains a space, a control character or a non-ASCII character
+ok   s3-deny.out exit 2
+ok   s3-deny.out: is a deny-listed word
+ok   s3-long.out exit 2
+ok   s3-long.out: longer than 72 bytes
+ok   S2/S3: nothing changed
+ok   s4.out exit 3
+ok   s4.out: R2: the account is SUSPENDED with e-mail verified t, not ACTIVE and verified; nothing was changed
+ok   S4: nothing changed
+ok   s4.out: no password, SHA-256, hash, id or token in the output
+ok   s5.out exit 3
+ok   s5.out: R2: 1 row(s) with this address and 2 with any letter case (want 1 and 1); nothing was changed
+ok   S5: nothing changed
+ok   s6.out exit 3
+ok   s6.out: R2: the password did not arrive byte for byte; nothing was changed
+ok   S6: nothing changed
+ok   s6.out: no password, SHA-256, hash, id or token in the output
+ok   s7.out exit 1
+ok   s7.out: STOP: no R1 READY report in /tmp/tmp.kV5r50HrTz/empty/recovery; run R1 first - nothing was sent
+ok   S7: nothing changed
+R2 scoped recovery of user@real-e2e.parkio.local | <host> | start 2026-10-12T08:14:30Z | revocation and rotation in one transaction
+== 1. guard
+  R1 READY report R1-20261012T081428Z.txt (0 min old)
+  auth database container r2st-pg-49400 present
+== 2. new password (hidden; enter the value stored in the GitHub secret HOSTED_BETA_REAL_USER_PASSWORD)
+
+
+  two matching entries; rules passed (12-72 printable ASCII characters, upper and lower case and a digit, not deny-listed)
+== 3. one transaction in the auth database (only this account and its refresh tokens)
+  revoked_tokens: 3
+  not_revoked_left: 0
+  session_epoch: 2 -> 3
+  row_version: 1 -> 2
+  password_hash: bcrypt $2a$ cost 10; matches the entered password
+  updated_at: 2026-10-12T08:14:30Z
+  other_accounts: 3 unchanged
+  other_accounts_tokens: 2 unchanged
+R2 COMMITTED AND VERIFIED - sessions of user@real-e2e.parkio.local revoked and its password rotated; no login was made
+saved: <W>/out/recovery/R2-20261012T081430Z.txt
+ok   s1.out exit 0
+ok   s1.out: R1 READY report R1-
+ok   s1.out: two matching entries; rules passed
+ok   s1.out: revoked_tokens: 3
+ok   s1.out: not_revoked_left: 0
+ok   s1.out: session_epoch: 2 -> 3
+ok   s1.out: row_version: 1 -> 2
+ok   s1.out: password_hash: bcrypt $2a$ cost 10; matches the entered password
+ok   s1.out: other_accounts: 3 unchanged
+ok   s1.out: other_accounts_tokens: 2 unchanged
+ok   s1.out: R2 COMMITTED AND VERIFIED
+ok   s1.out: no password, SHA-256, hash, id or token in the output
+ok   S1: new $2a$10$ hash verifies, epoch 3, version 2, ACTIVE, verified, updated now
+ok   S1: the three not-revoked tokens ADMIN_REVOKED with revoked_at and version +1; the revoked one untouched
+ok   S1: other accounts, their tokens, roles, reset tokens, profiles and extensions unchanged
+ok   S1: no temporary table or function left
+ok   S1: report 600
+ok   S1: the report holds no password
+ok   server log after S1 (log_statement=all, log_min_duration_statement=0, all parameters): no password, no SHA-256
+ok   server log: each R2 session (4) logged only its first two SETs - no BEGIN, COPY, function or COMMIT
+ok   R1 after R2: READY
+ok   r1-after.out: session epoch 3; row version 2; refresh tokens: 0 active, 0 not revoked, 4 in total
+ok   s8.out exit 0
+ok   s8.out: R2 COMMITTED AND VERIFIED
+ok   S8: special characters stored byte for byte
+ok   S8: nothing in the password was executed
+ok   S8: no password in the output
+ok   S8: no password in the server log
+ok   whole server log at the end: no password, no SHA-256
+SELFTEST PASS
