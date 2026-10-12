@@ -182,7 +182,7 @@ What the script does:
 8. Runs `scripts/smoke-hosted-beta.sh` (needs `PARKIO_REAL_USER_PASSWORD` exported; the wrapper checks this before any build or `up`, and `--skip-smoke` is the explicit opt-out)
 9. Writes `deploy-artifacts/deploy-<sha>-<time>.json` and `deploy-artifacts/current.json`
    (includes `images`, `composeFiles`, `migrationVersions`, `rollbackCommand`)
-10. Prints the rollback command
+10. Prints the rollback command (with every app service pinned, that rollback is refused: nothing to re-point)
 
 ### Verify the running commit
 
@@ -273,7 +273,7 @@ Workflow: `.github/workflows/hosted-beta-deploy.yml`
   `deploy-artifacts/` as an artifact. Optional GHCR push when `vars.PUBLISH_IMAGES=true`.
 - **deploy**: `workflow_dispatch` only, runs on a self-hosted runner labeled
   `parkio-beta` with a real env file.
-- **rollback**: `workflow_dispatch` only, same runner, requires a prior manifest.
+- **rollback**: `workflow_dispatch` only, same runner, requires a prior manifest. With every app service pinned (U13) it is refused: nothing to re-point.
 
 Local operators do not need GitHub secrets; use the scripts directly on the VPS.
 

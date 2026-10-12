@@ -4,6 +4,10 @@
 > deprecated production path (owner decision B7, 2026-10-03). It still runs unchanged, and
 > prints a warning. The supported production path is `scripts/parkio-prod-compose.sh` with
 > `docker/compose.production.files`. See `docs/azure/AZURE-DEPLOYMENT-PROFILE.md`.
+>
+> **U13:** the production list pins every app service, so a live rollback with this script is
+> refused (exit 3: nothing to re-point). Recover from a bad release with a forward fix, a deploy of
+> corrected pins. Committed migrations are forward-fix only (see "Every app service pinned" below).
 
 Restore a previous hosted-beta deployment using an immutable `sha-<gitSha>` image
 set recorded in a deploy manifest.

@@ -151,15 +151,20 @@ Data loss or host loss is at least SEV-1 ([incident-management.md](incident-mana
 
 ```bash
 cd /opt/parkio
-PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh
+PARKIO_ENV_FILE=docker/.env ./scripts/rollback-hosted-beta.sh --manifest deploy-artifacts/deploy-<sha>-<time>.json
 ```
 
 Since U13 the production list pins every app service, so this refuses (exit 3, "image plan builds
-no service") before anything changes: there is nothing to re-point. It also refuses until a deploy
-made with the F-INV-3 change has recorded its manifest, and whenever the schema gate does not pass
-(see the rollback schema gate above). Recover with a forward fix: a deploy of corrected pins.
-Committed migrations are forward-fix only, so a deploy of earlier pins is not an accepted rollback
-unless schema compatibility with the live databases is proven first.
+no service") before anything changes: there is nothing to re-point. (Without `--manifest` it stops
+earlier, exit 2, as a usage error.) It also refuses until a deploy made with the F-INV-3 change has
+recorded its manifest, and whenever the schema gate does not pass (see the rollback schema gate
+above).
+
+Recover with a forward fix: merge the corrected pins through a reviewed pin PR, then deploy them on
+parkio-civo-prod with the canonical wrapper (`scripts/parkio-prod-compose.sh up -d --no-build
+--no-deps <service>`, see [gmp-release-pins.md](gmp-release-pins.md)). Committed migrations are
+forward-fix only, so a deploy of earlier pins is not an accepted rollback unless schema compatibility
+with the live databases is proven first.
 
 ### Single database corruption — BLOCKED
 

@@ -24,7 +24,7 @@ Paging architecture, secrets, silences, and the synthetic probe:
 - Identify which core service is down from the alert label.
 - `docker logs parkio-<service>-1 --tail 200`
 - Common causes: Flyway migration failure, DB unreachable, Kafka down, bad env secret.
-- Roll back if caused by a bad deploy: `scripts/rollback-hosted-beta.sh`.
+- If a bad deploy caused it, recover with a forward fix: a deploy of corrected pins. Since U13 every app service is digest-pinned, so `scripts/rollback-hosted-beta.sh` refuses (exit 3: nothing to re-point). Committed migrations are forward-fix only: a deploy of earlier pins is not an accepted rollback unless schema compatibility with the live databases is proven first ([rollback runbook](../beta/rollback-runbook.md)).
 
 ## Gateway5xx / GatewayHigh5xxRate {#gateway5xx}
 

@@ -323,13 +323,11 @@ curl -fsS http://127.0.0.1:8089/actuator/health/readiness
 
 ### 8. Rollback (deploy)
 
-```bash
-# Hosted-beta helper (prefer documented script when available)
-scripts/rollback-hosted-beta.sh
-
-# Or pin previous image tags in compose override / deploy artifacts, then:
-$COMPOSE up -d parking-service notification-service analytics-service
-```
+Since U13 every app service is digest-pinned: `scripts/rollback-hosted-beta.sh` refuses (exit 3,
+nothing to re-point), and a bad deploy is recovered with a forward fix, a deploy of corrected pins.
+Committed migrations are forward-fix only, so a deploy of earlier pins or image tags is not an accepted
+rollback unless schema compatibility with the live databases is proven first (see
+`docs/beta/rollback-runbook.md`).
 
 Notes:
 
