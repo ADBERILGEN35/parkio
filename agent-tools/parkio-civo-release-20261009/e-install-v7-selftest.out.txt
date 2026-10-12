@@ -1,0 +1,46 @@
+E retry installation (v7) | 2026-10-12T13:42:08Z | commit ebc72708a993 | <W>/td
+== 1. download and verify (nothing is installed yet)
+  t1-release-step.py: sha256 2670b41e58e75b8e OK, syntax ok
+  t1-step.sh: sha256 3c0b692a1f86ef7f OK, syntax ok
+  nr-step.sh: sha256 9bed0754cea05970 OK, syntax ok
+  e-launch.sh: sha256 eb72049d42beac32 OK, syntax ok
+== 2. the installed copies (nothing is replaced yet)
+  t1-release-step.py: the earlier version 180385f9cd40, kept as t1-release-step.py.v6-180385f9
+  t1-step.sh: the earlier version a3bf4f317a87, kept as t1-step.sh.v6-a3bf4f31
+  nr-step.sh: the earlier version 572c68d6e942, kept as nr-step.sh.v6-572c68d6
+  e-launch.sh: the earlier version 0b6f79f7b46e, kept as e-launch.sh.v6-0b6f79f7
+== 3. install
+  t1-release-step.py installed: 2670b41e58e75b8e, mode 600; earlier copy t1-release-step.py.v6-180385f9 kept
+  t1-step.sh installed: 3c0b692a1f86ef7f, mode 600; earlier copy t1-step.sh.v6-a3bf4f31 kept
+  nr-step.sh installed: 9bed0754cea05970, mode 600; earlier copy nr-step.sh.v6-572c68d6 kept
+  e-launch.sh installed: eb72049d42beac32, mode 600; earlier copy e-launch.sh.v6-0b6f79f7 kept
+E RETRY INSTALLATION COMPLETE - next: bash <W>/td/e-launch.sh launch
+ok   i1.out exit 0
+ok   i1.out: t1-release-step.py: sha256 2670b41e58e75b8e OK, syntax ok
+ok   i1.out: e-launch.sh: sha256 eb72049d42beac32 OK, syntax ok
+ok   i1.out: t1-release-step.py: the earlier version 180385f9cd40, kept as t1-release-step.py.v6-180385f9
+ok   i1.out: e-launch.sh: the earlier version 0b6f79f7b46e, kept as e-launch.sh.v6-0b6f79f7
+ok   i1.out: t1-step.sh installed: 3c0b692a1f86ef7f, mode 600; earlier copy t1-step.sh.v6-a3bf4f31 kept
+ok   i1.out: E RETRY INSTALLATION COMPLETE
+ok   i1: the v6 T1 kept byte-identical with mode and time
+ok   i1: staging directory removed
+ok   i1: 4 installed + 4 kept files, nothing else
+ok   i2.out exit 0
+ok   i2.out: t1-step.sh: already the new version
+ok   i2.out: e-launch.sh: already the new version
+ok   i2: nothing changed on a re-run
+ok   i3.out exit 1
+ok   i3.out: STOP: nr-step.sh checksum mismatch
+ok   i3.out: nothing was installed
+ok   i3: tools directory unchanged
+ok   i4.out exit 1
+ok   i4.out: STOP: the installed t1-step.sh
+ok   i4.out: nothing was replaced
+ok   i4: nothing replaced
+ok   i5.out exit 1
+ok   i5.out: STOP: t1-release-step.py.v6-180385f9 exists with other content - nothing was replaced
+ok   i5: nothing replaced
+ok   i6.out exit 1
+ok   i6.out: STOP: download of t1-release-step.py failed - nothing was installed
+ok   i6: tools directory unchanged
+SELFTEST PASS
