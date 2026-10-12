@@ -169,6 +169,54 @@ the erasure stays incomplete: either the participant keeps the data, or auth nev
 ACK. The only exception is a row for a request that auth-service already shows as `COMPLETE`,
 such as a duplicate ACK. Confirm that first, and state it in `--reason`.
 
+
+### Media: an object that cannot be confirmed gone (U05)
+
+A stuck request can have nothing dead-lettered. media-service keeps its own erasure job
+(`media_erasure_jobs`) pending and retrying, with no attempt cap, until every object of the user is
+confirmed gone and every write of unknown outcome has been observed
+(`docs/architecture/erasure-ack-outbox-contract.md`, "Terminal failure").
+
+**How it shows:**
+- only the `media` ACK is missing;
+- `parkio.media.erasure.jobs.pending` stays above zero;
+- for a write of unknown outcome, `parkio.media.object_writes.outcome_unknown` stays above zero too.
+
+1. Confirm that the request waits for media only (auth database, read-only):
+
+   ```sql
+   SELECT service_name, status FROM erasure_service_acks WHERE erasure_request_id = '<request id>';
+   ```
+
+2. Read the job and the user's writes (media database, read-only). `last_error` says why the last
+   attempt did not finish:
+
+   ```sql
+   SELECT attempts, last_error, next_attempt_at, updated_at
+     FROM media_erasure_jobs WHERE erasure_request_id = '<request id>';
+   SELECT state, bucket_name, count(*) FROM media_object_writes
+    WHERE owner_user_id = '<auth user id>' GROUP BY state, bucket_name;
+   ```
+
+3. Act on the cause:
+
+   | Cause | How it shows | Action |
+   |---|---|---|
+   | Storage outage | `MinIODown`; storage errors in `last_error` | Bring the MinIO service back. That is not a data restore. The job retries on its own. |
+   | Object-lock retention | a retention error in `last_error`; the bucket has object lock | Do not shorten or bypass the retention. The job finishes once the retention ends; escalate if that is far off. On 2026-10-12 the deployed bucket had object lock disabled (U05 media check). |
+   | An object in another bucket | `bucket_name` differs from media-service's configured bucket | Escalate: this is a configuration decision. Do not move or delete objects by hand. |
+   | A write of unknown outcome | `last_error` reports object writes of unknown outcome that SUCCESS waits for; `PENDING` rows in `media_object_writes` | No resolution has been decided: it is the contract's open decision. Record it and escalate to the data/privacy owner. |
+
+4. **Never:**
+   - delete or change `media_erasure_jobs`, `media_object_writes` or media rows by SQL;
+   - insert ACK rows, or set the request to `COMPLETE`;
+   - acknowledge an erasure message;
+   - delete objects outside media-service.
+
+   Each of these can report an erasure that did not happen, or lose the record of one that did.
+5. **Record** in the incident: the request id, the auth user id, the job's attempts and
+   `last_error`, the cause, and who decided what.
+
 ## Kafka DLT Dry-Run
 
 Always inspect first:
