@@ -1,48 +1,76 @@
-U13 reconciliation | stamp 20261012T145030Z | read-only | canonical = api file set at e7609c7c5de0
+U13 reconciliation v2 | stamp 20261012T155745Z | read-only | canonical = api file set at 563bd7188245
 
 A. Host
-  <host> | 2026-10-12T14:50:30Z | Docker 29.8.1
-  release checkout <W>/rel: HEAD e7609c7c5de0 (= PIN), clean
-  live checkout <W>/live: HEAD e7609c7c5de0, 1 changed path(s);  1 file changed, 5 insertions(+), 1 deletion(-)
+  <host> | 2026-10-12T15:57:45Z | Docker 29.8.1 | Compose 5.5.1
+  release checkout <W>/rel: HEAD 563bd7188245 (= PIN), clean
+  live checkout <W>/live: HEAD 563bd7188245, 1 changed path(s);  1 file changed, 9 insertions(+), 3 deletions(-)
     changed: docker/docker-compose.yml
 
 B. Canonical render (production wrapper, release checkout)
-  svc-absent: busybox:latest hash f3baded29ab7
+  svc-absent: busybox:latest hash 64ae4dfc08fa
   svc-built: - (build) hash 92379ac34c5b
+  svc-drift: busybox:latest hash 437252009a43
+  svc-drift2: busybox:latest hash f7ae418529a0
+  svc-init: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash fc66d76dee6d
   svc-other: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash f366e6054ffc
   svc-pinned: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash f366e6054ffc
   svc-tag: busybox:latest hash 0c8ab1fab576
+  web: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash f366e6054ffc
+
+C0. Compose projects started by systemd units (systemctl cat, no root)
+  parkio-nr-log-continuous.service: project <p>-nr, working dir <W>/nr/docker -> <W>/nr/docker
+      profiles nrp | files a.yml, b.yml | env files <W>/nr-root.env (root-only), <W>/nr-runtime.env (readable)
 
 C/D. Containers and digest table
       ref localstack/localstack:3.8 | another Compose project, own reference by tag
       ref postgres:17-alpine | another Compose project, own reference by tag
       ref redis:7-alpine | another Compose project, own reference by tag
-  <p>-svc-built-1                    release-built running/- img e536664d1115 digest e536664d1115 rev fakepin self-check ok canonical =
+  <p>-svc-built-1                    release-built running/- img c6d5d8878a10 digest c6d5d8878a10 rev fakepin self-check match canonical =
       ref <p>-svc-built
       recorded inputs: <W>/rel/docker | docker-compose.yml | env env
-  <p>-svc-extra-1                    outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical -
+  <p>-svc-drift-1                    canonical-tag running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check MISMATCH canonical =
+      ref busybox:latest
+      recorded inputs: <W>/live/docker | docker-compose.yml | env env
+  <p>-svc-drift2-1                   canonical-tag running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check MISMATCH canonical ≠
+      ref busybox:latest
+      differs from canonical in (approximate: self-check MISMATCH): mem_limit, environment[DRIFT2]
+        mem_limit: live "50331648" | canonical absent
+      recorded inputs: <W>/live/docker | docker-compose.yml | env env
+  <p>-svc-extra-1                    outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical -
       ref busybox:latest | a parkio service the canonical render lacks, own reference by tag
       recorded inputs: <W>/live/docker | docker-compose.yml | env env
-  <p>-svc-other-1                    pinned-other  running/- img 3d9b4720b2b8 digest 3d9b4720b2b8 rev - self-check ok canonical ≠
-      ref <p>-other-image:v1
-      differs from canonical in: image
-      recorded inputs: <W>/live/docker | docker-compose.yml | env env
-  <p>-svc-pinned-1                   pinned        running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical =
+  <p>-svc-init-1                     pinned        exited(0)/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical =
       ref busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
       recorded inputs: <W>/rel/docker | docker-compose.yml | env env
-  <p>-svc-tag-1                      canonical-tag running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical ≠
-      ref busybox:latest
-      differs from canonical in: environment[EXTRA_TOKEN]
+  <p>-svc-other-1                    pinned-other  running/- img e66d82d5bec0 digest e66d82d5bec0 rev - self-check match canonical ≠
+      ref <p>-other-image:v1
+      differs from canonical in: image
+        image: live "<p>-other-image:v1" | canonical "busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"
       recorded inputs: <W>/live/docker | docker-compose.yml | env env
-  <p>-other-helper-1                 outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical -
+  <p>-svc-pinned-1                   pinned        running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical =
+      ref busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+      recorded inputs: <W>/rel/docker | docker-compose.yml | env env
+  <p>-svc-tag-1                      canonical-tag running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical ≠
+      ref busybox:latest
+      differs from canonical in: mem_limit, environment[EXTRA_TOKEN]
+        mem_limit: live "33554432" | canonical absent
+      recorded inputs: <W>/live/docker | docker-compose.yml | env env
+  <p>-web-1                          pinned        running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical =
+      ref busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+      recorded inputs: <W>/rel/docker | docker-compose.yml, web-binding-rebuilt.yml | env env | web binding rebuilt from Config.Image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+  <p>-nr-nr-svc-1                    outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical -
       ref busybox:latest | another Compose project, own reference by tag
-      recorded inputs: <W>/other/docker | docker-compose.yml | env env
+      recorded inputs: <W>/nr/docker | a.yml, b.yml | env nr-root.env, nr-runtime.env | profiles nrp | launcher parkio-nr-log-continuous.service | root-only env files: hash-only render via sudo -n
+      identity: PARKIO_COLLECTOR_SOURCE_SHA=fakesha123
+  <p>-other-helper-1                 outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check match canonical -
+      ref busybox:latest | another Compose project, own reference by tag
+      recorded inputs: <W>/other/docker | docker-compose.yml | env -
       ref postgres:17-alpine
       ref postgres:16-alpine
   <p>-plain                          unknown       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check - canonical -
       ref busybox:latest
-  canonical services without a running container: svc-absent
-  classes: canonical-tag 1, outside 5, pinned 1, pinned-other 1, release-built 1, unknown 3
+  classes: canonical-tag 3, outside 6, pinned 3, pinned-other 1, release-built 1, unknown 3
+  self-checks: - 3, MISMATCH 2, inputs-missing 3, match 9
 
 E. Effective flags (env file; true / false / empty / set)
   BAR_FLAG: false
@@ -56,40 +84,69 @@ F. U12 cutoff values from the D7 record
   Tg: "2026-10-12T12:49:14.1Z"
   scoreEndAtTg: {"0": 12}
 
-inventory: 12 containers, 4 recorded-input groups, 5 canonical services; problems: 0
+G. Canonical services without a running container: intended against actual
+  svc-absent: intended long-running (restart: unless-stopped): expected running
+      actual absent (no container) -> differs from its intended state - owner decision
+  svc-init: intended one-shot init (restart: no; svc-pinned wait(s) for service_completed_successfully): expected to have run and exited 0
+      actual exited (exit 0) at 2026-10-12T15:57:42Z -> as intended
+
+inventory: 17 containers, 6 recorded-input groups, 9 canonical services; problems: 0
 U13 RECONCILIATION COMPLETE
-saved: <W>/out/reconcile-20261012T145030Z/
+saved: <W>/out/reconcile-20261012T155745Z/
 ok   r1 exit 0
 ok   r1: release checkout = PIN, clean
-ok   r1: the dirty live checkout reported (1 changed path)
-ok   r1: class svc-pinned-1 .*pinned 
-ok   r1: class svc-other-1 .*pinned-other 
-ok   r1: class svc-built-1 .*release-built 
-ok   r1: class svc-tag-1 .*canonical-tag 
-ok   r1: class helper-1 .*outside 
-ok   r1: class svc-extra-1 .*outside 
-ok   r1: class u13t21451-plain .*unknown 
-ok   r1: canonical-created service self-check ok and equal to canonical
-ok   r1: live-created service self-check ok, differs from canonical
-ok   r1.out: differs from canonical in: environment[EXTRA_TOKEN]
-ok   r1.out: ref busybox:latest | another Compose project, own reference by tag
-ok   r1.out: ref busybox:latest | a parkio service the canonical render lacks, own reference by tag
-ok   r1.out: source: steps/D7-20261012T123453Z.json
+ok   r1.out: /live checkout .*1 changed path\(s\)/
+ok   r1.out: /svc-pinned-1 .*pinned /
+ok   r1.out: /svc-other-1 .*pinned-other /
+ok   r1.out: /svc-built-1 .*release-built /
+ok   r1.out: /svc-tag-1 .*canonical-tag /
+ok   r1.out: /helper-1 .*outside /
+ok   r1.out: /svc-extra-1 .*outside /
+ok   r1.out: /nr-svc-1 .*outside /
+ok   r1.out: /u13t51695-plain .*unknown /
+ok   r1.out: /svc-pinned-1 .*self-check match canonical =/
+ok   r1.out: /svc-tag-1 .*self-check match canonical ≠/
+ok   r1.out: /svc-drift-1 .*self-check MISMATCH/
+ok   r1.out: /web-1 .*self-check match canonical =/
+ok   r1.out: web binding rebuilt from Config.Image busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+ok   r1.out: /nr-svc-1 .*self-check match/
+ok   r1.out: launcher parkio-nr-log-continuous.service | root-only env files: hash-only render via sudo -n
+ok   r1.out: profiles nrp
+ok   r1.out: identity: PARKIO_COLLECTOR_SOURCE_SHA=fakesha123
+ok   r1.out: /parkio-nr-log-continuous.service: project <?u13t51695-nr/
+ok   r1.out: nr-root.env (root-only)
+ok   r1.out: differs from canonical in: mem_limit, environment[EXTRA_TOKEN]
+ok   r1.out: mem_limit: live "33554432" | canonical absent
+ok   r1.out: /svc-drift-1 .*self-check MISMATCH canonical =/
+ok   r1.out: /svc-drift2-1 .*self-check MISMATCH canonical ≠/
+ok   r1.out: differs from canonical in (approximate: self-check MISMATCH): mem_limit, environment[DRIFT2]
 ok   r1.out: rev fakepin
-ok   r1.out: canonical services without a running container: svc-absent
+ok   r1.out: svc-init: intended one-shot init (restart: no; svc-pinned wait(s) for service_completed_successfully)
+ok   r1.out: /actual exited \(exit 0\) at .* -> as intended/
+ok   r1.out: svc-absent: intended long-running (restart: unless-stopped): expected running
+ok   r1.out: actual absent (no container) -> differs from its intended state - owner decision
+ok   r1.out: /self-checks: .*MISMATCH 2/
 ok   r1.out: FOO_ENABLED: true
 ok   r1.out: BAR_FLAG: false
 ok   r1.out: FEATURE_X: empty
 ok   r1: non-flag keys are not listed
 ok   r1.out: dltUserEndBefore: {"0": 7, "1": 0, "2": 3}
 ok   r1.out: Tg: "2026-10-12T12:49:14.1Z"
+ok   r1.out: source: steps/D7-20261012T123453Z.json
 ok   r1.out: U13 RECONCILIATION COMPLETE
-ok   r1: no secret value in the output or the report
+ok   r1: secret secret not in the output or the report
+ok   r1: secret nrkey not in the output or the report
 ok   r1: report dir 700, files 600
 ok   r1: nothing written outside the report directory
-ok   r1: report.json classes and inputs recorded
+ok   r1: the root-only env file was left as it was
+ok   r1: report.json classes, self-checks and G recorded
 ok   r2: wrong T1 checksum -> STOP
 ok   r3 exit 0 (D7 record unreadable, state.json u12 used)
 ok   r3.out: source: state.json u12
 ok   r3.out: dltUserEndBefore: {"0": 5}
+ok   r4 exit 1 (sudo refused)
+ok   r4.out: /nr-svc-1 .*self-check unrenderable/
+ok   r4.out: self-check unrenderable: the launcher's env files are root-only and `sudo -n` was refused
+ok   r4.out: U13 RECONCILIATION INCOMPLETE
+ok   r4: the root-only secret is not printed
 SELFTEST PASS
