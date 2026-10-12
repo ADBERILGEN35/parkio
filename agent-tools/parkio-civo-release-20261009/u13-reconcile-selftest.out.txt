@@ -1,0 +1,84 @@
+U13 reconciliation | stamp 20261012T143354Z | read-only | canonical = api file set at 0700154a4f06
+
+A. Host
+  <host> | 2026-10-12T14:33:54Z | Docker 29.8.1
+  release checkout <W>/rel: HEAD 0700154a4f06 (= PIN), clean
+  live checkout <W>/live: HEAD 0700154a4f06, 1 changed path(s);  1 file changed, 2 insertions(+), 1 deletion(-)
+    changed: docker/docker-compose.yml
+
+B. Canonical render (production wrapper, release checkout)
+  svc-absent: busybox:latest hash f3baded29ab7
+  svc-built: - (build) hash 92379ac34c5b
+  svc-other: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash f366e6054ffc
+  svc-pinned: busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e hash f366e6054ffc
+  svc-tag: busybox:latest hash 0c8ab1fab576
+
+C/D. Containers and digest table
+      ref localstack/localstack:3.8
+      ref postgres:17-alpine
+      ref redis:7-alpine
+  <p>-svc-built-1                    release-built running/- img 3f222c564f50 digest 3f222c564f50 rev fakepin self-check ok canonical =
+      ref <p>-svc-built
+      recorded inputs: <W>/rel/docker | docker-compose.yml | env env
+  <p>-svc-other-1                    pinned-other  running/- img dac1892381ad digest dac1892381ad rev - self-check ok canonical ≠
+      ref <p>-other-image:v1
+      differs from canonical in: image
+      recorded inputs: <W>/live/docker | docker-compose.yml | env env
+  <p>-svc-pinned-1                   pinned        running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical =
+      ref busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+      recorded inputs: <W>/rel/docker | docker-compose.yml | env env
+  <p>-svc-tag-1                      canonical-tag running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical ≠
+      ref busybox:latest
+      differs from canonical in: environment[EXTRA_TOKEN]
+      recorded inputs: <W>/live/docker | docker-compose.yml | env env
+  <p>-other-helper-1                 outside       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check ok canonical -
+      ref busybox:latest
+      recorded inputs: <W>/other/docker | docker-compose.yml | env env
+      ref postgres:17-alpine
+      ref postgres:16-alpine
+  <p>-plain                          unknown       running/- img fd7dc98638c8 digest fd7dc98638c8 rev - self-check - canonical -
+      ref busybox:latest
+  canonical services without a running container: svc-absent
+  classes: canonical-tag 1, outside 4, pinned 1, pinned-other 1, release-built 1, unknown 3
+
+E. Effective flags (env file; true / false / empty / set)
+  BAR_FLAG: false
+  FEATURE_X: empty
+  FOO_ENABLED: true
+
+F. U12 cutoff values from the D7 record
+  dltUserEndBefore: {"0": 7, "1": 0, "2": 3}
+  scoreEndBefore: {"0": 10}
+  Tg: "2026-10-12T12:49:14.1Z"
+  scoreEndAtTg: {"0": 12}
+
+inventory: 11 containers, 4 recorded-input groups, 5 canonical services; problems: 0
+U13 RECONCILIATION COMPLETE
+saved: <W>/out/reconcile-20261012T143354Z/
+ok   r1 exit 0
+ok   r1: release checkout = PIN, clean
+ok   r1: the dirty live checkout reported (1 changed path)
+ok   r1: class svc-pinned-1 .*pinned 
+ok   r1: class svc-other-1 .*pinned-other 
+ok   r1: class svc-built-1 .*release-built 
+ok   r1: class svc-tag-1 .*canonical-tag 
+ok   r1: class helper-1 .*outside 
+ok   r1: class u13t13598-plain .*unknown 
+ok   r1: canonical-created service self-check ok and equal to canonical
+ok   r1: live-created service self-check ok, differs from canonical
+ok   r1.out: differs from canonical in: environment[EXTRA_TOKEN]
+ok   r1.out: rev fakepin
+ok   r1.out: canonical services without a running container: svc-absent
+ok   r1.out: FOO_ENABLED: true
+ok   r1.out: BAR_FLAG: false
+ok   r1.out: FEATURE_X: empty
+ok   r1: non-flag keys are not listed
+ok   r1.out: dltUserEndBefore: {"0": 7, "1": 0, "2": 3}
+ok   r1.out: Tg: "2026-10-12T12:49:14.1Z"
+ok   r1.out: U13 RECONCILIATION COMPLETE
+ok   r1: no secret value in the output or the report
+ok   r1: report dir 700, files 600
+ok   r1: nothing written outside the report directory
+ok   r1: report.json classes and inputs recorded
+ok   r2: wrong T1 checksum -> STOP
+SELFTEST PASS
