@@ -11,7 +11,7 @@ Four modes (do not confuse them):
 | LOCAL BACKUP | Stamp under `BACKUP_DIR` on the application VM |
 | OFFSITE PROTECTED BACKUP | Encrypted stamp uploaded to a destination that survives VM/disk loss |
 | ISOLATED RESTORE DRILL | CI / disposable DBs; never hosted-beta |
-| EMERGENCY RESTORE | Operator-confirmed overwrite of live data — see restore-runbook |
+| EMERGENCY RESTORE | Operator-confirmed overwrite of live data: **BLOCKED** in production on the current code; see restore-runbook |
 
 A local copy on the same VM disk is **staging**, not disaster recovery.
 

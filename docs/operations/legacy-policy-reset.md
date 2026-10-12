@@ -65,5 +65,6 @@ Re-run safely: second execution should report `updated=0` for already-migrated r
 ## Rollback
 
 There is **no** automatic un-reject. Prefer forward-fix (new submissions under v3-recall).
-Status restore requires backup restore or a separately approved targeted reverse — do not
-script bulk un-reject without product approval.
+Status restore requires a separately approved targeted reverse; a backup restore is BLOCKED in
+production (see [disaster-recovery-runbook.md](disaster-recovery-runbook.md)). Do not script bulk
+un-reject without product approval.

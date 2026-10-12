@@ -939,7 +939,8 @@ the outbox relay, Loki and MinIO simultaneously, so act before the critical (<10
    (DB, outbox, uploads, logs) are failing now. Treat as urgent.
 2. `dmesg | tail` for IO errors; check the VPS provider's disk health/console.
 3. Remount read-write only if the underlying error is understood (`mount -o remount,rw <mountpoint>`);
-   otherwise snapshot/restore on healthy storage. Restore from backups if data is corrupt.
+   otherwise move the volume to healthy storage. If data is corrupt, a restore from backup is BLOCKED in
+   production: follow the [DR runbook's incident response](../operations/disaster-recovery-runbook.md#incident-response-while-data-recovery-is-blocked).
 
 ### Runbook — `AlertmanagerNotificationsFailing`
 

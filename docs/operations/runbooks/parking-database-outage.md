@@ -27,7 +27,7 @@ Stop deploys; fail closed at gateway
 
 ## Containment
 
-Restore from backup if corruption
+Corruption: a restore from backup is BLOCKED in production (see the [DR runbook](../disaster-recovery-runbook.md)). Keep parking-service stopped or in maintenance, preserve the evidence, and escalate to the incident commander and the data/privacy owner ([DR runbook, "Incident response while data recovery is BLOCKED"](../disaster-recovery-runbook.md#incident-response-while-data-recovery-is-blocked)).
 
 ## Rollback
 

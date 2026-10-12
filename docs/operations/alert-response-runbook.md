@@ -130,5 +130,5 @@ auto-complete individually (see stale runbook).
 ## Escalation
 
 - Capture alert labels, Grafana screenshots, and `docker compose ps`.
-- If data loss suspected, stop writes and consult [restore-runbook.md](./restore-runbook.md).
+- If data loss suspected, stop writes and follow the [DR runbook's incident response](./disaster-recovery-runbook.md#incident-response-while-data-recovery-is-blocked) (production restore is BLOCKED).
 - Do not paste webhook URLs, tokens, or DB passwords into tickets or chat.

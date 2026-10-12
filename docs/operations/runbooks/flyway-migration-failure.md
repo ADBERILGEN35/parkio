@@ -27,7 +27,7 @@ Stop rollout; do not edit applied migration
 
 ## Containment
 
-Forward fix or restore
+Forward fix. A restore from backup is BLOCKED in production (see the [DR runbook](../disaster-recovery-runbook.md)).
 
 ## Rollback
 

@@ -293,12 +293,14 @@ docker exec -i parkio-postgres-parking \
 **Actions:**
 
 1. Do **not** hand-edit `flyway_schema_history` without a planned repair.
-2. If migration partially applied outside Flyway: stop parking-service, restore
-   DB from backup or finish DDL to match V17/V18, then `flyway repair` only with
-   senior approval.
+2. If migration partially applied outside Flyway: stop parking-service, finish
+   the DDL to match V17/V18, then `flyway repair` only with senior approval.
+   A restore from backup is not a remedy here: production restore is BLOCKED, and the
+   scripts allow only isolated fixture or drill restores, which start no application
+   (see the [DR runbook](disaster-recovery-runbook.md)).
 3. Recovery path: a forward fix (a deploy of corrected pins). A production database
-   restore is BLOCKED (`restore-database.sh` refuses production apply; see the DR runbook,
-   "Data corruption (one DB)"), and a deploy of an earlier image is not an accepted rollback
+   restore is BLOCKED (`restore-database.sh` refuses production apply; see the
+   [DR runbook](disaster-recovery-runbook.md), "Data corruption (one DB)"), and a deploy of an earlier image is not an accepted rollback
    unless schema compatibility with the live databases is proven first.
 4. Index-only issues: use CONCURRENTLY rebuild docs — do not re-run Flyway
    create statements that already succeeded.
@@ -334,9 +336,9 @@ rollback unless schema compatibility with the live databases is proven first (se
 Notes:
 
 - Rolling back application code does **not** automatically undo Flyway V17/V18.
-  Forward-fix DB or restore from backup if old code cannot read new columns.
-- Prefer feature-flag rollback (below) before DB restore when schema is
-  compatible.
+  Forward-fix the DB if old code cannot read new columns. A restore from backup
+  is BLOCKED in production (see the [DR runbook](disaster-recovery-runbook.md)).
+- Prefer feature-flag rollback (below) when the schema is compatible.
 
 ### 9. Feature flag rollback
 
@@ -397,5 +399,5 @@ engineering-approved script — domain invariants and outbox events will diverge
 
 Capture: alert name/labels, Grafana **Parking Sessions** + Outbox panels,
 `docker compose ps`, recent git SHA from `deploy-artifacts/current.json`, and
-whether feature flags were changed. If data loss suspected, stop writes and use
-[restore-runbook.md](./restore-runbook.md).
+whether feature flags were changed. If data loss suspected, stop writes and follow
+the [DR runbook's incident response](./disaster-recovery-runbook.md#incident-response-while-data-recovery-is-blocked) (production restore is BLOCKED).
