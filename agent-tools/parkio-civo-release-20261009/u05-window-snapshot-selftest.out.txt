@@ -1,0 +1,29 @@
+U05 window snapshot W0 | 2026-10-12T20:12:06Z | read-only
+  containers: 5 (5 running)
+  env file sha256 7ac153b5ba61c202…; PARKIO_ACCOUNT_ERASURE_ENABLED=false, PARKIO_REGISTRATION_MODE=closed, PARKIO_REGISTRATION_INVITE_CREATION_ENABLED=false, PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=set
+  rendered config: 5 services; running containers that differ from it: none
+record: <W>/out/W0-20261012T201206Z.json sha256 e9a50bdc13db73d3f2bbfae3a3a506eba6c159737f9bcd408562974829735a23
+exit=0
+ok   w0.out: containers: 5 (5 running)
+ok   w0.out: PARKIO_REGISTRATION_INVITE_OPERATOR_TOKEN=set
+ok   w0.out: rendered config: 5 services; running containers that differ from it: none
+U05 window compare | W0 2026-10-12T20:12:06Z -> W6 2026-10-12T20:12:07Z | 5 containers
+  3 other containers identical (id, image, config hash, StartedAt, RestartCount, status); auth-service same image and config hash; analytics-service same id, image and config hash
+  env file byte-identical to W0; window keys equal W0; every running config equals the rendered config
+U05 WINDOW COMPARE PASS
+exit=0
+ok   s1.out: 3 other containers identical
+ok   s1.out: U05 WINDOW COMPARE PASS
+ok   s1.out: exit=0
+ok   records 700/600
+ok   S8: the token value is in no output or record
+ok   s2.out: DIFF parkio-minio: startedAt 2026-10-12T12:00:00 -> 2026-10-13T09:10:00
+ok   s2.out: U05 WINDOW COMPARE FAIL
+ok   s2.out: exit=1
+ok   s3.out: DIFF the env file's SHA-256 differs from W0
+ok   s4.out: window keys differ from W0
+ok   s4.out: U05 WINDOW COMPARE FAIL
+ok   s5.out: running config differs from the rendered config: ['gateway-service']
+ok   s6.out: DIFF parkio-auth-service-1: image
+ok   s7.out: container set changed: added ['parkio-extra']
+SELFTEST PASS
