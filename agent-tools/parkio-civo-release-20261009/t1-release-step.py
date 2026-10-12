@@ -438,6 +438,54 @@ def nr_attached():
     return rc, len(attached), len(lines)
 
 
+def guard_run():
+    """The guard unit's latest completed run (2026-10-12: the unit's journal is not readable as civo, and systemd logs its own
+    unit messages after the script's last line). systemd's Result/ExecMainStatus, plus that invocation's own journal lines,
+    read with sudo and selected by _SYSTEMD_INVOCATION_ID; FAIL lines are also counted since the timer was last started."""
+    rc, out, _ = run(["systemctl", "show", NR_GUARD_SERVICE, "-p", "Result", "-p", "ExecMainStatus"])
+    props = dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+    info = {"result": props.get("Result", "?"), "status": props.get("ExecMainStatus", "?"), "invocation": "", "pass": 0,
+            "fail": 0, "age": None, "line": "", "failSinceTimer": 0, "timerSince": None}
+    rc, out, _ = run(["systemctl", "show", NR_GUARD_TIMER, "-p", "ActiveEnterTimestamp"])
+    since = None
+    for ln in out.splitlines():
+        if ln.startswith("ActiveEnterTimestamp="):
+            try:
+                since = datetime.strptime(ln.split("=", 1)[1].strip(), "%a %Y-%m-%d %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+            except ValueError:
+                since = None
+    info["timerSince"] = since.strftime("%Y-%m-%dT%H:%M:%SZ") if since else None
+    rc, out, _ = run(["sudo", "journalctl", "-u", NR_GUARD_SERVICE, "-o", "json", "-n", "300", "--no-pager"], timeout=60)
+    entries = []
+    for ln in out.splitlines():
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        msg = e.get("MESSAGE")
+        if isinstance(msg, str) and e.get("_SYSTEMD_INVOCATION_ID") and msg.startswith("continuous-guard "):
+            entries.append(e)
+    for e in entries:
+        try:
+            ts = int(e.get("__REALTIME_TIMESTAMP", "0")) / 1e6
+        except ValueError:
+            ts = 0
+        if "continuous-guard FAIL" in e["MESSAGE"] and (since is None or ts >= since.timestamp()):
+            info["failSinceTimer"] += 1
+    if not entries:
+        return info
+    info["invocation"] = entries[-1]["_SYSTEMD_INVOCATION_ID"]
+    mine = [e for e in entries if e["_SYSTEMD_INVOCATION_ID"] == info["invocation"]]
+    info["pass"] = sum("continuous-guard PASS" in e["MESSAGE"] for e in mine)
+    info["fail"] = sum("continuous-guard FAIL" in e["MESSAGE"] for e in mine)
+    info["line"] = mine[-1]["MESSAGE"][:80]
+    try:
+        info["age"] = int(time.time() - int(mine[-1]["__REALTIME_TIMESTAMP"]) / 1e6)
+    except (KeyError, ValueError, TypeError):
+        info["age"] = None
+    return info
+
+
 # ---------------------------------------------------------------- pebble / scan for the D7 outputs
 def uvarint_string(data):
     n = shift = 0
@@ -963,7 +1011,8 @@ def cmd_nr(which):
         state["nrPausedAt"] = now()
         say("  RECOVERY if the session ends before nr-resume: the timer stays stopped. Check the three sources with")
         say("  `sudo env ... resolve_production_sources.sh --check-live-helper`, then `sudo systemctl start "
-            f"{NR_GUARD_TIMER}` and `sudo systemctl start {NR_GUARD_SERVICE}`; journalctl must end with continuous-guard PASS.")
+            f"{NR_GUARD_TIMER}` and `sudo systemctl start {NR_GUARD_SERVICE}`; that run's own journal lines (sudo journalctl) "
+            "must show continuous-guard PASS.")
         say("  If a source is not attached, do not restart the timer or re-activate the wider NR stack: report to the owner.")
     else:
         say("")
@@ -976,15 +1025,29 @@ def cmd_nr(which):
         if not ok:
             say("  The timer stays stopped. Owner decision needed; D7 does not start (approved decision 3).")
             return finish(which, record, state)
-        say(f"Run: sudo systemctl start {NR_GUARD_TIMER} && sudo systemctl start {NR_GUARD_SERVICE}")
-        rc1, _, _ = run(["sudo", "systemctl", "start", NR_GUARD_TIMER], timeout=120)
-        rc2, _, _ = run(["sudo", "systemctl", "start", NR_GUARD_SERVICE], timeout=300)
-        rc, out, _ = run(["journalctl", "-u", NR_GUARD_SERVICE, "-n", "3", "--no-pager", "-o", "cat"])
-        last = (out.strip().splitlines() or [""])[-1]
+        if states.get(NR_GUARD_TIMER) == "active":
+            say("Guard timer already active (started by an earlier nr-resume): verifying its latest run; nothing is started")
+        else:
+            say(f"Run: sudo systemctl start {NR_GUARD_TIMER} && sudo systemctl start {NR_GUARD_SERVICE}")
+            rc1, _, _ = run(["sudo", "systemctl", "start", NR_GUARD_TIMER], timeout=120)
+            rc2, _, _ = run(["sudo", "systemctl", "start", NR_GUARD_SERVICE], timeout=300)
+            gate("guard timer and one guard run started", rc1 == 0 and rc2 == 0, f"exit {rc1}/{rc2}")
+        g = guard_run()
         gate("guard timer active", nr_state().get(NR_GUARD_TIMER) == "active")
-        gate("guard run ends with continuous-guard PASS", rc2 == 0 and "continuous-guard PASS" in last, last[:80])
+        gate("latest guard run: systemd Result=success, ExecMainStatus=0", g["result"] == "success" and g["status"] == "0",
+             f"Result={g['result']} ExecMainStatus={g['status']}")
+        gate("latest guard run printed continuous-guard PASS and no FAIL (its own journal lines, read with sudo)",
+             g["pass"] >= 1 and g["fail"] == 0,
+             f"invocation {g['invocation'][:12] or '-'}: {g['pass']} PASS, {g['fail']} FAIL; '{g['line']}'")
+        gate("latest guard run within the last 180 s", g["age"] is not None and 0 <= g["age"] <= 180,
+             f"{g['age']} s ago" if g["age"] is not None else "no run found")
+        gate("no continuous-guard FAIL since the timer started", g["failSinceTimer"] == 0,
+             f"{g['failSinceTimer']} FAIL line(s) since {g['timerSince'] or 'the oldest line read'}")
+        record["guardRun"] = {k: g[k] for k in ("invocation", "result", "status", "pass", "fail", "age", "failSinceTimer", "timerSince")}
         paused = state.get("nrPausedAt")
-        say(f"  guard paused from {paused or '?'} to {now()}")
+        resumed = g["timerSince"] or now()
+        state["nrResumedAt"] = resumed
+        say(f"  guard paused from {paused or '?'} to {resumed}")
     finish(which, record, state)
 
 

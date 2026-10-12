@@ -54,6 +54,14 @@ ok   S5 rollback notification refused: not reproducible (env changed since it st
 ok   S5 rollback web via recorded inputs restores the previous image and hash
 ok   S5 final with a broken CSRF check -> FAIL, no manifest
 ok   S5 final with parkio.user behind on a score partition -> FAIL (U12 B)
+ok   S7 timer already active: nr-resume verifies the latest run and starts nothing
+ok   S7 nr-resume recorded ok with the guard run's evidence
+ok   S7 T1 never reads the guard journal without sudo
+ok   S7 latest run printed FAIL -> nr-resume FAIL
+ok   S7 latest run older than 180 s -> FAIL
+ok   S7 systemd result not success -> FAIL
+ok   S7 a FAIL since the timer started -> FAIL
+ok   S7 start path with a failing guard run -> FAIL
 ok   S6 nr_attached counts the check's stderr lines: 3/3, exit 0
 ok   S6 nr_attached counts the check's stdout lines: 3/3, exit 0
 ok   S6 nr_attached with one source detached (stderr): 2/3, exit 1

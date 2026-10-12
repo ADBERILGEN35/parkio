@@ -5,7 +5,8 @@
 #   bash ~/parkio-release-20261009/tools/t1-step.sh D3                (D3, D4, D5, D6a, D6b, D7 or final)
 #   bash ~/parkio-release-20261009/tools/t1-step.sh D3 --recheck      re-run a step whose change is already in place
 #
-# 1. The installed T1 copy matches its pinned SHA-256 (T1 v2, 2026-10-12: its NR check counts the helper's stderr lines);
+# 1. The installed T1 copy matches its pinned SHA-256 (T1 v3, 2026-10-12: NR check counts the helper's stderr lines; the guard
+#    run is verified from its own journal lines, read with sudo, and nothing is started when the timer is already active);
 #    its Python syntax parses.
 # 2. sudo is validated once (T1's NR check and its nr steps call sudo; they then do not prompt).
 # 3. For the smoke steps (D3, D5, D6a, D6b, D7, final): the five smoke-session variables are set in this shell (names
@@ -28,7 +29,7 @@ R="${T1S_OUT:-$HOME/parkio-release-20261009}"
 REL="${T1S_REL:-/opt/parkio-release}"                                    # overrides: self-test only
 ENVF="${T1S_ENV_FILE:-/opt/parkio/docker/.env.azure-hosted-beta}"
 T1="${T1S_T1:-$R/tools/t1-release-step.py}"
-T1_SHA="${T1S_T1_SHA256:-31f5f9a3dd3945faae6eeec38996fb3c53846d4d8ca867a769dc2e3ea4c3136b}"   # override: self-test only
+T1_SHA="${T1S_T1_SHA256:-88a0b3519ec8d1dff28ca4a922ba08f5e0590fe3c9bc00f6623e2072b5bf4c42}"   # override: self-test only
 WINDOW_MIN=120
 stop() { echo "STOP: $* - T1 was not run, nothing was changed"; exit 1; }
 nr_line() {

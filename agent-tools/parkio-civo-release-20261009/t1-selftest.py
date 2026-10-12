@@ -115,6 +115,9 @@ class Host:
                       "parkio-nr-log-continuous-guard.timer": "active", "parkio-nr-log-continuous-guard.service": "inactive"}
         self.attached = 3
         self.nr_stream = "stderr"
+        self.timer_since = time.time() - 86400
+        self.guard_runs = []          # (invocation, epoch, ok)
+        self.guard_result, self.guard_status, self.guard_fail = "success", "0", False
         self.smoke_fail = 0
         self.pebble_present = set()
         self.trivy_fail = {}
@@ -141,13 +144,36 @@ class Host:
             return self.wrapper(cmd[1:], cwd)
         if cmd[0] == "pgrep":
             return "", 1, ""
+        if cmd[:2] == ["systemctl", "show"]:
+            if cmd[2].endswith("guard.timer"):
+                return "ActiveEnterTimestamp=" + datetime.fromtimestamp(self.timer_since, timezone.utc).strftime(
+                    "%a %Y-%m-%d %H:%M:%S UTC") + "\n", 0, ""
+            return f"Result={self.guard_result}\nExecMainStatus={self.guard_status}\n", 0, ""
         if cmd[0] == "systemctl":
             return self.units.get(cmd[2], "unknown"), 0, ""
         if cmd[:2] == ["sudo", "systemctl"]:
+            if cmd[2] == "start" and cmd[3].endswith("guard.timer") and self.units.get(cmd[3]) != "active":
+                self.timer_since = time.time()
             self.units[cmd[3]] = "active" if cmd[2] == "start" else "inactive"
             if cmd[3].endswith("guard.service") and cmd[2] == "start":
                 self.units[cmd[3]] = "inactive"
+                self.add_guard_run(not self.guard_fail, 0)
+                self.guard_result, self.guard_status = ("success", "0") if not self.guard_fail else ("exit-code", "1")
             return "", 0, ""
+        if cmd[:2] == ["sudo", "journalctl"]:
+            # like journald: systemd's own unit messages surround the script's line; only the script's line carries
+            # _SYSTEMD_INVOCATION_ID
+            lines = []
+            for inv, ts, ok in self.guard_runs:
+                us = str(int(ts * 1e6))
+                lines.append({"MESSAGE": "Starting parkio-nr-log-continuous-guard.service...", "INVOCATION_ID": inv, "__REALTIME_TIMESTAMP": us})
+                lines.append({"MESSAGE": "continuous-guard PASS sources=current transport=running storage=within-bounds" if ok
+                              else "continuous-guard FAIL reason=source_not_attached; stopping dedicated log transport",
+                              "_SYSTEMD_INVOCATION_ID": inv, "__REALTIME_TIMESTAMP": us})
+                lines.append({"MESSAGE": "parkio-nr-log-continuous-guard.service: Deactivated successfully.", "INVOCATION_ID": inv,
+                              "__REALTIME_TIMESTAMP": us})
+                lines.append({"MESSAGE": "Finished parkio-nr-log-continuous-guard.service.", "INVOCATION_ID": inv, "__REALTIME_TIMESTAMP": us})
+            return "".join(json.dumps(x) + "\n" for x in lines), 0, ""
         if cmd[:2] == ["sudo", "env"]:
             # like resolve_production_sources.sh --check-live-helper: PASS/FAIL lines on stderr, stdout empty
             lines = "".join(f"source-preflight PASS: service=s{i} live-helper={'attached' if i < self.attached else 'detached'} "
@@ -167,6 +193,10 @@ class Host:
         if cmd[0] == "docker":
             return self.docker(cmd[1:], stdin)
         return "", 127, f"unexpected command {cmd[0]}"
+
+    def add_guard_run(self, ok, ago):
+        self.n += 1
+        self.guard_runs.append((f"{self.n:032x}", time.time() - ago, ok))
 
     def wrapper(self, args, cwd):
         files = []
@@ -491,7 +521,8 @@ def main():
     check("S1 D7 before nr-resume refused", code == 1 and "the previous step nr-resume is not ok" in out)
     code, out = t1(h, "nr-resume"); outputs.append(out)
     check("S1 nr-resume ok, timer active, guard PASS", code == 0 and h.units["parkio-nr-log-continuous-guard.timer"] == "active"
-          and "PASS guard run ends with continuous-guard PASS" in out, out[-500:])
+          and "PASS latest guard run printed continuous-guard PASS and no FAIL" in out
+          and "PASS guard timer and one guard run started" in out, out[-500:])
     code, out = t1(h, "step", "D7"); outputs.append(out)
     check("S1 D7 ok", code == 0, out[-1500:])
     check("S1 D7 checked pebble absent and scanned before starting",
@@ -621,6 +652,55 @@ def main():
     h.committed[("parkio.user", "parkio.gamification.score")][3] = 5
     code, out = t1(h, "final")
     check("S5 final with parkio.user behind on a score partition -> FAIL (U12 B)", code == 1 and "behind: [3]" in out)
+
+    # S7 (2026-10-12 regression): the guard unit's journal is not readable as civo and systemd logs its own unit messages after
+    # the script's PASS line; T1 v3 reads the latest invocation's own lines with sudo. With the timer already active (started by
+    # an earlier nr-resume) nothing is started.
+    h = fresh(); receipt(h, 10)
+    t1(h, "plan")
+    for st in ("D2a", "D2b", "D2c"):
+        t1(h, "step", st)
+    t1(h, "nr-pause")
+    for st in ("D3", "D4", "D5", "D6a", "D6b"):
+        t1(h, "step", st)
+    h.units["parkio-nr-log-continuous-guard.timer"] = "active"
+    h.timer_since = time.time() - 600
+    h.add_guard_run(True, 70)
+    h.add_guard_run(True, 10)
+    before = len(h.calls)
+    code, out = t1(h, "nr-resume")
+    starts = [c for c, _ in h.calls[before:] if c[:3] == ["sudo", "systemctl", "start"]]
+    check("S7 timer already active: nr-resume verifies the latest run and starts nothing", code == 0 and not starts
+          and "Guard timer already active" in out and "PASS latest guard run printed continuous-guard PASS and no FAIL" in out
+          and "PASS latest guard run: systemd Result=success, ExecMainStatus=0" in out, out[-700:])
+    check("S7 nr-resume recorded ok with the guard run's evidence", state(h)["steps"]["nr-resume"]["status"] == "ok"
+          and state(h).get("nrResumedAt"), str(state(h).get("nrResumedAt")))
+    check("S7 T1 never reads the guard journal without sudo", not any(c[0] == "journalctl" for c, _ in h.calls))
+    h.add_guard_run(False, 5)
+    code, out = t1(h, "nr-resume")
+    check("S7 latest run printed FAIL -> nr-resume FAIL", code == 1 and "0 PASS, 1 FAIL" in out, out[-500:])
+    h.guard_runs = [(f"{1:032x}", time.time() - 600, True)]
+    code, out = t1(h, "nr-resume")
+    check("S7 latest run older than 180 s -> FAIL", code == 1 and "FAIL latest guard run within the last 180 s" in out, out[-400:])
+    h.guard_runs = [(f"{2:032x}", time.time() - 30, True)]
+    h.guard_result, h.guard_status = "exit-code", "1"
+    code, out = t1(h, "nr-resume")
+    check("S7 systemd result not success -> FAIL", code == 1 and "FAIL latest guard run: systemd Result=success" in out, out[-400:])
+    h.guard_result, h.guard_status = "success", "0"
+    h.guard_runs = [(f"{3:032x}", time.time() - 300, False), (f"{4:032x}", time.time() - 20, True)]
+    code, out = t1(h, "nr-resume")
+    check("S7 a FAIL since the timer started -> FAIL", code == 1 and "FAIL no continuous-guard FAIL since the timer started" in out,
+          out[-400:])
+    h2 = fresh(); receipt(h2, 10)
+    t1(h2, "plan")
+    for st in ("D2a", "D2b", "D2c"):
+        t1(h2, "step", st)
+    t1(h2, "nr-pause")
+    for st in ("D3", "D4", "D5", "D6a", "D6b"):
+        t1(h2, "step", st)
+    h2.guard_fail = True
+    code, out = t1(h2, "nr-resume")
+    check("S7 start path with a failing guard run -> FAIL", code == 1 and "0 PASS, 1 FAIL" in out, out[-400:])
 
     # S6 (2026-10-12 regression): the live helper check prints its lines on stderr; D3 counted 0/0 from stdout only
     h = fresh()
