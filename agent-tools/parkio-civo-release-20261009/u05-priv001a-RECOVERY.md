@@ -1,4 +1,4 @@
-# U05 PRIV-001A window: independent recovery procedure (version 3: also the U04 scenario)
+# U05 PRIV-001A window: independent recovery procedure (version 4: also the U04 scenario and U03 in it)
 
 ## When to use it
 
@@ -78,6 +78,17 @@ Q "select count(*), count(*) filter (where consumed_at is null) from registratio
 - **U04:** the second query must show as many created invites as `$S/u04/invites.log` has lines
   (`sudo wc -l < "$S/u04/invites.log"`). A listed account with no credentials file is an ORPHAN (its registration was
   not preceded by `u04-creds`): record it, never change it by SQL.
+- **U03 (when `$S/u04/elevated.log` exists):** each id listed there was given ADMIN for the U03 acceptance. Before you
+  erase it, read its roles: `Q "select r.name from auth_user_roles ur join roles r on r.id = ur.role_id where ur.user_id = '<id>'::uuid"`.
+  If ADMIN is listed, remove it with the runner's own statement. It runs in a read-write session, deletes only that
+  id's ADMIN row and bumps its session epoch, as revokeRole does. Expect exactly one row back:
+
+  ```
+  sudo docker exec "$(C postgres-auth)" sh -c 'exec psql -X -q -At --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' psql \
+    "with del as (delete from auth_user_roles ur using roles r where ur.role_id = r.id and r.name = 'ADMIN' and ur.user_id = '<id>'::uuid returning ur.user_id) update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() from del where a.id = del.user_id returning a.id, a.session_epoch"
+  ```
+
+  Never change the roles of an id that is not listed in `elevated.log`.
 - **An unconsumed invite:** record it as an ORPHAN. Only the invite's hash is stored, so no one can use it, and it expires after the invite TTL (P7D).
 
 **For each account the first query lists:**
@@ -194,7 +205,8 @@ sudo U05W_OUT="$EV" U05W_CHANGED="$CH" python3 -I "$S/u05-window-snapshot.py" co
 
 Then repeat the two accounting queries of step 3. The expected result:
 - no listed account;
-- the invites since W1 show `1|0` (U04: `<lines of invites.log>|0`): every invite created, none unconsumed.
+- the invites since W1 show `1|0` (U04: `<lines of invites.log>|0`): every invite created, none unconsumed;
+- U03: no id in `$S/u04/elevated.log` holds ADMIN.
 
 ## 7. Clean up
 

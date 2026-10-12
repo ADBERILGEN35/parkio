@@ -47,6 +47,35 @@ The cases map to the U04 criteria:
 | no phone in storage | every case: localStorage, sessionStorage, IndexedDB, Cache Storage and cookies |
 | map renders with a non-synthetic key | `map` |
 
+## U03 in the same window
+
+U03 (Asana 1219001664236540, live privileged-token revocation) runs on the host, inside the same hold, BEFORE the
+browser tool, because the browser tool ends the hold:
+
+```
+ssh … "sudo -n python3 -I /root/u05-priv001a-window/<RUN>/window.py u03-acceptance --run <RUN>"
+```
+
+It takes about two minutes:
+
+1. Accounts X and Y are created through the reviewed harness: invite, registration, allowlisted verification.
+2. X is given ADMIN by one allowlisted SQL statement. It applies only to a synthetic ACTIVE account registered since W1 that holds only USER and has no erasure request. The statement adds the role row and bumps the session epoch, as grantRole does.
+3. Controls that request no real user's data, with X's new admin token:
+   - `/admin/users?userId=X` must return only X;
+   - the waitlist export over a 2099 window;
+   - a suspend on a random, nonexistent id, which must give 404.
+4. X loses ADMIN through the matching statement, as revokeRole does.
+5. The old admin token must be refused on read, export and mutation within the gateway's epoch cache TTL (PT30S, unset live).
+6. X's new token must carry USER only.
+7. Y's token must keep working, with Y's epoch unchanged.
+8. Missing, malformed and re-signed JWTs must be refused.
+
+Tokens never leave the host. The output is `u03/u03-results.json` in the run's evidence directory, plus `u04/u03.log`.
+
+If the command fails or is cut off, its `finally` step removes ADMIN. The window's cleanup also removes ADMIN from every id in `elevated.log` before erasing it, and the accounting refuses to pass while any id there still holds ADMIN.
+
+The criterion "epoch lookup error does not grant access" is not reproduced live, because that would need a production fault. Its evidence is isolated fault injection on the running images: the 22-case auth+gateway acceptance of candidate run 38087836817 (source 504b9cb4). Its fail-closed cases cover a null, malformed, mismatched, empty or missing epoch and a restored proxy, and the deployed auth/gateway config digests equal that run's accepted image ids.
+
 ## Before the window
 
 - The tool's dry run against the production bundle with a mocked API: `node u04-live-ownership.mjs --mock-api …`.

@@ -97,15 +97,33 @@ if a[:1] == ["exec"] and "kafka-consumer-groups" in a:
     print(f"{a[-1]} parkio.some.topic 0 100 {100 + lag} {lag} consumer-1 /10.0.0.9 analytics")
     sys.exit(0)
 if a[:1] == ["exec"] and "psql" in a:
+    sql = a[-1]; db = s["db"]; users = db["users"]
+    if sql.startswith("with t as (select u.id from auth_users u where u.id = "):
+        uid = re.search(r"u.id = '([0-9a-f-]+)'::uuid", sql).group(1); em = re.search(r"u.email = '([^']+)'", sql).group(1)
+        t = fw.epoch(re.search(r"created_at >= '([^']+)'::timestamptz", sql).group(1))
+        u = next((x for x in users if x["id"] == uid and x["email"] == em and x["status"] == "ACTIVE" and x["at"] >= t
+                  and set(x.get("roles", ["USER"])) == {"USER"} and not any(r["uid"] == uid for r in db["requests"])), None)
+        if u: u["roles"] = ["ADMIN", "USER"]; u["epoch"] = u.get("epoch", 0) + 1; fw.log(s, "elevate " + uid); fw.save(s); print(f"{uid}|{u['epoch']}")
+        sys.exit(0)
+    if sql.startswith("with del as (delete from auth_user_roles ur using roles r where "):
+        uid = re.search(r"ur.user_id = '([0-9a-f-]+)'::uuid", sql).group(1)
+        u = next((x for x in users if x["id"] == uid and "ADMIN" in x.get("roles", [])), None)
+        if u: u["roles"] = ["USER"]; u["epoch"] = u.get("epoch", 0) + 1; fw.log(s, "demote " + uid); fw.save(s); print(f"{uid}|{u['epoch']}")
+        sys.exit(0)
     if "PGOPTIONS=-c default_transaction_read_only=on" not in a:
         sys.stderr.write("fake docker: psql without a read-only session\n"); sys.exit(5)
-    sql = a[-1]; db = s["db"]; users = db["users"]
     def since(op):
         m = re.search(r"created_at " + op + r" '([^']+)'::timestamptz", sql) or re.search(r"requested_at >= '([^']+)'::timestamptz", sql)
         return fw.epoch(m.group(1))
     def row(u): return f"{u['id']}|{u['status']}|{u.get('tomb') or u['email']}"
     if sql == "select count(*) from erasure_requests":
         print(len(db["requests"]))
+    elif sql.startswith("select r.name from auth_user_roles ur join roles r on r.id = ur.role_id where ur.user_id = "):
+        uid = re.search(r"ur.user_id = '([0-9a-f-]+)'", sql).group(1)
+        print("\n".join(next((x.get("roles", ["USER"]) for x in users if x["id"] == uid), [])))
+    elif sql.startswith("select session_epoch from auth_users where id = "):
+        uid = re.search(r"id = '([0-9a-f-]+)'", sql).group(1)
+        print(next((x.get("epoch", 0) for x in users if x["id"] == uid), ""))
     elif sql.startswith("select id, status, email from auth_users where id ="):
         uid = re.search(r"id = '([0-9a-f-]+)'", sql).group(1)
         print("\n".join(row(u) for u in users if u["id"] == uid))
@@ -237,7 +255,7 @@ if kind == "create":
         print("ERROR: invite creation failed http=403"); done(1)
     td = os.path.join(os.environ["TMPDIR"], "priv001a-civo.fake"); os.makedirs(td, exist_ok=True)
     open(os.path.join(td, "login.json"), "w").write('{"accessToken": "eyJfake-tmp-token"}')
-    creds = opt("--credentials-file"); email = "priv001a-20261013090000abcdef12@priv001a.parkio.invalid"
+    creds = opt("--credentials-file"); email = f"priv001a-20261013{uuid.uuid4().hex[:16]}@priv001a.parkio.invalid"
     inv = {"at": time.time(), "consumed": False}; s["db"]["invites"].append(inv); fw.save(s)
     print("PRIV-001A: invite=PASS")
     open(creds, "w").write(f"acceptance_id=PRIV001A-T\nemail={email}\npassword=Pw-synthetic-123456\n")
@@ -268,6 +286,45 @@ if kind == "lib-invite":
     tok = uuid.uuid4().hex + "-" + uuid.uuid4().hex[:10]
     s["db"]["invites"].append({"at": time.time(), "consumed": False, "token": tok}); fw.save(s)
     open(a[0], "w").write(json.dumps({"token": tok, "expiresAt": "2026-10-20T00:00:00Z"})); print("201"); done(0)
+if kind == "lib-http":
+    import base64
+    method, path, out = a[0], a[1], a[2]
+    body, bearer = os.environ.get("FW_BODY", ""), os.environ.get("FW_BEARER", "")
+    users = s["db"]["users"]
+    def b64(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
+    def jwt(u): return (b64({"alg": "HS256"}) + "." + b64({"sub": u["id"], "roles": sorted(u.get("roles", ["USER"])),
+                        "session_epoch": u.get("epoch", 0)}) + ".sig" + u["id"][:8])
+    def reply(code, text=""):
+        open(out, "w").write(text); print(code); done(0)
+    if method == "POST" and path == "/api/v1/auth/login":
+        b = json.loads(body)
+        u = next((x for x in users if x["email"] == b.get("email") and x["status"] == "ACTIVE" and not x.get("tomb")), None)
+        if u is None: reply("401", '{"code":"INVALID_CREDENTIALS"}')
+        if "ADMIN" in u.get("roles", []) and k.get("u03LoginFailAfterElevate"): reply("503", '{"code":"UNAVAILABLE"}')
+        if "ADMIN" in u.get("roles", []) and k.get("u03HangAfterElevate"): time.sleep(600)
+        reply("200", json.dumps({"accessToken": jwt(u), "refreshToken": "rt-fake", "user": {"id": u["id"], "status": "ACTIVE"}}))
+    parts = bearer.split(".")
+    if not bearer: reply("401", '{"code":"UNAUTHORIZED"}')
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    except Exception:
+        reply("401", '{"code":"INVALID_TOKEN"}')
+    u = next((x for x in users if x["id"] == claims.get("sub")), None)
+    if u is None or len(parts) != 3 or parts[2] != "sig" + u["id"][:8]: reply("401", '{"code":"INVALID_TOKEN"}')
+    cache = s.setdefault("gwcache", {})
+    ent = cache.get(u["id"])
+    if not ent or time.time() >= ent[1]:
+        ent = [u.get("epoch", 0), time.time() + k.get("u03TTL", 2)]; cache[u["id"]] = ent; fw.save(s)
+    if not k.get("u03NoRevoke") and claims.get("session_epoch") != ent[0]: reply("401", '{"code":"TOKEN_REVOKED"}')
+    if (path.startswith("/api/v1/admin/") or path.startswith("/api/v1/waitlist/export")) and "ADMIN" not in claims.get("roles", []):
+        reply("403", '{"code":"FORBIDDEN"}')
+    if path == "/api/v1/auth/me": reply("200", json.dumps({"id": u["id"]}))
+    if path.startswith("/api/v1/admin/users?userId="):
+        uid = path.split("=", 1)[1]
+        reply("200", json.dumps({"content": [{"id": x["id"]} for x in users if x["id"] == uid]}))
+    if path.startswith("/api/v1/waitlist/export"): reply("406", '{"code":"NOT_ACCEPTABLE"}')
+    if method == "POST" and re.match(r"^/api/v1/admin/users/[0-9a-f-]{36}/suspend$", path): reply("404", '{"code":"USER_NOT_FOUND"}')
+    reply("404", '{"code":"NOT_MOCKED"}')
 if kind == "lib-verify":
     open(os.path.join(os.environ["FW_DIR"], "verify-max-age.log"), "a").write(f"{a[1] if len(a) > 1 else ''}\n")
     u = next((x for x in s["db"]["users"] if x["email"] == a[0] and x["status"] == "PENDING_VERIFICATION"), None)
@@ -333,6 +390,7 @@ cat > "$W/harness/scripts/lib/priv001-synthetic.sh" <<'SH'
 # fake lib: the two functions the U04 subcommands call
 parkio_priv001_civo_create_invite() { python3 -I "$FW_DIR/harness.py" lib-invite "$1"; }
 parkio_priv001_mark_verified() { python3 -I "$FW_DIR/harness.py" lib-verify "$1" "$2"; }
+parkio_priv001_civo_http() { FW_BODY="$3" FW_BEARER="$4" python3 -I "$FW_DIR/harness.py" lib-http "$1" "$2" "$5"; }
 SH
 echo "# fake dark url" > "$W/harness/scripts/lib/dark-gateway-url.sh"
 chmod +x "$W/bin/"* "$W/release/scripts/parkio-prod-compose.sh"
@@ -764,6 +822,67 @@ has r29.out "NOT ERASED: "; has r29.out "restore U04 accounts: FAILED"; has r29.
 [ -f "$W/private/$RUN/u04/creds-A1" ] && ok "r29: the unerased account's credentials are kept" || no "r29 creds gone"
 [ "$(envsha)" = "$SHA0" ] && ok "r29: env byte-identical" || no "r29 env"
 calls | grep -q 'analytics-service' && no "r29: analytics touched" || ok "r29: analytics-service never stopped or started"
+
+u03_window() {  # tag knobs: a U04 window held open for U03
+  fresh closed False "" "$2"
+  start "$1.out" --scenario u04; sleep 1.1
+  (FW_SCENARIO="" FW_RUN="$RUN" python3 -I "$W/private/$RUN/window.py" run --run "$RUN" > "$W/$1.out" 2>&1; echo "exit=$?" >> "$W/$1.out") &
+  wait_for "$W/$1.out" "W2 U04 hold until" 60
+  WIN="$W/private/$RUN/window.py"
+}
+u03_end() {  # tag
+  python3 -I "$WIN" u04-done --run "$RUN" > /dev/null 2>&1
+  wait_for "$W/$1.out" "exit=" 120
+}
+export U05R_U03_TTL=2 U05R_U03_SLACK=4 U05R_U03_POLL=1
+
+echo "=== R30 U03: harness accounts, elevation, controls, demotion, refusal within the TTL, cleanup ==="
+u03_window r30 '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r30u.out" 2>&1; echo "u03 exit=$?" >> "$W/r30u.out"
+has r30u.out "U03 ACCEPTANCE PASS"; has r30u.out "u03 exit=0"; has r30u.out "PASS control: admin read 200, only X"
+has r30u.out "PASS control: export authorized"; has r30u.out "PASS control: admin mutation authorized (404, no such user)"
+has r30u.out "PASS old admin token refused on read within the TTL"; has r30u.out "PASS old admin token refused on export within the TTL"
+has r30u.out "PASS old admin token refused on mutation within the TTL"; has r30u.out "PASS X's new token carries USER only"
+has r30u.out "PASS unrelated user Y unaffected"; has r30u.out "PASS Y's session epoch unchanged"
+has r30u.out "PASS missing JWT refused"; has r30u.out "PASS malformed JWT refused"; has r30u.out "PASS re-signed (invalid signature) JWT refused"
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r30v.out" 2>&1; has r30v.out "STOP: U03 already ran in this window"
+u03_end r30
+has r30.out "U03X: "; has r30.out "U03Y: "; has r30.out "U05 PRIV-001A WINDOW PASS"
+report 'a = r["accounting"]; u = {x["name"]: x for x in a["u04Accounts"]}
+assert u["U03X"]["status"] == "ERASED" and u["U03Y"]["status"] == "ERASED" and [e["roles"] for e in a["u03Elevated"]] == [["USER"]]
+assert a["invitesSinceW1"] == {"created": 2, "unconsumed": 0} and a["syntheticAccountsSinceW1"] == []' \
+  && ok "r30: report: X and Y erased, X holds no ADMIN, 2 invites consumed" || no "r30 report"
+python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["verdict"] == "PASS" and set(r["rejectedAfterSeconds"]) == {"read", "export", "mutation"}' \
+  "$W/evidence/$RUN/u03/u03-results.json" && ok "r30: u03-results.json PASS with the three refusal times" || no "r30 results"
+if grep -r -q -E 'eyJ|Pw-synthetic|accessToken|rt-fake' "$W/r30u.out" "$W/evidence/$RUN" "$W/private/$RUN/u04/u03.log" 2>/dev/null; then
+  no "r30: a token or password reached the U03 output, log or records"; else ok "r30: no token or password in the U03 output, log or records"; fi
+[ "$(envsha)" = "$SHA0" ] && ok "r30: env byte-identical" || no "r30 env"
+
+echo "=== R31 U03: the old token is never refused: FAIL; X still loses ADMIN; the window cleans up ==="
+u03_window r31 '{"u03TTL": 2, "u03NoRevoke": true}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r31u.out" 2>&1; echo "u03 exit=$?" >> "$W/r31u.out"
+has r31u.out "FAIL old admin token refused on read within the TTL"; has r31u.out "U03 ACCEPTANCE FAIL"; has r31u.out "u03 exit=1"
+has r31u.out "PASS X holds only USER in the database"
+u03_end r31
+has r31.out "U05 PRIV-001A WINDOW PASS"
+
+echo "=== R32 U03: a failure after the elevation: X's ADMIN is removed before the command ends ==="
+u03_window r32 '{"u03LoginFailAfterElevate": true}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r32u.out" 2>&1; echo "u03 exit=$?" >> "$W/r32u.out"
+has r32u.out "STOP: login failed (http 503)"; has r32u.out "U03 cleanup: X's ADMIN removed (1 row)"; has r32u.out "U03 ACCEPTANCE FAIL"
+u03_end r32
+has r32.out "U05 PRIV-001A WINDOW PASS"
+report '[e["roles"] for e in r["accounting"]["u03Elevated"]] == [["USER"]] or sys.exit(1)' && ok "r32: X holds no ADMIN" || no "r32 roles"
+
+echo "=== R33 U03: the command is killed while X holds ADMIN: the window removes it before the erasure ==="
+u03_window r33 '{"u03HangAfterElevate": true}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r33u.out" 2>&1 & UP=$!
+wait_for "$W/r33u.out" "PASS X holds ADMIN and USER in the database" 60
+sleep 1; kill -KILL "$UP" 2>/dev/null; wait "$UP" 2>/dev/null; pkill -KILL -f "harness.py lib-http" 2>/dev/null
+u03_end r33
+has r33.out "ADMIN removed before the erasure (1 row)"; has r33.out "U05 PRIV-001A WINDOW PASS"
+report '[e["roles"] for e in r["accounting"]["u03Elevated"]] == [["USER"]] or sys.exit(1)' && ok "r33: X holds no ADMIN after the window" || no "r33 roles"
+unset U05R_U03_TTL U05R_U03_SLACK U05R_U03_POLL
 
 echo "=== R28 U04 refusals ==="
 python3 -I "$W/private/$RUN/window.py" u04-invite --run "$RUN" > "$W/r28a.out" 2>&1; has r28a.out "STOP: no U04 hold is open for this run"

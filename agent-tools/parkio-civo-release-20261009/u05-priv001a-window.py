@@ -17,6 +17,11 @@ agent-tools/parkio-u05-priv001a-civo-20261012/LIVE-TEST-SPEC.md.
     sudo python3 -I u05-priv001a-window.py u04-verify --run RUN --email E   allowlisted verification of a synthetic account
     sudo python3 -I u05-priv001a-window.py u04-creds --run RUN --name N  stores email=/password= from stdin for cleanup
     sudo python3 -I u05-priv001a-window.py u04-done --run RUN            ends the hold
+    sudo python3 -I u05-priv001a-window.py u03-acceptance --run RUN      U03 (Asana 1219001664236540), on the host:
+      two synthetic accounts through the reviewed harness; X gets ADMIN by one allowlisted SQL statement (as
+      grantRole: role row + session epoch); controls that return no real user's data; X loses ADMIN (as revokeRole);
+      the old admin token must be refused on read, export and mutation within the gateway's epoch cache TTL; X's new
+      token is USER; Y is unaffected; missing or malformed JWTs are refused. Tokens never leave the host.
   After the hold every account with stored credentials is erased canonically before RESTORE_BY (the restore retries
   within its own U04_RESTORE_CAP); accounts and invites are accounted for. Store an account's credentials BEFORE its
   registration: the cleanup erases only accounts it holds credentials for (an unregistered one is reported as such).
@@ -56,7 +61,7 @@ Evidence (secret-free): ~civo/parkio-release-20261009/u05-window/<run>/. Private
 backup and the credentials file: /root/u05-priv001a-window/<run>/ (700/600). Secrets are shredded after a verified
 restore.
 """
-import fcntl, hashlib, json, os, re, secrets, shutil, signal, subprocess, sys, time
+import base64, fcntl, hashlib, json, os, re, secrets, shutil, signal, subprocess, sys, time, uuid
 
 TEST = os.environ.get("U05R_TEST") == "1"
 
@@ -99,6 +104,10 @@ STOP_TIMEOUT = 1200
 U04_HOLD = cfg_int("U05R_U04_HOLD", 1500)
 U04_ERASE_MIN = cfg_int("U05R_U04_ERASE_MIN", 120)      # no new DELETE with less time than this before the deadline
 U04_RESTORE_CAP = cfg_int("U05R_U04_RESTORE_CAP", 600)  # the restore's own bound for the U04 accounts
+U03_TTL = cfg_int("U05R_U03_TTL", 30)        # the gateway's PARKIO_SESSION_EPOCH_CACHE_TTL (default PT30S; unset live)
+U03_SLACK = cfg_int("U05R_U03_SLACK", 8)     # poll interval plus request latency
+U03_POLL = cfg_int("U05R_U03_POLL", 2)
+U03_TAGS = ("U03X", "U03Y")
 SCENARIOS = ("u05", "u04")
 NAME_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 UNIT = "u05-priv001a-window"
@@ -700,6 +709,9 @@ def erase_u04_accounts(st, deadline):
         if status not in ("PENDING_VERIFICATION", "ACTIVE"):
             results.append(f"{name}: {uid} is {status}")
             continue
+        if uid in u03_elevated(st) and "ADMIN" in u03_roles(uid):
+            rows = psql_write(u03_demote_sql(uid))
+            results.append(f"{name}: {uid} ADMIN removed before the erasure ({len(rows)} row)")
         left = int(deadline - time.time())
         if left < U04_ERASE_MIN:
             failed.append(f"{name}: {uid} NOT ERASED: {max(left, 0)} s left before the deadline")
@@ -764,6 +776,11 @@ def accounting(st):
     if acc["invitesSinceW1"]["unconsumed"]:
         notes.append(f"ORPHAN: {acc['invitesSinceW1']['unconsumed']} priv001a invite(s) created since W1 are unconsumed "
                      "(only their hash is stored; they expire after the invite TTL)")
+    if st.get("scenario") == "u04":
+        acc["u03Elevated"] = [{"id": u, "roles": u03_roles(u)} for u in u03_elevated(st)]
+        for e in acc["u03Elevated"]:
+            if "ADMIN" in e["roles"]:
+                notes.append(f"ELEVATED: the synthetic account {e['id']} still holds ADMIN")
     for pr in [acc["principal"]] + [x for x in acc.get("u04Accounts", []) if x.get("id")]:
         if pr and pr["request"] and pr["request"] != "COMPLETE":
             notes.append(f"PENDING: the erasure of {pr['id']} is {pr['request']} with {pr['successAcks']}/8 SUCCESS")
@@ -1419,6 +1436,291 @@ def cmd_u04(args, action):
     return 1
 
 
+# --- U03: live privileged-token revocation acceptance, inside a U04-scenario hold ----------------------------------
+def u03_elevated(st):
+    """Ids this window gave ADMIN (u04/elevated.log), in order."""
+    try:
+        return [ln.split()[1] for ln in open(os.path.join(u04_dir(st["run"]), "elevated.log")).read().splitlines()
+                if len(ln.split()) == 2 and UUID.match(ln.split()[1])]
+    except OSError:
+        return []
+
+
+def u03_roles(uid):
+    return sorted(r[0] for r in psql("select r.name from auth_user_roles ur join roles r on r.id = ur.role_id "
+                                     f"where ur.user_id = '{uid}'::uuid"))
+
+
+def psql_write(sql):
+    """One statement in a read-write session on the auth database: only the two U03 role statements below."""
+    if not (sql.startswith("with t as (select u.id from auth_users u where u.id = ") or
+            sql.startswith("with del as (delete from auth_user_roles ur using roles r where ")):
+        raise Stop("refused: not a U03 role statement")
+    pg = one(containers(), "postgres-auth")
+    rc, out, err = run([DOCKER, "exec", pg, "sh", "-c",
+                        'exec psql -X -q -At -F "|" --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"',
+                        "psql", sql], timeout=60)
+    if rc != 0:
+        raise Stop("a U03 role statement failed")
+    return [ln.split("|") for ln in out.splitlines() if ln.strip()]
+
+
+def u03_elevate_sql(uid, email, w1):
+    """ADMIN for exactly one synthetic account registered since W1, ACTIVE, holding only USER, with no erasure request;
+    its session epoch is bumped as grantRole does. Returns the changed row."""
+    if not (UUID.match(uid) and SYNTHETIC_EMAIL.match(email) and re.match(r"^\d{4}-\d{2}-\d{2}T[\d:]{8}Z$", w1)):
+        raise Stop("refused: the elevation needs a synthetic account id, its email and the W1 time")
+    return (f"with t as (select u.id from auth_users u where u.id = '{uid}'::uuid and u.email = '{email}' "
+            f"and u.status = 'ACTIVE' and u.created_at >= '{w1}'::timestamptz "
+            "and not exists (select 1 from erasure_requests e where e.auth_user_id = u.id) "
+            "and not exists (select 1 from auth_user_roles ur join roles r on r.id = ur.role_id "
+            "where ur.user_id = u.id and r.name <> 'USER') for update), "
+            "ins as (insert into auth_user_roles (user_id, role_id) select t.id, r.id from t, roles r "
+            "where r.name = 'ADMIN' returning user_id) "
+            "update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() "
+            "from ins where a.id = ins.user_id returning a.id, a.session_epoch")
+
+
+def u03_demote_sql(uid):
+    """Removes ADMIN from one account this window elevated and bumps its session epoch, as revokeRole does."""
+    if not UUID.match(uid):
+        raise Stop("refused: the demotion needs an account id")
+    return ("with del as (delete from auth_user_roles ur using roles r where ur.role_id = r.id and r.name = 'ADMIN' "
+            f"and ur.user_id = '{uid}'::uuid returning ur.user_id) "
+            "update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() "
+            "from del where a.id = del.user_id returning a.id, a.session_epoch")
+
+
+def u03_http(run_id, method, path, body="", bearer=""):
+    """One gateway request from inside its container (the harness library). Body and bearer travel in the
+    environment, never on a command line; the response file is shredded. Returns (status, body)."""
+    d = run_dir(run_id)
+    tmp = os.path.join(d, "tmp")
+    os.makedirs(tmp, mode=0o700, exist_ok=True)
+    out = os.path.join(tmp, f"u03-{os.getpid()}-{secrets.token_hex(6)}.out")
+    os.close(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+    env = dict(os.environ, TMPDIR=tmp, U03_BODY=body, U03_BEARER=bearer)
+    lib = os.path.join(d, "harness", "scripts/lib/priv001-synthetic.sh")
+    try:
+        rc, o, _ = run(["bash", "-c", 'source "$1"; parkio_priv001_civo_http "$2" "$3" "$U03_BODY" "$U03_BEARER" "$4"',
+                        "u03", lib, method, path, out], env=env, timeout=90)
+        code = (o.strip().splitlines() or ["000"])[-1]
+        text = open(out).read()
+    finally:
+        shred([out])
+    return code, text
+
+
+def jwt_claims(token):
+    try:
+        part = token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (IndexError, ValueError):
+        return {}
+
+
+def u03_login(run_id, email, password):
+    code, text = u03_http(run_id, "POST", "/api/v1/auth/login", json.dumps({"email": email, "password": password}))
+    try:
+        token = json.loads(text).get("accessToken") or ""
+    except ValueError:
+        token = ""
+    if code != "200" or token.count(".") != 2:
+        raise Stop(f"login failed (http {code})")
+    return token
+
+
+def u03_creds(path):
+    c = {}
+    for line in open(path).read().splitlines():
+        k, _, v = line.partition("=")
+        if k in ("auth_user_id", "email", "password"):
+            c[k] = v
+    if not (UUID.match(c.get("auth_user_id", "")) and SYNTHETIC_EMAIL.match(c.get("email", "")) and c.get("password")):
+        raise Stop(f"{os.path.basename(path)} is not a complete synthetic credentials file")
+    return c
+
+
+class Tee:
+    """stdout for a command that must outlive its SSH session: every line also goes to a root-only log."""
+    def __init__(self, path):
+        self.f = open(path, "a")
+        os.chmod(path, 0o600)
+        self.out = sys.__stdout__
+
+    def write(self, s):
+        self.f.write(s)
+        self.f.flush()
+        if self.out:
+            try:
+                self.out.write(s)
+            except OSError:
+                self.out = None
+        return len(s)
+
+    def flush(self):
+        if self.out:
+            try:
+                self.out.flush()
+            except OSError:
+                self.out = None
+
+
+def cmd_u03(args):
+    run_id = args.get("--run") or latest_run()
+    if not run_id:
+        print("STOP: no window run")
+        return 1
+    st = load_state(run_id)
+    d = u04_dir(run_id)
+    if (st.get("scenario") != "u04" or st.get("phase") != "U04-HOLD" or st.get("finishedAt")
+            or os.path.exists(os.path.join(d, "done"))):
+        print("STOP: no U04 hold is open for this run")
+        return 1
+    if not unit_active(f"{UNIT}-{run_id}.service"):
+        print("STOP: the window runner is not active")
+        return 1
+    lock = acquire(os.path.join(d, "u04.lock"), 60)
+    if lock is None:
+        print("STOP: another U04 command is running")
+        return 1
+    paths = {t: os.path.join(d, f"creds-{t}") for t in U03_TAGS}
+    if any(os.path.exists(x) for x in paths.values()) or u03_elevated(st):
+        print("STOP: U03 already ran in this window")
+        return 1
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)        # an SSH drop must not cut the sequence (or its cleanup) short
+    sys.stdout = Tee(os.path.join(d, "u03.log"))
+    ev = os.path.join(st["evidence"], "u03")
+    os.makedirs(ev, mode=0o755, exist_ok=True)
+    res = {"run": run_id, "startedAt": now(), "ttlSeconds": U03_TTL, "checks": []}
+
+    def check(name, ok, detail=""):
+        res["checks"].append({"check": name, "pass": bool(ok), "detail": detail})
+        say(f"{'PASS' if ok else 'FAIL'} {name}{' - ' + detail if detail else ''}")
+
+    elevated = None
+    tokens = {}
+    try:
+        verify_copies(run_dir(run_id))
+        say("U03 W2a: accounts X (to be ADMIN) and Y (unrelated USER) through the reviewed harness")
+        for tag, path in paths.items():
+            rc, _ = harness(st, CREATE, "--credentials-file", path,
+                            "--evidence-file", os.path.join(ev, f"create-{tag}.json"), timeout=600)
+            with open(os.path.join(d, "invites.log"), "a") as f:
+                f.write(f"{now()} {tag}\n")
+            if rc != 0:
+                raise Stop(f"{tag}: the harness could not create the account (exit {rc})")
+        x, y = u03_creds(paths["U03X"]), u03_creds(paths["U03Y"])
+        res["accounts"] = {"X": x["auth_user_id"], "Y": y["auth_user_id"]}
+
+        say("U03 W2b: X gets ADMIN (one allowlisted statement; session epoch bumped as grantRole does)")
+        rows = psql_write(u03_elevate_sql(x["auth_user_id"], x["email"], st["w1"]))
+        if len(rows) != 1 or rows[0][0] != x["auth_user_id"]:
+            raise Stop("the elevation did not change exactly the synthetic account X")
+        elevated = x["auth_user_id"]
+        with open(os.path.join(d, "elevated.log"), "a") as f:
+            f.write(f"{now()} {elevated}\n")
+        check("X holds ADMIN and USER in the database", u03_roles(elevated) == ["ADMIN", "USER"],
+              ",".join(u03_roles(elevated)))
+        tokens["admin"] = u03_login(run_id, x["email"], x["password"])
+        cl = jwt_claims(tokens["admin"])
+        check("X's token after the grant carries ADMIN", "ADMIN" in (cl.get("roles") or []) and cl.get("sub") == elevated,
+              f"roles {cl.get('roles')}")
+        tokens["user"] = u03_login(run_id, y["email"], y["password"])
+        y_epoch = jwt_claims(tokens["user"]).get("session_epoch")
+
+        read = f"/api/v1/admin/users?userId={elevated}"
+        export = "/api/v1/waitlist/export?confirmedFrom=2099-01-01T00:00:00Z&confirmedTo=2099-01-02T00:00:00Z"
+        mutate = f"/api/v1/admin/users/{uuid.uuid4()}/suspend"
+        reason = json.dumps({"reason": "PRIV001A U03 acceptance: synthetic actor, no such user"})
+
+        def probe(token):
+            r, bodies = {}, {}
+            r["read"], bodies["read"] = u03_http(run_id, "GET", read, "", token)
+            r["export"], bodies["export"] = u03_http(run_id, "GET", export, "", token)
+            r["mutation"], _ = u03_http(run_id, "POST", mutate, reason, token)
+            return r, bodies
+
+        say("U03 W2c: controls with the admin token (no real user's data is requested)")
+        r, bodies = probe(tokens["admin"])
+        try:
+            items = json.loads(bodies["read"]).get("content")
+        except (ValueError, AttributeError):
+            items = None
+        ids = [i.get("id") for i in items] if isinstance(items, list) else None
+        check("control: admin read 200, only X", r["read"] == "200" and ids == [elevated], f"http {r['read']}, {ids and len(ids)} row(s)")
+        # The harness client sends Accept: application/json, so an authorized export call ends in content negotiation
+        # (406) after the gateway's role and epoch checks; 200 would carry only the header row (a window in 2099).
+        rows_csv = [ln for ln in bodies["export"].splitlines() if ln.strip()]
+        check("control: export authorized (406 after the guard, or 200 with the header row only)",
+              r["export"] == "406" or (r["export"] == "200" and len(rows_csv) == 1), f"http {r['export']}")
+        c, _ = u03_http(run_id, "GET", export, "", tokens["user"])
+        check("control: Y (USER) is refused on the export", c in ("401", "403"), f"http {c}")
+        check("control: admin mutation authorized (404, no such user)", r["mutation"] == "404", f"http {r['mutation']}")
+        c, _ = u03_http(run_id, "GET", "/api/v1/auth/me", "", tokens["user"])
+        check("control: Y's token works", c == "200", f"http {c}")
+        c, _ = u03_http(run_id, "GET", read, "", tokens["user"])
+        check("control: Y (USER) is refused on the admin read", c in ("401", "403"), f"http {c}")
+
+        say("U03 W2d: X loses ADMIN (session epoch bumped as revokeRole does)")
+        rows = psql_write(u03_demote_sql(elevated))
+        t0 = time.time()
+        if len(rows) != 1:
+            raise Stop("the demotion did not change exactly X")
+        demoted, elevated = elevated, None
+        check("X holds only USER in the database", u03_roles(demoted) == ["USER"], ",".join(u03_roles(demoted)))
+        first, seen = {}, {k: set() for k in ("read", "export", "mutation")}
+        while time.time() - t0 <= U03_TTL + U03_SLACK and len(first) < 3:
+            r, _ = probe(tokens["admin"])
+            for k, c in r.items():
+                seen[k].add(c)
+                if k not in first and c in ("401", "403"):
+                    first[k] = round(time.time() - t0, 1)
+            if len(first) < 3:
+                time.sleep(U03_POLL)
+        res["rejectedAfterSeconds"] = first
+        res["statusesSeen"] = {k: sorted(v) for k, v in seen.items()}
+        for k in ("read", "export", "mutation"):
+            check(f"old admin token refused on {k} within the TTL ({U03_TTL} s)",
+                  k in first and first[k] <= U03_TTL + U03_SLACK, f"after {first.get(k, '-')} s; seen {sorted(seen[k])}")
+        r, _ = probe(tokens["admin"])
+        check("the old admin token stays refused", all(c in ("401", "403") for c in r.values()), json.dumps(r, sort_keys=True))
+        tokens["new"] = u03_login(run_id, x["email"], x["password"])
+        cl = jwt_claims(tokens["new"])
+        check("X's new token carries USER only", cl.get("roles") == ["USER"], f"roles {cl.get('roles')}")
+        c, _ = u03_http(run_id, "GET", read, "", tokens["new"])
+        check("X's new token is refused on the admin read", c in ("401", "403"), f"http {c}")
+        c, _ = u03_http(run_id, "GET", "/api/v1/auth/me", "", tokens["user"])
+        check("unrelated user Y unaffected: the same token still works", c == "200", f"http {c}")
+        now_epoch = scalar(f"select session_epoch from auth_users where id = '{y['auth_user_id']}'::uuid")
+        check("Y's session epoch unchanged", str(now_epoch) == str(y_epoch), f"{y_epoch} -> {now_epoch}")
+        sig = tokens["admin"].rsplit(".", 1)
+        bad = sig[0] + "." + ("A" * len(sig[1]) if not sig[1].startswith("AAAA") else "B" * len(sig[1]))
+        for name, token in (("missing", ""), ("malformed", "not-a-jwt"), ("re-signed (invalid signature)", bad)):
+            c, _ = u03_http(run_id, "GET", read, "", token)
+            check(f"{name} JWT refused on the admin read", c == "401", f"http {c}")
+    except Stop as e:
+        res["error"] = str(e)
+        say(f"STOP: {e}")
+    finally:
+        if elevated:
+            try:
+                rows = psql_write(u03_demote_sql(elevated))
+                say(f"U03 cleanup: X's ADMIN removed ({len(rows)} row)")
+            except Exception as e:      # the window's cleanup removes it before the erasure
+                say(f"U03 cleanup: X's ADMIN NOT removed here ({type(e).__name__}); the window removes it before the erasure")
+        tokens.clear()
+        res["finishedAt"] = now()
+        res["verdict"] = ("PASS" if res["checks"] and all(c["pass"] for c in res["checks"]) and not res.get("error")
+                          else "FAIL")
+        out = os.path.join(ev, "u03-results.json")
+        with open(out, "w") as f:
+            json.dump(res, f, indent=2, sort_keys=True)
+        say(f"U03 ACCEPTANCE {res['verdict']}: {sum(c['pass'] for c in res['checks'])}/{len(res['checks'])} checks"
+            f"{'; ' + res['error'] if res.get('error') else ''}; record {out} sha256 {sha_file(out)}")
+    return 0 if res["verdict"] == "PASS" else 1
+
+
 def cmd_preflight(args):
     fault = args.get("--fault") or "none"
     os.makedirs(PRIVATE, mode=0o700, exist_ok=True)
@@ -1541,6 +1843,8 @@ def main():
             args[rest[i]] = True
             i += 1
     try:
+        if cmd == "u03-acceptance":
+            return cmd_u03(args)
         if cmd.startswith("u04-"):
             return cmd_u04(args, cmd[len("u04-"):])
         return {"preflight": cmd_preflight, "start": cmd_start, "run": cmd_run, "restore": cmd_restore,
