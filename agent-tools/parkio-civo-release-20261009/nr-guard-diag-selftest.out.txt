@@ -1,0 +1,67 @@
+NR guard-run diagnostic | <host> | 2026-10-12T10:16:32Z | read-only
+== A. T1's record of the failed gate
+  report nr-resume-20261012T100953Z.txt
+      PASS three sources attached: 3/3
+      PASS guard timer active
+      FAIL guard run ends with continuous-guard PASS: Finished Parkio continuous New Relic log transport invariant guard.
+      guard paused from 2026-10-12T09:21:56Z to 2026-10-12T10:09:55Z
+== B. T1's exact read, as civo without sudo (T1 reads stdout only)
+  exit code 0; stdout 3 line(s); stderr 0 line(s)
+  stdout: continuous-guard PASS sources=current transport=running storage=within-bounds
+  stdout: parkio-nr-log-continuous-guard.service: Deactivated successfully.
+  stdout: Finished parkio-nr-log-continuous-guard.service - Parkio continuous New Relic log transport invariant guard.
+  the last stdout line, which T1 compares: 'Finished parkio-nr-log-continuous-guard.service - Parkio continuous New Relic log transport invarian' - holds 'continuous-guard PASS': no
+  civo's groups: <user> adm dialout cdrom floppy sudo audio dip video plugdev netdev docker
+== C. the guard runs in the journal since 2026-10-12 10:07:53 UTC (sudo, read-only)
+  exit code 0; 4 line(s)
+    2026-10-12T10:09:54+0000 systemd[1]: Starting parkio-nr-log-continuous-guard.service - Parkio continuous New Relic log transport invariant guard...
+    2026-10-12T10:09:55+0000 bash[4242]: continuous-guard PASS sources=current transport=running storage=within-bounds
+    2026-10-12T10:09:55+0000 systemd[1]: parkio-nr-log-continuous-guard.service: Deactivated successfully.
+    2026-10-12T10:09:55+0000 systemd[1]: Finished parkio-nr-log-continuous-guard.service - Parkio continuous New Relic log transport invariant guard.
+  runs started: 1; PASS lines: 1; FAIL lines: 0
+  lines right after the first PASS line: systemd[1]: parkio-nr-log-continuous-guard.service: Deactivated successfully.|systemd[1]: Finished parkio-nr-log-continuous-guard.service - Parkio continuous New Relic log transport invariant guard.|
+== D. systemd's result of the guard unit's last run, and the timer
+  ActiveState=inactive
+  Result=success
+  ExecMainStatus=0
+  ExecMainCode=1
+  ExecMainStartTimestamp=Mon 2026-10-12 10:14:00 UTC
+  ExecMainExitTimestamp=Mon 2026-10-12 10:14:01 UTC
+  timer ActiveState=active
+  timer LastTriggerUSec=Mon 2026-10-12 10:14:00 UTC
+  timer NextElapseUSecRealtime=Mon 2026-10-12 10:15:00 UTC
+== E. source, transport and attachments
+  unit parkio-nr-log-source.service: active
+  unit parkio-nr-log-continuous.service: active
+  unit parkio-nr-log-continuous-guard.timer: active
+  unit parkio-nr-log-continuous-guard.service: active
+  container nr-budget-gate: aaaaaaaaaaaa running healthy started 2026-10-10T08:00:00Z restarts 0
+  container fluent-bit-nr-pilot: bbbbbbbbbbbb running healthy started 2026-10-10T08:00:01Z restarts 0
+  sources attached: 3 of 3
+
+GUARD RUNS VERIFIED - every run since the resume succeeded and printed continuous-guard PASS; transport intact; 3 of 3 attached
+T1's single-line check: T1's read ends with 'Finished parkio-nr-log-continuous-guard.service - Parkio continuous New Relic lo': a line after the guard's PASS line is the last one
+ok   g1.out exit 0
+ok   g1.out: FAIL guard run ends with continuous-guard PASS: Finished Parkio continuous New Relic log transport invariant guard.
+ok   g1.out: exit code 0; stdout 3 line(s); stderr 0 line(s)
+ok   g1.out: the last stdout line, which T1 compares: 'Finished parkio-nr-log-continuous-guard.service
+ok   g1.out: holds 'continuous-guard PASS': no
+ok   g1.out: runs started: 1; PASS lines: 1; FAIL lines: 0
+ok   g1.out: lines right after the first PASS line: systemd[1]: parkio-nr-log-continuous-guard.service: Deactivated successfully.|
+ok   g1.out: Result=success
+ok   g1.out: sources attached: 3 of 3
+ok   g1.out: GUARD RUNS VERIFIED
+ok   g1.out: T1's single-line check: T1's read ends with 'Finished parkio-nr-log-continuous-guard.service
+ok   g2.out exit 0
+ok   g2.out: permission or no entries
+ok   g2.out: stderr: Hint: You are currently not seeing messages
+ok   g3.out exit 1
+ok   g3.out: FAIL 1 'continuous-guard FAIL' line(s) since the resume
+ok   g3.out: GUARD RUNS NOT VERIFIED
+ok   g4.out exit 1
+ok   g4.out: FAIL the last guard run did not succeed (Result=exit-code, ExecMainStatus=1)
+ok   g5.out exit 1
+ok   g5.out: FAIL the two transport containers are not both running and healthy
+ok   g6.out exit 1
+ok   g6.out: FAIL 2 of 3 sources attached
+SELFTEST PASS
