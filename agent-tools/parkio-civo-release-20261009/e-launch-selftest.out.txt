@@ -1,0 +1,90 @@
+bash <tools>/e-launch.sh launch; echo LAUNCH_EXIT=$?
+[?2004hbash-5.1$ bash <tools>/e-launch.sh launch; echo LAUNCH_EXIT=$?
+[?2004lE launcher | 2026-10-12T13:12:27Z | release <W>/rel @ 995bbc5bf8a9 | record <W>/E1-var/azure-hosted-beta
+== 1. read-only pre-checks (nothing is started or written until all pass)
+  PASS T1 v5 installed (0fd96e85aa17)
+  PASS t1-step.sh v5 installed (85f58c6452d2)
+  PASS smoke session variables present (5; values not shown)
+  PASS release checkout clean at the PIN
+  PASS T1 state: D7 ok, final -
+  PASS D7 launch 20261012T123453Z COMPLETE (exit 0, T1 D7 ok, password count 0)
+  PASS coverage check 20261012T130000Z PASS for the six images D7 built
+  PASS release record directory <W>/E1-var/azure-hosted-beta absent: created after sudo as <user>:<user> 0755 (decision 5)
+  PASS launch lock free
+  PASS no earlier E launch without an exit record
+  PASS no t1-step.sh final / T1 final process running
+  PASS no backup or pg_dump process
+== 2. sudo and the release record directory
+  Run: sudo install -d -m 0755 -o <user> -g <user> <W>/E1-var/azure-hosted-beta
+  PASS <W>/E1-var/azure-hosted-beta created: <user>:<user> 755, writable
+== 3. start E independent of this session
+  runner pid 65162 in its own process group under nohup; records in <W>/E1/e-launch/20261012T131227Z (dir 700, files 600)
+  Ctrl-C or a dropped connection ends only this view. Reconnect: bash <tools>/e-launch.sh status | follow
+== 4. the E log, live
+e-launch runner 20261012T131227Z | pid 65162 | 2026-10-12T13:12:27Z | t1-step.sh final follows
+T1 step wrapper | final | stub
+stub line 1
+stub line 2
+T1 final: OK
+e-launch runner finished | 2026-10-12T13:12:29Z | t1-step final exit=0 | T1 final ok | state complete | password occurrences 0
+
+E launch 20261012T131227Z | launched 2026-10-12T13:12:27Z | runner pid 65162 started 2026-10-12T13:12:27Z
+  log <W>/E1/e-launch/20261012T131227Z/e.log (600)
+  T1 state: D7 ok, final ok, overall complete
+  finished 2026-10-12T13:12:29Z; t1-step final exit=0; smoke password found in the E log, records, smoke log and release record: 0 time(s) (value never shown)
+  T1 final: OK
+  release record <W>/E1-var/azure-hosted-beta/deployed-manifest.json = R/final/current.json (sha256 6b568ae124f78df1), remaining exposure recorded
+E COMPLETE - the release record is written; now: unset PARKIO_REAL_USER_PASSWORD
+LAUNCH_EXIT=0
+[?2004hbash-5.1$ exit
+[?2004lexit
+ok   e1.out: PASS T1 v5 installed
+ok   e1.out: PASS t1-step.sh v5 installed
+ok   e1.out: PASS smoke session variables present (5; values not shown)
+ok   e1.out: PASS release checkout clean at the PIN
+ok   e1.out: PASS T1 state: D7 ok, final -
+ok   e1.out: PASS D7 launch 20261012T123453Z COMPLETE (exit 0, T1 D7 ok, password count 0)
+ok   e1.out: PASS coverage check 20261012T130000Z PASS for the six images D7 built
+ok   e1.out: absent: created after sudo
+ok   e1.out: PASS launch lock free
+ok   e1.out: PASS no t1-step.sh final / T1 final process running
+ok   e1.out: created: 
+ok   e1.out: stub line 2
+ok   e1.out: e-launch runner finished
+ok   e1.out: = R/final/current.json
+ok   e1.out: E COMPLETE - the release record is written
+ok   e1.out: LAUNCH_EXIT=0
+ok   E1 record directory created mode 755
+ok   E1 launch dir 700, files 600
+ok   E1 result recorded (exit 0, count 0, complete)
+ok   E1 argv carry no password
+ok   E1: the password is in no file (log, records, release record, argv capture)
+ok   E2 second launch after E COMPLETE refused
+ok   e2.out: FAIL T1 state: D7 ok, final ok - E needs D7 ok and runs once to success
+ok   e3.out: T1 final failed gates: stub gate
+ok   e3.out: E FAILED - send this output
+ok   e3.out: LAUNCH_EXIT=1
+ok   e3b.out: PASS T1 state: D7 ok, final fail
+ok   e3b.out: PASS release record directory
+ok   e3b.out: E COMPLETE - the release record is written
+ok   e3b.out: LAUNCH_EXIT=0
+ok   E4 nocov -> STOP before anything, nothing written
+ok   E4 othercov -> STOP before anything, nothing written
+ok   E4 d7leak -> STOP before anything, nothing written
+ok   E4 d7fail -> STOP before anything, nothing written
+ok   E4 dirmode -> STOP before anything, nothing written
+ok   e7.out: release record missing, different from R/final/current.json
+ok   e7.out: E FAILED
+ok   e8.out: smoke password found in the E log, records, smoke log and release record: 1 time(s) (value never shown)
+ok   e8.out: E FAILED
+ok   E9 status RUNNING after the terminal disappeared
+ok   E9 launch while running refused
+ok   e9d.out: FAIL another E runner holds the launch lock
+ok   e9d.out: FAIL an E process is already running
+ok   E9 E ran to the end
+ok   E9 status COMPLETE after reconnect
+ok   E9: the password is in no file (log, records, release record, argv capture)
+ok   E10 status without a launch exit 1
+ok   e10.out: NO E LAUNCH found
+ok   usage exit 2
+SELFTEST PASS

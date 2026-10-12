@@ -28,8 +28,12 @@ ok   S1 D7 recorded the remaining exposure
 ok   S1 D7 tagged parkio/<svc>:sha-<pin8>
 ok   S8 D7 recorded both databases and gated their freshness before starting
 ok   S8 D7 scanned with the cache at /trivy-cache, never under /root
+ok   S9 final without a coverage check -> FAIL before the record, no manifest
+ok   S9 final with a coverage check of another image -> FAIL, no manifest
+ok   S9 final after a release tag moved -> FAIL, no manifest
 ok   S1 final ok
 ok   S1 deployed-manifest.json written and equal to R/final/current.json
+ok   S9 manifest records the remaining exposure from the D7 record (not null) and the image scan
 ok   S1 manifest: gitSha, pins, six images, migrations read from the databases
 ok   S1 state complete
 ok   S1 journal has start/ok lines and a refused rollback

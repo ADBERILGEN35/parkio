@@ -14,7 +14,9 @@
   python3 -I /tmp/t1-release-step.py step D6b      parking-service (V41 gate)
   python3 -I /tmp/t1-release-step.py nr-resume     three sources attached -> restart the guard timer and one guard run
   python3 -I /tmp/t1-release-step.py step D7       build the six, check them (pebble absent, Security CI scan), then start them
-  python3 -I /tmp/t1-release-step.py final         E: smoke gate, CSRF/refresh/logout checks, U12 B/C, Flyway, final record
+  python3 -I /tmp/t1-release-step.py final         E: smoke gate, CSRF/refresh/logout checks, U12 B/C, Flyway, then the D7
+                                                   record, a passing d7-coverage-check of the six built images and the
+                                                   release tags unchanged, and the final record (remaining exposure kept)
   python3 -I /tmp/t1-release-step.py rollback <service>   schema gate first (no override); previous inputs from /opt/parkio
   python3 -I /tmp/t1-release-step.py status
 
@@ -1189,6 +1191,23 @@ def cmd_final():
         return finish("final", record, state)
     say("")
     say("E5. Final record")
+    d7 = (state.get("steps") or {}).get("D7") or {}
+    d7rec = {}
+    try:
+        d7rec = json.load(open(os.path.join(OUT, "steps", f"D7-{d7.get('stamp')}.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    built = d7rec.get("builtImages") or {}
+    gate("D7 record PASS with the built images, the scan databases and the remaining exposure",
+         d7rec.get("result") == "PASS" and all(built.get(s) for s in BUILT) and bool(d7rec.get("trivyDb"))
+         and bool(d7rec.get("remainingExposure")), f"steps/D7-{d7.get('stamp')}.json {d7rec.get('result', 'missing')}")
+    cov = latest_coverage()
+    covered = cov.get("services") or {}
+    gate("a passing coverage check (d7-coverage-check) covers the six built images",
+         cov.get("result") == "PASS" and all((covered.get(s) or {}).get("imageId") == built.get(s) for s in BUILT),
+         f"coverage-{cov.get('stamp', 'none')} {cov.get('result', '-')}")
+    if any(not ok for _, ok in GATES):
+        return finish("final", record, state)
     if not os.access(FINAL_DIR, os.W_OK):
         return stop("final", record, state, f"{FINAL_DIR} is not writable: the owner creates it first with "
                     f"`sudo install -d -m 0755 -o civo -g civo {FINAL_DIR}`")
@@ -1198,6 +1217,8 @@ def cmd_final():
     for svc in BUILT:
         images[svc] = f"parkio/{svc}:sha-{PIN[:8]}"
         digests[svc] = image_id(images[svc])
+    if not gate("the six release tags still name the images D7 built", all(digests[s] == built.get(s) for s in BUILT)):
+        return finish("final", record, state)
     journal_path = os.path.join(OUT, "journal.tsv")
     manifest = {
         "schemaVersion": 1, "action": "deploy", "gitSha": PIN, "branch": "api", "buildTime": state.get("steps", {}).get("D7", {}).get("at"),
@@ -1210,7 +1231,12 @@ def cmd_final():
         "runtimeServices": SERVICES, "disabledServices": [],
         "rollbackCommand": "python3 -I t1-release-step.py rollback <service> (schema gate; forward fix after a committed migration)",
         "evidence": {"smokeLogSha256": sha, "journalSha256": sha256_file(journal_path), "plannedRecordStamp": load_plan().get("stamp")},
-        "remainingExposure": (state.get("steps", {}).get("D7") or {}).get("remainingExposure"),
+        "remainingExposure": d7rec.get("remainingExposure"),
+        "imageScan": {"d7Record": f"steps/D7-{d7.get('stamp')}.json", "databases": d7rec.get("trivyDb"),
+                      "coverageRecord": f"coverage-{cov.get('stamp')}/summary.json",
+                      "coverage": {s: {k: (covered.get(s) or {}).get(k) for k in ("javaPackages", "javaFromBootInfLib",
+                                                                                     "osPackages", "suppressed")}
+                                   for s in BUILT}},
     }
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     tmp = os.path.join(FINAL_DIR, ".deployed-manifest.json.tmp")
@@ -1225,6 +1251,15 @@ def cmd_final():
          hashlib.sha256(text.encode()).hexdigest()[:16])
     state["status"] = "complete"
     finish("final", record, state)
+
+
+def latest_coverage():
+    """The newest d7-coverage-check summary (R/coverage-<stamp>/summary.json), or {}."""
+    try:
+        dirs = sorted(d for d in os.listdir(OUT) if d.startswith("coverage-"))
+        return json.load(open(os.path.join(OUT, dirs[-1], "summary.json"), encoding="utf-8")) if dirs else {}
+    except (OSError, ValueError, IndexError):
+        return {}
 
 
 # ---------------------------------------------------------------- rollback

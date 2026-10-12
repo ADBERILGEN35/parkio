@@ -5,7 +5,8 @@
 #   bash ~/parkio-release-20261009/tools/t1-step.sh D3                (D3, D4, D5, D6a, D6b, D7 or final)
 #   bash ~/parkio-release-20261009/tools/t1-step.sh D3 --recheck      re-run a step whose change is already in place
 #
-# 1. The installed T1 copy matches its pinned SHA-256 (T1 v4, 2026-10-12: D7's scanner cache at /trivy-cache instead of under
+# 1. The installed T1 copy matches its pinned SHA-256 (T1 v5, 2026-10-12: E records the remaining exposure from the D7 record,
+#    requires a passing coverage check of the six built images and the release tags unchanged. v4: D7's scanner cache at /trivy-cache instead of under
 #    /root, which the scanner cannot reach as civo; a scan without a report fails as a scanner error; the scan databases
 #    are recorded and must be current. v3: the NR check counts the helper's stderr lines; the guard run is verified from its
 #    own journal lines, read with sudo); its Python syntax parses.
@@ -30,7 +31,7 @@ R="${T1S_OUT:-$HOME/parkio-release-20261009}"
 REL="${T1S_REL:-/opt/parkio-release}"                                    # overrides: self-test only
 ENVF="${T1S_ENV_FILE:-/opt/parkio/docker/.env.azure-hosted-beta}"
 T1="${T1S_T1:-$R/tools/t1-release-step.py}"
-T1_SHA="${T1S_T1_SHA256:-01ed008c8ef2268381fcb238025c589b3b0e085f4e8366862a459372c536236e}"   # override: self-test only
+T1_SHA="${T1S_T1_SHA256:-39caef1f65b564e37a921b5633dedf1ff86f0e745b9253008c996b11c8f53602}"   # override: self-test only
 WINDOW_MIN=120
 stop() { echo "STOP: $* - T1 was not run, nothing was changed"; exit 1; }
 nr_line() {

@@ -473,6 +473,18 @@ def receipt(host, minutes_ago):
     json.dump({"stamp": stamp, "result": "PASS"}, open(os.path.join(d, f"P5b-receipt-{stamp}.json"), "w"))
 
 
+def coverage(host, mismatch=None):
+    """A d7-coverage-check summary for the D7 the fake host ran: PASS, one entry per built image (docker ids)."""
+    st = json.load(open(os.path.join(host.out, "state.json")))
+    rec = json.load(open(os.path.join(host.out, "steps", f"D7-{st['steps']['D7']['stamp']}.json")))
+    services = {svc: {"imageId": "sha256:other" if svc == mismatch else iid, "javaPackages": 117, "javaFromBootInfLib": 116,
+                      "osPackages": 140, "suppressed": ["CVE-2026-47890"]} for svc, iid in rec["builtImages"].items()}
+    d = os.path.join(host.out, "coverage-20261012T130000Z")
+    os.makedirs(d, exist_ok=True)
+    with open(os.open(os.path.join(d, "summary.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as fh:   # as the tool
+        json.dump({"stamp": "20261012T130000Z", "result": "PASS", "services": services}, fh)
+
+
 def state(host):
     return json.load(open(os.path.join(host.out, "state.json")))
 
@@ -558,12 +570,33 @@ def main():
     check("S8 D7 scanned with the cache at /trivy-cache, never under /root",
           all(c[c.index("--cache-dir") + 1] == "/trivy-cache" and not any(":/root" in x for x in c)
               for c, _ in h.calls if c[:2] == ["docker", "run"]))
+    code, out = t1(h, "final")
+    check("S9 final without a coverage check -> FAIL before the record, no manifest", code == 1
+          and "FAIL a passing coverage check (d7-coverage-check) covers the six built images: coverage-none" in out
+          and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
+    coverage(h, mismatch="analytics-service")
+    code, out = t1(h, "final")
+    check("S9 final with a coverage check of another image -> FAIL, no manifest", code == 1
+          and "FAIL a passing coverage check (d7-coverage-check) covers the six built images" in out
+          and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
+    coverage(h)
+    moved = h.images[f"parkio/user-service:sha-{PIN[:8]}"]
+    h.images[f"parkio/user-service:sha-{PIN[:8]}"] = "sha256:moved"
+    code, out = t1(h, "final")
+    check("S9 final after a release tag moved -> FAIL, no manifest", code == 1
+          and "FAIL the six release tags still name the images D7 built" in out
+          and not os.path.exists(os.path.join(h.final, "deployed-manifest.json")), out[-600:])
+    h.images[f"parkio/user-service:sha-{PIN[:8]}"] = moved
     code, out = t1(h, "final"); outputs.append(out)
     check("S1 final ok", code == 0, out[-1200:])
     man = os.path.join(h.final, "deployed-manifest.json")
     check("S1 deployed-manifest.json written and equal to R/final/current.json", os.path.exists(man)
           and open(man).read() == open(os.path.join(h.out, "final", "current.json")).read())
     mj = json.load(open(man)) if os.path.exists(man) else {}
+    check("S9 manifest records the remaining exposure from the D7 record (not null) and the image scan",
+          "pebble present" in json.dumps(mj.get("remainingExposure")) and mj.get("imageScan", {}).get("databases")
+          and len(mj.get("imageScan", {}).get("coverage") or {}) == 6
+          and mj["imageScan"]["coverage"]["user-service"]["javaFromBootInfLib"] == 116, json.dumps(mj.get("imageScan"))[:300])
     check("S1 manifest: gitSha, pins, six images, migrations read from the databases",
           mj.get("gitSha") == PIN and len(mj.get("pinnedImages", {})) == 5 and len(mj.get("images", {})) == 6
           and len(mj.get("migrationVersions", {}).get("auth-service") or []) == 27)
@@ -672,6 +705,7 @@ def main():
     for s in ("D3", "D4", "D5", "D6a", "D6b"):
         t1(h, "step", s)
     t1(h, "nr-resume"); t1(h, "step", "D7")
+    coverage(h)
     h.csrf_broken = True
     code, out = t1(h, "final")
     check("S5 final with a broken CSRF check -> FAIL, no manifest", code == 1 and "FAIL refresh without X-XSRF-TOKEN -> 403" in out

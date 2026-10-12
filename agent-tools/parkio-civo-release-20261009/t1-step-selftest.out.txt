@@ -1,17 +1,17 @@
-T1 step wrapper | D3 | 2026-10-12T11:42:47Z
+T1 step wrapper | D3 | 2026-10-12T13:12:24Z
 == 1. pre-flight
   T1 copy matches a825e6784cb5; syntax ok
   sudo validated
   smoke session variables present (5; values not shown)
-  verified backup 2026-10-12T11-12-47Z (PASS): 89 min left in the 2-hour window
-  NR guard: timer paused since 2026-10-12T11:32:47Z (10 min) - nr-resume is due after D6b, before D7
+  verified backup 2026-10-12T12-42-24Z (PASS): 89 min left in the 2-hour window
+  NR guard: timer paused since 2026-10-12T13:02:24Z (10 min) - nr-resume is due after D6b, before D7
 == 2. t1-release-step.py step D3
 T1 step D3 | stub run; smoke session prepared (variables present, values not shown)
   t1 step D3 exit=0
 == 3. records and status
--rw-r--r-- 1 <user> <user> 2 Oct 12 14:42 <W>/out/steps/D3-20261012T093000Z.json
+-rw-r--r-- 1 <user> <user> 2 Oct 12 16:12 <W>/out/steps/D3-20261012T093000Z.json
 {"pin": "f888a81b", "status": "in-progress", "steps": {"nr-pause": {"status": "ok"}}}
-  NR guard: timer paused since 2026-10-12T11:32:47Z (10 min) - nr-resume is due after D6b, before D7
+  NR guard: timer paused since 2026-10-12T13:02:24Z (10 min) - nr-resume is due after D6b, before D7
 ok   s1.out exit 0
 ok   s1.out: T1 copy matches
 ok   s1.out: sudo validated
