@@ -1,0 +1,93 @@
+U14 drill cost quote | 2026-10-12T19:03:02Z | Azure retail list prices (USD), region westeurope
+  VM Standard_B2s, Linux, pay-as-you-go                                                0.0480 / hour                              since 2025-10-01
+  OS disk Premium SSD P4 (32 GiB), no transaction charge                               5.8072 / month = 0.00796 / hour            since 2018-05-01
+  Public IPv4, Standard, static                                                        0.0050 / hour                              since 2018-06-01
+  Reaper: Logic Apps Consumption built-in actions                                      0 for the first 4000 per month; the drill uses fewer than 20 since -
+  NSG, virtual network, NIC, budget                                                    0                                          since -
+  Inbound transfer; outbound up to 100 GB per month; same-region read of the stamp     0                                          since -
+  4 hours (the approved lifetime): 0.24 USD; ceiling 5.00 USD
+  worst case, a whole day with the VM running (reaper and down both failed): 1.46 USD
+  storage read operations on the backup account (a few dozen GET/LIST) cost well under 0.01 USD
+QUOTE WITHIN THE CEILING (0.24 USD for 4 h)
+exit=0
+ok   a1.out: 4 hours (the approved lifetime): 0.24 USD; ceiling 5.00 USD
+ok   a1.out: worst case, a whole day with the VM running (reaper and down both failed): 1.46 USD
+ok   a1.out: QUOTE WITHIN THE CEILING (0.24 USD for 4 h)
+ok   a1.out: exit=0
+ok   a2.out: QUOTE OVER THE CEILING
+ok   a2.out: exit=1
+U14 R0 reaper rehearsal | 2026-10-12T19:03:02Z | no VM, cost 0
+  subscription 00000000... (Test Subscription )
+  registering resource provider Microsoft.Logic (was NotRegistered; free, no existing resource changes)
+  group rg-parkio-drill-r0-20261012-190302 created (tag parkio-drill=r0-20261012-190302)
+  reaper armed: Enabled, deletes the group at 2026-10-12T19:03:02Z (then every 15 min until gone); identity holds Contributor on the group only
+  waiting for the reaper; nothing to do here. If this terminal closes, check later: <tools>/u14-drill-azure.sh verify-gone rg-parkio-drill-r0-20261012-190302
+  2026-10-12T19:03:02Z group present (deadline 2026-10-12T19:03:02Z)
+  2026-10-12T19:03:02Z group gone
+  group rg-parkio-drill-r0-20261012-190302: gone; resources tagged parkio-drill=r0-20261012-190302 anywhere in the subscription: 0
+  activity log: the group was deleted by the reaper's identity (pid-rg-parkio-drill-r0-20261012-190302)
+R0 REAPER REHEARSAL PASS - the reaper deleted its group at the deadline, and nothing tagged remains
+exit=0
+ok   a3.out: registering resource provider Microsoft.Logic
+ok   a3.out: reaper armed: Enabled, deletes the group at
+ok   a3.out: R0 REAPER REHEARSAL PASS
+ok   a3.out: exit=0
+ok   a3.out: /activity log: the group was deleted by the reaper's identity \(pid-rg-parkio-drill-r0-/
+ok   a3: reaper body, Contributor on the group only, deleted by the reaper (not by hand)
+ok   a3b.out: STOP: the group disappeared before the deadline
+ok   a3b.out: exit=1
+ok   a3c.out: STOP: the activity log names owner@example.com, not the reaper's identity
+ok   a3c.out: exit=1
+ok   a4.out: the reaper's identity could not get Contributor on the group
+ok   a4.out: STOP: the reaper could not be armed
+ok   a4.out: exit=1
+ok   a4: the group was deleted by hand
+ok   a5.out: STOP: at most 4 hours were approved
+ok   a5b.out: STOP: HOURS must be 1 to 4
+ok   a6.out: STOP: a drill group already exists (rg-parkio-drill-rd-old
+ok   a7.out: STOP: not enough vCPU quota in westeurope
+ok   a7: nothing created
+U14 D1 drill host up | 2026-10-12T19:03:03Z
+  subscription 00000000... (Test Subscription )
+  registering resource provider Microsoft.Logic (was NotRegistered; free, no existing resource changes)
+  group rg-parkio-drill-rd-20261012-1903 (tag parkio-drill=rd-20261012-1903), deadline 2026-10-12T22:03:03Z
+  reaper armed: Enabled, deletes the group at 2026-10-12T22:03:03Z (then every 15 min until gone); identity holds Contributor on the group only
+  budget alert: 20% of 5 (billing currency), to the Owner role, on this group only
+  NSG nsg-rd: inbound SSH from 198.51.100.7 only; outbound phase open (bootstrap)
+  VM parkio-rd: Standard_B2s, Ubuntu 24.04 24.04.202610010, 32 GiB Premium_LRS, public IP 20.1.2.3
+  SSH: ssh -i <W>/home/.parkio-drill/rd-20261012-1903.key drill@20.1.2.3
+D1 UP - deadline 2026-10-12T22:03:03Z: the reaper deletes everything then, whatever happens to this terminal or the drill
+exit=0
+ok   a8.out: reaper armed: Enabled
+ok   a8.out: budget alert: 20% of 5
+ok   a8.out: NSG nsg-rd: inbound SSH from 198.51.100.7 only
+ok   a8.out: /SSH: ssh -i .*/rd-[0-9]{8}-[0-9]{4}\.key drill@20\.1\.2\.3/
+ok   a8.out: D1 UP - deadline
+ok   a8.out: exit=0
+ok   a8: reaper before the VM, every resource tagged, SSH rule, VM spec, budget
+ok   a8: private key 600, not printed
+ok   a8: state file holds names only
+  outbound rules of nsg-rd in rg-parkio-drill-rd-20261012-1903 (custom, by priority):
+    100 rd-out-storage Allow Storage.WestEurope:443
+    4000 rd-out-deny Deny *:*
+EGRESS storage SET
+exit=0
+ok   a10s.out: /    100 rd-out-storage Allow Storage.WestEurope:443/
+ok   a10s.out: /    4000 rd-out-deny Deny \*:\*/
+ok   a10d.out: /    200 rd-out-dns Deny AzurePlatformDNS:\*/
+ok   a10d.out: /    4000 rd-out-deny Deny \*:\*/
+ok   a10: no storage rule in deny
+ok   a10: open has no custom outbound rule
+ok   a10f.out: SSH FROM 203.0.113.9 ONLY
+ok   a10f: the SSH rule moved to one new address
+ok   a11.out: DOWN VERIFIED
+ok   a11.out: SSH key pair of
+ok   a11.out: exit=0
+ok   a11: key pair removed
+ok   a12.out: 1 resource(s) tagged parkio-drill=
+ok   a12.out: STOP: not gone yet
+ok   a12.out: exit=1
+ok   a9.out: STOP: the VM could not be created; the group is being deleted
+ok   a9: group deleted
+ok   a13.out: STOP: not signed in to Azure
+SELFTEST PASS
