@@ -1,0 +1,56 @@
+T1 step wrapper | D3 | 2026-10-12T09:26:20Z
+== 1. pre-flight
+  T1 copy matches ad2a2c6532e5; syntax ok
+  sudo validated
+  smoke session variables present (5; values not shown)
+  verified backup 2026-10-12T08-56-20Z (PASS): 89 min left in the 2-hour window
+  NR guard: timer paused since 2026-10-12T09:16:20Z (10 min) - nr-resume is due after D6b, before D7
+== 2. t1-release-step.py step D3
+T1 step D3 | stub run; smoke session prepared (variables present, values not shown)
+  t1 step D3 exit=0
+== 3. records and status
+-rw-r--r-- 1 <user> <user> 2 Oct 12 12:26 <W>/out/steps/D3-20261012T093000Z.json
+{"pin": "f888a81b", "status": "in-progress", "steps": {"nr-pause": {"status": "ok"}}}
+  NR guard: timer paused since 2026-10-12T09:16:20Z (10 min) - nr-resume is due after D6b, before D7
+ok   s1.out exit 0
+ok   s1.out: T1 copy matches
+ok   s1.out: sudo validated
+ok   s1.out: smoke session variables present (5; values not shown)
+ok   s1.out: PASS): 89 min left in the 2-hour window
+ok   s1.out: NR guard: timer paused since
+ok   s1.out: (10 min) - nr-resume is due after D6b, before D7
+ok   s1.out: T1 step D3 | stub run
+ok   s1.out: t1 step D3 exit=0
+ok   s1.out: D3-20261012T093000Z.json
+ok   s1: T1 called with 'step D3'
+ok   s1: T1 called with 'status'
+ok   s1.out: no password value in the output
+ok   s2.out exit 1
+ok   s2.out: STOP: the installed T1 copy does not match 000000000000 - T1 was not run, nothing was changed
+ok   s2: T1 not called
+ok   s3.out exit 1
+ok   s3.out: STOP: PARKIO_GATEWAY_URL is not set in this shell
+ok   s3: T1 not called
+ok   s4.out exit 1
+ok   s4.out: STOP: no verified backup within 2 hours
+ok   s4.out: PASS, -3
+ok   s4: T1 not called
+ok   s5.out exit 1
+ok   s5.out: STOP: no verified backup within 2 hours
+ok   s5: T1 not called
+ok   s6.out exit 0
+ok   s6: T1 called with 'step D4'
+ok   s7.out exit 0
+ok   s7: T1 called with 'final'
+ok   s8.out exit 1
+ok   s8.out: t1 step D3 exit=1
+ok   s8.out: == 3. records and status
+ok   s8: T1 called with 'status'
+ok   s9.out exit 1
+ok   s9.out: STOP: sudo is not available
+ok   s9: T1 not called
+ok   s10.out exit 0
+ok   s10.out: NR guard: resumed (nr-resume ok at 2026-10-12T11:00:00Z)
+ok   s11.out exit 2
+ok   s11.out: usage: t1-step.sh D3|D4|D5|D6a|D6b|D7|final
+SELFTEST PASS
