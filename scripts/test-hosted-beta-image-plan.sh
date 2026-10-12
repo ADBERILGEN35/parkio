@@ -12,7 +12,8 @@
 #   - rollback refuses, before it re-points or starts anything, a target that did not build a
 #     service the model builds, a recorded image that is not present, and a pin it cannot pull;
 #   - with every app service pinned (U13), deploy builds and tags nothing and records no built
-#     image, and the schema gate refuses a rollback to that deploy, which has nothing to re-point.
+#     image, and the schema gate refuses a rollback to that deploy, or to a deploy made before U13:
+#     neither has anything to re-point.
 #
 # The scripts under test run from a temporary tree. The fake docker answers from a canned compose
 # model and records every call. The preflight, the smoke test and the web guards have their own
@@ -462,6 +463,19 @@ if [ "$rc" -eq 3 ] && grep -qF "the target manifest records no images" "$work/ou
   pass "a rollback to a deploy that built nothing is refused (exit 3) before it changes anything"
 else
   bad "rollback with every app service pinned: exit $rc, calls: $(calls | tr '\n' ';')"; tail -n 15 "$work/out" >&2
+fi
+# A rollback from this checkout to a deploy made before U13 (it built six services) would re-point nothing and only
+# rewrite the deployed record: refused before anything changes, the record kept.
+rollback_state
+cp "$work/all-pinned-state/deployed-manifest.json" "$work/all-pinned-record.json"
+RUN_STATE_DIR="$work/all-pinned-state" run "$work/rollback-pre-u13" ./scripts/rollback-hosted-beta.sh \
+  --manifest "$manifest_a" --skip-smoke
+if [ "$rc" -eq 3 ] && grep -qF "image plan builds no service" "$work/out" && ! calls | grep -Eq '^(TAG|UP|BUILD|PULL) ' \
+  && cmp -s "$work/all-pinned-record.json" "$work/all-pinned-state/deployed-manifest.json"; then
+  pass "a rollback to a deploy made before U13 is refused (exit 3) before it changes anything; the deployed record is kept"
+else
+  bad "rollback to a pre-U13 deploy with every app service pinned: exit $rc, calls: $(calls | tr '\n' ';')"
+  tail -n 15 "$work/out" >&2
 fi
 
 if [ "$failures" -ne 0 ]; then

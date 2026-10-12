@@ -304,6 +304,13 @@ class PinnedServices(Fixture):
         self.assert_refused(hosted_beta("a" * 40), hosted_beta("b" * 40),
                             f"auth-service: {PLAN_PINS['auth-service']} -> <not pinned>", plan(removed, BUILT + ["auth-service"]))
 
+    def test_a_rollback_that_would_re_point_nothing_is_refused(self):
+        # U13: from this checkout (every app service pinned), a rollback to a manifest written before U13, which
+        # recorded built images, would re-point nothing and only rewrite the deployed release's record.
+        deployed = {**hosted_beta("b" * 40, pinned=PINS), "images": {}}
+        self.assertEqual(self.run_gate(hosted_beta("a" * 40), deployed, self.write("plan", plan(PINS, []))), 3)
+        self.assert_refused(hosted_beta("a" * 40), deployed, "image plan builds no service", plan(PINS, []))
+
     def test_a_deploy_of_this_checkout_has_nothing_to_re_point_so_its_rollback_is_refused(self):
         # U13: this checkout pins every app service; its deploys record no built image.
         target = {**hosted_beta("a" * 40, pinned=PINS), "images": {}}
