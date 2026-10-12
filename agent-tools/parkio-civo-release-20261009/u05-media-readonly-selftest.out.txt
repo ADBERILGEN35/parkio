@@ -1,0 +1,49 @@
+U05 media read-only checks | 2026-10-12T18:54:15Z | nothing is changed
+== 0. containers
+  project u05t15ee5b: u05t15ee5b-minio, u05t15ee5b-media, u05t15ee5b-pg
+== 1-7. results
+  identity       RECORDED media revision 504b9cb453ac
+  bucket-mode    PASS     bucket parkio-media: versioning Unversioned, object lock Disabled; every versioning state is handled by the version-wise delete
+  permissions    PASS     media-service signs as MinIO's root user: every S3 action is allowed, including s3:ListBucketVersions and s3:DeleteObjectVersion
+  region         PASS     media-service signs for us-east-1 (default of application.yml (variable unset)); MinIO reports the bucket location us-east-1
+  network        PASS     endpoint http://minio:9000: minio resolves to 172.24.0.2, the MinIO container's own address on u05t15ee5b-backend; no proxy setting
+  flyway         PASS     V14 final (checksum 2068638586); 18 of 18 expected versions match
+  erasure-state  RECORDED media_erasure_jobs 1 row(s), highest attempts 3; media_object_writes APPLIED 2, PENDING 1
+evidence: <W>/out/u05/20261012T185415Z/media-readonly.json sha256 73127309cce4e97f3ac3e2887eea38ba0ed6723cac850ca5990b232580930578
+U05 MEDIA READ-ONLY RECORDED - 5 PASS, 0 FINDING, 0 UNKNOWN
+tool exit=0
+ok   m1.out: tool exit=0
+ok   m1.out: U05 MEDIA READ-ONLY RECORDED - 5 PASS, 0 FINDING, 0 UNKNOWN
+ok   m1.out: /identity +RECORDED +media revision 504b9cb453ac$/
+ok   m1.out: /bucket-mode +PASS +bucket parkio-media: versioning Unversioned, object lock Disabled/
+ok   m1.out: /permissions +PASS +media-service signs as MinIO's root user/
+ok   m1.out: /region +PASS +media-service signs for us-east-1 \(default of application.yml \(variable unset\)\); MinIO reports the bucket location us-east-1/
+ok   m1.out: /network +PASS +endpoint http://minio:9000: minio resolves to [0-9.]+, the MinIO container's own address on u05t15ee5b-backend; no proxy setting/
+ok   m1.out: /flyway +PASS +V14 final \(checksum 2068638586\); 18 of 18 expected versions match/
+ok   m1.out: /erasure-state +RECORDED +media_erasure_jobs 1 row\(s\), highest attempts 3; media_object_writes APPLIED 2, PENDING 1/
+ok   m1: record dirs 700, file 600
+ok   m1: record fields
+ok   m1: nothing left in MinIO's /tmp
+ok   m1: the database is unchanged
+ok   m1.out: no secret in the output or the record
+ok   m2.out: /flyway +FINDING +V14 EARLIER \(pre-review\) version \(checksum -1766445011\); 17 of 18 expected versions match; differ: \[14\]/
+ok   m2.out: tool exit=0
+ok   m2.out: no secret in the output or the record
+ok   m3.out: /permissions +FINDING +media-service signs as a non-root MinIO user with policies media-basic; missing: s3:ListBucketVersions, s3:DeleteObjectVersion/
+ok   m3.out: tool exit=0
+ok   m3.out: no secret in the output or the record
+ok   m4.out: /permissions +PASS +media-service signs as a non-root MinIO user with policies media-full; it allows s3:ListBucketVersions and s3:DeleteObjectVersion/
+ok   m4.out: no secret in the output or the record
+ok   m5.out: /bucket-mode +FINDING +bucket locked-media: versioning Enabled, object lock Enabled; deletes fail closed while a retention period holds/
+ok   m5.out: no secret in the output or the record
+ok   m6.out: /network +FINDING +endpoint http://proxy:9000: proxy resolves to [0-9.]+, not to the MinIO container on a shared network/
+ok   m6.out: no secret in the output or the record
+ok   m7.out: /region +FINDING +media-service signs for eu-west-1 \(PARKIO_MEDIA_STORAGE_REGION\); MinIO reports the bucket location us-east-1: a mismatch causes region redirects/
+ok   m7.out: no secret in the output or the record
+ok   m8.out: /region +FINDING +PARKIO_MEDIA_STORAGE_REGION is set but empty/
+ok   m8.out: no secret in the output or the record
+ok   m9.out: STOP: 0 running 'postgres-media' container(s) in project u05t15ee5b (want exactly 1)
+ok   m9.out: tool exit=1
+ok   m9: no record
+ok   static: the alias credentials come only from stdin
+SELFTEST PASS

@@ -1,0 +1,115 @@
+U14 passphrase custody (create) | 2026-10-12T18:53:38Z | the passphrase is never shown, typed or stored
+== 0. preconditions
+  backup job: '30 3 * * *' as root, approved command; cron variables applied: SHELL PATH MAILTO
+  BACKUP_ENCRYPT_PASSPHRASE of the backup job's environment: set (value not shown, not changed)
+
+== 1. escrow (create)
+
+  Step 1 of 3: the escrow password.
+  Type a NEW password of at least 20 characters that you have already written by hand on two cards, for example
+  five unrelated English words. It is not shown while you type.
+  Escrow password: 
+  The same again: 
+
+  Step 2 of 3: save the escrow file. Copy ALL lines from the BEGIN line to the END line into a new text file on your
+  computer (for example parkio-backup-escrow-2026-10-12.txt), and keep a second copy in another place you control
+  (a USB stick, or your own cloud drive or e-mail). It is encrypted; without the password on your cards it is useless.
+
+-----BEGIN PARKIO BACKUP PASSPHRASE ESCROW-----
+format: parkio-escrow-v1 (line 1 of the decrypted text is the format; line 2 is the passphrase)
+protects: BACKUP_ENCRYPT_PASSPHRASE of the nightly backup on <host>
+created: 2026-10-12T18:53:39Z
+cipher: openssl enc -aes-256-cbc -pbkdf2 -md sha256 -iter 600000 -a
+blob-sha256: 6437785e4b412fdc47633f03b12a23e544c3cd46bcb3193744a279748be03b88
+blob:
+U2FsdGVkX18+4xW1sixvk298bMXfo28H+fja4uLpep8BAUfsWtrsDE/FX4QD9zQQ
+3HpYtYuJGYPhUls6CcM9RteJ1UV1XfJw8bcJ54QZ6kc=
+-----END PARKIO BACKUP PASSPHRASE ESCROW-----
+
+  Press Enter when BOTH copies are saved: 
+
+  Step 3 of 3: check the SAVED copy (not the text above).
+  Open the saved file, copy everything from the BEGIN line to the END line, paste it here and press Enter.
+-----BEGIN PARKIO BACKUP PASSPHRASE ESCROW-----
+format: parkio-escrow-v1 (line 1 of the decrypted text is the format; line 2 is the passphrase)
+protects: BACKUP_ENCRYPT_PASSPHRASE of the nightly backup on <host>
+created: 2026-10-12T18:53:39Z
+cipher: openssl enc -aes-256-cbc -pbkdf2 -md sha256 -iter 600000 -a
+blob-sha256: 6437785e4b412fdc47633f03b12a23e544c3cd46bcb3193744a279748be03b88
+blob:
+U2FsdGVkX18+4xW1sixvk298bMXfo28H+fja4uLpep8BAUfsWtrsDE/FX4QD9zQQ
+3HpYtYuJGYPhUls6CcM9RteJ1UV1XfJw8bcJ54QZ6kc=
+-----END PARKIO BACKUP PASSPHRASE ESCROW-----
+  Escrow password from your card (not shown): 
+  escrow created 2026-10-12T18:53:39Z; round trip PASS; blob sha256 6437785e4b412fdc47633f03b12a23e544c3cd46bcb3193744a279748be03b88
+  saved copy: MATCH after 1 attempt(s); pasted blob sha256 6437785e4b412fdc47633f03b12a23e544c3cd46bcb3193744a279748be03b88; it is the blob created now: yes
+evidence: <W>/out/u14/custody-20261012T185338Z-create/escrow.json sha256 c8a37b384208ba0f6948159498040270d2ca59e5e749793a0f3aef6abc72e706
+U14 CUSTODY ESTABLISHED - the saved escrow copy opens to the backup passphrase
+
+driver exit=0
+argv hits=0
+ok   k1.out: driver exit=0
+ok   k1.out: U14 CUSTODY ESTABLISHED
+ok   k1.out: round trip PASS
+ok   k1.out: /saved copy: MATCH after 1 attempt\(s\); pasted blob sha256 [0-9a-f]{64}; it is the blob created now: yes/
+ok   k1.out: BACKUP_ENCRYPT_PASSPHRASE of the backup job's environment: set (value not shown, not changed)
+ok   k1: record dir 700, file 600
+ok   k1: escrow.json fields
+ok   k1: the blob is not in the record
+ok   k1: the recorded blob sha256 is the saved blob's
+ok   k1: openssl opens the saved copy to 'parkio-escrow-v1\n' + the cron job's passphrase, byte for byte
+ok   k1.out: no secret in the output or the records
+ok   k1.out: argv hits=0
+ok   k2.out: The two entries differ; try again.
+ok   k2.out: It has fewer than 20 characters; try again.
+ok   k2.out: U14 CUSTODY ESTABLISHED
+ok   k2.out: driver exit=0
+ok   k2.out: no secret in the output or the records
+ok   k2.out: argv hits=0
+ok   k3.out: That is the backup passphrase itself; choose a new password and try again.
+ok   k3.out: STOP: no escrow password was accepted (three tries)
+ok   k3.out: driver exit=1
+ok   k3.out: no BEGIN PARKIO
+ok   k3: no record
+ok   k3.out: no secret in the output or the records
+ok   k3.out: argv hits=0
+ok   k4.out: No match: a wrong password, a damaged copy, or an escrow of another passphrase. Try again.
+ok   k4.out: saved copy: MATCH after 2 attempt(s)
+ok   k4.out: U14 CUSTODY ESTABLISHED
+ok   k4.out: no secret in the output or the records
+ok   k4.out: argv hits=0
+ok   k5.out: No match: the pasted text is not the escrow file printed above (an incomplete copy?). Try again.
+ok   k5.out: saved copy: MISMATCH after 3 attempt(s)
+ok   k5.out: it is the blob created now: no
+ok   k5.out: U14 CUSTODY NOT ESTABLISHED
+ok   k5.out: driver exit=1
+ok   k5: record result FAIL
+ok   k5.out: no secret in the output or the records
+ok   k5.out: argv hits=0
+ok   k6.out: U14 CUSTODY CONFIRMED
+ok   k6.out: saved copy: MATCH after 1 attempt(s)
+ok   k6.out: no it is the blob created now
+ok   k6.out: driver exit=0
+ok   k6.out: no secret in the output or the records
+ok   k6.out: argv hits=0
+ok   k6: verify record
+ok   k7.out: saved copy: MISMATCH after 3 attempt(s)
+ok   k7.out: U14 CUSTODY NOT ESTABLISHED
+ok   k7.out: driver exit=1
+ok   k7.out: no secret in the output or the records
+ok   k7.out: argv hits=0
+ok   k8.out: That paste had no 'blob:' part before the END line (or no END line). Paste the whole saved text again.
+ok   k8.out: saved copy: MATCH after 2 attempt(s)
+ok   k8.out: U14 CUSTODY CONFIRMED
+ok   k8.out: no secret in the output or the records
+ok   k8.out: argv hits=0
+ok   k9.out: STOP: the backup job's environment has no BACKUP_ENCRYPT_PASSPHRASE
+ok   k9.out: driver exit=1
+ok   k9.out: no Escrow password
+ok   k10.out: job line(s) for the backup entry point (want exactly 1)
+ok   k10.out: driver exit=1
+ok   k10.out: no Escrow password
+ok   k9-k10: no record
+ok   k12: the cron reader is byte-identical to P5b's
+ok   k12: openssl reads every secret from -pass env: only
+SELFTEST PASS
