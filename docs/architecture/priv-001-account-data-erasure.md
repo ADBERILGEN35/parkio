@@ -226,6 +226,22 @@ Managed-DB verification guards (all required, fail-closed):
 
 Regression: `scripts/test-priv001-synthetic-principal.sh` (wired into invite-production deploy preflight). CI erasure semantics remain covered by `AccountErasureHttpIntegrationTest`.
 
+### PRIV-001A civo-production mode
+
+The single production host `parkio-civo-prod` runs the Compose project `parkio`. Its gateway is not published on the host, and its databases are local containers. `--environment civo-production` adapts the same harness to that topology.
+
+| Item | Contract |
+|------|----------|
+| Opt-in | `--environment civo-production` **and** `--confirm-synthetic-only`. The host name must be `parkio-civo-prod` (`PARKIO_PRIV001_CIVO_HOST`). `--gateway-url` is refused. |
+| Containers | Resolved by Compose labels: the project (`PARKIO_PRIV001_COMPOSE_PROJECT`, default `parkio`) and the service. Exactly one running container is required for each service. |
+| Registration | Canonical `POST /api/v1/auth/register` with a **one-time operator invite**. The invite is created with `POST /internal/auth/registration-invites` from inside the `auth-service` container: the operator token and the gateway secret come from that container's own environment and reach curl as headers on stdin (`-H @-`). The endpoint refuses unless invite creation is enabled. |
+| Verification | The same allowlisted mutation, with every guard unchanged. It runs through `docker exec` into `postgres-auth`, using that container's own socket and `POSTGRES_USER` / `POSTGRES_DB`. No database credential leaves the container. |
+| HTTP | Each request runs inside the `gateway-service` container (`http://localhost:8080`). The whole request (URL, headers, body, bearer) is a curl config on stdin (`curl --config -`), so no password, token or invite is put on a command line. |
+| Erasure | `scripts/acceptance/erase-priv001-synthetic-principal.sh` (civo-production only) sends one canonical `DELETE /api/v1/account` and observes the request. Observation uses read-only SELECTs on the auth database: the latest request's status, each participant's ACK, the account state, and optionally other accounts' requests since the window started. `--expect IN_PROGRESS --hold-seconds N` passes when the request does not complete during the hold and a participant ACK is missing (for example, while one participant is stopped). `--expect COMPLETE` passes when every participant acked SUCCESS and the account is ERASED. |
+| Inspection | `inspect-priv001-synthetic-residue.sh` accepts civo-production and also reports `participant_acks` and `erasure_request_status`. It stays read-only and auth-database-only. |
+| Not changed here | Flags, registration mode, invite creation and services. `PARKIO_ACCOUNT_ERASURE_ENABLED`, invite creation and the operator token are set, and later restored, by the operator's separately authorized live window. |
+| Regression | `scripts/test-priv001-civo-mode.sh` runs in invite-production deploy CI. Fakes stand in for docker, the gateway, the invite call and psql, and every argv is checked for secrets. When a Docker daemon is present, a real PostgreSQL 16 section applies the auth-service migrations and runs the verification, observation and inspection SQL through `docker exec`. |
+
 ### PRIV-001A harness hotfix (managed psql defects — source remediation)
 
 **Status (2026-08-31):** PRIV-001 **erasure semantics** were accepted live on release
