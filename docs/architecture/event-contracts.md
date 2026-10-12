@@ -549,6 +549,10 @@ not an implemented restore guard.
 
   Both are unsupported until a reviewed procedure exists to reconcile or reset user-service's
   projection versions.
+- **Coordinated restore (U12-R decision, 2026-10-13).** The prerequisite above is the chosen
+  approach: restore user and gamification together from the same backup set, and keep events
+  produced after that backup away from the restored user-service. No reconcile or reset procedure
+  exists; one would be needed first for any restore that cannot meet this prerequisite.
 - **Not U12 guards.** The existing restore refusals are about erasure coverage:
   - a production restore is blocked (`parkio_restore_refuse_unverified_production`);
   - a standalone single-database restore is refused in production because it does not replay

@@ -19,7 +19,10 @@ Choose one documented incident strategy with the incident commander:
 - forward-fix the managed runtime while writes remain blocked;
 - reconcile a precisely bounded set of writes through an audited one-time tool;
 - or restore Azure PITR to a new server, validate, replay the erasure ledger, and
-  switch forward to that server.
+  switch forward to that server. **BLOCKED on the current code**, as in
+  [disaster-recovery-runbook.md](disaster-recovery-runbook.md): there is no verified erasure
+  coverage (`verifiedCoverage=false`), so a restored copy must not be exposed (see its
+  "Incident response while data recovery is BLOCKED").
 
 There are no dual writes. Every accepted account erasure is irreversible across
 restore/rollback: tombstones are replayed before login or traffic is enabled.
