@@ -293,9 +293,10 @@ docker exec -i parkio-postgres-parking \
 **Actions:**
 
 1. Do **not** hand-edit `flyway_schema_history` without a planned repair.
-2. If migration partially applied outside Flyway: stop parking-service, restore
-   DB from backup or finish DDL to match V17/V18, then `flyway repair` only with
-   senior approval.
+2. If migration partially applied outside Flyway: stop parking-service, finish
+   the DDL to match V17/V18, then `flyway repair` only with senior approval.
+   Restoring the database from a backup is BLOCKED in production (see the DR
+   runbook); it is an option only outside production.
 3. Recovery path: a forward fix (a deploy of corrected pins). A production database
    restore is BLOCKED (`restore-database.sh` refuses production apply; see the DR runbook,
    "Data corruption (one DB)"), and a deploy of an earlier image is not an accepted rollback
@@ -334,9 +335,10 @@ rollback unless schema compatibility with the live databases is proven first (se
 Notes:
 
 - Rolling back application code does **not** automatically undo Flyway V17/V18.
-  Forward-fix DB or restore from backup if old code cannot read new columns.
-- Prefer feature-flag rollback (below) before DB restore when schema is
-  compatible.
+  Forward-fix the DB if old code cannot read new columns. A restore from backup
+  is BLOCKED in production (see the DR runbook); it is an option only outside
+  production.
+- Prefer feature-flag rollback (below) when the schema is compatible.
 
 ### 9. Feature flag rollback
 

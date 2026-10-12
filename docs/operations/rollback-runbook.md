@@ -12,4 +12,4 @@ Restore env overlay; restart services.
 Set PARKIO_PARKING_DECISION_AUTHORITY_ENABLED=false and CANARY=0; restart parking-service.
 
 ## Migration incident
-Do not edit applied Flyway files. Forward-fix or restore from backup. See runbooks/flyway-migration-failure.md.
+Do not edit applied Flyway files. Forward-fix. A restore from backup is BLOCKED in production (see disaster-recovery-runbook.md); it is an option only outside production. See runbooks/flyway-migration-failure.md.

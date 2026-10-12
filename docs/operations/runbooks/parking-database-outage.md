@@ -27,7 +27,7 @@ Stop deploys; fail closed at gateway
 
 ## Containment
 
-Restore from backup if corruption
+Corruption: a restore from backup is BLOCKED in production (see ../disaster-recovery-runbook.md). Stop writes, keep the evidence and recover with a forward fix. Outside production, restore from backup.
 
 ## Rollback
 
