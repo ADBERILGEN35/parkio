@@ -1,0 +1,85 @@
+=== H1 host, OS and usage guards ===
+ok   h1a.out: the drill host is parkio-rd-YYYYMMDD
+ok   h1a.out: exit=1
+ok   h1b.out: the drill host runs Ubuntu 24.04
+ok   h1c.out: exit=2
+ok   h1d.out: exit=2
+=== H2 bootstrap refusals ===
+ok   h2a.out: the Microsoft keyring is not exactly the pinned key
+ok   h2a: no key installed
+ok   h2b.out: the Microsoft keyring is not exactly the pinned key
+ok   h2b.out: count=2
+ok   h2c.out: a drill script differs from its pin
+ok   h2c.out: wipe, then bootstrap again
+=== H3 bootstrap ===
+ok   h3.out: U14 DRILL HOST bootstrap: PASS
+ok   h3.out: exit=0
+ok   h3: a 64-byte key reached plain dm-crypt on stdin
+ok   h3: Docker's data root and image store on the volume
+ok   h3: both images by digest
+ok   h3: hostname in /etc/hosts
+ok   h3: azure-cli pinned
+ok   h3b.out: bootstrap already ran
+=== H4 pull ===
+ok   h4a.out: outbound is wider than the storage phase
+ok   h4b.out: no SAS on stdin
+ok   h4c.out: stdin does not hold a SAS
+ok   h4d.out: is not run A's seal
+ok   h4.out: U14 DRILL HOST pull: PASS
+ok   h4: SAS env-only, az config on the volume, ledger stamp pulled
+ok   h4.out holds no SAS value
+ok   fake.log holds no SAS value
+ok   h4: the SAS is in no state or evidence file
+=== H5 probe ===
+ok   h5a.out: outbound still works: dns tcp https-github https-storage
+ok   h5.out: U14 DRILL HOST probe: PASS
+=== H6 run refusals (nothing decrypted) ===
+ok   h6a.out: --cutoff must be the newest pulled stamp (2026-10-14T03-30-00Z)
+ok   h6b.out: start run inside tmux (or screen)
+ok   h6e.out: --max-age-hours is refused
+ok   h6f.out: --ledger-stamp must be newer than the data stamp
+ok   h6c.out: outbound works again
+ok   h6d.out: the escrow did not open (no run is recorded; start run again)
+ok   tty.out: or --expected-blob-sha256 is mistyped
+ok   h6d: a failed escrow records no run (run can start again)
+ok   h6d: the attempt is logged without secrets
+ok   h6d: the attempt log is in the evidence too
+ok   h6: no acceptance ran
+=== H7 run: blank line and a wrong password, then the right one; the real acceptance; outcomes 3-5 PASS ===
+ok   h7.out: the escrow opened (blob SHA-256 equals escrow.json's; pastes 1, passwords 2)
+ok   h7.out: remote-integrity=PASS
+ok   h7.out: decrypt=PASS
+ok   h7.out: isolated-restore=PASS
+ok   h7.out: U14 DRILL HOST run: PASS (outcomes 3, 4 and 5 PASS)
+ok   h7.out: exit=0
+ok   h7: the isolation preflight saw PARKIO_DRILL_ID
+ok   h7: run record PASS with its drill id
+ok   h7: a 46-char secret is in no output, log or record
+ok   h7: a 36-char secret is in no output, log or record
+ok   h7: a 64-char secret is in no output, log or record
+ok   h7b.out: run already ran (PASS); reset --yes first
+=== H8 reset, then BLOCKED (INCOMPLETE) and FAIL are not a PASS ===
+ok   h8a.out: pass --yes
+ok   h8b.out: U14 DRILL HOST reset: PASS (previous run PASS
+ok   h8: the previous evidence is kept aside
+ok   h8c.out: isolated-restore=BLOCKED
+ok   h8c.out: INCOMPLETE: outcomes 3-5 are PASS/PASS/BLOCKED
+ok   h8c.out: exit=1
+ok   h8e.out: isolated-restore=FAIL
+ok   h8e.out: the acceptance reported a FAIL
+ok   h8e.out: exit=1
+ok   h8: run record FAIL
+ok   h8g.out: a previous run left
+ok   h8g: refused before the escrow prompt
+ok   h8h.out: a previous target rd-postgres exists
+ok   h8i.out: the escrow opened (blob SHA-256 equals escrow.json's; pastes 3, passwords 2)
+ok   h8i.out: U14 DRILL HOST run: PASS
+=== H9 evidence ===
+ok   h9.out: U14 DRILL HOST evidence:
+ok   h9: SHA256SUMS
+ok   h9b.out: the evidence holds escrow or SAS text
+=== H10 wipe ===
+ok   h10.out: U14 DRILL HOST wipe: PASS
+ok   h10: volume closed and removed
+=== summary: 73 ok, 0 FAIL ===
+SELFTEST PASS
