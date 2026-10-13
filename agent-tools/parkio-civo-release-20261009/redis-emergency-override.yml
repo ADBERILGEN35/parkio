@@ -1,0 +1,13 @@
+# EMERGENCY ONLY - Redis credential rotation procedure, section 8 (incident 2026-10-13).
+# Use this only when redis does not come back healthy after phase D and its log shows that the PIN model's hardening is
+# the cause. It keeps the PR #344 fix (command, healthcheck) and the new password. It drops only the redis hardening
+# the pre-rotation container did not have: read-only root, cap_drop ALL + DAC_OVERRIDE, no-new-privileges, /tmp tmpfs.
+# With the root writable, /tmp/redis-auth.conf is written in the container layer instead of a tmpfs (still mode 0600).
+# This is not a reviewed release definition: record its use, report it, and remove it at the next reviewed deploy.
+services:
+  redis:
+    read_only: false
+    cap_drop: !reset []
+    cap_add: !reset []
+    security_opt: !reset []
+    tmpfs: !reset []
