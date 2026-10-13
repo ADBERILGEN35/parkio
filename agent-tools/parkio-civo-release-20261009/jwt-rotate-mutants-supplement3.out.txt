@@ -1,0 +1,12 @@
+supplement 3 to jwt-rotate-mutants.out.txt: the J1-J3 mutants; tool d2da83bf90f518cb, self-test fa323c290fa7319d
+anchors: 53 mutants, 51 anchor exactly once; BROKEN: ['new-key-accepted', 'rollback-phase-guard']
+pre-baseline-probe                 killed: P15 a probe that cannot pass the live gateway with the current key fails pre (J3)
+rollback-accepts-phase-b           killed: R12 rollback after a phase B interruption restores the env file and recreates nothing (J1); R13 rollback also brings back an auth-service moved outsid
+rollback-gateway-after-auth        killed: R5 rollback restores the previous key and kid, recreates auth-service, then force-recreates the gateway (J2); R13 rollback also brings back an auth-se
+rollback-auth-live-state           killed: R13 rollback also brings back an auth-service moved outside the tool (live state), then the gateway
+exit=0
+supplement 3b: the two mutants re-anchored by the J1-J3 change; tool d2da83bf90f518cb, self-test fa323c290fa7319d
+anchors: 53 mutants, 53 anchor exactly once
+new-key-accepted                   killed: R8 a gateway that forwards the new-key probe fails and stops in phase E; R9 a gateway that rejects the new key fails and stops in phase E
+rollback-phase-guard               killed: R2b rollback after a passing rotation is refused; R3 a failing preflight restores the env file; nothing is recreated
+exit=0

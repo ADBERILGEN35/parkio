@@ -27,7 +27,10 @@ pre (read-only):
 - in the model and in the live containers of every project, only auth-service carries the PEM;
 - auth-service and gateway-service are running, healthy and at the model's hash, their images resolving to the
   running ones;
-- the public JWKS lists exactly one key: the current kid, with the current key's modulus.
+- the public JWKS lists exactly one key: the current kid, with the current key's modulus;
+- the probe works against the live gateway: a token signed with the current key, for a random subject with
+  session_epoch -1, stops at the session-epoch check. That is the baseline for phase E, so an INVALID_TOKEN there
+  cannot be a probe artifact (review J3).
 rotate (--yes), within an hour of a passing pre, with the same env file and containers:
   A. generates a new RSA-2048 PKCS#8 key and a new kid, parkio-auth-rs256-<UTC minute>;
   B. backs the env file up, then atomically rewrites the PEM and kid lines in the same quoted single-line form. It
@@ -42,7 +45,12 @@ rotate (--yes), within an hour of a passing pre, with the same env file and cont
      - a token signed with the new key, for a random non-existent subject with session_epoch -1, passes the
        signature and stops at the session-epoch check (TOKEN_REVOKED or SESSION_EPOCH_UNAVAILABLE), so it is never
        forwarded.
-rollback (--yes), after a failed phase B to E:
+rollback (--yes), after a failed or interrupted phase B to E:
+- restores the backup;
+- recreates auth-service when it was moved, or when it does not run the previous key and kid (live state);
+- after any auth-service change, force-recreates gateway-service as well, emptying its JWKS cache and its
+  negative cache for unknown kids (review J1, J2).
+The original bullets follow:
 - restores the backup;
 - recreates auth-service, then gateway-service if it was recreated.
 redact (--yes), after a passing rotation, while the JWKS lists only the new kid:
@@ -103,6 +111,7 @@ PEM, KID, ADD, ISS, AUD = ("PARKIO_JWT_PRIVATE_KEY_PEM", "PARKIO_JWT_KEY_ID", "P
                            "PARKIO_JWT_ISSUER", "PARKIO_JWT_AUDIENCE")
 MARKER = "CHANGE_ME_redacted_after_rotation_20261013"   # the preflight's is_jwt_pem_placeholder refuses CHANGE_ME
 ACCEPTED_AFTER_SIGNATURE = ("TOKEN_REVOKED", "SESSION_EPOCH_UNAVAILABLE")
+FAULT = cfg("JRT_FAULT", "")                   # self-test only: simulate an interruption at a named point
 PRE_MAX_AGE = 3600
 _T = time.time()
 STAMP = time.strftime("%Y%m%dT%H%M%S", time.gmtime(_T)) + "%03dZ" % (int(_T * 1000) % 1000)
@@ -507,6 +516,9 @@ def cmd_pre():
     n = modulus_b64url(key) if needle else None
     check("the public JWKS lists exactly one key: the current kid with the current key's modulus",
           keys is not None and n is not None and keys == [(kid, n)], f"{len(keys) if keys is not None else '?'} key(s)")
+    status, code = probe(sign_token(key, kid, ev.get(ISS, ""), ev.get(AUD, ""))) if needle else (None, None)
+    check("the probe works: a token signed with the current key stops at the session-epoch check (baseline for phase E)",
+          code in ACCEPTED_AFTER_SIGNATURE and status in (401, 503), f"{status} {code}")
     rec["baseline"] = baseline(ds)
     rec["envSha256"] = hashlib.sha256(data).hexdigest()
     return finish("pre", rec)
@@ -561,6 +573,8 @@ def cmd_rotate(yes):
     hashes_before = model_hashes() or {}
     newdata = with_values(data, {PEM: file_form(new_pem), KID: new_kid})
     write_atomically(ENV_FILE, newdata, st)
+    if FAULT == "after-env-write":
+        raise SystemExit(99)
     after = open(ENV_FILE, "rb").read()
     ok = check("only the PEM and kid lines changed, mode and owner kept", after == newdata and only_keys_changed(data, after, (PEM, KID))
                and env_values(after).get(PEM) == file_form(new_pem) and (os.stat(ENV_FILE).st_mode, os.stat(ENV_FILE).st_uid) == (st.st_mode, st.st_uid))
@@ -639,7 +653,7 @@ def cmd_rollback(yes):
     rec = {"tool": "jwt-rotate", "command": "rollback", "stamp": STAMP}
     prog = latest("rotate-progress")
     phase = (prog or {}).get("phase")
-    if not check("a rotation stopped in phase C, D or E (after the env write)", phase in ("C", "D", "E"), phase or "none"):
+    if not check("a rotation stopped in phase B, C, D or E (after the backup)", phase in ("B", "C", "D", "E"), phase or "none"):
         return finish("rollback", rec)
     backup = os.path.join(os.path.dirname(ENV_FILE), prog.get("backup") or "")
     old_data = open(backup, "rb").read() if os.path.isfile(backup) else None
@@ -649,15 +663,19 @@ def cmd_rollback(yes):
         return finish("rollback", rec)
     for v in (env_values(old_data).get(PEM, ""), env_values(data).get(PEM, "")):
         SECRETS.extend([v, pem_from(v), container_form(pem_from(v))])
-    write_atomically(ENV_FILE, old_data, os.stat(ENV_FILE))
+    if data != old_data:
+        write_atomically(ENV_FILE, old_data, os.stat(ENV_FILE))
     check("the env file holds the previous PEM and kid again", open(ENV_FILE, "rb").read() == old_data)
-    for svc in prog.get("moved") or []:
-        before = parkio(svc)
-        args = ["up", "-d", "--no-build", "--no-deps"] + (["--force-recreate"] if svc == VERIFIER else []) + [svc]
-        rc, _, _ = wrapper(*args)
-        d = wait_container(svc, (before or {}).get("Id"))
-        check(f"{svc}: recreated, healthy", rc == 0 and bool(d) and health(d) == "healthy")
     old = env_values(old_data)
+    a = env_of(parkio(SIGNER) or {})
+    auth_changed = SIGNER in (prog.get("moved") or []) or a.get(PEM) != container_form(pem_from(old.get(PEM, ""))) or a.get(KID) != old.get(KID)
+    todo = ([SIGNER] if auth_changed else []) + ([VERIFIER] if auth_changed or VERIFIER in (prog.get("moved") or []) else [])
+    rec["recreated"] = todo
+    for svc in todo:
+        before = parkio(svc)
+        rc, _, _ = wrapper("up", "-d", "--no-build", "--no-deps", "--force-recreate", svc)
+        d = wait_container(svc, (before or {}).get("Id"))
+        check(f"{svc}: recreated, healthy", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy")
     keys = jwks_keys()
     check("the public JWKS lists the previous kid again", bool(keys) and [k for k, _ in keys] == [old.get(KID)])
     a = env_of(parkio(SIGNER) or {})

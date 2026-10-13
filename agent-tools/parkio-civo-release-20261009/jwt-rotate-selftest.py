@@ -205,7 +205,7 @@ class Api(http.server.BaseHTTPRequestHandler):
             except ValueError:
                 return self.send(401, {"code": "INVALID_TOKEN"})
             key = st["gateway_keys"].get(header.get("kid"))
-            if not key:
+            if not key or mark("probe-broken"):
                 return self.send(401, {"code": "INVALID_TOKEN"})
             pub = openssl(["pkey", "-pubout"], pem_of(key).encode())[1]
             r1, w1 = os.pipe(); os.write(w1, pub); os.close(w1)
@@ -287,7 +287,7 @@ def main():
         def reset(checkout=r2, env_pem_file=None, add="", auth_pem=None, extra_carrier=False, gateway_build_only=False, gateway_inbox=True):
             for f in os.listdir(W):
                 if f in ("tag-moved", "model-leak", "env-affects-web", "jwks-stale", "jwks-extra", "gateway-keeps-old", "gateway-rejects-new",
-                         "probe-forwards", "preflight-fail", "gateway-build-only", "config-image-differs") or\
+                         "probe-forwards", "preflight-fail", "gateway-build-only", "config-image-differs", "probe-broken") or\
                     f.startswith(("unhealthy-", "collateral-", "stale-env-")):
                     os.remove(os.path.join(W, f))
             if gateway_build_only:
@@ -404,6 +404,11 @@ def main():
         reset()
         rc, out = tool("pre", extra={"JRT_HOST": "some-other-host"})
         ok(rc == 1 and "FAIL host some-other-host" in out, "P11 another host fails", out)
+        reset()
+        mark("probe-broken")
+        rc, out = tool("pre")
+        ok(rc == 1 and "FAIL the probe works: a token signed with the current key stops at the session-epoch check" in out,
+           "P15 a probe that cannot pass the live gateway with the current key fails pre (J3)", out)
         reset(gateway_inbox=False)
         rc, out = tool("pre")
         ok(rc == 0 and "use the production file list only" in out and not [u for u in ups() if u[:2] == ["wrapper", "-f"]],
@@ -467,7 +472,7 @@ def main():
         ok(len(bak) == 1 and open(os.path.join(L, "docker", bak[0])).read() == env_text(OLD_FILE) and
            oct(os.stat(os.path.join(L, "docker", bak[0])).st_mode & 0o777) == "0o600", "R2 the backup holds the old env, mode 600")
         rc, out = tool("rollback", "--yes")
-        ok(rc == 1 and "FAIL a rotation stopped in phase C, D or E" in out and env_pem_file() == newf, "R2b rollback after a passing rotation is refused", out)
+        ok(rc == 1 and "FAIL a rotation stopped in phase B, C, D or E" in out and env_pem_file() == newf, "R2b rollback after a passing rotation is refused", out)
 
         # ---- failures
         reset()
@@ -489,8 +494,9 @@ def main():
         ok(rc == 1 and "FAIL auth-service: wrapper exit 0, a new healthy container" in out, "R5 an unhealthy auth-service stops the rotation", out)
         os.remove(os.path.join(W, "unhealthy-auth-service"))
         rc, out = tool("rollback", "--yes")
-        ok(rc == 0 and env_pem_file() == OLD_FILE and auth()["env"]["PARKIO_JWT_KEY_ID"] == "parkio-auth-rs256-1",
-           "R5 rollback restores the previous key and kid and recreates auth-service", out)
+        ok(rc == 0 and env_pem_file() == OLD_FILE and auth()["env"]["PARKIO_JWT_KEY_ID"] == "parkio-auth-rs256-1"
+           and [(u[-1], "--force-recreate" in u) for u in ups()][-2:] == [("auth-service", True), ("gateway-service", True)],
+           "R5 rollback restores the previous key and kid, recreates auth-service, then force-recreates the gateway (J2)", out)
         rc, out = tool("rollback", "--yes")
         ok(rc == 1 and "rolled-back" in out, "R5b a second rollback is refused (the rotation is marked rolled-back)", out)
         reset()
@@ -527,6 +533,28 @@ def main():
         rc, out = tool("rollback", "--yes")
         ok(rc == 0 and env_pem_file() == OLD_FILE and [u[-1] for u in ups()][-2:] == ["auth-service", "gateway-service"],
            "R11 rollback after the gateway recreate restores the env file and recreates auth-service, then gateway-service", out)
+
+        reset()
+        tool("pre")
+        rc, out = tool("rotate", "--yes", extra={"JRT_FAULT": "after-env-write"})
+        keys_seen.append(env_pem_file().replace("\\\\n", "\n"))
+        n_up = len(ups())
+        ok(rc == 99 and env_pem_file() != OLD_FILE and auth()["env"]["PARKIO_JWT_KEY_ID"] == "parkio-auth-rs256-1",
+           "R12 setup: interrupted right after the env write (env new, auth still on the old key)", out)
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and env_pem_file() == OLD_FILE and len(ups()) == n_up,
+           "R12 rollback after a phase B interruption restores the env file and recreates nothing (J1)", out)
+        reset()
+        tool("pre")
+        tool("rotate", "--yes", extra={"JRT_FAULT": "after-env-write"})
+        keys_seen.append(env_pem_file().replace("\\\\n", "\n"))
+        subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "-f", "docker/docker-compose.waitlist-ops-inbox.yml", "up", "-d",
+                        "--no-build", "--no-deps", "auth-service"], cwd=R, capture_output=True,
+                       env={k: v for k, v in dict(env, PARKIO_ENV_FILE=ENV).items() if k != "LEAKY_SECRET"})
+        archive_logs()
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and auth()["env"]["PARKIO_JWT_KEY_ID"] == "parkio-auth-rs256-1" and [u[-1] for u in ups()] == ["auth-service", "gateway-service"],
+           "R13 rollback also brings back an auth-service moved outside the tool (live state), then the gateway", out)
 
         # ---- redact
         reset()

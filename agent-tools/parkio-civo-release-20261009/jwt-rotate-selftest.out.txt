@@ -14,6 +14,7 @@ ok   P7 a moved image tag fails
 ok   P8 a JWKS with another key fails
 ok   P10 auth-service off the model's hash fails
 ok   P11 another host fails
+ok   P15 a probe that cannot pass the live gateway with the current key fails pre (J3)
 ok   P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
 ok   P12 a build-only gateway (no image in the model) passes under its implicit name
 ok   P13 a container not running the model's image reference fails
@@ -34,7 +35,7 @@ ok   R2b rollback after a passing rotation is refused
 ok   R3 a failing preflight restores the env file; nothing is recreated
 ok   R4 another service's model changing restores the env file
 ok   R5 an unhealthy auth-service stops the rotation
-ok   R5 rollback restores the previous key and kid and recreates auth-service
+ok   R5 rollback restores the previous key and kid, recreates auth-service, then force-recreates the gateway (J2)
 ok   R5b a second rollback is refused (the rotation is marked rolled-back)
 ok   R5c a rollback that leaves auth-service on the new key fails its end-state check
 ok   R6 a JWKS still serving the old key fails and stops in phase C
@@ -46,6 +47,9 @@ ok   R10b another container changing at the gateway recreate fails and stops in 
 ok   R12 auth-service recreated without the new key fails and stops in phase C
 ok   R11 an unhealthy gateway fails and stops in phase D
 ok   R11 rollback after the gateway recreate restores the env file and recreates auth-service, then gateway-service
+ok   R12 setup: interrupted right after the env write (env new, auth still on the old key)
+ok   R12 rollback after a phase B interruption restores the env file and recreates nothing (J1)
+ok   R13 rollback also brings back an auth-service moved outside the tool (live state), then the gateway
 ok   X1 redact before a rotation is refused
 ok   X2 redact after a passing rotation passes
 ok   X2 every backup, the extra files and the rotation's backup hold the marker; the live env keeps the new key
@@ -57,7 +61,7 @@ ok   X6 redact while the JWKS still lists the old kid is refused
 ok   X7 a listed symlink and its target are left alone; the backup is kept
 ok   X8 the live env file is never redacted, even through a link
 ok   X9 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old key
-ok   no key material in any output or record (20 keys)
+ok   no key material in any output or record (22 keys)
 ok   no key material in any docker or wrapper argument
 ok   no child saw a variable outside the allowlist
-=== summary: 62 ok, 0 FAIL ===
+=== summary: 66 ok, 0 FAIL ===

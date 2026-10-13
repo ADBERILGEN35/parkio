@@ -16,6 +16,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL, SELFTEST = "jwt-rotate.py", "jwt-rotate-selftest.py"
 
 MUTANTS = [
+    ('pre-baseline-probe', 'code in ACCEPTED_AFTER_SIGNATURE and status in (401, 503), f"{status} {code}")\n    rec["baseline"]', 'True, f"{status} {code}")\n    rec["baseline"]'),
+    ('rollback-accepts-phase-b', 'phase in ("B", "C", "D", "E")', 'phase in ("C", "D", "E")'),
+    ('rollback-gateway-after-auth', '([VERIFIER] if auth_changed or VERIFIER in', '([VERIFIER] if VERIFIER in'),
+    ('rollback-auth-live-state', ' or a.get(PEM) != container_form(pem_from(old.get(PEM, ""))) or a.get(KID) != old.get(KID)\n', '\n'),
     ('inbox-overlay-detected', '_OVERLAYS = ["-f", INBOX_OVERLAY] if any(', '_OVERLAYS = [] if any('),
     ('inbox-overlay-always', ' else []\n    return _OVERLAYS', ' else ["-f", INBOX_OVERLAY]\n    return _OVERLAYS'),
     ("release-at-r2", 'head == R2 and not status.strip()', 'not status.strip()'),
@@ -56,13 +60,11 @@ MUTANTS = [
     ("stop-after-D", '        say("  STOP: see the procedure\'s recovery section")\n        return finish("rotate", rec)\n',
      '        say("  STOP: see the procedure\'s recovery section")\n'),
     ("old-key-refused", 'status == 401 and code == "INVALID_TOKEN"', 'True'),
-    ("new-key-accepted", 'code in ACCEPTED_AFTER_SIGNATURE and status in (401, 503)', 'True'),
+    ('new-key-accepted', 'code in ACCEPTED_AFTER_SIGNATURE and status in (401, 503), f"{status} {code}")\n    rec["phase"] = "done"', 'True, f"{status} {code}")\n    rec["phase"] = "done"'),
     ("probe-epoch", '"session_epoch": -1}', '"session_epoch": 0}'),
     ("probe-audience", '"aud": aud,', '"aud": iss,'),
-    ("rollback-phase-guard", 'phase in ("C", "D", "E")', 'True'),
+    ('rollback-phase-guard', 'phase in ("B", "C", "D", "E")', 'True'),
     ("rollback-env-restore", '    write_atomically(ENV_FILE, old_data, os.stat(ENV_FILE))\n', ''),
-    ("rollback-recreate", '    for svc in prog.get("moved") or []:', '    for svc in []:'),
-    ("rollback-gateway-force", '(["--force-recreate"] if svc == VERIFIER else [])', '[]'),
     ("redact-needs-passing-rotation", 'bool(rot) and rot.get("verdict") == "PASS" and (prog or {}).get("phase") == "done"\n                 and rot.get("stamp") == (prog or {}).get("stamp")', 'True'),
     ("redact-jwks-new-only", 'old != cur.get(PEM) and keys is not None and [k for k, _ in keys] == [cur.get(KID)]', 'old != cur.get(PEM)'),
     ("redact-live-env-guard", 'if os.path.realpath(path) == os.path.realpath(ENV_FILE):', 'if False:'),
