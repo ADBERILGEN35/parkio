@@ -109,6 +109,10 @@ try:
     psql(f"insert into auth_user_roles (user_id, role_id) values ('{real}'::uuid, '{roles['ADMIN']}'::uuid)")
     check("the demotion never touches a non-synthetic account (0 rows; its ADMIN stays)",
           psql(R.u03_demote_sql(real)) == [] and rset(real) == ["ADMIN", "USER"] and epoch(real) == 0)
+    trick = user("priv001a-u03trick@x@priv001a.parkio.invalid")
+    psql(f"insert into auth_user_roles (user_id, role_id) values ('{trick}'::uuid, '{roles['ADMIN']}'::uuid)")
+    check("the demotion's tie is the exact allowlist (a double-@ address is not synthetic)",
+          psql(R.u03_demote_sql(trick)) == [] and rset(trick) == ["ADMIN", "USER"])
     v = psql(f"select version from auth_users where id = '{x}'::uuid", ro=True)[0][0] if "version" in cols else "n/a"
     check(f"version bumped twice (as two JPA saves): {v}", v in ("2", "n/a"))
 finally:

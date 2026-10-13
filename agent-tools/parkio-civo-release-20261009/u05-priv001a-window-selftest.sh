@@ -122,6 +122,12 @@ if a[:1] == ["exec"] and "psql" in a:
     elif sql.startswith("select r.name from auth_user_roles ur join roles r on r.id = ur.role_id where ur.user_id = "):
         uid = re.search(r"ur.user_id = '([0-9a-f-]+)'", sql).group(1)
         print("\n".join(next((x.get("roles", ["USER"]) for x in users if x["id"] == uid), [])))
+    elif sql.startswith("select extract(epoch from occurred_at), actor_roles from admin_audit_events"):
+        uid = re.search(r"target_resource_id = '([0-9a-f-]+)'", sql).group(1)
+        act = re.search(r"action_type = '([A-Z_]+)'", sql).group(1)
+        since = float(re.search(r"to_timestamp\(([0-9.]+)\)", sql).group(1))
+        print("\n".join(f"{a['at']}|SUPER_ADMIN" for a in db.get("audit", [])
+                         if a["uid"] == uid and a["action"] == act and a["at"] >= since))
     elif sql.startswith("select session_epoch from auth_users where id = "):
         uid = re.search(r"id = '([0-9a-f-]+)'", sql).group(1)
         print(next((x.get("epoch", 0) for x in users if x["id"] == uid), ""))
@@ -903,7 +909,9 @@ owner() {  # grant|revoke <id>: the owner's console through auth-service (role r
   python3 -I - "$W/world.json" "$1" "$2" <<'PYO'
 import json, os, sys, time
 p, act, uid = sys.argv[1:4]
-want = ["ADMIN", "USER"] if act == "grant" else ["USER"]
+want = {"grant": ["ADMIN", "USER"], "revoke": ["USER"], "grant-moderator": ["MODERATOR", "USER"],
+        "sql-revoke": ["USER"]}[act]
+audit = {"grant": "ADMIN_USER_ROLE_GRANTED", "revoke": "ADMIN_USER_ROLE_REVOKED"}.get(act)
 for _ in range(50):
     s = json.load(open(p))
     u = next(x for x in s["db"]["users"] if x["id"] == uid)
@@ -914,19 +922,55 @@ for _ in range(50):
             break
         continue
     u["roles"] = want; u["epoch"] = u.get("epoch", 0) + 1
+    if audit:
+        s["db"].setdefault("audit", []).append({"uid": uid, "action": audit, "at": time.time()})
     tmp = p + ".owner"; json.dump(s, open(tmp, "w")); os.replace(tmp, p)
 PYO
 }
 wait_for "$W/r34u.out" "OWNER STEP 1" 60
 XID="$(grep -o 'open the user [0-9a-f-]\{36\}' "$W/r34u.out" | head -1 | awk '{print $4}')"; owner grant "$XID"
-wait_for "$W/r34u.out" "OWNER STEP 2" 60; owner revoke "$XID"
+wait_for "$W/r34u.out" "OWNER STEP 2" 60; sleep 1.5; owner revoke "$XID"
 wait "$UP"; echo "u03 exit=$?" >> "$W/r34u.out"
-has r34u.out "the grant is seen"; has r34u.out "U03 ACCEPTANCE PASS"; has r34u.out "u03 exit=0"
+has r34u.out "the grant is seen, with its console audit row"; has r34u.out "U03 ACCEPTANCE PASS"; has r34u.out "u03 exit=0"
+has r34u.out "PASS the revoke came through the console (audit row, SUCCESS)"; has r34u.out "PASS the cache was warm"
 python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["mode"] == "owner" and set(r["rejectedAfterSeconds"]) == {"read", "export", "mutation"}' \
   "$W/evidence/$RUN/u03/u03-results.json" && ok "r34: owner-mode record with the three refusal times" || no "r34 record"
 calls | grep -q "demote" && no "r34: the runner itself demoted" || ok "r34: no runner role statement in owner mode"
 u03_end r34
 has r34.out "U05 PRIV-001A WINDOW PASS"
+
+echo "=== R34b U03 owner mode: the revoke comes long after the TTL; the warm cache keeps the measurement honest ==="
+u03_window r34b '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --owner-steps > "$W/r34bu.out" 2>&1 & UP=$!
+wait_for "$W/r34bu.out" "OWNER STEP 1" 60
+XID="$(grep -o 'open the user [0-9a-f-]\{36\}' "$W/r34bu.out" | head -1 | awk '{print $4}')"; owner grant "$XID"
+wait_for "$W/r34bu.out" "OWNER STEP 2" 60; sleep 7; owner revoke "$XID"
+wait "$UP"; echo "u03 exit=$?" >> "$W/r34bu.out"
+has r34bu.out "U03 ACCEPTANCE PASS"; has r34bu.out "PASS the cache was warm"
+python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); t=r["t0"]; assert t["lastAcceptedBeforeT0Seconds"] is not None and t["lastAcceptedBeforeT0Seconds"] <= 8' \
+  "$W/evidence/$RUN/u03/u03-results.json" && ok "r34b: the old token was accepted a few seconds before the late revoke" || no "r34b warm"
+u03_end r34b
+
+echo "=== R34c U03 owner mode: ADMIN disappears without a console audit row ==="
+u03_window r34c '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --owner-steps > "$W/r34cu.out" 2>&1 & UP=$!
+wait_for "$W/r34cu.out" "OWNER STEP 1" 60
+XID="$(grep -o 'open the user [0-9a-f-]\{36\}' "$W/r34cu.out" | head -1 | awk '{print $4}')"; owner grant "$XID"
+wait_for "$W/r34cu.out" "OWNER STEP 2" 60; sleep 1.5; owner sql-revoke "$XID"
+wait "$UP"; echo "u03 exit=$?" >> "$W/r34cu.out"
+has r34cu.out "STOP: X lost ADMIN without a console audit row"; has r34cu.out "U03 ACCEPTANCE FAIL"
+u03_end r34c
+
+echo "=== R34d U03 owner mode: a wrong role is granted: stop at once, and the window does not erase X ==="
+u03_window r34d '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --owner-steps > "$W/r34du.out" 2>&1 & UP=$!
+wait_for "$W/r34du.out" "OWNER STEP 1" 60
+XID="$(grep -o 'open the user [0-9a-f-]\{36\}' "$W/r34du.out" | head -1 | awk '{print $4}')"; owner grant-moderator "$XID"
+wait "$UP"; echo "u03 exit=$?" >> "$W/r34du.out"
+has r34du.out "only ADMIN may be granted"; has r34du.out "U03 ACCEPTANCE FAIL"
+u03_end r34d
+has r34d.out "holds MODERATOR; not erased (the owner removes the role first)"; has r34d.out "ELEVATED: the synthetic account"
+has r34d.out "U05 PRIV-001A WINDOW FAIL"
 
 echo "=== R35 U03 owner mode: the grant never comes ==="
 export U05R_U03_OWNER_WAIT=3

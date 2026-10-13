@@ -87,10 +87,12 @@ Q "select count(*), count(*) filter (where consumed_at is null) from registratio
 
   ```
   sudo docker exec "$(C postgres-auth)" sh -c 'exec psql -X -q -At --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' psql \
-    "with del as (delete from auth_user_roles ur using roles r, auth_users u where ur.role_id = r.id and r.name = 'ADMIN' and ur.user_id = '<id>'::uuid and u.id = ur.user_id and (u.email like 'priv001a-%@priv001a.parkio.invalid' or u.email = 'erased-' || u.id::text || '@invalid.localhost') returning ur.user_id) update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() from del where a.id = del.user_id returning a.id, a.session_epoch"
+    "with del as (delete from auth_user_roles ur using roles r, auth_users u where ur.role_id = r.id and r.name = 'ADMIN' and ur.user_id = '<id>'::uuid and u.id = ur.user_id and (u.email ~ '^priv001a-[a-z0-9]{6,64}@priv001a\.parkio\.invalid$' or u.email = 'erased-' || u.id::text || '@invalid.localhost') returning ur.user_id) update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() from del where a.id = del.user_id returning a.id, a.session_epoch"
   ```
 
-  Never change the roles of an id that is not listed in `elevated.log`.
+  Never change the roles of an id that is not listed in `elevated.log`. If a listed id holds any role other than USER
+  and ADMIN (MODERATOR or SUPER_ADMIN, an owner-step mistake), do not erase it: the owner removes that role in the
+  admin console first (a synthetic SUPER_ADMIN would count in the last-SUPER_ADMIN check even when erased).
 - **An unconsumed invite:** record it as an ORPHAN. Only the invite's hash is stored, so no one can use it, and it expires after the invite TTL (P7D).
 
 **For each account the first query lists:**

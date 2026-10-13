@@ -64,6 +64,15 @@ The command needs one of two modes. Choosing between them is the owner's decisio
 - `--owner-steps`. The command prints OWNER STEP 1 and OWNER STEP 2. The owner grants, then revokes, the role ADMIN
   for the synthetic account X in the admin console (`/admin/users/<X id>`). These are auth-service's own grantRole
   and revokeRole: audited, epoch bumped, the SUPER_ADMIN-only path.
+  - The owner is signed in to the console before the command starts. Capture its output with `| tee`.
+  - Each step is accepted only with its console audit row (SUCCESS, role ADMIN, target X). The command reads only
+    the actor's roles, never the actor's id. The revoke's audit time is t0 of the TTL measurement.
+  - While it waits for the revoke, the command uses the old admin token every 5 s, so the gateway's cache is warm
+    when the revoke lands.
+  - Any role other than ADMIN on X stops the command at once. The window then does not erase X; the owner removes
+    that role first.
+  - If the owner's revoke never comes, the command's own safety step removes ADMIN with the allowlisted statement.
+    That removal has no audit row, and the run is a FAIL.
 - `--sql-elevation`. The allowlisted statements below apply the same role row, epoch and version changes, but write
   no admin-audit row. Use it only with the owner's explicit written confirmation.
 

@@ -113,7 +113,9 @@ U03_TTL = cfg_int("U05R_U03_TTL", 30)        # the gateway's PARKIO_SESSION_EPOC
 U03_SLACK = cfg_int("U05R_U03_SLACK", 8)     # poll interval plus request latency
 U03_POLL = cfg_int("U05R_U03_POLL", 2)
 U03_TAGS = ("U03X", "U03Y")
-U03_OWNER_WAIT = cfg_int("U05R_U03_OWNER_WAIT", 900)   # how long an owner step may take
+U03_OWNER_WAIT = cfg_int("U05R_U03_OWNER_WAIT", 600)   # how long an owner step may take
+U03_WARM = cfg_int("U05R_U03_WARM", 5)                 # owner mode: the old admin token is used this often while
+                                                       # the revoke is awaited, so the gateway's cache stays warm
 SCENARIOS = ("u05", "u04")
 NAME_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 UNIT = "u05-priv001a-window"
@@ -715,6 +717,10 @@ def erase_u04_accounts(st, deadline):
         if status not in ("PENDING_VERIFICATION", "ACTIVE"):
             results.append(f"{name}: {uid} is {status}")
             continue
+        other = [r for r in u03_roles(uid) if r not in ("USER", "ADMIN")]
+        if other:
+            failed.append(f"{name}: {uid} holds {','.join(other)}; not erased (the owner removes the role first)")
+            continue
         if uid in u03_elevated(st) and "ADMIN" in u03_roles(uid):
             try:
                 rows = psql_write(u03_demote_sql(uid))
@@ -789,8 +795,8 @@ def accounting(st):
     if st.get("scenario") == "u04":
         acc["u03Elevated"] = [{"id": u, "roles": u03_roles(u)} for u in u03_elevated(st)]
         for e in acc["u03Elevated"]:
-            if "ADMIN" in e["roles"]:
-                notes.append(f"ELEVATED: the synthetic account {e['id']} still holds ADMIN")
+            if any(r != "USER" for r in e["roles"]):
+                notes.append(f"ELEVATED: the synthetic account {e['id']} still holds {','.join(r for r in e['roles'] if r != 'USER')}")
     for pr in [acc["principal"]] + [x for x in acc.get("u04Accounts", []) if x.get("id")]:
         if pr and pr["request"] and pr["request"] != "COMPLETE":
             notes.append(f"PENDING: the erasure of {pr['id']} is {pr['request']} with {pr['successAcks']}/8 SUCCESS")
@@ -1465,6 +1471,18 @@ def u03_roles(uid):
                                      f"where ur.user_id = '{uid}'::uuid"))
 
 
+def u03_audit(uid, action, since):
+    """The console's role audit rows for <uid> (SUCCESS, role ADMIN) since <since> (epoch seconds), oldest first:
+    [(epoch seconds, actor roles)]. The actor's user id is never read."""
+    if not UUID.match(uid) or action not in ("ADMIN_USER_ROLE_GRANTED", "ADMIN_USER_ROLE_REVOKED"):
+        raise Stop("refused: audit lookup")
+    rows = psql("select extract(epoch from occurred_at), actor_roles from admin_audit_events "
+                f"where target_resource_id = '{uid}'::uuid and action_type = '{action}' and result = 'SUCCESS' "
+                "and metadata_json like '%\"role\":\"ADMIN\"%' "
+                f"and occurred_at >= to_timestamp({float(since):.3f}) order by occurred_at")
+    return [(float(r[0]), "|".join(r[1:])) for r in rows]
+
+
 def psql_write(sql):
     """One statement in a read-write session on the auth database: only the two U03 role statements below."""
     if not (sql.startswith("with t as (select u.id from auth_users u where u.id = ") or
@@ -1501,7 +1519,7 @@ def u03_demote_sql(uid):
         raise Stop("refused: the demotion needs an account id")
     return ("with del as (delete from auth_user_roles ur using roles r, auth_users u where ur.role_id = r.id "
             f"and r.name = 'ADMIN' and ur.user_id = '{uid}'::uuid and u.id = ur.user_id "
-            "and (u.email like 'priv001a-%@priv001a.parkio.invalid' or u.email = 'erased-' || u.id::text || "
+            "and (u.email ~ '^priv001a-[a-z0-9]{6,64}@priv001a\\.parkio\\.invalid$' or u.email = 'erased-' || u.id::text || "
             "'@invalid.localhost') returning ur.user_id) "
             "update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() "
             "from del where a.id = del.user_id returning a.id, a.session_epoch")
@@ -1654,12 +1672,23 @@ def cmd_u03(args):
         else:
             say(f"OWNER STEP 1: in the admin console open the user {x['auth_user_id']} ({x['email']}) and GRANT the role "
                 f"ADMIN, reason 'PRIV001A U03 acceptance'. Waiting up to {U03_OWNER_WAIT} s.")
+            asked = time.time() - 5
             until = time.time() + U03_OWNER_WAIT
-            while u03_roles(elevated) != ["ADMIN", "USER"]:
+            while True:
+                roles_now = u03_roles(elevated)
+                if any(r not in ("USER", "ADMIN") for r in roles_now):
+                    raise Stop(f"X holds {','.join(roles_now)}: only ADMIN may be granted (the owner removes the rest)")
+                if roles_now == ["ADMIN", "USER"]:
+                    break
                 if time.time() >= until or not hold_open():
                     raise Stop("the owner's ADMIN grant was not seen")
                 time.sleep(2)
-            say("  the grant is seen (auth-service's grantRole: audit row and session epoch)")
+            granted = u03_audit(elevated, "ADMIN_USER_ROLE_GRANTED", asked)
+            if not granted:
+                raise Stop("X holds ADMIN but no console audit row records the grant")
+            res["grantAudit"] = {"occurredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(granted[-1][0])),
+                                 "actorRoles": granted[-1][1]}
+            say("  the grant is seen, with its console audit row (grantRole: audit row and session epoch)")
         check("X holds ADMIN and USER in the database", u03_roles(elevated) == ["ADMIN", "USER"],
               ",".join(u03_roles(elevated)))
         tokens["admin"] = u03_login(run_id, x["email"], x["password"])
@@ -1728,12 +1757,36 @@ def cmd_u03(args):
             say(f"OWNER STEP 2: now REVOKE the role ADMIN from {x['email']} in the admin console. "
                 f"Waiting up to {U03_OWNER_WAIT} s.")
             until = time.time() + U03_OWNER_WAIT
-            while u03_roles(elevated) != ["USER"]:
-                if time.time() >= until:
-                    raise Stop("the owner's ADMIN revoke was not seen")
+            last_ok, next_probe = None, 0.0
+            while True:
+                roles_now = u03_roles(elevated)
+                if any(r not in ("USER", "ADMIN") for r in roles_now):
+                    raise Stop(f"X holds {','.join(roles_now)}: only ADMIN may change")
+                if roles_now == ["USER"]:
+                    break
+                if time.time() >= until or not hold_open():
+                    raise Stop("the owner's ADMIN revoke was not seen (or the hold closed)")
+                if time.time() >= next_probe:   # keeps X's epoch in the gateway cache: the measurement starts warm
+                    c, _ = u03_http(run_id, "GET", read, "", tokens["admin"])
+                    if c == "200":
+                        last_ok = time.time()
+                    next_probe = time.time() + U03_WARM
                 time.sleep(1)
-            t0 = time.time()
-            res["t0"] = "the revoke as seen by a 1-second poll"
+            seen = time.time()
+            revoked = u03_audit(elevated, "ADMIN_USER_ROLE_REVOKED", granted[-1][0])
+            if not revoked:
+                raise Stop("X lost ADMIN without a console audit row (not the owner's revoke)")
+            t0 = revoked[-1][0]
+            res["t0"] = {"source": "the revoke's audit row (occurred_at)",
+                         "t0": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
+                         "seenAfterSeconds": round(seen - t0, 1),
+                         "lastAcceptedBeforeT0Seconds": round(t0 - last_ok, 1) if last_ok else None,
+                         "actorRoles": revoked[-1][1]}
+            check("the revoke came through the console (audit row, SUCCESS)", True, f"actor roles {revoked[-1][1]}")
+            check("the poll saw the revoke within 3 s of its audit time", -1 <= seen - t0 <= 3, f"{round(seen - t0, 1)} s")
+            check("the cache was warm: the old admin token was accepted shortly before the revoke",
+                  last_ok is not None and -1 <= t0 - last_ok <= U03_WARM + 3,
+                  f"{round(t0 - last_ok, 1) if last_ok else '-'} s before")
         demoted, elevated = elevated, None
         check("X holds only USER in the database", u03_roles(demoted) == ["USER"], ",".join(u03_roles(demoted)))
         first, seen = {}, {k: set() for k in ("read", "export", "mutation")}
