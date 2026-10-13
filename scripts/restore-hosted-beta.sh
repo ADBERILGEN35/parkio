@@ -305,18 +305,17 @@ restore_minio() {
   fi
   local mc_image
   mc_image="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
-  MSYS_NO_PATHCONV=1 docker run --rm \
+  # The credentials reach mc on stdin, never a process argument (see scripts/backup-minio.sh).
+  printf '%s\n%s\n' "${minio_user}" "${minio_password}" | MSYS_NO_PATHCONV=1 docker run --rm -i \
     --network "${network}" \
     --entrypoint sh \
     -v "${mirror_src}:/restore:ro" \
-    -e "MINIO_ROOT_USER=${minio_user}" \
-    -e "MINIO_ROOT_PASSWORD=${minio_password}" \
     -e "BUCKET=${restore_bucket}" \
     -e "ENDPOINT=${endpoint}" \
     "${mc_image}" \
     -c '
       set -eu
-      mc alias set local "$ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+      mc alias set local "$ENDPOINT"
       mc mb -p "local/${BUCKET}" >/dev/null 2>&1 || true
       mc mirror --overwrite /restore "local/${BUCKET}"
     '
