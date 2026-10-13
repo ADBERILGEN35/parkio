@@ -1,0 +1,7 @@
+supplement to gis-rotate-mutants.out.txt: the four mutants that survived it, rerun after adding R14, R15, X6 and the stop-phase checks; tool ab4474e7a8b0bcb5, self-test a3be3f489713dc28
+anchors: 46 mutants, 46 anchor exactly once
+stop-on-recreate-failure-A         killed: R4 an unhealthy service in A: the rotation stops in phase A; R7 a recreated service without the expected values: the rotation stops in phase A
+rollback-end-state                 killed: R14 a rollback that leaves a service on the rotation's values fails its end-state check
+rollback-accepts-original          killed: R15 a rollback after which a service refuses the original value fails
+redact-live-env-guard              killed: R5 an interruption after a recreate in B: the rotation stops; R5 an interruption after a recreate in B: rollback restores the original secret everywhe
+exit=0

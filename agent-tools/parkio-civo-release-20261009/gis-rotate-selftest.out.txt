@@ -1,0 +1,76 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre --yes
+ok   U usage refusal: rotate without --yes
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: redact without --yes
+ok   U usage refusal: an extra argument
+ok   P1 pre passes
+ok   P2 a checkout other than R2 fails
+ok   P3 a non-empty ACCEPTED list fails
+ok   P4 another project's container carrying the value fails
+ok   P5 another service of the model carrying the value fails
+ok   P6 a container carrying the value outside Env fails
+ok   P8 a moved image tag fails
+ok   P9 a service whose filter accepts anything fails
+ok   P10 a public API that does not answer 200 fails
+ok   P12 dockerd debug logging fails
+ok   P7 a service off the model's hash fails
+ok   P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+ok   P11 another host fails
+ok   P13 the backup window is refused
+ok   R1 rotate without a pre changes nothing
+ok   R1b an env change after pre blocks rotate
+ok   R1c a pre older than an hour blocks rotate
+ok   R1d a container change after pre blocks rotate
+ok   R2 the full rotation passes
+ok   R2 the env file holds a new 64-character secret and an empty ACCEPTED list
+ok   R2 all ten app services run the new secret with an empty ACCEPTED list
+ok   R2 three rolling steps (A downstream; B downstream then gateway; C downstream then gateway), each with the inbox overlay
+ok   R2 the recreated gateway kept the relay inbox
+ok   R2 the backup holds the old value, mode 600
+ok   R2b rollback after a passing rotation is refused
+ok   R3 a failing preflight in A restores the env file; nothing is recreated
+ok   R3b another service's model changing restores the env file
+ok   R4 an unhealthy service in A: the rotation stops in phase A
+ok   R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it
+ok   R5 an interruption after a recreate in B: the rotation stops
+ok   R5 an interruption after a recreate in B: rollback restores the original secret everywhere and verifies it
+ok   R6 an interruption after the env write in B: the rotation stops
+ok   R6 an interruption after the env write in B: rollback restores the original secret everywhere and verifies it
+FAIL R7 a recreated service without the expected values: the rotation stops in phase A
+gateway secret rotation rotate | 20261013T144539790Z
+  PASS host ADBERILGEN (ADBERILGEN)
+  PASS docker usable without sudo
+  PASS dockerd debug logging is off (it would log exec requests) (false)
+  PASS the release checkout is clean at R2 (a66cce24fb66)
+  FAIL the latest pre passed within an hour (20261013T144540263Z PASS)
+  PASS the env file is unchanged since that pre
+  PASS the containers are the ones pre recorded
+gateway secret rotation rotate: FAIL | record /tmp/gis-4otq7wfj/out/gr-20261013T144539790Z/rotate.json
+
+FAIL R7 a recreated service without the expected values: rollback restores the original secret everywhere and verifies it
+gateway secret rotation rollback | 20261013T144539875Z | brings the EXPOSED secret back
+  FAIL a rotation stopped in phase A, B or C (after the backup) (none)
+gateway secret rotation rollback: FAIL | record /tmp/gis-4otq7wfj/out/gr-20261013T144539875Z/rollback.json
+
+ok   R8 another container changing at the gateway recreate in B: the rotation stops in phase B
+ok   R8 another container changing at the gateway recreate in B: rollback restores the original secret everywhere and verifies it
+ok   R9 a service that keeps accepting the old value after C: the rotation stops in phase C
+ok   R9 a service that keeps accepting the old value after C: rollback restores the original secret everywhere and verifies it
+ok   R10 a public API that fails after the gateway sends the new value: the rotation stops
+ok   R10 a public API that fails after the gateway sends the new value: rollback restores the original secret everywhere and verifies it
+ok   R12 an interruption after a recreate in C: the rotation stops
+ok   R12 an interruption after a recreate in C: rollback restores the original secret everywhere and verifies it
+ok   R11 a second rollback is refused (rolled-back)
+ok   R14 a rollback that leaves a service on the rotation's values fails its end-state check
+ok   R15 a rollback after which a service refuses the original value fails
+ok   R13 rollback without the backup is refused and changes nothing
+ok   X1 redact before a rotation is refused
+ok   X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched
+ok   X5 a second redact reports completion
+Traceback (most recent call last):
+  File "/mnt/c/Users/ADBERILGEN/Documents/parkio-wt-redis-rotate/agent-tools/parkio-civo-release-20261009/gis-rotate-selftest.py", line 556, in <module>
+    sys.exit(main())
+  File "/mnt/c/Users/ADBERILGEN/Documents/parkio-wt-redis-rotate/agent-tools/parkio-civo-release-20261009/gis-rotate-selftest.py", line 514, in main
+    rbak = os.path.join(L, "docker", bak()[0])
+IndexError: list index out of range
