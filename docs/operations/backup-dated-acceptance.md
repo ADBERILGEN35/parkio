@@ -105,7 +105,7 @@ The `Restore drill 01 procedure` workflow also runs the drill-host form (B) end 
 - **Input:** the two synthetic stamps that the production backup path built and `backup-offsite-pull.sh` retrieved.
 - **What it runs:** the acceptance verifies the copy against the backup side's seal (the offsite receipt), decrypts it and runs the real `restore-drill-01.sh` in its scrubbed environment, with a drill env file and `--ledger-stamp`.
 - **Target:** a fresh `rd-postgres` built from the U14 run B drill host's pinned target and client images.
-- **Expected:** outcomes 3-5 PASS, verdict `INCOMPLETE`, exit 4, and the restored state is asserted. A wrong seal stops the run at `remote-integrity` before anything is decrypted or restored.
+- **Expected:** outcomes 3-5 PASS, verdict `INCOMPLETE`, exit 4. The restored state is asserted, and so is the restore client by its pinned digest. A wrong seal, or one changed artifact under the real seal, stops the run at `remote-integrity` before anything is decrypted or restored.
 - **Not covered:**
   - `--probe-default-egress`, because the runner has outbound access; the drill host proves egress denial with its own probe step and that flag;
   - real backups: the workflow never reads one, so it does not replace the dated acceptance of a production stamp.
