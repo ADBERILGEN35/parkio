@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Mutation run for redis-rotate.py: each mutant disables or alters one guard; redis-rotate-selftest.py must fail
+(killed). Each mutant runs in its own temporary copy of the tool and the self-test; nothing else is touched.
+Mutants marked EQUIVALENT are defense-in-depth guards that no reachable fault exercises; they are listed, not run.
+
+  python3 -I redis-rotate-mutants.py
+"""
+import concurrent.futures
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOOL, SELFTEST = "redis-rotate.py", "redis-rotate-selftest.py"
+
+MUTANTS = [
+    ("backup-window", 'not (t.hour == 3 or (t.hour == 4 and t.minute < 30))', 'True'),
+    ("env-matches-redis", 'check("the env file\'s value is the one redis runs with", bool(red) and env_of(red).get(KEY) == value)',
+     'check("the env file\'s value is the one redis runs with", True)'),
+    ("model-value-outside-env", 'bool(value) and value not in json.dumps(outside)', 'True'),
+    ("model-fix-command", '"/tmp/redis-auth.conf" in json.dumps(rs.get("command"))', 'True'),
+    ("model-consumers", 'mc == want, ', 'True, '),
+    ("image-identity", 'bool(d) and bool(ref) and image_id(ref) == d.get("Image")', 'True'),
+    ("live-carriers", 'live == want_live and len(want_live) == len(CONSUMERS) + 1', 'True'),
+    ("consumer-at-model-hash", 'bool(d) and health(d) == "healthy" and lab.get("com.docker.compose.config-hash") == hashes.get(svc),',
+     'bool(d) and health(d) == "healthy",'),
+    ("redis-accepts-current", 'check("redis accepts the current value", bool(red) and ping(red.get("Name", "").lstrip("/"), value or ""))',
+     'check("redis accepts the current value", True)'),
+    ("pre-age", ' and age is not None and 0 <= age <= PRE_MAX_AGE', ''),
+    ("env-unchanged-since-pre", 'hashlib.sha256(data).hexdigest() == pre.get("envSha256")', 'True'),
+    ("containers-unchanged-since-pre", 'bool(pre) and baseline(ds) == pre.get("baseline")', 'bool(pre)'),
+    ("acl-setuser-ok", 'check("ACL SETUSER default >new: OK", rc == 0 and "OK" in out)', 'check("ACL SETUSER default >new: OK", True)'),
+    ("preflight", 'ok &= check("the release preflight still passes", preflight_ok())', 'ok &= check("the release preflight still passes", True)'),
+    ("hash-set", 'changed == sorted(CONSUMERS + (REDIS,))', 'True'),
+    ("restore-env-on-B-failure", '    if not ok:\n        write_atomically(data, st)\n', '    if not ok:\n'),
+    ("consumer-new-healthy", 'good = check(f"{svc}: wrapper exit 0, a new healthy container", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy",',
+     'good = check(f"{svc}: wrapper exit 0, a new healthy container", rc == 0 and bool(d),'),
+    ("consumer-new-value", 'bool(d) and env_of(d).get(CONSUMER_KEY) == new and lab.get(', 'bool(d) and lab.get('),
+    ("consumer-others-unchanged", 'good &= check(f"{svc}: every other container unchanged", not others, ", ".join(others))',
+     'good &= check(f"{svc}: every other container unchanged", True)'),
+    ("stop-before-redis", '            say("  STOP before redis was recreated: the old value still works. Run `rollback --yes`.")\n            return finish("rotate", rec)\n',
+     '            say("  STOP before redis was recreated: the old value still works. Run `rollback --yes`.")\n'),
+    ("consumer-order", 'CONSUMERS = ("gamification-service", "parking-service", "auth-service", "gateway-service")',
+     'CONSUMERS = ("gateway-service", "auth-service", "parking-service", "gamification-service")'),
+    ("redis-new-healthy", 'check("redis: wrapper exit 0, a new healthy container", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy",',
+     'check("redis: wrapper exit 0, a new healthy container", rc == 0 and bool(d),'),
+    ("redis-model-hash", 'lab.get("com.docker.compose.config-hash") == (model_hashes() or {}).get(REDIS) and\n', 'True and\n'),
+    ("redis-same-image", ' and\n          d.get("Image") == (before or {}).get("Image"))', ')'),
+    ("redis-new-works", 'check("redis: the new value works", ping(rname, new))', 'check("redis: the new value works", True)'),
+    ("redis-old-refused", 'check("redis: the old value is refused", not ping(rname, old))', 'check("redis: the old value is refused", True)'),
+    ("redis-probe-key", 'check("redis: the probe key survived (AOF)", marker in out)', 'check("redis: the probe key survived (AOF)", True)'),
+    ("redis-inspect-leak", 'carriers(new, [d]) == {rname: [KEY]} and not carriers(old, [d])', 'True'),
+    ("redis-argv-leak", 'rc == 0 and new.encode() not in top and old.encode() not in top', 'True'),
+    ("consumer-auth-errors", ' and not AUTH_ERRORS.search(logs + lerr)', ''),
+    ("final-others-unchanged", 'check("every other container unchanged", not others, ", ".join(others))', 'check("every other container unchanged", True)'),
+    ("rollback-phase-guard", 'phase in ("A", "B", "C")', 'True'),
+    ("rollback-env-restore", '        write_atomically(old_data, st)\n        check("the env file holds the previous value again"',
+     '        check("the env file holds the previous value again"'),
+    ("rollback-consumers", '    for svc in rot.get("moved") or []:', '    for svc in []:'),
+    ("rollback-resetpass", 'f"ACL SETUSER default resetpass >{old}\\n"', 'f"ACL SETUSER default >{old}\\n"'),
+    ("child-env-allowlist", 'env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG", "USER", "LOGNAME") if k in os.environ}', 'env = dict(os.environ)'),
+    ("auth-as-argument", 'run(["docker", "exec", "-i", "-e", "REDISCLI_AUTH", name, "redis-cli"], extra_env=',
+     'run(["docker", "exec", "-i", "-e", "REDISCLI_AUTH", name, "redis-cli", "-a", password], extra_env='),
+    ("checkout-at-r1", 'head == R1 and clean', 'clean'),
+    ("checkout-branch-tip", 'rc == 0 and tip.strip() == r2', 'rc == 0'),
+    ("r2-parent", 'parents.split()[1:] != [R1]', 'False'),
+    ("r2-only-compose", 'changed != [COMPOSE_FILE]', 'False'),
+    ("r2-fix-blob", 'blob.strip() != FIX_COMPOSE_BLOB', 'False'),
+]
+EQUIVALENT = [
+    ("new-value-alphabet", "secrets.token_urlsafe(32) always matches [A-Za-z0-9_-]{43}; the check documents the #344 R1 condition"),
+    ("record-secret-guard", "finish() refuses a record containing a value; no record path carries one"),
+    ("scrub", "say() scrubs known values; nothing the tool prints contains one"),
+    ("backup-identical", "the backup is written from the bytes just read; a mismatch needs a failing disk"),
+    ("only-key-changed", "with_value() changes only the key's line; the check guards against a future edit of it"),
+    ("rotate-model-new-value", "pre already refuses a model that interpolates the value outside `environment`"),
+]
+
+
+def run_one(mutant):
+    name, old, new = mutant
+    tmp = tempfile.mkdtemp(prefix="rrt-mut-")
+    try:
+        for f in (TOOL, SELFTEST):
+            shutil.copy2(os.path.join(HERE, f), os.path.join(tmp, f))
+        path = os.path.join(tmp, TOOL)
+        text = open(path, encoding="utf-8").read()
+        if text.count(old) != 1:
+            return name, f"ANCHOR x{text.count(old)}"
+        open(path, "w", encoding="utf-8").write(text.replace(old, new))
+        p = subprocess.run([sys.executable, "-I", os.path.join(tmp, SELFTEST)], capture_output=True, text=True, timeout=900)
+        fails = [l[5:] for l in p.stdout.splitlines() if l.startswith("FAIL ")]
+        return name, ("killed: " + "; ".join(fails[:2])[:150]) if p.returncode != 0 else "SURVIVED"
+    except subprocess.TimeoutExpired:
+        return name, "killed: timeout"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main():
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(run_one, MUTANTS))
+    for name, outcome in results:
+        print(f"{name:34} {outcome}")
+    for name, why in EQUIVALENT:
+        print(f"{name:34} EQUIVALENT (not run): {why}")
+    killed = sum(1 for _, o in results if o.startswith("killed"))
+    print(f"=== {killed}/{len(MUTANTS)} killed, {len(MUTANTS) - killed} survived or broken; {len(EQUIVALENT)} equivalent listed ===")
+    return 0 if killed == len(MUTANTS) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

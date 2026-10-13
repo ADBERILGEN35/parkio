@@ -1,0 +1,66 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre --yes
+ok   U usage refusal: rotate without --yes
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: an extra argument
+ok   U usage refusal: checkout without --r2
+ok   U usage refusal: checkout with a short sha
+ok   K1 a checkout that is not at R1 is refused and left unchanged
+ok   K2 a dirty checkout is refused
+ok   K3 an R2 that is not the branch tip is refused; the checkout stays at R1
+ok   K4 an R2 with another changed file is refused; the checkout stays at R1
+ok   K5 an R2 with another compose blob is refused; the checkout stays at R1
+ok   K6 an R2 whose parent is not R1 is refused; the checkout stays at R1
+ok   K7 R1 -> R2 passes
+ok   K8 checkout at R2 again passes, unchanged
+ok   P1 pre passes at R2
+ok   P1 pre notes the redis definition change
+ok   P2 the checkout at R1 (no fix) fails
+ok   P4 an unfixed model (value in the healthcheck) fails
+ok   P5 another container of another project carrying the value fails
+ok   P6 a consumer missing from the model fails
+ok   P6b another service of the model carrying the value fails
+ok   P11 a moved redis tag fails
+ok   P4b a redis command that passes the password as an argument fails
+ok   P9 an env file value that redis does not run with fails
+ok   P3 a compose file other than the reviewed fix fails
+ok   P7 a consumer with another pending change fails
+ok   P8 the backup window is refused
+ok   P10 a redis that does not accept the env file's value fails
+ok   R1 rotate without a pre changes nothing
+ok   R1b an env change after pre blocks rotate
+ok   R1c a pre older than an hour blocks rotate
+ok   R1d a container changed after pre blocks rotate
+ok   R8 a failed ACL SETUSER stops before the env file is touched
+ok   R9 another service's model changing with the value restores the env file and stops
+ok   R2 the full rotation passes
+ok   R2 the env file holds a new value
+ok   R2 every consumer runs with the new value
+ok   R2 redis accepts only the new value
+ok   R2 existing data kept; the probe key removed
+ok   R2 the order: gamification, parking, auth, gateway, then redis
+ok   R2 the backup holds the old value, mode 600
+ok   R7 rollback after the redis recreate is refused; nothing changes
+ok   R3 a consumer that does not come back stops the rotation before redis
+ok   R3 rollback: the env file, the moved consumers and redis are back on the old value only
+ok   R4 a failing preflight restores the env file at once
+ok   R4 rollback resets redis to the old password only (resetpass)
+ok   R5 redis not healthy after its recreate fails and points to the emergency section
+ok   R5b rollback after phase D is refused; nothing changes
+ok   R6a an authentication error in a consumer's logs fails
+ok   R6b the probe key lost fails
+ok   R6c another container changed at the redis recreate fails
+ok   R6d the old value still accepted after the recreate fails
+ok   R6e another container changed at a consumer's recreate fails
+ok   R10 a recreated consumer without the new value fails
+ok   R11 a recreated redis that does not accept the new value fails
+ok   R12 a recreated redis with the value in its healthcheck fails
+ok   R13 a recreated redis with the value in its arguments fails
+ok   R14a a recreated redis on another image fails
+ok   R14b a recreated redis off the model's hash fails
+ok   S status lists the records
+ok   no old or new value in any output or record
+ok   no value in any process argument (docker, wrapper)
+ok   no child saw a variable outside the allowlist
+ok   REDISCLI_AUTH reached only `docker exec` (redis-cli)
+=== summary: 65 ok, 0 FAIL ===

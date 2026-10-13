@@ -1,0 +1,51 @@
+tool sha256 5bea1733a832b5df; self-test sha256 b8d8c3f1d20a8e34
+backup-window                      killed: P8 the backup window is refused
+env-matches-redis                  killed: P9 an env file value that redis does not run with fails
+model-value-outside-env            killed: P4 an unfixed model (value in the healthcheck) fails
+model-fix-command                  killed: P4b a redis command that passes the password as an argument fails
+model-consumers                    killed: P6 a consumer missing from the model fails; P6b another service of the model carrying the value fails
+image-identity                     killed: P11 a moved redis tag fails
+live-carriers                      killed: P5 another container of another project carrying the value fails
+consumer-at-model-hash             killed: P7 a consumer with another pending change fails
+redis-accepts-current              killed: P10 a redis that does not accept the env file's value fails
+pre-age                            killed: R1c a pre older than an hour blocks rotate
+env-unchanged-since-pre            killed: R1b an env change after pre blocks rotate
+containers-unchanged-since-pre     killed: R1d a container changed after pre blocks rotate
+acl-setuser-ok                     killed: R8 a failed ACL SETUSER stops before the env file is touched
+preflight                          killed: R4 a failing preflight restores the env file at once; R4 rollback resets redis to the old password only (resetpass)
+hash-set                           killed: R9 another service's model changing with the value restores the env file and stops
+restore-env-on-B-failure           killed: R9 another service's model changing with the value restores the env file and stops; R4 a failing preflight restores the env file at once
+consumer-new-healthy               killed: R3 a consumer that does not come back stops the rotation before redis; R3 rollback: the env file, the moved consumers and redis are back on the old va
+consumer-new-value                 killed: R10 a recreated consumer without the new value fails
+consumer-others-unchanged          killed: R6e another container changed at a consumer's recreate fails
+stop-before-redis                  killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
+consumer-order                     killed: R2 the order: gamification, parking, auth, gateway, then redis
+redis-new-healthy                  killed: R5 redis not healthy after its recreate fails and points to the emergency section
+redis-model-hash                   killed: R14b a recreated redis off the model's hash fails
+redis-same-image                   killed: R14a a recreated redis on another image fails
+redis-new-works                    killed: R11 a recreated redis that does not accept the new value fails
+redis-old-refused                  killed: R6d the old value still accepted after the recreate fails
+redis-probe-key                    killed: R6b the probe key lost fails
+redis-inspect-leak                 killed: R12 a recreated redis with the value in its healthcheck fails
+redis-argv-leak                    killed: R13 a recreated redis with the value in its arguments fails
+consumer-auth-errors               killed: R6a an authentication error in a consumer's logs fails
+final-others-unchanged             killed: R6c another container changed at the redis recreate fails
+rollback-phase-guard               killed: R7 rollback after the redis recreate is refused; nothing changes; R5b rollback after phase D is refused; nothing changes
+rollback-env-restore               killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
+rollback-consumers                 killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
+rollback-resetpass                 killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only; R4 rollback resets redis to the old password only (resetpass)
+child-env-allowlist                killed: no child saw a variable outside the allowlist
+auth-as-argument                   killed: no value in any process argument (docker, wrapper)
+checkout-at-r1                     killed: K1 a checkout that is not at R1 is refused and left unchanged
+checkout-branch-tip                killed: K3 an R2 that is not the branch tip is refused; the checkout stays at R1
+r2-parent                          killed: K6 an R2 whose parent is not R1 is refused; the checkout stays at R1
+r2-only-compose                    killed: K4 an R2 with another changed file is refused; the checkout stays at R1
+r2-fix-blob                        killed: K5 an R2 with another compose blob is refused; the checkout stays at R1; P3 a compose file other than the reviewed fix fails
+new-value-alphabet                 EQUIVALENT (not run): secrets.token_urlsafe(32) always matches [A-Za-z0-9_-]{43}; the check documents the #344 R1 condition
+record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
+scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
+backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
+only-key-changed                   EQUIVALENT (not run): with_value() changes only the key's line; the check guards against a future edit of it
+rotate-model-new-value             EQUIVALENT (not run): pre already refuses a model that interpolates the value outside `environment`
+=== 42/42 killed, 0 survived or broken; 6 equivalent listed ===
+exit=0
