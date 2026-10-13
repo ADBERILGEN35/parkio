@@ -83,6 +83,10 @@ def cfg_int(name, default):
 HERE = os.path.dirname(os.path.abspath(__file__))
 RELEASE = cfg("U05R_RELEASE", "/opt/parkio-release")
 PIN = cfg("U05R_PIN", "f888a81b113c0c486ea0949067779443857e644d")
+# The MapTiler web fix deploys from a release commit R1 whose only change from the PIN is the web pin
+# (MAPTILER-FIX-PLAN v2). Such a descendant renders auth-service and analytics-service exactly as the PIN does.
+WEB_PIN_FILE = "docker/docker-compose.web-release-pin.yml"
+RELEASE_CHECKOUT = {"detail": None}
 ENV_FILE = cfg("U05R_ENV_FILE", "/opt/parkio/docker/.env.azure-hosted-beta")
 PRIVATE = cfg("U05R_PRIVATE", "/root/u05-priv001a-window")
 EVIDENCE = cfg("U05R_EVIDENCE", "/home/civo/parkio-release-20261009/u05-window")
@@ -815,14 +819,32 @@ def render_drift(services):
     return sorted(s for s in services if hashes.get(s) != cs[one(cs, s)]["configHash"])
 
 
+def release_checkout():
+    """(ok, detail): the release checkout is clean and either at the PIN, or at a descendant of the PIN whose only
+    change from it is WEB_PIN_FILE. Any other commit, a dirty tree or a failing git call is refused."""
+    g = ["git", "-c", f"safe.directory={RELEASE}", "-C", RELEASE]
+    rc, head, _ = run(g + ["rev-parse", "HEAD"], timeout=60)
+    rc2, dirty, _ = run(g + ["status", "--porcelain"], timeout=60)
+    head = head.strip()
+    if rc != 0 or rc2 != 0 or dirty.strip():
+        return False, f"the release checkout is not clean at the PIN ({head[:12] or '?'})"
+    if head == PIN:
+        return True, f"at the PIN {PIN[:12]}"
+    rc3, _, _ = run(g + ["merge-base", "--is-ancestor", PIN, head], timeout=60)
+    rc4, names, _ = run(g + ["diff", "--name-only", PIN, head], timeout=60)
+    if rc3 == 0 and rc4 == 0 and names.split() == [WEB_PIN_FILE]:
+        return True, f"{head[:12]}: the PIN {PIN[:12]} plus only {WEB_PIN_FILE}"
+    return False, (f"the release checkout is not clean at the PIN ({head[:12] or '?'}): only the PIN, or a descendant "
+                   f"of it that changes nothing but {WEB_PIN_FILE}, is accepted")
+
+
 def preflight(harness_dir, fault, copy_to, own_unit=None):
     """Read-only checks; copy_to receives the verified copies (root-only). Returns (problems, shown, values).
     own_unit: the window's own runner unit, when called from inside the window."""
     problems = []
-    rc, head, _ = run(["git", "-c", f"safe.directory={RELEASE}", "-C", RELEASE, "rev-parse", "HEAD"], timeout=60)
-    rc2, dirty, _ = run(["git", "-c", f"safe.directory={RELEASE}", "-C", RELEASE, "status", "--porcelain"], timeout=60)
-    if head.strip() != PIN or dirty.strip():
-        problems.append(f"the release checkout is not clean at the PIN ({head.strip()[:12] or '?'})")
+    ok_checkout, RELEASE_CHECKOUT["detail"] = release_checkout()
+    if not ok_checkout:
+        problems.append(RELEASE_CHECKOUT["detail"])
     try:
         copy_verified(harness_dir or "/nonexistent", copy_to)
         rc, out, err = run(["bash", os.path.join(copy_to, "harness", CREATE), "--environment", "civo-production",
@@ -1854,6 +1876,7 @@ def cmd_preflight(args):
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     print(f"U05 PRIV-001A window preflight | {now()} | read-only | fault: {fault}")
+    print(f"  release checkout: {RELEASE_CHECKOUT['detail']}")
     print("  planned env changes (restored at W6): " + ", ".join(f"{k}={v}" for k, v in shown.items()))
     print(f"  W0 values: {KEY_ERASURE}={values.get(KEY_ERASURE, '(absent)')}, {KEY_MODE}={values.get(KEY_MODE, '(absent)')}, "
           f"{KEY_CREATION}={values.get(KEY_CREATION, '(absent)')}, {KEY_TOKEN}={'set' if values.get(KEY_TOKEN) else 'unset'}")

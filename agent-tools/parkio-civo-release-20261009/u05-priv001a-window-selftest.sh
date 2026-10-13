@@ -710,6 +710,43 @@ python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21c.out" 2>&1; has r
 fresh closed False '' '{"hostRefused": true}'
 python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r21d.out" 2>&1; has r21d.out "the harness's own guards refuse this host"
 
+echo "=== R36 release checkout: the PIN, or the PIN plus only the web pin file (MapTiler fix R1) ==="
+G=(git -C "$W/release" -c user.name=t -c user.email=t@t)
+fresh closed False
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36p.out" 2>&1
+has r36p.out "release checkout: at the PIN"; has r36p.out "PREFLIGHT PASS"
+mkdir -p "$W/release/docker"
+printf 'services:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n' 1 > "$W/release/docker/docker-compose.web-release-pin.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin only"
+fresh closed False
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36a.out" 2>&1
+has r36a.out "plus only docker/docker-compose.web-release-pin.yml"; has r36a.out "PREFLIGHT PASS"
+echo "dirty" > "$W/release/untracked.txt"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36d.out" 2>&1
+has r36d.out "the release checkout is not clean at the PIN"; has r36d.out "PREFLIGHT FAIL"
+rm -f "$W/release/untracked.txt"
+echo "x" > "$W/release/docker/docker-compose.app-release-pins.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin and app pins"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36b.out" 2>&1
+has r36b.out "only the PIN, or a descendant of it that changes nothing but docker/docker-compose.web-release-pin.yml"
+has r36b.out "PREFLIGHT FAIL"
+"${G[@]}" checkout -q --detach "$U05R_PIN"
+echo "x" > "$W/release/docker-app-only.yml"; "${G[@]}" add -A && "${G[@]}" commit -q -m "another file only"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36c.out" 2>&1
+has r36c.out "is accepted"; has r36c.out "PREFLIGHT FAIL"
+"${G[@]}" checkout -q --detach "$U05R_PIN"
+tree=$(git -C "$W/release" rev-parse "$U05R_PIN^{tree}")
+orphan=$(printf 'orphan\n' | "${G[@]}" commit-tree "$tree")
+"${G[@]}" checkout -q --detach "$orphan"
+mkdir -p "$W/release/docker"
+printf 'services:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n' 2 > "$W/release/docker/docker-compose.web-release-pin.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin on a non-descendant"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36e.out" 2>&1
+has r36e.out "is accepted"; has r36e.out "PREFLIGHT FAIL"
+"${G[@]}" checkout -q --detach "$U05R_PIN"
+[ -z "$(git -C "$W/release" status --porcelain)" ] && [ "$(git -C "$W/release" rev-parse HEAD)" = "$U05R_PIN" ] \
+  && ok "r36: the test checkout is back at the PIN, clean" || no "r36: the test checkout was not restored"
+
 echo "=== R22 analytics lag that does not drain after the restart is a FAIL ==="
 fresh closed False '' '{"lagStuckAfterRestart": true}'
 window r22.out ""
