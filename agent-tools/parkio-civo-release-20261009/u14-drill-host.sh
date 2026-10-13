@@ -23,7 +23,8 @@
 #                                   a failure there records no run, so run can be started again. The passphrase is recovered
 #                                   in memory and exported only to backup-dated-acceptance.sh (outcomes 3-5 on the pulled
 #                                   copy, PARKIO_DRILL_ID rd-YYYYMMDD-b), then dropped. PASS only when outcomes 3, 4 and 5
-#                                   are all PASS; INCOMPLETE (NOT_RUN, BLOCKED) and FAIL exit 1.
+#                                   are all PASS; INCOMPLETE (NOT_RUN, BLOCKED) and FAIL exit 1. --max-age-hours is refused:
+#                                   restore-drill-01 applies it to the data stamp, which is days old by design.
 #   reset --yes                     after an interrupted or failed run: the target and its network are removed, the run's
 #                                   evidence and work are moved aside (kept as evidence), and run may be started again
 #   evidence                        D5: SHA256SUMS over the secret-free evidence, packed (and copied to the sudo user's home
@@ -128,6 +129,7 @@ done
 STAMP_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$'
 [[ "$STAMP" =~ $STAMP_RE ]] || stop "--stamp must look like 2026-10-12T11-18-41Z"
 [ -z "$LEDGER" ] || [[ "$LEDGER" =~ $STAMP_RE ]] || stop "--ledger-stamp must look like 2026-10-12T11-18-41Z"
+[ -z "$LEDGER" ] || [[ "$LEDGER" > "$STAMP" ]] || stop "--ledger-stamp must be newer than the data stamp $STAMP"
 [ -z "$ACCOUNT" ] || [[ "$ACCOUNT" =~ ^[a-z0-9]{3,24}$ ]] || stop "--account is a storage account name"
 [ -z "$CONTAINER" ] || [[ "$CONTAINER" =~ ^[a-z0-9-]{3,63}$ ]] || stop "--container is a blob container name"
 
@@ -161,7 +163,7 @@ bootstrap)
   say "D2 bootstrap on $host"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q >/dev/null || stop "apt-get update failed"
-  apt-get install -y -q --no-install-recommends cryptsetup jq docker.io git ca-certificates curl gnupg python3 openssl gzip \
+  apt-get install -y -q --no-install-recommends cryptsetup jq docker.io git ca-certificates curl gnupg python3 openssl gzip tmux \
     >/dev/null || stop "apt-get install failed"
   install -d -m 0755 "$ETC/apt/keyrings"
   curl -fsSL --max-time 60 https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > "$ETC/apt/keyrings/microsoft.gpg.new" \
@@ -260,7 +262,11 @@ run)
   [[ "$CUTOFF" =~ $STAMP_RE ]] || stop "--cutoff must be a stamp like 2026-10-14T03-30-00Z"
   [ "$CUTOFF" = "${LEDGER:-$STAMP}" ] || stop "--cutoff must be the newest pulled stamp (${LEDGER:-$STAMP})"
   [[ "$BLOB_SHA" =~ ^[0-9a-f]{64}$ ]] || stop "run needs --expected-blob-sha256: blobSha256 of the C1 escrow.json (DRILL-HOST-PREP.md)"
+  for a in "${EXTRA[@]}"; do
+    [ "$a" = --max-age-hours ] && stop "--max-age-hours is refused: restore-drill-01 applies it to the data stamp, which is days old"
+  done
   { [ -e "$EV/B" ] || [ -e "$RD/work/B" ]; } && stop "a previous run left $EV/B or $RD/work/B: reset --yes first"
+  docker container inspect "$TARGET" >/dev/null 2>&1 && stop "a previous target $TARGET exists: reset --yes first"
   [ "$NO_TMUX" = 1 ] || in_multiplexer || stop "start run inside tmux (or screen), so a dropped SSH session cannot stop it"
   egress_denied || stop "outbound works again ($OPEN); nothing is decrypted"
   pins_ok || stop "a drill script differs from its pin since the bootstrap"
@@ -272,8 +278,9 @@ run)
   # here records no run: nothing was decrypted, and run can be started again.
   pp=""; pb=""; got_blob=""; pastes=0; pwtries=0; esc=$'\e'
   t ""; t "  The escrow: paste the saved escrow file (from the BEGIN line to the END line), then press Enter."
-  while [ -z "$pp" ] && [ "$pastes" -lt 3 ] && [ "$pwtries" -lt 3 ]; do
+  while [ -z "$pp" ] && [ "$pwtries" -lt 3 ]; do
     if [ -z "$pb" ]; then
+      [ "$pastes" -lt 3 ] || break
       pastes=$((pastes + 1)); inblob=0; ended=0; n=0
       while [ "$n" -lt 60 ] && IFS= read -r -t 900 line <&3; do
         n=$((n + 1)); line="${line//${esc}\[200~/}"; line="${line//${esc}\[201~/}"; line="${line//[$' \t\r']/}"
@@ -315,11 +322,13 @@ run)
   pb=""
   exec 3<&- 4>&-
   if [ -z "$pp" ]; then
-    python3 -I - "$ST/escrow-attempts.log" "$pastes" "$pwtries" "${got_blob:-none}" "$BLOB_SHA" <<'PY'
+    python3 -I - "$ST/escrow-attempts.log" "$EV/escrow-attempts.log" "$pastes" "$pwtries" "${got_blob:-none}" "$BLOB_SHA" <<'PY'
 import sys, time
-p, pastes, pwtries, got, want = sys.argv[1:6]
-open(p, "a").write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pastes={pastes} passwords={pwtries} "
-                   f"blobMatches={'yes' if got == want else 'no'}\n")
+st, ev, pastes, pwtries, got, want = sys.argv[1:7]
+line = (f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pastes={pastes} passwords={pwtries} "
+        f"blobMatches={'yes' if got == want else 'no'}\n")
+for p in (st, ev):
+    open(p, "a").write(line)
 PY
     stop "the escrow did not open (no run is recorded; start run again)"
   fi

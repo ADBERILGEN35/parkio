@@ -66,6 +66,7 @@ case "$1" in
   image) echo "[\"${@: -1}\"]" ;;
   network) case "$2" in inspect) [ -f "$FAKE_STATE/net" ] ;; create) touch "$FAKE_STATE/net" ;; rm) rm -f "$FAKE_STATE/net" ;; esac ;;
   run) echo "docker run $*" >> "$FAKE_LOG"; touch "$FAKE_STATE/target" ;;
+  container) [ -f "$FAKE_STATE/target" ] ;;
   exec) [ -f "$FAKE_STATE/target" ] ;;
   rm) rm -f "$FAKE_STATE/target" ;;
 esac'
@@ -166,9 +167,11 @@ export PATH="$W/bin:$PATH" U14H_SELFTEST=1 U14H_RD="$W/rd" U14H_IMG="$W/volume.i
   U14H_STATE="$W/root/rd-state" U14H_ETC="$W/etc" U14H_DEVMAPPER="$W/dev/mapper" U14H_OS_RELEASE="$W/os-release" \
   U14H_TTY_OUT="$W/tty.out"
 : > "$W/etc/hosts"
-T() { local out="$1"; shift; timeout 600 bash "$TOOL" "$@" > "$W/$out" 2>&1; echo "exit=$?" >> "$W/$out"; }
+T() { local out="$1"; shift; /usr/bin/timeout 600 bash "$TOOL" "$@" > "$W/$out" 2>&1; echo "exit=$?" >> "$W/$out"; }
 # bash execs a lone -c command in place; the trailing `exit` keeps the process named tmux alive as the tool's parent
-TX() { local out="$1"; shift; timeout 600 "$W/bin/tmux" -c 'bash "$0" "$@"; rc=$?; exit $rc' "$TOOL" "$@" > "$W/$out" 2>&1; echo "exit=$?" >> "$W/$out"; }
+TX() { local out="$1"; shift; /usr/bin/timeout 600 "$W/bin/tmux" -c 'bash "$0" "$@"; rc=$?; exit $rc' "$TOOL" "$@" > "$W/$out" 2>&1; echo "exit=$?" >> "$W/$out"; }
+under_tmux() { local p=$$ c; while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do c="$(cat "/proc/$p/comm" 2>/dev/null)"
+  case "$c" in tmux*|screen*|SCREEN*) return 0 ;; esac; p="$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null)"; done; return 1; }
 RUNARGS=(--cutoff "$LEDGER" --expected-blob-sha256 "$BLOBSHA" --ledger-stamp "$LEDGER")
 resetvol() { rm -rf "$W/root/rd-state"/* "$W/root/rd-evidence"/* "$W/rd" "$W/volume.img" "$FAKE_STATE"/* "$W/dev/mapper"/*; }
 
@@ -221,13 +224,18 @@ T h5.out probe --account parkiobackups; has h5.out "U14 DRILL HOST probe: PASS"
 echo "=== H6 run refusals (nothing decrypted) ==="
 U14H_TTY_IN="$W/escrow.txt" TX h6a.out run --cutoff "$DATA" --expected-blob-sha256 "$BLOBSHA" --ledger-stamp "$LEDGER"
 has h6a.out "--cutoff must be the newest pulled stamp ($LEDGER)"
-U14H_TTY_IN="$W/escrow.txt" T h6b.out run "${RUNARGS[@]}"; has h6b.out "start run inside tmux (or screen)"
+if under_tmux; then ok "h6b: skipped (the self-test itself runs inside tmux, so every run has a tmux ancestor)"
+else U14H_TTY_IN="$W/escrow.txt" T h6b.out run "${RUNARGS[@]}"; has h6b.out "start run inside tmux (or screen)"; fi
+U14H_TTY_IN="$W/escrow.txt" TX h6e.out run "${RUNARGS[@]}" -- --max-age-hours 72; has h6e.out "--max-age-hours is refused"
+U14H_TTY_IN="$W/escrow.txt" TX h6f.out run --cutoff "$LEDGER" --expected-blob-sha256 "$BLOBSHA" --ledger-stamp 2026-10-01T00-00-00Z
+has h6f.out "--ledger-stamp must be newer than the data stamp"
 FAKE_EGRESS=open U14H_TTY_IN="$W/escrow.txt" TX h6c.out run "${RUNARGS[@]}"; has h6c.out "outbound works again"
 cat "$W/other-escrow.txt" "$W/other-escrow.txt" "$W/other-escrow.txt" > "$W/tty-other"; : > "$W/tty.out"
 U14H_TTY_IN="$W/tty-other" TX h6d.out run "${RUNARGS[@]}"
 has h6d.out "the escrow did not open (no run is recorded; start run again)"; has tty.out "or --expected-blob-sha256 is mistyped"
 [ ! -e "$W/root/rd-state/run.json" ] && ok "h6d: a failed escrow records no run (run can start again)" || no "h6d run.json"
 grep -q "pastes=3 passwords=0 blobMatches=no" "$W/root/rd-state/escrow-attempts.log" && ok "h6d: the attempt is logged without secrets" || no "h6d log"
+cmp -s "$W/root/rd-state/escrow-attempts.log" "$W/root/rd-evidence/escrow-attempts.log" && ok "h6d: the attempt log is in the evidence too" || no "h6d evidence log"
 [ ! -e "$W/root/rd-evidence/B" ] && ok "h6: no acceptance ran" || no "h6 acceptance ran"
 
 echo "=== H7 run: blank line and a wrong password, then the right one; the real acceptance; outcomes 3-5 PASS ==="
@@ -258,6 +266,16 @@ PARKIO_DRILL_FAKE_RC=1 U14H_TTY_IN="$W/tty-run" TX h8e.out run "${RUNARGS[@]}"
 has h8e.out "isolated-restore=FAIL"; has h8e.out "the acceptance reported a FAIL"; has h8e.out "exit=1"
 python3 -I -c 'import json,sys; assert json.load(open(sys.argv[1]))["result"] == "FAIL"' "$W/root/rd-state/run.json" \
   && ok "h8: run record FAIL" || no "h8 record"
+T h8f.out reset --yes
+mkdir -p "$W/root/rd-evidence/B"; : > "$W/tty.out"
+U14H_TTY_IN="$W/tty-run" TX h8g.out run "${RUNARGS[@]}"; has h8g.out "a previous run left"
+[ ! -s "$W/tty.out" ] && ok "h8g: refused before the escrow prompt" || no "h8g prompt shown"
+rmdir "$W/root/rd-evidence/B"; touch "$FAKE_STATE/target"
+U14H_TTY_IN="$W/tty-run" TX h8h.out run "${RUNARGS[@]}"; has h8h.out "a previous target rd-postgres exists"
+rm -f "$FAKE_STATE/target"
+{ cat "$W/other-escrow.txt" "$W/other-escrow.txt" "$W/escrow.txt"; echo "a wrong escrow password here"; echo "$ESCROW_PW"; } > "$W/tty-third"
+U14H_TTY_IN="$W/tty-third" TX h8i.out run "${RUNARGS[@]}"
+has h8i.out "the escrow opened (blob SHA-256 equals escrow.json's; pastes 3, passwords 2)"; has h8i.out "U14 DRILL HOST run: PASS"
 
 echo "=== H9 evidence ==="
 T h9.out evidence; has h9.out "U14 DRILL HOST evidence:"; [ -s "$W/root/rd-evidence/SHA256SUMS" ] && ok "h9: SHA256SUMS" || no "h9 sums"
