@@ -190,6 +190,20 @@ for case in 'schema:{"schemaVersion": 2}:schemaVersion is 2' \
 done
 if out="$("$VERIFY" --dir "$WORK/profile" --git-sha "$SHA" 2>&1)"; then rc=0; else rc=$?; fi
 [ "$rc" = 0 ] && ok "without --profile the profile is left to the rollback script" || bad "no profile: rc=$rc $out"
+# Empty images is accepted only with a valid non-empty pinnedImages map (U13 F1 / option B).
+DIGEST64="$(printf 'a%.0s' $(seq 1 64))"
+PIN_WEB="ghcr.io/o/r/web@sha256:${DIGEST64}"
+manifest "$WORK/pinned-ok" "{\"images\": {}, \"pinnedImages\": {\"web\": \"${PIN_WEB}\"}}"
+verify "$WORK/pinned-ok"
+[ "$rc" = 0 ] && ok "empty images with valid pinnedImages passes" || bad "pinned-ok: rc=$rc $out"
+manifest "$WORK/pinned-bad" '{"images": {}, "pinnedImages": {"web": "ghcr.io/o/r/web:sha-latest"}}'
+verify "$WORK/pinned-bad"
+[ "$rc" = 3 ] && grep -qF "pinnedImages has invalid digest refs" <<<"$out" \
+  && ok "empty images with a non-digest pinnedImages is refused" || bad "pinned-bad: rc=$rc $out"
+manifest "$WORK/pinned-empty" '{"images": {}, "pinnedImages": {}}'
+verify "$WORK/pinned-empty"
+[ "$rc" = 3 ] && grep -qF "images is missing or empty" <<<"$out" \
+  && ok "empty images with empty pinnedImages is refused" || bad "pinned-empty: rc=$rc $out"
 manifest "$WORK/two" '{}'
 cp -- "$WORK"/two/deploy-*.json "$WORK/two/deploy-second.json"
 verify "$WORK/two"

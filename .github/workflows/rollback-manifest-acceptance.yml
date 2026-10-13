@@ -36,8 +36,11 @@ on:
       - "scripts/ci/test_select_rollback_acceptance_source.py"
       - "scripts/test-invite-rollback-compose-files.sh"
       - ".github/workflows/rollback-manifest-acceptance.yml"
+      - ".github/workflows/rollback-rehearsal.yml"
       - ".github/workflows/invite-production-deploy.yml"
       - ".github/workflows/hosted-beta-deploy.yml"
+      - "scripts/ci/assert-rehearsal-manifest-shape.py"
+      - "scripts/ci/fixtures/hosted-beta-manifest-keys.json"
   workflow_dispatch:
 
 concurrency:

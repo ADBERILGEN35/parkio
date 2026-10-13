@@ -1,0 +1,12 @@
+{
+  "description": "Key names shared with a real hosted-beta schemaVersion 1 deploy manifest (U13 F4 drift check). Types only; values are not compared.",
+  "requiredKeys": [
+    "schemaVersion",
+    "action",
+    "gitSha",
+    "imageTag",
+    "deploymentProfile",
+    "images",
+    "pinnedImages"
+  ]
+}

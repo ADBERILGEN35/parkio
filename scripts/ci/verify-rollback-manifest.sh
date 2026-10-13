@@ -9,7 +9,8 @@
 #     profile against its env file either way);
 #   - gitSha equal to the deploy run's head sha (from resolve-rollback-manifest-run.sh);
 #   - an imageTag;
-#   - an images map whose every reference ends in that tag.
+#   - an images map whose every reference ends in that tag, or an empty images map
+#     when pinnedImages is a non-empty object of ghcr.io/<owner>/<repo>/<svc>@sha256:<64 hex> refs.
 # With --sha256, the file's SHA-256 must also match (the deploy run's job summary prints it).
 # Anything else fails closed (exit 3).
 # Prints manifest=<path> and sha256=<hex>, and appends both to GITHUB_OUTPUT when it is set.
@@ -62,8 +63,22 @@ tag = m.get("imageTag")
 if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", tag):
     problems.append(f"imageTag {tag!r} is missing or not a tag")
 images = m.get("images")
-if not isinstance(images, dict) or not images:
+pinned = m.get("pinnedImages")
+pin_re = re.compile(
+    r"^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}$"
+)
+if not isinstance(images, dict):
     problems.append("images is missing or empty")
+elif not images:
+    if not isinstance(pinned, dict) or not pinned:
+        problems.append("images is missing or empty")
+    else:
+        bad = sorted(
+            k for k, v in pinned.items()
+            if not (isinstance(v, str) and pin_re.fullmatch(v))
+        )
+        if bad:
+            problems.append("pinnedImages has invalid digest refs: " + ", ".join(bad))
 elif isinstance(tag, str):
     off = sorted(svc for svc, ref in images.items() if not (isinstance(ref, str) and ref.endswith(":" + tag)))
     if off:

@@ -1,0 +1,299 @@
+# U13 option B: disposable CI rollback rehearsal (Asana 1219001907974806).
+#
+# Not a production or hosted-beta rollback. "Rollback" here means: retrieve+verify a previous
+# run's rehearsal-authored manifest (CL-F06), then re-apply that manifest's pinnedImages.web on a
+# disposable web-only stack and smoke it. See agent-tools/parkio-owner-package-20261013/U13-OPTION-B-DESIGN.md.
+#
+# Dispatch sequence (from merged api):
+#   1. action=deploy web_digest=sha256:4625a72e… confirm=REHEARSE
+#   2. action=deploy web_digest=sha256:08811c39… confirm=REHEARSE
+#   3. action=rollback manifest_artifact=<run1>/… current_manifest_artifact=<run2>/… confirm=REHEARSE
+
+name: Rollback rehearsal (disposable CI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy | rollback"
+        required: true
+        type: choice
+        options: [deploy, rollback]
+      web_digest:
+        description: "Allowlisted web digest (sha256:…). Required for deploy; ignored on rollback."
+        required: false
+        type: string
+        default: ""
+      manifest_artifact:
+        description: "Prior run reference RUN_ID/ARTIFACT[@SHA256] (rollback only)"
+        required: false
+        type: string
+        default: ""
+      current_manifest_artifact:
+        description: "Current run reference RUN_ID/ARTIFACT[@SHA256] (rollback only; recreates 'current')"
+        required: false
+        type: string
+        default: ""
+      confirm:
+        description: "Must be REHEARSE"
+        required: true
+        type: string
+
+concurrency:
+  group: rollback-rehearsal-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  WEB_OLD: "sha256:4625a72e5dd3afd4cc6b2d2a62d8cdb999725942ed6471591d33b96cbd42b6a6"
+  WEB_NEW: "sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6"
+  GHCR_WEB: "ghcr.io/adberilgen35/parkio/web"
+
+jobs:
+  deploy:
+    name: Deploy (disposable CI target)
+    if: ${{ github.event.inputs.action == 'deploy' && github.event.inputs.confirm == 'REHEARSE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Allowlist and pull web digest
+        env:
+          WEB_DIGEST: ${{ github.event.inputs.web_digest }}
+          WEB_OLD: ${{ env.WEB_OLD }}
+          WEB_NEW: ${{ env.WEB_NEW }}
+          GHCR_WEB: ${{ env.GHCR_WEB }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$WEB_DIGEST" in
+            "$WEB_OLD"|"$WEB_NEW") ;;
+            *) echo "::error::web_digest not on the allowlist"; exit 3 ;;
+          esac
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "${GHCR_WEB}@${WEB_DIGEST}"
+          echo "WEB_REF=${GHCR_WEB}@${WEB_DIGEST}" >> "$GITHUB_ENV"
+
+      - name: Disposable web stack + smoke
+        env:
+          WEB_REF: ${{ env.WEB_REF }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rehearsal
+          python3 scripts/ci/write-rehearsal-web-compose.py /tmp/rehearsal/compose.yml
+          docker compose -f /tmp/rehearsal/compose.yml up -d --no-build
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          for path in / /login /explore; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080${path}")
+            [ "$code" = "200" ] || { echo "::error::smoke ${path} -> ${code}"; exit 3; }
+          done
+          docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" \
+            --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/running-digest.txt
+          grep -F "$WEB_REF" /tmp/rehearsal/running-digest.txt \
+            || grep -F "${WEB_REF#*@}" /tmp/rehearsal/running-digest.txt
+          docker compose -f /tmp/rehearsal/compose.yml down -v || true
+
+      - name: Write rehearsal-authored manifest
+        env:
+          WEB_REF: ${{ env.WEB_REF }}
+        run: |
+          set -euo pipefail
+          # Evidence label: rehearsal-authored manifest (not a hosted-beta deploy artifact).
+          mkdir -p deploy-artifacts
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          sha12=${GITHUB_SHA:0:12}
+          jq -n \
+            --arg gitSha "$GITHUB_SHA" \
+            --arg imageTag "sha-$GITHUB_SHA" \
+            --arg web "$WEB_REF" \
+            --arg stamp "$stamp" \
+            '{
+              schemaVersion: 1,
+              action: "deploy",
+              gitSha: $gitSha,
+              imageTag: $imageTag,
+              deploymentProfile: "ci-disposable",
+              timestamp: $stamp,
+              images: {},
+              pinnedImages: { web: $web },
+              evidenceLabel: "rehearsal-authored manifest"
+            }' > "deploy-artifacts/deploy-${sha12}-${stamp}.json"
+          echo "Wrote rehearsal-authored manifest"
+          python3 scripts/ci/assert-rehearsal-manifest-shape.py \
+            "deploy-artifacts/deploy-${sha12}-${stamp}.json" \
+            scripts/ci/fixtures/hosted-beta-manifest-keys.json
+
+      - name: Upload rehearsal manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-rehearsal-manifest-${{ github.sha }}
+          path: deploy-artifacts/deploy-*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  rollback:
+    name: Rollback (disposable CI)
+    if: ${{ github.event.inputs.action == 'rollback' && github.event.inputs.confirm == 'REHEARSE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve current (run 2) manifest
+        id: current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARKIO_MANIFEST_REFERENCE: ${{ github.event.inputs.current_manifest_artifact }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/resolve-rollback-manifest-run.sh scripts/ci/verify-rollback-manifest.sh
+          ./scripts/ci/resolve-rollback-manifest-run.sh \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow rollback-rehearsal.yml \
+            --branch api \
+            --deploy-job "Deploy (disposable CI target)" \
+            --reference "$PARKIO_MANIFEST_REFERENCE"
+
+      - name: Download current manifest artifact
+        env:
+          ARTIFACT_ID: ${{ steps.current.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p current-artifacts
+          gh api -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > current.zip
+          unzip -qo current.zip -d current-artifacts
+
+      - name: Verify current manifest
+        env:
+          HEAD_SHA: ${{ steps.current.outputs.head_sha }}
+          MANIFEST_SHA256: ${{ steps.current.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          args=(--dir current-artifacts --profile ci-disposable --git-sha "$HEAD_SHA")
+          if [ -n "${MANIFEST_SHA256:-}" ]; then
+            args+=(--sha256 "$MANIFEST_SHA256")
+          fi
+          ./scripts/ci/verify-rollback-manifest.sh "${args[@]}"
+
+      - name: Resolve prior (run 1) manifest
+        id: prior
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARKIO_MANIFEST_REFERENCE: ${{ github.event.inputs.manifest_artifact }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/resolve-rollback-manifest-run.sh \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow rollback-rehearsal.yml \
+            --branch api \
+            --deploy-job "Deploy (disposable CI target)" \
+            --reference "$PARKIO_MANIFEST_REFERENCE"
+
+      - name: Download prior manifest artifact
+        env:
+          ARTIFACT_ID: ${{ steps.prior.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior-artifacts
+          gh api -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > prior.zip
+          unzip -qo prior.zip -d prior-artifacts
+
+      - name: Verify prior manifest
+        id: prior_verify
+        env:
+          HEAD_SHA: ${{ steps.prior.outputs.head_sha }}
+          MANIFEST_SHA256: ${{ steps.prior.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          args=(--dir prior-artifacts --profile ci-disposable --git-sha "$HEAD_SHA")
+          if [ -n "${MANIFEST_SHA256:-}" ]; then
+            args+=(--sha256 "$MANIFEST_SHA256")
+          fi
+          ./scripts/ci/verify-rollback-manifest.sh "${args[@]}"
+
+      - name: Bring up current digest, then re-apply prior pin
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_WEB: ${{ env.GHCR_WEB }}
+          WEB_OLD: ${{ env.WEB_OLD }}
+          WEB_NEW: ${{ env.WEB_NEW }}
+        run: |
+          set -euo pipefail
+          current_web=$(jq -r '.pinnedImages.web' current-artifacts/deploy-*.json)
+          prior_web=$(jq -r '.pinnedImages.web' prior-artifacts/deploy-*.json)
+          for ref in "$current_web" "$prior_web"; do
+            digest="${ref##*@}"
+            case "$digest" in
+              "$WEB_OLD"|"$WEB_NEW") ;;
+              *) echo "::error::digest $digest not allowlisted"; exit 3 ;;
+            esac
+          done
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          mkdir -p /tmp/rehearsal
+          # Recreate "current" first so "prior digest is gone" is meaningful (R1).
+          docker pull "$current_web"
+          WEB_REF="$current_web" python3 scripts/ci/write-rehearsal-web-compose.py /tmp/rehearsal/compose.yml
+          docker compose -f /tmp/rehearsal/compose.yml up -d --no-build --force-recreate
+          sleep 3
+          docker pull "$prior_web"
+          WEB_REF="$prior_web" python3 scripts/ci/write-rehearsal-web-compose.py /tmp/rehearsal/compose.yml
+          docker compose -f /tmp/rehearsal/compose.yml up -d --no-build --force-recreate
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          for path in / /login /explore; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080${path}")
+            [ "$code" = "200" ] || { echo "::error::smoke ${path} -> ${code}"; exit 3; }
+          done
+          running=$(docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" --format '{{.Image}}')
+          echo "running=$running prior=$prior_web"
+          id=$(docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" --format '{{.Image}}')
+          docker image inspect "$id" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/rolled-back-digest.txt
+          grep -F "${prior_web#*@}" /tmp/rehearsal/rolled-back-digest.txt
+          docker compose -f /tmp/rehearsal/compose.yml down -v || true
+
+      - name: Schema-gate negative control (records no images)
+        run: |
+          set -euo pipefail
+          # Empty images: gate fails first on "records no images" (delta review R2).
+          python3 scripts/ci/rehearsal-schema-gate-negative.py
+
+      - name: "Fail-closed: wrong run id"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if out=$(./scripts/ci/resolve-rollback-manifest-run.sh \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow rollback-rehearsal.yml \
+            --branch api \
+            --deploy-job "Deploy (disposable CI target)" \
+            --run-id 1 \
+            --artifact "rollback-rehearsal-manifest-${GITHUB_SHA}" 2>&1); then
+            echo "::error::wrong run id should fail closed"; echo "$out"; exit 3
+          fi
+          echo "wrong run id refused as expected"
