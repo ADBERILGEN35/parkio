@@ -207,7 +207,7 @@ confirmed gone and every write of unknown outcome has been observed
    |---|---|---|
    | Storage outage | `MinIODown`; storage errors in `last_error` | Bring the MinIO service back. That is not a data restore. The job retries on its own. |
    | Object-lock retention | a retention error in `last_error`; the bucket has object lock | Do not shorten or bypass the retention. The job finishes once the retention ends; escalate if that is far off. On 2026-10-12 the deployed bucket had object lock disabled (U05 media check). |
-   | An object in another bucket | `bucket_name` in `media_files` or `media_object_writes` differs from media-service's configured bucket; `last_error` reads "Object is stored in bucket '…', not the configured bucket '…'; its deletion cannot be confirmed" | Escalate: this is a configuration decision. Do not move or delete objects by hand. |
+   | An object in another bucket | `bucket_name` in `media_files` or `media_object_writes` differs from media-service's configured bucket; `last_error` contains "Object is stored in bucket '…', not the configured bucket '…'; its deletion cannot be confirmed" | Escalate: this is a configuration decision. Do not move or delete objects by hand. |
    | A write of unknown outcome | `last_error` reports object writes of unknown outcome that SUCCESS waits for; `PENDING` rows in `media_object_writes` | No resolution has been decided: it is the contract's open decision. Record it and escalate to the data/privacy owner. |
 
 4. **Never:**

@@ -43,8 +43,9 @@ outbox row committed with the local erase (U05,
 [erasure-ack-outbox-contract.md](erasure-ack-outbox-contract.md)). The
 contract's rollout status separates source merge, deployment and production
 acceptance. On `api` `89f66ca4` all eight participants are merged and none of
-their source acks over HTTP; their deployment and production acceptance are not
-established.
+their source acks over HTTP. All eight were deployed on parkio-civo-prod on
+2026-10-12 and passed the PRIV-001A production acceptance (see the contract's
+rollout status).
 Incomplete work stays `FAILED_RETRYING` / `IN_PROGRESS`. Never mark `COMPLETE`
 without every participant `SUCCESS` ack.
 

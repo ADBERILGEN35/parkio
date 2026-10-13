@@ -184,8 +184,8 @@ or apply on production (`parkio_restore_refuse_standalone_database`,
   versions, never:
   - restore or roll back the gamification database alone, or to an older backup set than the user
     database;
-  - let events produced after the backup reach the restored user-service, through a DLT redrive or a
-    consumer offset reset.
+  - let events produced after the backup reach the restored user-service, through a DLT redrive, a
+    consumer offset reset, or a consumer whose committed offset is older than those events.
 - **No consistency claim.** A restore from one backup set is not claimed to give a consistent
   projection. See "Backup and restore ordering (U12)" in `docs/architecture/event-contracts.md`.
 - **Coordinated restore prerequisite (U12-R decision, 2026-10-12).** If a production data restore

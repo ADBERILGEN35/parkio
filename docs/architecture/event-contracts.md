@@ -540,9 +540,10 @@ not an implemented restore guard.
   that value, and level until the user's next level change.
 
   Events produced after the backup was taken can still be in the Kafka topics or the DLT, and their
-  versions are above the restored gamification rows. If a DLT redrive or a consumer offset reset
-  delivers them to the restored user-service, user-service ends up ahead of gamification. That breaks
-  the invariant, as described under "Unsupported".
+  versions are above the restored gamification rows. If a DLT redrive, a consumer offset reset or a
+  consumer whose committed offset is older than those events delivers them to the restored
+  user-service, user-service ends up ahead of gamification. That breaks the invariant, as described
+  under "Unsupported".
 - **Unsupported.** These break the invariant:
   - restoring or rolling back gamification on its own, or to an older state than user-service;
   - letting events produced after the backup reach a restored user-service.
