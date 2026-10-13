@@ -1,0 +1,75 @@
+pg-rotate mutation run (single full run) | 2026-10-13T18:42:56Z | tool 7135f6720e86f9df | self-test 658cc65b2341404c | mutants fd290b3330614a14
+host-guard                         killed (twice): P11 another host fails
+dockerd-debug-off                  killed (twice): P12 dockerd debug logging fails
+release-at-r2                      killed (twice): P2 a checkout other than R2 fails
+backup-window                      killed (twice): P13 the backup window is refused
+value-length                       killed (twice): P3 a value shorter than 32 characters fails
+model-carriers                     killed (twice): P5 another service of the model carrying the value fails
+live-carriers                      killed (twice): P4 another project's container carrying the value fails; P6 a service holding the value outside Env fails
+live-outside-env                   killed (twice): P6 a service holding the value outside Env fails
+pre-pg-value                       killed (twice): P19 a postgres container without the env file's value fails
+log-statement                      killed (twice): P14 a database logging statements fails
+pre-app-hash                       killed (twice): P7 a service off the model's hash fails
+pre-app-image                      killed (twice): P8 a moved image tag fails
+pre-app-health                     killed (twice): P15 a service whose aggregate health is not 200 fails
+pre-sessions                       killed (twice): P18 a service without sessions fails
+login-discriminates                killed (twice): P9 a database that accepts any password fails
+pre-backup-loader                  killed (twice): P17 a backup in managed mode fails; P16 a backup loader that yields another value fails
+pre-public                         killed (twice): P10 a public API that does not answer 200 fails
+inbox-overlay-detected             killed (twice): P1 pre passes (media); R2 only media-service is recreated, with the inbox overlay
+inbox-overlay-always               killed (twice): P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+pre-for-this-db                    killed (twice): R1e a pre for another database does not count
+pre-age                            killed (twice): R1c a pre older than an hour blocks rotate
+env-unchanged-since-pre            killed (twice): R1b an env change after pre blocks rotate
+containers-unchanged-since-pre     killed (twice): R1d a container change after pre blocks rotate
+alter-role                         killed (twice): R2 the rotation of one database passes; R2 the role and the env file hold a new 44-character value; no other database changed
+step1-login                        killed (twice): R18 a database that still accepts the old password after the role change: the rotation stops
+stop-after-role                    killed (twice): R4 nothing changed, so rollback recreates nothing
+preflight                          killed (twice): R3 a failing preflight after the env write: the rotation stops; R3 nothing was recreated
+hash-set                           killed (twice): R3b another service's model changing with the env write: the rotation stops; R3b: rollback restores the original password (role, env file, service), v
+stop-after-env                     killed (twice): R3 nothing was recreated; R3 rollback sets the role back and restores the env file; the service never moved
+app-new-healthy                    killed (twice): R8 an unhealthy service: the rotation stops
+app-new-value                      killed (twice): R9 a service without the new value: the rotation stops
+app-health                         killed (twice): R20 a service whose aggregate health is not 200: the rotation stops; R20: rollback restores the original password (role, env file, service), verifies 
+app-fresh-sessions                 killed (twice): R10 a service without fresh sessions: the rotation stops; R10: rollback restores the original password (role, env file, service), verifies it, and say
+sessions-since-start               killed (twice): P1 pre passes (media); P1b pre passes for the postgis database (parking)
+others-unchanged                   killed (twice): R11 another container changing at the service's recreate: the rotation stops; R11: rollback restores the original password (role, env file, service), 
+rotate-backup-loader               killed (twice): R12 a backup loader that does not pick up the new value stops the rotation; R12: rollback restores the original password (role, env file, service), ve
+end-public                         killed (twice): R24 a public API down at the end: the rotation stops
+rollback-phase-guard               killed (twice): R2b rollback after a passing rotation is refused; R19 rollback of a database without a stopped rotation is refused
+rollback-db-records                killed (twice): R19b rollback of another database ignores media's stopped rotation and changes nothing
+rollback-backup-required           killed (twice): R13 rollback without the backup is refused and changes nothing
+rollback-only-key                  killed (twice): R25 rollback refuses a backup that would undo another change
+rollback-role-back                 killed (twice): R3: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back; R5: rollback restores the o
+rollback-env-restore               killed (twice): R3: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back; R6: rollback restores the o
+rollback-app-recreate              killed (twice): R7: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back; R7 rollback also recreates 
+rollback-unhealthy-app             killed (twice): R9: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+rollback-end-app                   killed (twice): R15 a rollback that leaves the service on the rotation's value fails its end-state check
+rollback-login-original            killed (twice): R16 a rollback whose role cannot be set back fails
+rollback-sessions                  killed (twice): R22 a rollback without fresh sessions fails
+rollback-backup-loader             killed (twice): R21 a rollback the backup loader does not follow fails
+rollback-public                    killed (twice): R23 a rollback with the public API down fails
+rollback-marks-rolled-back         killed (twice): R14 a second rollback is refused (rolled-back)
+redact-all-rotated                 killed (twice): X1 redact before every database rotated is refused
+redact-already-complete            killed (twice): X5 a second redact reports completion
+redact-old-refused                 killed (twice): X7 redact while an old password still logs in is refused and changes nothing
+redact-live-env-guard              killed (twice): X6 the live env file is never redacted, even through a link
+redact-missing-ok                  killed (twice): X2 redact replaces all ten old values everywhere listed and in the runs' backups last; mtimes kept; the live env untouched; X5 a second redact reports
+redact-keeps-mtime                 killed (twice): X2 redact replaces all ten old values everywhere listed and in the runs' backups last; mtimes kept; the live env untouched; X5 a second redact reports
+redact-scan                        killed (twice): X3 an unlisted copy fails the scan; the runs' backups keep the old values
+redact-backups-last                killed (twice): X3 an unlisted copy fails the scan; the runs' backups keep the old values
+login-refused-pattern              killed (twice): P1 pre passes (media); P1b pre passes for the postgis database (parking)
+login-password-on-stdin            killed (twice): P1 pre passes (media); P1b pre passes for the postgis database (parking)
+scram-stored-key                   killed (twice): R2 the rotation of one database passes; R2 the role and the env file hold a new 44-character value; no other database changed
+child-env-allowlist                killed (twice): no child saw a variable outside the allowlist
+backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
+only-key-changed                   EQUIVALENT (not run): with_value() changes only the key's line; the check guards against a future edit of it
+pre-app-value                      EQUIVALENT (not run): a service at the model's hash runs the env file's value, and the carriers check requires it to carry the value
+old-still-refused                  EQUIVALENT (not run): nothing changes the role between step 1, which proved the old password refused, and step 3
+stop-after-app                     EQUIVALENT (not run): only the public check and the record follow, and they change nothing
+record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
+scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
+placeholder-redraw                 EQUIVALENT (not run): a random value matches a placeholder pattern about once in 25,000 draws
+=== 63/63 killed, 0 survived or broken; 8 equivalent listed ===
+exit=0
+2026-10-13T19:15:45Z

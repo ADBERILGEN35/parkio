@@ -1,0 +1,114 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre without --db
+ok   U usage refusal: an unknown database
+ok   U usage refusal: pre --yes
+ok   U usage refusal: rotate without --yes
+ok   U usage refusal: rotate without --db
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: redact with --db
+ok   U usage refusal: redact without --yes
+ok   U usage refusal: status with --db
+ok   U usage refusal: an extra argument
+ok   U usage refusal: --db without a value
+ok   P1 pre passes (media)
+ok   P1b pre passes for the postgis database (parking)
+ok   P2 a checkout other than R2 fails
+ok   P3 a value shorter than 32 characters fails
+ok   P4 another project's container carrying the value fails
+ok   P5 another service of the model carrying the value fails
+ok   P6 a service holding the value outside Env fails
+ok   P8 a moved image tag fails
+ok   P9 a database that accepts any password fails
+ok   P10 a public API that does not answer 200 fails
+ok   P12 dockerd debug logging fails
+ok   P14 a database logging statements fails
+ok   P15 a service whose aggregate health is not 200 fails
+ok   P17 a backup in managed mode fails
+ok   P18 a service without sessions fails
+ok   P7 a service off the model's hash fails
+ok   P16 a backup loader that yields another value fails
+ok   P19 a postgres container without the env file's value fails
+ok   P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+ok   P11 another host fails
+ok   P13 the backup window is refused
+ok   R1 rotate without a pre changes nothing
+ok   R1e a pre for another database does not count
+ok   R1b an env change after pre blocks rotate
+ok   R1c a pre older than an hour blocks rotate
+ok   R1d a container change after pre blocks rotate
+ok   R2 the rotation of one database passes
+ok   R2 the role and the env file hold a new 44-character value; no other database changed
+ok   R2 media-service runs the new value with sessions from its new address
+ok   R2 postgres-media is unchanged and keeps the old value as initialisation metadata
+ok   R2 only media-service is recreated, with the inbox overlay
+ok   R2 the run's backup holds the old value, mode 600
+ok   R2 every login is a fresh network login from a read-only container on the database's network
+ok   R2 the record states the postgres container's stale POSTGRES_PASSWORD
+ok   R2b rollback after a passing rotation is refused
+ok   R19 rollback of a database without a stopped rotation is refused
+ok   R3 a failing preflight after the env write: the rotation stops
+ok   R3 nothing was recreated
+ok   R3: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R3 rollback sets the role back and restores the env file; the service never moved
+ok   R4 an ALTER ROLE that fails: the rotation stops
+ok   R4: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R4 nothing changed, so rollback recreates nothing
+ok   R5 an interruption after the role change: the rotation stops
+ok   R5: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R5 rollback sets the role back
+ok   R6 an interruption after the env write: the rotation stops
+ok   R6: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R6 rollback sets the role back and restores the env file
+ok   R7 an interruption after the service's recreate: the rotation stops
+ok   R7: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R7 rollback also recreates the service
+ok   R8 an unhealthy service: the rotation stops
+ok   R8: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R9 a service without the new value: the rotation stops
+ok   R9: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R10 a service without fresh sessions: the rotation stops
+ok   R10: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R10b a recreated service on its predecessor's address: the predecessor's older sessions do not count
+ok   R10b: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R3b another service's model changing with the env write: the rotation stops
+ok   R3b: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R24 a public API down at the end: the rotation stops
+ok   R19b a stopped rotation of media: the rotation stops
+ok   R19b rollback of another database ignores media's stopped rotation and changes nothing
+ok   R19b: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R25 a stopped rotation, then another env line changes: the rotation stops
+ok   R25 rollback refuses a backup that would undo another change
+ok   R11 another container changing at the service's recreate: the rotation stops
+ok   R11: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R12 a backup loader that does not pick up the new value stops the rotation
+ok   R12: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R14 a second rollback is refused (rolled-back)
+ok   R18 a database that still accepts the old password after the role change: the rotation stops
+ok   R18: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R20 a service whose aggregate health is not 200: the rotation stops
+ok   R20: rollback restores the original password (role, env file, service), verifies it, and says the exposed password is back
+ok   R15 a service left on the rotation's value: the rotation stops
+ok   R15 a rollback that leaves the service on the rotation's value fails its end-state check
+ok   R16 a role that cannot be set back: the rotation stops
+ok   R16 a rollback whose role cannot be set back fails
+ok   R21 a backup loader that does not yield the original after rollback: the rotation stops
+ok   R21 a rollback the backup loader does not follow fails
+ok   R22 no fresh sessions after rollback: the rotation stops
+ok   R22 a rollback without fresh sessions fails
+ok   R23 a public API down after rollback: the rotation stops
+ok   R23 a rollback with the public API down fails
+ok   R13 a stop before rollback without a backup: the rotation stops
+ok   R13 rollback without the backup is refused and changes nothing
+ok   A1 all ten databases rotate in the procedure's order, one run each
+ok   A1 every role, service and env line holds its new value; every postgres container keeps its old one as metadata
+ok   A1 exactly the ten services were recreated, in order
+ok   X2 redact replaces all ten old values everywhere listed and in the runs' backups last; mtimes kept; the live env untouched
+ok   X5 a second redact reports completion
+ok   X1 redact before every database rotated is refused
+ok   X3 an unlisted copy fails the scan; the runs' backups keep the old values
+ok   X6 the live env file is never redacted, even through a link
+ok   X7 redact while an old password still logs in is refused and changes nothing
+ok   no secret value in any output or record (51 values)
+ok   no secret value in any docker or wrapper argument
+ok   no child saw a variable outside the allowlist
+=== summary: 113 ok, 0 FAIL ===
