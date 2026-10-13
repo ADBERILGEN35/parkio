@@ -17,11 +17,14 @@ agent-tools/parkio-u05-priv001a-civo-20261012/LIVE-TEST-SPEC.md.
     sudo python3 -I u05-priv001a-window.py u04-verify --run RUN --email E   allowlisted verification of a synthetic account
     sudo python3 -I u05-priv001a-window.py u04-creds --run RUN --name N  stores email=/password= from stdin for cleanup
     sudo python3 -I u05-priv001a-window.py u04-done --run RUN            ends the hold
-    sudo python3 -I u05-priv001a-window.py u03-acceptance --run RUN      U03 (Asana 1219001664236540), on the host:
-      two synthetic accounts through the reviewed harness; X gets ADMIN by one allowlisted SQL statement (as
-      grantRole: role row + session epoch); controls that return no real user's data; X loses ADMIN (as revokeRole);
-      the old admin token must be refused on read, export and mutation within the gateway's epoch cache TTL; X's new
-      token is USER; Y is unaffected; missing or malformed JWTs are refused. Tokens never leave the host.
+    sudo python3 -I u05-priv001a-window.py u03-acceptance --run RUN --owner-steps | --sql-elevation
+      U03 (Asana 1219001664236540), on the host: two synthetic accounts through the reviewed harness (no seed call);
+      X gets ADMIN, either from the owner in the admin console (--owner-steps: grantRole and revokeRole themselves,
+      audited) or by one allowlisted statement (--sql-elevation, only with the owner's explicit confirmation, D1:
+      the role row and the epoch and version bumps of grantRole, without its audit row); controls that request no
+      real user's data, once both tokens are accepted; X loses ADMIN the same way; the old admin token must be
+      refused on read, export and mutation within the gateway's epoch cache TTL; X's new token is USER; Y is
+      unaffected; missing or malformed JWTs are refused. Tokens never leave the host.
   After the hold every account with stored credentials is erased canonically before RESTORE_BY (the restore retries
   within its own U04_RESTORE_CAP); accounts and invites are accounted for. Store an account's credentials BEFORE its
   registration: the cleanup erases only accounts it holds credentials for (an unregistered one is reported as such).
@@ -110,6 +113,7 @@ U03_TTL = cfg_int("U05R_U03_TTL", 30)        # the gateway's PARKIO_SESSION_EPOC
 U03_SLACK = cfg_int("U05R_U03_SLACK", 8)     # poll interval plus request latency
 U03_POLL = cfg_int("U05R_U03_POLL", 2)
 U03_TAGS = ("U03X", "U03Y")
+U03_OWNER_WAIT = cfg_int("U05R_U03_OWNER_WAIT", 900)   # how long an owner step may take
 SCENARIOS = ("u05", "u04")
 NAME_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 UNIT = "u05-priv001a-window"
@@ -712,7 +716,11 @@ def erase_u04_accounts(st, deadline):
             results.append(f"{name}: {uid} is {status}")
             continue
         if uid in u03_elevated(st) and "ADMIN" in u03_roles(uid):
-            rows = psql_write(u03_demote_sql(uid))
+            try:
+                rows = psql_write(u03_demote_sql(uid))
+            except Stop as e:
+                failed.append(f"{name}: {uid} still holds ADMIN ({e}); not erased")
+                continue
             results.append(f"{name}: {uid} ADMIN removed before the erasure ({len(rows)} row)")
         left = int(deadline - time.time())
         if left < U04_ERASE_MIN:
@@ -1460,7 +1468,7 @@ def u03_roles(uid):
 def psql_write(sql):
     """One statement in a read-write session on the auth database: only the two U03 role statements below."""
     if not (sql.startswith("with t as (select u.id from auth_users u where u.id = ") or
-            sql.startswith("with del as (delete from auth_user_roles ur using roles r where ")):
+            sql.startswith("with del as (delete from auth_user_roles ur using roles r, auth_users u where ")):
         raise Stop("refused: not a U03 role statement")
     pg = one(containers(), "postgres-auth")
     rc, out, err = run([DOCKER, "exec", pg, "sh", "-c",
@@ -1491,8 +1499,10 @@ def u03_demote_sql(uid):
     """Removes ADMIN from one account this window elevated and bumps its session epoch, as revokeRole does."""
     if not UUID.match(uid):
         raise Stop("refused: the demotion needs an account id")
-    return ("with del as (delete from auth_user_roles ur using roles r where ur.role_id = r.id and r.name = 'ADMIN' "
-            f"and ur.user_id = '{uid}'::uuid returning ur.user_id) "
+    return ("with del as (delete from auth_user_roles ur using roles r, auth_users u where ur.role_id = r.id "
+            f"and r.name = 'ADMIN' and ur.user_id = '{uid}'::uuid and u.id = ur.user_id "
+            "and (u.email like 'priv001a-%@priv001a.parkio.invalid' or u.email = 'erased-' || u.id::text || "
+            "'@invalid.localhost') returning ur.user_id) "
             "update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() "
             "from del where a.id = del.user_id returning a.id, a.session_epoch")
 
@@ -1590,6 +1600,11 @@ def cmd_u03(args):
     if lock is None:
         print("STOP: another U04 command is running")
         return 1
+    mode = "owner" if args.get("--owner-steps") else "sql" if args.get("--sql-elevation") else None
+    if mode is None or (args.get("--owner-steps") and args.get("--sql-elevation")):
+        print("STOP: choose --owner-steps (the owner grants and revokes ADMIN in the admin console) or --sql-elevation "
+              "(the allowlisted statements; only with the owner's explicit confirmation, decision D1)")
+        return 1
     paths = {t: os.path.join(d, f"creds-{t}") for t in U03_TAGS}
     if any(os.path.exists(x) for x in paths.values()) or u03_elevated(st):
         print("STOP: U03 already ran in this window")
@@ -1598,7 +1613,12 @@ def cmd_u03(args):
     sys.stdout = Tee(os.path.join(d, "u03.log"))
     ev = os.path.join(st["evidence"], "u03")
     os.makedirs(ev, mode=0o755, exist_ok=True)
-    res = {"run": run_id, "startedAt": now(), "ttlSeconds": U03_TTL, "checks": []}
+    res = {"run": run_id, "startedAt": now(), "ttlSeconds": U03_TTL, "mode": mode, "checks": []}
+
+    def hold_open():
+        s2 = load_state(run_id)
+        return (s2.get("phase") == "U04-HOLD" and not s2.get("finishedAt")
+                and not os.path.exists(os.path.join(d, "done")))
 
     def check(name, ok, detail=""):
         res["checks"].append({"check": name, "pass": bool(ok), "detail": detail})
@@ -1610,7 +1630,8 @@ def cmd_u03(args):
         verify_copies(run_dir(run_id))
         say("U03 W2a: accounts X (to be ADMIN) and Y (unrelated USER) through the reviewed harness")
         for tag, path in paths.items():
-            rc, _ = harness(st, CREATE, "--credentials-file", path,
+            # --skip-seed: no authenticated call yet, so the gateway caches no session epoch before the grant
+            rc, _ = harness(st, CREATE, "--credentials-file", path, "--skip-seed",
                             "--evidence-file", os.path.join(ev, f"create-{tag}.json"), timeout=600)
             with open(os.path.join(d, "invites.log"), "a") as f:
                 f.write(f"{now()} {tag}\n")
@@ -1619,13 +1640,26 @@ def cmd_u03(args):
         x, y = u03_creds(paths["U03X"]), u03_creds(paths["U03Y"])
         res["accounts"] = {"X": x["auth_user_id"], "Y": y["auth_user_id"]}
 
-        say("U03 W2b: X gets ADMIN (one allowlisted statement; session epoch bumped as grantRole does)")
-        rows = psql_write(u03_elevate_sql(x["auth_user_id"], x["email"], st["w1"]))
-        if len(rows) != 1 or rows[0][0] != x["auth_user_id"]:
-            raise Stop("the elevation did not change exactly the synthetic account X")
-        elevated = x["auth_user_id"]
+        if not hold_open():
+            raise Stop("the hold closed before the elevation; nothing was elevated")
+        # Logged before the grant, so the window's cleanup removes ADMIN even if this command dies right after it.
         with open(os.path.join(d, "elevated.log"), "a") as f:
-            f.write(f"{now()} {elevated}\n")
+            f.write(f"{now()} {x['auth_user_id']}\n")
+        elevated = x["auth_user_id"]
+        if mode == "sql":
+            say("U03 W2b: X gets ADMIN (one allowlisted statement; session epoch bumped as grantRole does; no audit row)")
+            rows = psql_write(u03_elevate_sql(x["auth_user_id"], x["email"], st["w1"]))
+            if len(rows) != 1 or rows[0][0] != x["auth_user_id"]:
+                raise Stop("the elevation did not change exactly the synthetic account X")
+        else:
+            say(f"OWNER STEP 1: in the admin console open the user {x['auth_user_id']} ({x['email']}) and GRANT the role "
+                f"ADMIN, reason 'PRIV001A U03 acceptance'. Waiting up to {U03_OWNER_WAIT} s.")
+            until = time.time() + U03_OWNER_WAIT
+            while u03_roles(elevated) != ["ADMIN", "USER"]:
+                if time.time() >= until or not hold_open():
+                    raise Stop("the owner's ADMIN grant was not seen")
+                time.sleep(2)
+            say("  the grant is seen (auth-service's grantRole: audit row and session epoch)")
         check("X holds ADMIN and USER in the database", u03_roles(elevated) == ["ADMIN", "USER"],
               ",".join(u03_roles(elevated)))
         tokens["admin"] = u03_login(run_id, x["email"], x["password"])
@@ -1636,6 +1670,22 @@ def cmd_u03(args):
         y_epoch = jwt_claims(tokens["user"]).get("session_epoch")
 
         read = f"/api/v1/admin/users?userId={elevated}"
+
+        def accepted(token, path, what):
+            """Polls until the gateway accepts the token (an epoch cached earlier expires; user-service provisions the
+            account); bounded by the TTL plus 15 s."""
+            until, tries = time.time() + U03_TTL + 15, 0
+            while True:
+                tries += 1
+                c, _ = u03_http(run_id, "GET", path, "", token)
+                if c == "200":
+                    return tries
+                if time.time() >= until:
+                    raise Stop(f"{what} was never accepted (last http {c}, {tries} tries)")
+                time.sleep(2)
+
+        res["acceptedAfterTries"] = {"X admin read": accepted(tokens["admin"], read, "X's admin token"),
+                                     "Y auth/me": accepted(tokens["user"], "/api/v1/auth/me", "Y's token")}
         export = "/api/v1/waitlist/export?confirmedFrom=2099-01-01T00:00:00Z&confirmedTo=2099-01-02T00:00:00Z"
         mutate = f"/api/v1/admin/users/{uuid.uuid4()}/suspend"
         reason = json.dumps({"reason": "PRIV001A U03 acceptance: synthetic actor, no such user"})
@@ -1668,11 +1718,22 @@ def cmd_u03(args):
         c, _ = u03_http(run_id, "GET", read, "", tokens["user"])
         check("control: Y (USER) is refused on the admin read", c in ("401", "403"), f"http {c}")
 
-        say("U03 W2d: X loses ADMIN (session epoch bumped as revokeRole does)")
-        rows = psql_write(u03_demote_sql(elevated))
-        t0 = time.time()
-        if len(rows) != 1:
-            raise Stop("the demotion did not change exactly X")
+        if mode == "sql":
+            say("U03 W2d: X loses ADMIN (session epoch bumped as revokeRole does)")
+            rows = psql_write(u03_demote_sql(elevated))
+            t0 = time.time()
+            if len(rows) != 1:
+                raise Stop("the demotion did not change exactly X")
+        else:
+            say(f"OWNER STEP 2: now REVOKE the role ADMIN from {x['email']} in the admin console. "
+                f"Waiting up to {U03_OWNER_WAIT} s.")
+            until = time.time() + U03_OWNER_WAIT
+            while u03_roles(elevated) != ["USER"]:
+                if time.time() >= until:
+                    raise Stop("the owner's ADMIN revoke was not seen")
+                time.sleep(1)
+            t0 = time.time()
+            res["t0"] = "the revoke as seen by a 1-second poll"
         demoted, elevated = elevated, None
         check("X holds only USER in the database", u03_roles(demoted) == ["USER"], ",".join(u03_roles(demoted)))
         first, seen = {}, {k: set() for k in ("read", "export", "mutation")}

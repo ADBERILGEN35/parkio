@@ -105,9 +105,10 @@ if a[:1] == ["exec"] and "psql" in a:
                   and set(x.get("roles", ["USER"])) == {"USER"} and not any(r["uid"] == uid for r in db["requests"])), None)
         if u: u["roles"] = ["ADMIN", "USER"]; u["epoch"] = u.get("epoch", 0) + 1; fw.log(s, "elevate " + uid); fw.save(s); print(f"{uid}|{u['epoch']}")
         sys.exit(0)
-    if sql.startswith("with del as (delete from auth_user_roles ur using roles r where "):
+    if sql.startswith("with del as (delete from auth_user_roles ur using roles r, auth_users u where "):
         uid = re.search(r"ur.user_id = '([0-9a-f-]+)'::uuid", sql).group(1)
-        u = next((x for x in users if x["id"] == uid and "ADMIN" in x.get("roles", [])), None)
+        u = next((x for x in users if x["id"] == uid and "ADMIN" in x.get("roles", [])
+                  and (x["email"].startswith("priv001a-") or x.get("tomb"))), None)
         if u: u["roles"] = ["USER"]; u["epoch"] = u.get("epoch", 0) + 1; fw.log(s, "demote " + uid); fw.save(s); print(f"{uid}|{u['epoch']}")
         sys.exit(0)
     if "PGOPTIONS=-c default_transaction_read_only=on" not in a:
@@ -275,6 +276,8 @@ if kind == "create":
     if sc == "conflict_edit":
         t = open(os.environ["FW_ENV"]).read().replace("PARKIO_ACCOUNT_ERASURE_ENABLED=true", "PARKIO_ACCOUNT_ERASURE_ENABLED=maybe")
         open(os.environ["FW_ENV"], "w").write(t)
+    if "--skip-seed" not in a or k.get("u03SeedAlways"):   # the real harness calls GET /auth/me: the gateway caches the epoch
+        s = fw.load(); s.setdefault("gwcache", {})[uid] = [0, time.time() + k.get("u03TTL", 2)]; fw.save(s)
     print("PRIV-001A: invite accounting PASS (created 1, unconsumed 0)\nPASS: PRIV-001A synthetic principal created")
     print(f"acceptance_id=PRIV001A-T\nauth_user_id={uid}")
     if opt("--evidence-file"): open(opt("--evidence-file"), "w").write("{}")
@@ -840,14 +843,15 @@ export U05R_U03_TTL=2 U05R_U03_SLACK=4 U05R_U03_POLL=1
 
 echo "=== R30 U03: harness accounts, elevation, controls, demotion, refusal within the TTL, cleanup ==="
 u03_window r30 '{"u03TTL": 2}'
-python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r30u.out" 2>&1; echo "u03 exit=$?" >> "$W/r30u.out"
+python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r30n.out" 2>&1; has r30n.out "STOP: choose --owner-steps"
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r30u.out" 2>&1; echo "u03 exit=$?" >> "$W/r30u.out"
 has r30u.out "U03 ACCEPTANCE PASS"; has r30u.out "u03 exit=0"; has r30u.out "PASS control: admin read 200, only X"
 has r30u.out "PASS control: export authorized"; has r30u.out "PASS control: admin mutation authorized (404, no such user)"
 has r30u.out "PASS old admin token refused on read within the TTL"; has r30u.out "PASS old admin token refused on export within the TTL"
 has r30u.out "PASS old admin token refused on mutation within the TTL"; has r30u.out "PASS X's new token carries USER only"
 has r30u.out "PASS unrelated user Y unaffected"; has r30u.out "PASS Y's session epoch unchanged"
 has r30u.out "PASS missing JWT refused"; has r30u.out "PASS malformed JWT refused"; has r30u.out "PASS re-signed (invalid signature) JWT refused"
-python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r30v.out" 2>&1; has r30v.out "STOP: U03 already ran in this window"
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r30v.out" 2>&1; has r30v.out "STOP: U03 already ran in this window"
 u03_end r30
 has r30.out "U03X: "; has r30.out "U03Y: "; has r30.out "U05 PRIV-001A WINDOW PASS"
 report 'a = r["accounting"]; u = {x["name"]: x for x in a["u04Accounts"]}
@@ -862,7 +866,7 @@ if grep -r -q -E 'eyJ|Pw-synthetic|accessToken|rt-fake' "$W/r30u.out" "$W/eviden
 
 echo "=== R31 U03: the old token is never refused: FAIL; X still loses ADMIN; the window cleans up ==="
 u03_window r31 '{"u03TTL": 2, "u03NoRevoke": true}'
-python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r31u.out" 2>&1; echo "u03 exit=$?" >> "$W/r31u.out"
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r31u.out" 2>&1; echo "u03 exit=$?" >> "$W/r31u.out"
 has r31u.out "FAIL old admin token refused on read within the TTL"; has r31u.out "U03 ACCEPTANCE FAIL"; has r31u.out "u03 exit=1"
 has r31u.out "PASS X holds only USER in the database"
 u03_end r31
@@ -870,7 +874,7 @@ has r31.out "U05 PRIV-001A WINDOW PASS"
 
 echo "=== R32 U03: a failure after the elevation: X's ADMIN is removed before the command ends ==="
 u03_window r32 '{"u03LoginFailAfterElevate": true}'
-python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r32u.out" 2>&1; echo "u03 exit=$?" >> "$W/r32u.out"
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r32u.out" 2>&1; echo "u03 exit=$?" >> "$W/r32u.out"
 has r32u.out "STOP: login failed (http 503)"; has r32u.out "U03 cleanup: X's ADMIN removed (1 row)"; has r32u.out "U03 ACCEPTANCE FAIL"
 u03_end r32
 has r32.out "U05 PRIV-001A WINDOW PASS"
@@ -878,12 +882,60 @@ report '[e["roles"] for e in r["accounting"]["u03Elevated"]] == [["USER"]] or sy
 
 echo "=== R33 U03: the command is killed while X holds ADMIN: the window removes it before the erasure ==="
 u03_window r33 '{"u03HangAfterElevate": true}'
-python3 -I "$WIN" u03-acceptance --run "$RUN" > "$W/r33u.out" 2>&1 & UP=$!
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r33u.out" 2>&1 & UP=$!
 wait_for "$W/r33u.out" "PASS X holds ADMIN and USER in the database" 60
-sleep 1; kill -KILL "$UP" 2>/dev/null; wait "$UP" 2>/dev/null; pkill -KILL -f "harness.py lib-http" 2>/dev/null
+sleep 1; kill -KILL "$UP" 2>/dev/null; wait "$UP" 2>/dev/null; pkill -KILL -f "$W/harness.py lib-http" 2>/dev/null
 u03_end r33
 has r33.out "ADMIN removed before the erasure (1 row)"; has r33.out "U05 PRIV-001A WINDOW PASS"
 report '[e["roles"] for e in r["accounting"]["u03Elevated"]] == [["USER"]] or sys.exit(1)' && ok "r33: X holds no ADMIN after the window" || no "r33 roles"
+echo "=== R30b U03: a seed call cached X's epoch before the grant: the controls wait it out, then pass ==="
+u03_window r30b '{"u03TTL": 3, "u03SeedAlways": true}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --sql-elevation > "$W/r30bu.out" 2>&1; echo "u03 exit=$?" >> "$W/r30bu.out"
+has r30bu.out "U03 ACCEPTANCE PASS"; has r30bu.out "PASS control: admin read 200, only X"
+python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["acceptedAfterTries"]["X admin read"] > 1' \
+  "$W/evidence/$RUN/u03/u03-results.json" && ok "r30b: X's admin token was accepted only after the cached epoch expired" || no "r30b tries"
+u03_end r30b
+
+echo "=== R34 U03 owner mode: the owner grants and revokes in the console ==="
+u03_window r34 '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --owner-steps > "$W/r34u.out" 2>&1 & UP=$!
+owner() {  # grant|revoke <id>: the owner's console through auth-service (role row, epoch bump); survives lost updates
+  python3 -I - "$W/world.json" "$1" "$2" <<'PYO'
+import json, os, sys, time
+p, act, uid = sys.argv[1:4]
+want = ["ADMIN", "USER"] if act == "grant" else ["USER"]
+for _ in range(50):
+    s = json.load(open(p))
+    u = next(x for x in s["db"]["users"] if x["id"] == uid)
+    if sorted(u.get("roles", ["USER"])) == want:
+        time.sleep(0.3)
+        s = json.load(open(p))
+        if sorted(next(x for x in s["db"]["users"] if x["id"] == uid).get("roles", ["USER"])) == want:
+            break
+        continue
+    u["roles"] = want; u["epoch"] = u.get("epoch", 0) + 1
+    tmp = p + ".owner"; json.dump(s, open(tmp, "w")); os.replace(tmp, p)
+PYO
+}
+wait_for "$W/r34u.out" "OWNER STEP 1" 60
+XID="$(grep -o 'open the user [0-9a-f-]\{36\}' "$W/r34u.out" | head -1 | awk '{print $4}')"; owner grant "$XID"
+wait_for "$W/r34u.out" "OWNER STEP 2" 60; owner revoke "$XID"
+wait "$UP"; echo "u03 exit=$?" >> "$W/r34u.out"
+has r34u.out "the grant is seen"; has r34u.out "U03 ACCEPTANCE PASS"; has r34u.out "u03 exit=0"
+python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["mode"] == "owner" and set(r["rejectedAfterSeconds"]) == {"read", "export", "mutation"}' \
+  "$W/evidence/$RUN/u03/u03-results.json" && ok "r34: owner-mode record with the three refusal times" || no "r34 record"
+calls | grep -q "demote" && no "r34: the runner itself demoted" || ok "r34: no runner role statement in owner mode"
+u03_end r34
+has r34.out "U05 PRIV-001A WINDOW PASS"
+
+echo "=== R35 U03 owner mode: the grant never comes ==="
+export U05R_U03_OWNER_WAIT=3
+u03_window r35 '{"u03TTL": 2}'
+python3 -I "$WIN" u03-acceptance --run "$RUN" --owner-steps > "$W/r35u.out" 2>&1; echo "u03 exit=$?" >> "$W/r35u.out"
+unset U05R_U03_OWNER_WAIT
+has r35u.out "STOP: the owner's ADMIN grant was not seen"; has r35u.out "U03 ACCEPTANCE FAIL"
+u03_end r35
+has r35.out "U05 PRIV-001A WINDOW PASS"
 unset U05R_U03_TTL U05R_U03_SLACK U05R_U03_POLL
 
 echo "=== R28 U04 refusals ==="

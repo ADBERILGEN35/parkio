@@ -268,6 +268,8 @@ async function newTab(browser, label) {
   const w = { label, api: [], patches: [], maptiler: [], navs: [], urls: [] };
   ctx.on('request', (req) => {
     w.urls.push(req.url());
+    const referer = req.headers().referer;
+    if (referer) w.urls.push(`referer:${referer}`);
     const u = new URL(req.url());
     if (u.origin === API_ORIGIN) {
       const e = { t: Date.now(), method: req.method(), url: req.url(), body: req.postData() || '' };
@@ -336,8 +338,8 @@ async function register(tab, a, kase) {
   }
   a.id = body?.user?.id ?? null;
   results.accounts[a.tag] = { id: a.id, registeredAt: stamp() };
-  check(kase, `${a.tag}: the invite token is in no request URL (any origin)`, !tab.w.urls.some((u) => u.includes(token)),
-    `${tab.w.urls.length} requests`);
+  check(kase, `${a.tag}: the invite token is in no request URL or Referer (any origin)`,
+    !tab.w.urls.some((u) => u.includes(token)), `${tab.w.urls.length} URLs and Referers`);
   await page.waitForURL(/\/check-email$/, { timeout: 30000 });
   check(kase, `${a.tag}: registered through the invite (HTTP ${resp.status()}, id returned)`, UUID.test(a.id || ''));
   const stored = await pending(page);

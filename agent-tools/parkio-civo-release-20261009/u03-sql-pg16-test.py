@@ -106,9 +106,12 @@ try:
     check("demote: one row; roles USER; session epoch +1", len(rows) == 1 and rset(x) == ["USER"] and epoch(x) == e1 + 1)
     check("demote again: 0 rows, epoch unchanged", psql(R.u03_demote_sql(x)) == [] and epoch(x) == e1 + 1)
     check("the other accounts are untouched", rset(real) == ["USER"] and epoch(real) == 0 and epoch(old) == 0 and epoch(er) == 0)
+    psql(f"insert into auth_user_roles (user_id, role_id) values ('{real}'::uuid, '{roles['ADMIN']}'::uuid)")
+    check("the demotion never touches a non-synthetic account (0 rows; its ADMIN stays)",
+          psql(R.u03_demote_sql(real)) == [] and rset(real) == ["ADMIN", "USER"] and epoch(real) == 0)
     v = psql(f"select version from auth_users where id = '{x}'::uuid", ro=True)[0][0] if "version" in cols else "n/a"
     check(f"version bumped twice (as two JPA saves): {v}", v in ("2", "n/a"))
 finally:
-    sh(["docker", "rm", "-f", name])
+    sh(["docker", "rm", "-f", "-v", name])      # -v: the image's anonymous data volume too
 print(f"=== {ok} ok, {fail} FAIL ===")
 sys.exit(1 if fail else 0)

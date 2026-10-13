@@ -56,13 +56,26 @@ U03 (Asana 1219001664236540, live privileged-token revocation) runs on the host,
 browser tool, because the browser tool ends the hold:
 
 ```
-ssh … "sudo -n python3 -I /root/u05-priv001a-window/<RUN>/window.py u03-acceptance --run <RUN>"
+ssh -t … "sudo -n python3 -I /root/u05-priv001a-window/<RUN>/window.py u03-acceptance --run <RUN> --owner-steps"
 ```
+
+The command needs one of two modes. Choosing between them is the owner's decision D1:
+
+- `--owner-steps`. The command prints OWNER STEP 1 and OWNER STEP 2. The owner grants, then revokes, the role ADMIN
+  for the synthetic account X in the admin console (`/admin/users/<X id>`). These are auth-service's own grantRole
+  and revokeRole: audited, epoch bumped, the SUPER_ADMIN-only path.
+- `--sql-elevation`. The allowlisted statements below apply the same role row, epoch and version changes, but write
+  no admin-audit row. Use it only with the owner's explicit written confirmation.
 
 It takes about two minutes:
 
 1. Accounts X and Y are created through the reviewed harness: invite, registration, allowlisted verification.
-2. X is given ADMIN by one allowlisted SQL statement. It applies only to a synthetic ACTIVE account registered since W1 that holds only USER and has no erasure request. The statement adds the role row and bumps the session epoch, as grantRole does.
+   `--skip-seed` means no authenticated call yet, so the gateway caches no epoch before the grant.
+2. X is given ADMIN. With `--sql-elevation`, one allowlisted statement does it. It applies only to a synthetic
+   ACTIVE account registered since W1 that holds only USER and has no erasure request; it adds the role row and
+   bumps the session epoch, as grantRole does. With `--owner-steps`, the owner's console does it.
+   Either way, the controls wait first until X's admin token and Y's token are accepted. The wait is bounded by the
+   TTL plus 15 s, and covers any earlier cached epoch and user-service's provisioning.
 3. Controls that request no real user's data, with X's new admin token:
    - `/admin/users?userId=X` must return only X;
    - the waitlist export over a 2099 window;
@@ -73,7 +86,8 @@ It takes about two minutes:
 7. Y's token must keep working, with Y's epoch unchanged.
 8. Missing, malformed and re-signed JWTs must be refused.
 
-Tokens never leave the host. The output is `u03/u03-results.json` in the run's evidence directory, plus `u04/u03.log`.
+Tokens never leave the host. When U03 runs, the window's invite accounting counts 5 invites: 3 from U04 and
+2 from U03. The output is `u03/u03-results.json` in the run's evidence directory, plus `u04/u03.log`.
 
 If the command fails or is cut off, its `finally` step removes ADMIN. The window's cleanup also removes ADMIN from every id in `elevated.log` before erasing it, and the accounting refuses to pass while any id there still holds ADMIN.
 

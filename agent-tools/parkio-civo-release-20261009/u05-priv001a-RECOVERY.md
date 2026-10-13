@@ -87,7 +87,7 @@ Q "select count(*), count(*) filter (where consumed_at is null) from registratio
 
   ```
   sudo docker exec "$(C postgres-auth)" sh -c 'exec psql -X -q -At --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' psql \
-    "with del as (delete from auth_user_roles ur using roles r where ur.role_id = r.id and r.name = 'ADMIN' and ur.user_id = '<id>'::uuid returning ur.user_id) update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() from del where a.id = del.user_id returning a.id, a.session_epoch"
+    "with del as (delete from auth_user_roles ur using roles r, auth_users u where ur.role_id = r.id and r.name = 'ADMIN' and ur.user_id = '<id>'::uuid and u.id = ur.user_id and (u.email like 'priv001a-%@priv001a.parkio.invalid' or u.email = 'erased-' || u.id::text || '@invalid.localhost') returning ur.user_id) update auth_users a set session_epoch = a.session_epoch + 1, version = a.version + 1, updated_at = now() from del where a.id = del.user_id returning a.id, a.session_epoch"
   ```
 
   Never change the roles of an id that is not listed in `elevated.log`.
