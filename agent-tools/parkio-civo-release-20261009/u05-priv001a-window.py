@@ -717,10 +717,6 @@ def erase_u04_accounts(st, deadline):
         if status not in ("PENDING_VERIFICATION", "ACTIVE"):
             results.append(f"{name}: {uid} is {status}")
             continue
-        other = [r for r in u03_roles(uid) if r not in ("USER", "ADMIN")]
-        if other:
-            failed.append(f"{name}: {uid} holds {','.join(other)}; not erased (the owner removes the role first)")
-            continue
         if uid in u03_elevated(st) and "ADMIN" in u03_roles(uid):
             try:
                 rows = psql_write(u03_demote_sql(uid))
@@ -728,6 +724,10 @@ def erase_u04_accounts(st, deadline):
                 failed.append(f"{name}: {uid} still holds ADMIN ({e}); not erased")
                 continue
             results.append(f"{name}: {uid} ADMIN removed before the erasure ({len(rows)} row)")
+        other = [r for r in u03_roles(uid) if r != "USER"]
+        if other:
+            failed.append(f"{name}: {uid} holds {','.join(other)}; not erased (the owner removes the role first)")
+            continue
         left = int(deadline - time.time())
         if left < U04_ERASE_MIN:
             failed.append(f"{name}: {uid} NOT ERASED: {max(left, 0)} s left before the deadline")
@@ -1757,7 +1757,7 @@ def cmd_u03(args):
             say(f"OWNER STEP 2: now REVOKE the role ADMIN from {x['email']} in the admin console. "
                 f"Waiting up to {U03_OWNER_WAIT} s.")
             until = time.time() + U03_OWNER_WAIT
-            last_ok, next_probe = None, 0.0
+            ok_starts, next_probe = [], 0.0
             while True:
                 roles_now = u03_roles(elevated)
                 if any(r not in ("USER", "ADMIN") for r in roles_now):
@@ -1767,25 +1767,29 @@ def cmd_u03(args):
                 if time.time() >= until or not hold_open():
                     raise Stop("the owner's ADMIN revoke was not seen (or the hold closed)")
                 if time.time() >= next_probe:   # keeps X's epoch in the gateway cache: the measurement starts warm
+                    started = time.time()
                     c, _ = u03_http(run_id, "GET", read, "", tokens["admin"])
                     if c == "200":
-                        last_ok = time.time()
-                    next_probe = time.time() + U03_WARM
+                        ok_starts.append(started)
+                    next_probe = started + U03_WARM
                 time.sleep(1)
             seen = time.time()
             revoked = u03_audit(elevated, "ADMIN_USER_ROLE_REVOKED", granted[-1][0])
             if not revoked:
                 raise Stop("X lost ADMIN without a console audit row (not the owner's revoke)")
             t0 = revoked[-1][0]
+            before = [x for x in ok_starts if x <= t0]
+            last_ok = max(before) if before else None
             res["t0"] = {"source": "the revoke's audit row (occurred_at)",
                          "t0": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
                          "seenAfterSeconds": round(seen - t0, 1),
                          "lastAcceptedBeforeT0Seconds": round(t0 - last_ok, 1) if last_ok else None,
+                         "acceptedAfterT0": any(x > t0 for x in ok_starts),
                          "actorRoles": revoked[-1][1]}
             check("the revoke came through the console (audit row, SUCCESS)", True, f"actor roles {revoked[-1][1]}")
             check("the poll saw the revoke within 3 s of its audit time", -1 <= seen - t0 <= 3, f"{round(seen - t0, 1)} s")
-            check("the cache was warm: the old admin token was accepted shortly before the revoke",
-                  last_ok is not None and -1 <= t0 - last_ok <= U03_WARM + 3,
+            check("the cache was warm: a probe that started before the revoke was accepted shortly before it",
+                  last_ok is not None and t0 - last_ok <= U03_WARM + 3,
                   f"{round(t0 - last_ok, 1) if last_ok else '-'} s before")
         demoted, elevated = elevated, None
         check("X holds only USER in the database", u03_roles(demoted) == ["USER"], ",".join(u03_roles(demoted)))
