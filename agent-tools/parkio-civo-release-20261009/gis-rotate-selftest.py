@@ -5,8 +5,8 @@ The fakes are backed by one JSON state:
 - **docker:** ps (with filters), inspect (and `--format` for the config_files label), image inspect, info, and
   `exec -i <gateway> curl ... -H @- ... http://<service>:<port><path>`.
   - The exec reads the X-Gateway-Auth header from stdin and answers as the target's GatewayAuthFilter would: its own
-    secret and its ACCEPTED list are accepted, giving 200 for auth's public path or 404 elsewhere; anything else gets
-    401 GATEWAY_AUTH_REQUIRED.
+    secret and its ACCEPTED list are accepted, giving 200 for auth's public path, 404 for parking and 500 for the other
+    seven (their catch-all handler, as in production); anything else gets 401 GATEWAY_AUTH_REQUIRED.
   - Every argv and child environment is recorded.
 - **The release checkout:** a git repository at R2.
   - Its fake wrapper renders ten app services that share the secret and ACCEPTED, the way the env anchor does, plus
@@ -14,7 +14,9 @@ The fakes are backed by one JSON state:
     `up` recreates one service.
   - Its fake preflight passes unless told otherwise.
 - **An HTTP server:** stands in for the public API; it returns 200 when auth accepts the gateway's secret.
-Marker files inject faults; GIS_FAULT simulates interruptions.
+Marker files inject faults; GIS_FAULT simulates interruptions. After every recreate the fake wrapper checks every
+ordered pair of app services, as if each sent its secret to every downstream service, and logs each pair whose
+receiver would refuse it. That is a superset of the real calls, so the rotation and every rollback must log nothing.
 
 Pass criteria:
 - every expected result holds;
@@ -97,7 +99,7 @@ if a[0] == "exec" and "curl" in a:
     elif host == "auth-service":
         sys.stdout.write('{"mode":"invite"}\n200')
     else:
-        sys.stdout.write('{"code":"NOT_FOUND"}\n404')
+        sys.stdout.write('{"code":"NOT_FOUND"}\n404' if host == "parking-service" else '{"code":"INTERNAL_ERROR"}\n500')
     sys.exit(0)
 sys.exit(2)
 '''
@@ -148,10 +150,13 @@ if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
     svc = a[-1]
     force = "--force-recreate" in a
     P = os.path.join(W, "state.json"); st = json.load(open(P))
-    old = [i for i, c in st["containers"].items() if c["project"] == "parkio" and c["service"] == svc][0]
-    if not force and st["containers"][old]["hash"] == mhash(svc):
+    mine = [i for i, c in st["containers"].items() if c["project"] == "parkio" and c["service"] == svc]
+    old = mine[0]
+    if not force and len(mine) == 1 and st["containers"][old]["hash"] == mhash(svc):
         sys.exit(0)
     c = dict(st["containers"].pop(old))
+    for extra in mine[1:]:
+        st["containers"].pop(extra)                         # Compose converges to one container
     if not mark("stale-env-" + svc):
         c["env"] = dict(service(svc)["environment"])
     c["hash"] = mhash(svc)
@@ -163,6 +168,11 @@ if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
     if svc == "gateway-service" and mark("public-down-after-gateway"):
         open(os.path.join(W, "public-down"), "w").write("x")
     st["containers"][hashlib.sha256(f"{svc}{time.time()}".encode()).hexdigest()] = c
+    apps = {x["service"]: x["env"] for x in st["containers"].values() if x["project"] == "parkio" and x["service"] in APPS}
+    takes = lambda e: {e.get("PARKIO_GATEWAY_INTERNAL_SECRET")} | {v for v in e.get("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS", "").split(",") if v}
+    bad = [[f, t] for f in apps for t in apps if t not in (f, "gateway-service") and apps[f].get("PARKIO_GATEWAY_INTERNAL_SECRET") not in takes(apps[t])]
+    if bad:
+        open(os.path.join(W, "refused-edges.log"), "a").write(json.dumps({"after": svc, "refused": bad}) + "\n")
     json.dump(st, open(P + ".t", "w")); os.replace(P + ".t", P)
     sys.exit(0)
 sys.exit(2)
@@ -251,10 +261,11 @@ def main():
                         dst.write(open(src).read())
                     os.remove(src)
 
-        def reset(checkout=r2, accepted="", extra_carrier=False, cmd_carrier=False, gateway_inbox=True):
+        def reset(checkout=r2, accepted="", extra_carrier=False, cmd_carrier=False, gateway_inbox=True, app_cmd_carrier=False):
             for f in os.listdir(W):
                 if f.startswith(("unhealthy-", "stale-env-", "collateral-", "filter-open-", "service-down-", "keeps-old-", "rejects-all-")) or f in (
-                        "tag-moved", "model-leak", "env-affects-web", "preflight-fail", "daemon-debug", "public-down", "public-down-after-gateway"):
+                        "tag-moved", "model-leak", "env-affects-web", "preflight-fail", "daemon-debug", "public-down", "public-down-after-gateway",
+                        "refused-edges.log"):
                     os.remove(os.path.join(W, f))
             archive_logs()
             shutil.rmtree(OUT, ignore_errors=True)
@@ -284,6 +295,8 @@ def main():
             if cmd_carrier:
                 cs["a" * 64] = {"name": "cmd-app", "project": "other", "service": "app", "image": "x", "ref": "x", "hash": "h", "health": "healthy",
                                 "env": {}, "cmd": ["sh", "-c", f"use {OLD}"]}
+            if app_cmd_carrier:
+                [c for c in cs.values() if c["service"] == "user-service"][0]["cmd"] = ["sh", "-c", f"use {OLD}"]
             images = {c["ref"]: c["image"] for c in cs.values() if c["project"] == "parkio"}
             st = {"containers": cs, "images": images, "first_secret": OLD}
             json.dump(st, open(os.path.join(W, "state.json"), "w"))
@@ -323,6 +336,15 @@ def main():
         def bak():
             return [f for f in os.listdir(os.path.join(L, "docker")) if ".bak-gis-" in f]
 
+        def refused_edges():
+            p = os.path.join(W, "refused-edges.log")
+            return open(p).read() if os.path.exists(p) else ""
+
+        def operator_up(svc):
+            subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "-f", "docker/docker-compose.waitlist-ops-inbox.yml",
+                            "up", "-d", "--no-build", "--no-deps", svc], cwd=R, capture_output=True, text=True,
+                           env={k: v for k, v in dict(env, PARKIO_ENV_FILE=ENV).items() if k != "LEAKY_SECRET"})
+
         # ---- usage
         reset()
         for args, label in (([], "no command"), (["pre", "--yes"], "pre --yes"), (["rotate"], "rotate without --yes"),
@@ -340,6 +362,8 @@ def main():
                 ("P4 another project's container carrying the value", dict(extra_carrier=True), None, "FAIL the live containers carrying the value"),
                 ("P5 another service of the model carrying the value", {}, "model-leak", "FAIL in the model, exactly the ten app services carry"),
                 ("P6 a container carrying the value outside Env", dict(cmd_carrier=True), None, "FAIL the live containers carrying the value"),
+                ("P15 an app service's own container carrying the value outside Env", dict(app_cmd_carrier=True), None,
+                 "FAIL the live containers carrying the value"),
                 ("P8 a moved image tag", {}, "tag-moved", "FAIL user-service: running, healthy, at the model's hash"),
                 ("P9 a service whose filter accepts anything", {}, "filter-open-media-service", "FAIL media-service: the probe discriminates"),
                 ("P10 a public API that does not answer 200", {}, "public-down", "FAIL the public API answers 200"),
@@ -406,6 +430,7 @@ def main():
         want = list(DOWNSTREAM) + list(DOWNSTREAM) + ["gateway-service"] + list(DOWNSTREAM) + ["gateway-service"]
         ok(seq == want and all(u[1:3] == ["-f", "docker/docker-compose.waitlist-ops-inbox.yml"] for u in ups()),
            "R2 three rolling steps (A downstream; B downstream then gateway; C downstream then gateway), each with the inbox overlay", str(seq))
+        ok(not refused_edges(), "R2 after every recreate, every app service accepts every other's secret", refused_edges())
         gw = [c for c in state()["containers"].values() if c["service"] == "gateway-service"][0]
         ok(gw["env"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR") and gw["files"].endswith("docker-compose.waitlist-ops-inbox.yml"),
            "R2 the recreated gateway kept the relay inbox")
@@ -446,15 +471,20 @@ def main():
             for f in os.listdir(W):
                 if f.startswith(("unhealthy-", "stale-env-", "collateral-", "keeps-old-")) or f in ("public-down", "public-down-after-gateway"):
                     os.remove(os.path.join(W, f))
+            n_up = len(ups())
             rc, out = tool("rollback", "--yes")
             e = app_env()
             ok(rc == 0 and env_val("PARKIO_GATEWAY_INTERNAL_SECRET") == OLD and env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS") == ""
-               and all(x["PARKIO_GATEWAY_INTERNAL_SECRET"] == OLD and x["PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS"] == "" for x in e.values()),
-               f"{label}: rollback restores the original secret everywhere and verifies it", out)
-            return out
+               and all(x["PARKIO_GATEWAY_INTERNAL_SECRET"] == OLD and x["PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS"] == "" for x in e.values())
+               and not refused_edges() and all("--force-recreate" in u for u in ups()[n_up:]),
+               f"{label}: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step",
+               out + refused_edges())
+            return [u[-1] for u in ups()[n_up:]]
 
         stopped_then_rollback("R4 an unhealthy service in A", marker="unhealthy-media-service", expect="FAIL A media-service: a new healthy container", stops="A")
-        stopped_then_rollback("R5 an interruption after a recreate in B", fault="after-up:B:parking-service")
+        rb = stopped_then_rollback("R5 an interruption after a recreate in B", fault="after-up:B:parking-service")
+        ok(rb == list(DOWNSTREAM[:8]) + list(DOWNSTREAM), "R5 rollback from part-way through B: the eight on B back to A, then all nine"
+           " to the original; the gateway, never moved, is not restarted", str(rb))
         stopped_then_rollback("R6 an interruption after the env write in B", fault="after-env-write:B")
         stopped_then_rollback("R7 a recreated service without the expected values", marker="stale-env-user-service",
                               expect="FAIL A user-service: the expected secret and ACCEPTED values", stops="A")
@@ -462,18 +492,29 @@ def main():
                               expect="FAIL B gateway-service: every other container unchanged", stops="B")
         stopped_then_rollback("R9 a service that keeps accepting the old value after C", marker="keeps-old-moderation-service",
                               expect="FAIL C moderation-service: accepts new; refuses old", stops="C")
-        stopped_then_rollback("R10 a public API that fails after the gateway sends the new value", marker="public-down-after-gateway",
-                              expect="FAIL B: the public API answers 200")
-        out = stopped_then_rollback("R12 an interruption after a recreate in C", fault="after-up:C:auth-service")
+        rb = stopped_then_rollback("R10 a public API that fails after the gateway sends the new value", marker="public-down-after-gateway",
+                                   expect="FAIL B: the public API answers 200")
+        ok(rb == (list(DOWNSTREAM) + ["gateway-service"]) * 2, "R10 rollback from the end of B: all ten back to A, then all ten to the original", str(rb))
+        rb = stopped_then_rollback("R12 an interruption after a recreate in C", fault="after-up:C:auth-service")
+        ok(rb == list(DOWNSTREAM) + (list(DOWNSTREAM) + ["gateway-service"]) * 2,
+           "R12 rollback from C: the nine on C back to B (the gateway is on B), then all ten to A, then all ten to the original", str(rb))
         rc, out = tool("rollback", "--yes")
         ok(rc == 1 and "rolled-back" in out, "R11 a second rollback is refused (rolled-back)", out)
         reset()
         tool("pre")
         tool("rotate", "--yes", extra={"GIS_FAULT": "after-up:B:parking-service"})
         values.extend(v for v in (env_val("PARKIO_GATEWAY_INTERNAL_SECRET"), env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS")) if v)
+        r14_new = env_val("PARKIO_GATEWAY_INTERNAL_SECRET")
         mark("stale-env-parking-service")
         rc, out = tool("rollback", "--yes")
-        ok(rc == 1 and "FAIL parking-service: runs the original values" in out, "R14 a rollback that leaves a service on the rotation's values fails its end-state check", out)
+        ok(rc == 1 and "FAIL to A: every consumer runs its values or an earlier state's (parking-service)" in out
+           and env_val("PARKIO_GATEWAY_INTERNAL_SECRET") == OLD and env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS") == r14_new and not refused_edges(),
+           "R14 a step that leaves a consumer behind stops before the next one; the env file keeps that step's values", out + refused_edges())
+        os.remove(os.path.join(W, "stale-env-parking-service"))
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and env_val("PARKIO_GATEWAY_INTERNAL_SECRET") == OLD and env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS") == ""
+           and all(x["PARKIO_GATEWAY_INTERNAL_SECRET"] == OLD and x["PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS"] == "" for x in app_env().values())
+           and not refused_edges(), "R14b a second rollback continues from the live state and passes", out + refused_edges())
         reset()
         tool("pre")
         tool("rotate", "--yes", extra={"GIS_FAULT": "after-up:B:parking-service"})
@@ -481,6 +522,32 @@ def main():
         mark("rejects-all-user-service")
         rc, out = tool("rollback", "--yes")
         ok(rc == 1 and "FAIL user-service: accepts the original value again" in out, "R15 a rollback after which a service refuses the original value fails", out)
+        reset()
+        tool("pre")
+        tool("rotate", "--yes", extra={"GIS_FAULT": "after-up:A:media-service"})
+        values.append(env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS"))
+        operator_up("user-service")                       # recreated by hand with the A values, outside the tool's records
+        st = state()
+        auth = [c for c in st["containers"].values() if c["service"] == "auth-service"][0]
+        st["containers"]["b" * 64] = dict(auth, name="parkio-auth-service-2")       # and a second auth container
+        json.dump(st, open(os.path.join(W, "state.json"), "w"))
+        n_up = len(ups())
+        rc, out = tool("rollback", "--yes")
+        rb = [u[-1] for u in ups()[n_up:]]
+        ok(rc == 0 and rb == list(DOWNSTREAM[:7]) + ["auth-service"] and len([c for c in state()["containers"].values() if c["service"] == "auth-service"]) == 1
+           and all(x["PARKIO_GATEWAY_INTERNAL_SECRET"] == OLD and x["PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS"] == "" for x in app_env().values())
+           and not refused_edges(),
+           "R16 rollback goes by the live state: a consumer recreated outside the tool's records and one with two containers are rolled back",
+           out + str(rb) + refused_edges())
+        reset()
+        tool("pre")
+        tool("rotate", "--yes", extra={"GIS_FAULT": "after-up:B:parking-service"})
+        values.extend(v for v in (env_val("PARKIO_GATEWAY_INTERNAL_SECRET"), env_val("PARKIO_GATEWAY_INTERNAL_ACCEPTED_SECRETS")) if v)
+        st = state()
+        [c for c in st["containers"].values() if c["service"] == "gateway-service"][0]["health"] = "unhealthy"
+        json.dump(st, open(os.path.join(W, "state.json"), "w"))
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL gateway-service: runs the original values, healthy" in out, "R17 a consumer left unhealthy fails the rollback's end-state check", out)
         reset()
         tool("pre")
         tool("rotate", "--yes", extra={"GIS_FAULT": "after-up:A:media-service"})

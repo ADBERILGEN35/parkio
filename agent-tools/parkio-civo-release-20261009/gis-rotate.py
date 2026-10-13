@@ -22,8 +22,9 @@ sender sends:
   B. send the new value: secret=new, ACCEPTED=old. Every downstream service, then the gateway, is recreated.
   C. drop the old value: ACCEPTED empty. Every downstream service, then the gateway, is recreated.
 Probes run inside the gateway container (it has curl and the backend network): `curl -s -H @-`, with the
-X-Gateway-Auth header on stdin, to http://<service>:<port><path>. auth answers 200 on its public registration-mode
-path; the others answer 404 behind the filter. A value is refused exactly when the answer is 401
+X-Gateway-Auth header on stdin, to http://<service>:<port><path>. Past the filter, auth answers 200 on its public
+registration-mode path, parking 404 on the probe path, and the other seven 500 through their catch-all exception
+handler, each logging one ERROR (review round 1, G4). A value is refused exactly when the answer is 401
 GATEWAY_AUTH_REQUIRED; it is accepted when the answer is anything else. No value reaches a process argument, the
 output or a record.
 
@@ -41,12 +42,17 @@ except those already moved; the expected probe results. At the end:
 - the public API answers 200;
 - no container carries the old value anywhere;
 - every consumer is at the model's hash.
-rollback (--yes), after a failed or interrupted A, B or C:
-- restores the original env file (backup);
-- recreates, downstream first, then the gateway, every consumer that does not run the original values (live state);
-- verifies the old value is accepted again everywhere.
-This brings the EXPOSED secret back; while it runs, calls between rolled-back and not-yet-rolled-back services can
-fail for seconds.
+rollback (--yes), after a failed or interrupted A, B or C, walks back one state at a time, the reverse of the steps
+above: from C to B, from B to A, from A to the original. Each consumer's state comes from its live env, not from the
+rotation's records. Neighbouring states accept each other's sends, so every receiver accepts what every sender
+sends throughout. Each step:
+- writes that state's values into the env file (the last step restores the backup byte for byte);
+- recreates every consumer past that state, and creates one with no container or with values of no state (first step
+  only);
+- must leave every consumer at that state or an earlier one before the next step starts; otherwise it stops, and a
+  later rollback continues from the live state.
+Then it verifies every consumer runs the original values, is healthy and accepts the original value, and that the
+public API answers 200. This brings the EXPOSED secret back.
 redact (--yes), after a passing rotation:
 - replaces the old value with CHANGE_ME_redacted_after_rotation_20261013 in every
   /opt/parkio/docker/.env.azure-hosted-beta.bak-* file, the pr68 artifact and the checkpoint env copy;
@@ -101,7 +107,7 @@ GATEWAY = "gateway-service"
 DOWNSTREAM = ("analytics-service", "ai-validation-service", "moderation-service", "notification-service", "gamification-service",
               "media-service", "user-service", "parking-service", "auth-service")
 CONSUMERS = DOWNSTREAM + (GATEWAY,)
-PROBE_PATH = {"auth-service": "/api/v1/auth/registration-mode"}        # behind auth's permitAll; others 404 behind the filter
+PROBE_PATH = {"auth-service": "/api/v1/auth/registration-mode"}        # auth's permitAll path; elsewhere 404 or 500 past the filter
 DEFAULT_PROBE_PATH = "/api/v1/__gis_probe"
 REFUSED_CODE = "GATEWAY_AUTH_REQUIRED"
 PLACEHOLDER = re.compile(r"CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|YOUR_|<[A-Za-z_-]+>|DUMMY|SAMPLE_|TODO|FIXME", re.I)
@@ -636,20 +642,52 @@ def cmd_rollback(yes):
     if not check("the backup differs from the env file only in the secret and ACCEPTED lines", only_keys_changed(old_data, data, (SECRET, ACCEPTED))):
         return finish("rollback", rec)
     orig = env_values(old_data)
-    SECRETS.extend([orig.get(SECRET, ""), env_values(data).get(SECRET, ""), env_values(data).get(ACCEPTED, "")])
-    if data != old_data:
-        write_atomically(ENV_FILE, old_data, os.stat(ENV_FILE))
-    check("the env file is byte-identical to the backup", open(ENV_FILE, "rb").read() == old_data)
+    old = orig.get(SECRET, "")
     ds = inspect_all()
-    want = {SECRET: orig.get(SECRET, ""), ACCEPTED: orig.get(ACCEPTED, "")}
-    todo = [s for s in DOWNSTREAM + (GATEWAY,) if s in (prog.get("moved") or []) or s == prog.get("moving")
-            or any(env_of(parkio(s, ds) or {}).get(k, "") != v for k, v in want.items())]
-    rec["recreated"] = todo
-    for svc in todo:
-        before = parkio(svc)
-        rc, _, _ = wrapper("up", "-d", "--no-build", "--no-deps", "--force-recreate", svc)
-        d = wait_container(svc, (before or {}).get("Id"))
-        check(f"{svc}: recreated and healthy", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy")
+    # the rotation's new value: in the env file while a step's values are there, else on a live consumer
+    found = [env_values(data).get(SECRET, ""), env_values(data).get(ACCEPTED, "")] + \
+            [env_of(d).get(k, "") for d in (parkio(s, ds) for s in CONSUMERS) if d for k in (SECRET, ACCEPTED)]
+    new = next((v for v in found if v and v != old), "")
+    SECRETS.extend([old, new])
+    want = {SECRET: old, ACCEPTED: orig.get(ACCEPTED, "")}
+    # the original, A, B, C: (secret, ACCEPTED). A consumer sends its secret and accepts it plus ACCEPTED, so
+    # neighbouring states accept each other's sends; states further apart do not
+    states = [(want[SECRET], want[ACCEPTED]), (old, new), (new, old), (new, "")]
+    names = ("the original", "A", "B", "C")
+
+    def levels():
+        out = {}
+        for s, d in ((s, parkio(s, ds)) for s in CONSUMERS):
+            pair = (env_of(d).get(SECRET, ""), env_of(d).get(ACCEPTED, "")) if d else None
+            out[s] = states.index(pair) if pair in states else None      # None: no single container, or no state's values
+        return out
+
+    lv = levels()
+    rec["start"] = {s: names[l] if l is not None else "unknown" for s, l in lv.items()}
+    top = max([l for l in lv.values() if l is not None] + [0])
+    rec["recreated"] = {}
+    for i, t in enumerate(range(top - 1, -1, -1) if top else [0]):
+        target = old_data if t == 0 else with_values(old_data, {SECRET: states[t][0], ACCEPTED: states[t][1]})
+        say(f"back to {names[t]}")
+        if open(ENV_FILE, "rb").read() != target:
+            write_atomically(ENV_FILE, target, os.stat(ENV_FILE))
+        if not check(f"to {names[t]}: the env file holds its values" + (" (byte-identical to the backup)" if t == 0 else ""),
+                     open(ENV_FILE, "rb").read() == target):
+            return finish("rollback", rec)
+        todo = [s for s in DOWNSTREAM + (GATEWAY,) if (lv[s] is None and i == 0) or (lv[s] is not None and lv[s] > t)]
+        rec["recreated"][names[t]] = todo
+        for svc in todo:
+            before = parkio(svc)
+            rc, _, _ = wrapper("up", "-d", "--no-build", "--no-deps", "--force-recreate", svc)
+            d = wait_container(svc, (before or {}).get("Id"))
+            check(f"to {names[t]}: {svc} recreated and healthy", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy")
+        ds = inspect_all()
+        lv = levels()
+        behind = [s for s in CONSUMERS if lv[s] is None or lv[s] > t]
+        if not check(f"to {names[t]}: every consumer runs its values or an earlier state's", not behind, ", ".join(behind)):
+            say("  STOP: the next step would make a receiver refuse a sender. Deal with the services above, then run rollback again;"
+                " it continues from the live state")
+            return finish("rollback", rec)
     m = model()
     ds = inspect_all()
     for svc in CONSUMERS:

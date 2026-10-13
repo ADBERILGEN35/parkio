@@ -1,50 +1,54 @@
-tool sha256 ab4474e7a8b0bcb5; self-test sha256 19be5356e756db75
-host-guard                         killed: P11 another host fails
-dockerd-debug-off                  killed: P12 dockerd debug logging fails
-release-at-r2                      killed: P2 a checkout other than R2 fails
-backup-window                      killed: P13 the backup window is refused
-env-secret-and-empty-accepted      killed: P3 a non-empty ACCEPTED list fails; R2 the full rotation passes
-model-carriers                     killed: P5 another service of the model carrying the value fails; R2 the full rotation passes
-live-carriers                      killed: P4 another project's container carrying the value fails; P6 a container carrying the value outside Env fails
-live-outside-env                   killed: R2 the full rotation passes; R2 the env file holds a new 64-character secret and an empty ACCEPTED list
-pre-model-hash                     killed: P7 a service off the model's hash fails
-image-identity                     killed: P8 a moved image tag fails
-probe-discriminates                killed: P9 a service whose filter accepts anything fails
-pre-public                         killed: P10 a public API that does not answer 200 fails
-inbox-overlay-detected             killed: P1 pre passes; R2 the full rotation passes
-inbox-overlay-always               killed: P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
-pre-age                            killed: R1c a pre older than an hour blocks rotate
-env-unchanged-since-pre            killed: R1b an env change after pre blocks rotate
-containers-unchanged-since-pre     killed: R1d a container change after pre blocks rotate
-preflight                          killed: R3 a failing preflight in A restores the env file; nothing is recreated
-hash-set                           killed: R3 a failing preflight in A restores the env file; nothing is recreated; R3b another service's model changing restores the env file
-restore-env-on-failure             killed: R3 a failing preflight in A restores the env file; nothing is recreated; R3b another service's model changing restores the env file
-recreate-new-healthy               killed: R4 an unhealthy service in A: the rotation stops; R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it
-recreate-expected-env              killed: R7 a recreated service without the expected values: the rotation stops
-recreate-probes                    killed: R5 an interruption after a recreate in B: the rotation stops; R5 an interruption after a recreate in B: rollback restores the original secret everywhe
-recreate-refuses-old               killed: R9 a service that keeps accepting the old value after C: the rotation stops; R9 a service that keeps accepting the old value after C: rollback restore
-recreate-others-unchanged          killed: R8 another container changing at the gateway recreate in B: the rotation stops; R8 another container changing at the gateway recreate in B: rollback r
-stop-on-recreate-failure-A         SURVIVED
-phase-a-accepts-new                killed: R2 the full rotation passes; R2 the env file holds a new 64-character secret and an empty ACCEPTED list
-phase-b-keeps-old-accepted         killed: R2 the full rotation passes; R2 all ten app services run the new secret with an empty ACCEPTED list
-b-public                           killed: R10 a public API that fails after the gateway sends the new value: the rotation stops
-rollback-phase-guard               killed: R2b rollback after a passing rotation is refused; R11 a second rollback is refused (rolled-back)
-rollback-backup-required           killed: R13 rollback without the backup is refused and changes nothing
-rollback-env-restore               killed: U usage refusal: no command; U usage refusal: pre --yes
-rollback-live-state                killed: R2 the full rotation passes; R2 the env file holds a new 64-character secret and an empty ACCEPTED list
-rollback-end-state                 SURVIVED
-rollback-accepts-original          SURVIVED
-rollback-marks-rolled-back         killed: R11 a second rollback is refused (rolled-back)
-redact-needs-passing-rotation      killed: X1 redact before a rotation is refused
-redact-live-env-guard              SURVIVED
-redact-holds-new                   killed: X4 a listed file holding the new value is left alone
-redact-missing-ok                  killed: X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
-redact-keeps-mtime                 killed: X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
-redact-scan                        killed: X3 an unlisted copy fails the scan; the backup keeps the old value
-redact-backup-last                 killed: X3 an unlisted copy fails the scan; the backup keeps the old value; X4 a listed file holding the new value is left alone
-redact-already-complete            killed: X5 a second redact reports completion
-probe-header-on-stdin              killed: P1 pre passes; P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
-child-env-allowlist                killed: no child saw a variable outside the allowlist
+gis-rotate mutation run (single full run) | 2026-10-13T16:19:40Z | tool 9ebfcbde7eb45932 | self-test c3e3283cdd1c36b3 | mutants 599ed9d0e53c9425
+host-guard                         killed (twice): P11 another host fails
+dockerd-debug-off                  killed (twice): P12 dockerd debug logging fails
+release-at-r2                      killed (twice): P2 a checkout other than R2 fails
+backup-window                      killed (twice): P13 the backup window is refused
+env-secret-and-empty-accepted      killed (twice): P3 a non-empty ACCEPTED list fails
+model-carriers                     killed (twice): P5 another service of the model carrying the value fails
+live-carriers                      killed (twice): P4 another project's container carrying the value fails; P6 a container carrying the value outside Env fails
+live-outside-env                   killed (twice): P15 an app service's own container carrying the value outside Env fails
+pre-model-hash                     killed (twice): P7 a service off the model's hash fails
+image-identity                     killed (twice): P8 a moved image tag fails
+probe-discriminates                killed (twice): P9 a service whose filter accepts anything fails
+pre-public                         killed (twice): P10 a public API that does not answer 200 fails
+inbox-overlay-detected             killed (twice): P1 pre passes; R2 the full rotation passes
+inbox-overlay-always               killed (twice): P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+pre-age                            killed (twice): R1c a pre older than an hour blocks rotate
+env-unchanged-since-pre            killed (twice): R1b an env change after pre blocks rotate
+containers-unchanged-since-pre     killed (twice): R1d a container change after pre blocks rotate
+preflight                          killed (twice): R3 a failing preflight in A restores the env file; nothing is recreated
+hash-set                           killed (twice): R3b another service's model changing restores the env file
+restore-env-on-failure             killed (twice): R3 a failing preflight in A restores the env file; nothing is recreated; R3b another service's model changing restores the env file
+recreate-new-healthy               killed (twice): R4 an unhealthy service in A: the rotation stops in phase A; R4 an unhealthy service in A: rollback restores the original secret everywhere and verifi
+recreate-expected-env              killed (twice): R7 a recreated service without the expected values: the rotation stops in phase A
+recreate-probes                    killed (twice): R9 a service that keeps accepting the old value after C: the rotation stops in phase C; R9 a service that keeps accepting the old value after C: rollb
+recreate-refuses-old               killed (twice): R9 a service that keeps accepting the old value after C: the rotation stops in phase C; R9 a service that keeps accepting the old value after C: rollb
+recreate-others-unchanged          killed (twice): R8 another container changing at the gateway recreate in B: the rotation stops in phase B; R8 another container changing at the gateway recreate in B:
+stop-on-recreate-failure-A         killed (twice): R4 an unhealthy service in A: the rotation stops in phase A; R7 a recreated service without the expected values: the rotation stops in phase A
+phase-a-accepts-new                killed (twice): R2 the full rotation passes; R2 the env file holds a new 64-character secret and an empty ACCEPTED list
+phase-b-keeps-old-accepted         killed (twice): R2 the full rotation passes; R2 all ten app services run the new secret with an empty ACCEPTED list
+b-public                           killed (twice): R10 a public API that fails after the gateway sends the new value: the rotation stops; R10 rollback from the end of B: all ten back to A, then all ten
+rollback-phase-guard               killed (twice): R2b rollback after a passing rotation is refused; R11 a second rollback is refused (rolled-back)
+rollback-backup-required           killed (twice): R13 rollback without the backup is refused and changes nothing
+rollback-env-restore               killed (twice): R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step; R5 an inte
+rollback-levels-from-live          killed (twice): R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step; R5 an inte
+rollback-stepwise                  killed (twice): R5 an interruption after a recreate in B: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
+rollback-step-complete             killed (twice): R14 a step that leaves a consumer behind stops before the next one; the env file keeps that step's values; R14b a second rollback continues from the l
+rollback-unknown-first-step        killed (twice): R16 rollback goes by the live state: a consumer recreated outside the tool's records and one with two containers are rolled back
+rollback-only-past-the-step        killed (twice): R5 rollback from part-way through B: the eight on B back to A, then all nine to the original; the gateway, never moved, is not restarted; R12 rollback
+rollback-end-state                 killed (twice): R17 a consumer left unhealthy fails the rollback's end-state check
+rollback-accepts-original          killed (twice): R15 a rollback after which a service refuses the original value fails
+rollback-marks-rolled-back         killed (twice): R11 a second rollback is refused (rolled-back)
+redact-needs-passing-rotation      killed (twice): X1 redact before a rotation is refused
+redact-live-env-guard              killed (twice): X6 the live env file is never redacted, even through a link
+redact-holds-new                   killed (twice): X4 a listed file holding the new value is left alone
+redact-missing-ok                  killed (twice): X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
+redact-keeps-mtime                 killed (twice): X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
+redact-scan                        killed (twice): X3 an unlisted copy fails the scan; the backup keeps the old value
+redact-backup-last                 killed (twice): X3 an unlisted copy fails the scan; the backup keeps the old value; X4 a listed file holding the new value is left alone
+redact-already-complete            killed (twice): X5 a second redact reports completion
+probe-header-on-stdin              killed (twice): P1 pre passes; P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+child-env-allowlist                killed (twice): no child saw a variable outside the allowlist
 backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
 only-keys-changed                  EQUIVALENT (not run): with_values() changes only the listed lines; the check guards against a future edit of it
 final-no-old-holder                EQUIVALENT (not run): every C recreate already checks the expected values, so a holder of the old value fails earlier
@@ -52,5 +56,6 @@ final-model-hash                   EQUIVALENT (not run): every recreate already 
 record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
 scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
 placeholder-redraw                 EQUIVALENT (not run): a random value matches a placeholder pattern about once in 25,000 draws
-=== 42/46 killed, 4 survived or broken; 7 equivalent listed ===
-exit=1
+=== 50/50 killed, 0 survived or broken; 7 equivalent listed ===
+exit=0
+2026-10-13T17:18:28Z

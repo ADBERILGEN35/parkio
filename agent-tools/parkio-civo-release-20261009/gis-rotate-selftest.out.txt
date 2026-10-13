@@ -10,6 +10,7 @@ ok   P3 a non-empty ACCEPTED list fails
 ok   P4 another project's container carrying the value fails
 ok   P5 another service of the model carrying the value fails
 ok   P6 a container carrying the value outside Env fails
+ok   P15 an app service's own container carrying the value outside Env fails
 ok   P8 a moved image tag fails
 ok   P9 a service whose filter accepts anything fails
 ok   P10 a public API that does not answer 200 fails
@@ -26,30 +27,37 @@ ok   R2 the full rotation passes
 ok   R2 the env file holds a new 64-character secret and an empty ACCEPTED list
 ok   R2 all ten app services run the new secret with an empty ACCEPTED list
 ok   R2 three rolling steps (A downstream; B downstream then gateway; C downstream then gateway), each with the inbox overlay
+ok   R2 after every recreate, every app service accepts every other's secret
 ok   R2 the recreated gateway kept the relay inbox
 ok   R2 the backup holds the old value, mode 600
 ok   R2b rollback after a passing rotation is refused
 ok   R3 a failing preflight in A restores the env file; nothing is recreated
 ok   R3b another service's model changing restores the env file
 ok   R4 an unhealthy service in A: the rotation stops in phase A
-ok   R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it
+ok   R4 an unhealthy service in A: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
 ok   R5 an interruption after a recreate in B: the rotation stops
-ok   R5 an interruption after a recreate in B: rollback restores the original secret everywhere and verifies it
+ok   R5 an interruption after a recreate in B: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
+ok   R5 rollback from part-way through B: the eight on B back to A, then all nine to the original; the gateway, never moved, is not restarted
 ok   R6 an interruption after the env write in B: the rotation stops
-ok   R6 an interruption after the env write in B: rollback restores the original secret everywhere and verifies it
+ok   R6 an interruption after the env write in B: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
 ok   R7 a recreated service without the expected values: the rotation stops in phase A
-ok   R7 a recreated service without the expected values: rollback restores the original secret everywhere and verifies it
+ok   R7 a recreated service without the expected values: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
 ok   R8 another container changing at the gateway recreate in B: the rotation stops in phase B
-ok   R8 another container changing at the gateway recreate in B: rollback restores the original secret everywhere and verifies it
+ok   R8 another container changing at the gateway recreate in B: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
 ok   R9 a service that keeps accepting the old value after C: the rotation stops in phase C
-ok   R9 a service that keeps accepting the old value after C: rollback restores the original secret everywhere and verifies it
+ok   R9 a service that keeps accepting the old value after C: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
 ok   R10 a public API that fails after the gateway sends the new value: the rotation stops
-ok   R10 a public API that fails after the gateway sends the new value: rollback restores the original secret everywhere and verifies it
+ok   R10 a public API that fails after the gateway sends the new value: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
+ok   R10 rollback from the end of B: all ten back to A, then all ten to the original
 ok   R12 an interruption after a recreate in C: the rotation stops
-ok   R12 an interruption after a recreate in C: rollback restores the original secret everywhere and verifies it
+ok   R12 an interruption after a recreate in C: rollback restores the original secret everywhere and verifies it; no app service refuses another at any step
+ok   R12 rollback from C: the nine on C back to B (the gateway is on B), then all ten to A, then all ten to the original
 ok   R11 a second rollback is refused (rolled-back)
-ok   R14 a rollback that leaves a service on the rotation's values fails its end-state check
+ok   R14 a step that leaves a consumer behind stops before the next one; the env file keeps that step's values
+ok   R14b a second rollback continues from the live state and passes
 ok   R15 a rollback after which a service refuses the original value fails
+ok   R16 rollback goes by the live state: a consumer recreated outside the tool's records and one with two containers are rolled back
+ok   R17 a consumer left unhealthy fails the rollback's end-state check
 ok   R13 rollback without the backup is refused and changes nothing
 ok   X1 redact before a rotation is refused
 ok   X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched
@@ -57,7 +65,7 @@ ok   X5 a second redact reports completion
 ok   X3 an unlisted copy fails the scan; the backup keeps the old value
 ok   X4 a listed file holding the new value is left alone
 ok   X6 the live env file is never redacted, even through a link
-ok   no secret value in any output or record (25 values)
+ok   no secret value in any output or record (28 values)
 ok   no secret value in any docker or wrapper argument
 ok   no child saw a variable outside the allowlist
-=== summary: 62 ok, 0 FAIL ===
+=== summary: 70 ok, 0 FAIL ===

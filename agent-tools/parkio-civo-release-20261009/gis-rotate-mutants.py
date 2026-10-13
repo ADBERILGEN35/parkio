@@ -2,6 +2,9 @@
 """Mutation run for gis-rotate.py: each mutant disables or alters one guard; gis-rotate-selftest.py must fail
 (killed). Each mutant runs in its own temporary copy of the tool and the self-test; nothing else is touched.
 Mutants marked EQUIVALENT are defense-in-depth guards that no reachable fault exercises; they are listed, not run.
+A mutant counts as killed only when two runs of the self-test fail with at least one failing case in common; a first
+failure that does not repeat is reported FLAKY and not counted (load or clock steps on a shared machine). A mutant
+that does not compile is reported BROKEN and not counted: a syntax error would fail every case.
 
   python3 -I gis-rotate-mutants.py
 """
@@ -47,8 +50,12 @@ MUTANTS = [
     ('b-public', 'if not check("B: the public API answers 200 through the gateway (it sends the new value)", public_ok()):', 'if not check("B: the public API answers 200 through the gateway (it sends the new value)", True):'),
     ('rollback-phase-guard', 'phase in ("A", "B", "C")', 'True'),
     ('rollback-backup-required', 'if not check("the rotation\'s backup exists and is readable", old_data is not None):', 'if False:'),
-    ('rollback-env-restore', '        write_atomically(ENV_FILE, old_data, os.stat(ENV_FILE))\n', ''),
-    ('rollback-live-state', '\n            or any(env_of(parkio(s, ds) or {}).get(k, "") != v for k, v in want.items())]', ']'),
+    ('rollback-env-restore', '            write_atomically(ENV_FILE, target, os.stat(ENV_FILE))\n', '            pass\n'),
+    ('rollback-levels-from-live', 'pair = (env_of(d).get(SECRET, ""), env_of(d).get(ACCEPTED, "")) if d else None', 'pair = states[0] if d else None'),
+    ('rollback-stepwise', 'enumerate(range(top - 1, -1, -1) if top else [0])', 'enumerate([0])'),
+    ('rollback-step-complete', 'not behind, ", ".join(behind))', 'True, ", ".join(behind))'),
+    ('rollback-unknown-first-step', '(lv[s] is None and i == 0) or ', ''),
+    ('rollback-only-past-the-step', '(lv[s] is not None and lv[s] > t)', '(lv[s] is not None and lv[s] >= t)'),
     ('rollback-end-state', 'bool(d) and health(d) == "healthy" and all(env_of(d).get(k, "") == v for k, v in want.items()))', 'True)'),
     ('rollback-accepts-original', 'bool(port) and accepted(svc, port, want[SECRET]))', 'True)'),
     ('rollback-marks-rolled-back', '        prog["phase"] = "rolled-back"\n', ''),
@@ -84,18 +91,31 @@ def run_one(mutant):
         text = open(path, encoding="utf-8").read()
         if text.count(old) != 1:
             return name, f"ANCHOR x{text.count(old)}"
+        try:
+            compile(text.replace(old, new), path, "exec")
+        except SyntaxError as e:
+            return name, f"BROKEN (syntax, not counted): line {e.lineno}"
         open(path, "w", encoding="utf-8").write(text.replace(old, new))
-        p = subprocess.run([sys.executable, "-I", os.path.join(tmp, SELFTEST)], capture_output=True, text=True, timeout=900)
-        fails = [l[5:] for l in p.stdout.splitlines() if l.startswith("FAIL ")]
-        return name, ("killed: " + "; ".join(fails[:2])[:150]) if p.returncode != 0 else "SURVIVED"
+        runs = []
+        for _ in range(2):
+            p = subprocess.run([sys.executable, "-I", os.path.join(tmp, SELFTEST)], capture_output=True, text=True, timeout=900)
+            runs.append((p.returncode, [l[5:] for l in p.stdout.splitlines() if l.startswith("FAIL ")]))
+            if p.returncode == 0:
+                break
+        if runs[0][0] == 0:
+            return name, "SURVIVED"
+        common = [f for f in runs[0][1] if len(runs) == 2 and runs[1][0] != 0 and f in runs[1][1]]
+        if not common:
+            return name, "FLAKY (not counted): first run " + "; ".join(runs[0][1][:2])[:120] + " | second run " + ("passed" if runs[-1][0] == 0 else "; ".join(runs[-1][1][:2])[:120])
+        return name, "killed (twice): " + "; ".join(common[:2])[:150]
     except subprocess.TimeoutExpired:
-        return name, "killed: timeout"
+        return name, "TIMEOUT (not counted)"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def main():
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(run_one, MUTANTS))
     for name, outcome in results:
         print(f"{name:34} {outcome}")
