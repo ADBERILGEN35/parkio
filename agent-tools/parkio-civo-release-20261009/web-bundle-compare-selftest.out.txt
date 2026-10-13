@@ -1,3 +1,4 @@
+ok   a binary other than the pinned esbuild is refused (usage)
 ok   the two real candidate bundles (same source, same key) are identical
 ok   the simulation renamed 2 key-bearing chunk(s)
 ok   a key change (renamed chunks, references, CACHE_VERSION) normalizes to identical
@@ -6,14 +7,31 @@ ok   an extra file is reported
 ok   a binary change is reported
 ok   a missing file is reported
 ok   a tree without a baked key is invalid input
-ok   colliding normalized asset names are refused
-ok   the real candidate with another key: IDENTICAL through a consistent renaming in the key-bearing chunk
-ok   the real key-bearing chunk with one occurrence of a short local renamed (inconsistent) is DIFFERENT
-ok   the real key-bearing chunk with a long identifier changed is DIFFERENT
+ok   colliding normalized asset names (two hashed chunks) are refused
+ok   a file literally named like a normalized one is refused
+ok   a literal normalized name that sorts after its hashed twin is refused (order-independent check)
+ok   a key-bearing non-JavaScript file differing only in whitespace is DIFFERENT
+ok   the real candidate with another key: IDENTICAL through esbuild canonical equality of the key-bearing chunk
+ok   the real key-bearing chunk with two imported names swapped (review probe) is DIFFERENT
+ok   the real key-bearing chunk with the exported name renamed (review probe) is DIFFERENT
 ok   the real key-bearing chunk with a string changed is DIFFERENT
-ok   the real key-bearing chunk with a number changed is DIFFERENT
-ok   the real key-bearing chunk with a token removed (new) is DIFFERENT
-ok   the real key-bearing chunk with a literal in a comparison changed is DIFFERENT
-ok   the real key-bearing chunk with an extra token is DIFFERENT
-ok   the real key-bearing chunk with an unterminated string (lexing doubt) is DIFFERENT
-=== summary: 18 ok, 0 FAIL ===
+ok   the real key-bearing chunk with a boolean flipped (DEV:!1 -> DEV:!0) is DIFFERENT
+ok   the real key-bearing chunk with an unterminated string (esbuild rejects it) is DIFFERENT
+ok   the real key-bearing chunk with a behaviour-free change (DEV:!1 -> DEV:!2, both false) is IDENTICAL
+ok   a real non-key chunk replaced by its own esbuild-minified form is DIFFERENT (canonical comparison is for key-bearing chunks only)
+ok   snippets: an alpha-renamed pair -> IDENTICAL
+ok   snippets: merged locals (not a bijection) -> DIFFERENT
+ok   snippets: code appended on one side (token count) -> DIFFERENT
+ok   snippets: an identifier turned into a literal (token kind) -> DIFFERENT
+ok   snippets: a free global renamed -> DIFFERENT
+ok   snippets: a shorthand key -> DIFFERENT
+ok   snippets: a class member -> DIFFERENT
+ok   snippets: `in` versus `of` -> DIFFERENT
+ok   snippets: a regular expression after `)` -> DIFFERENT
+ok   snippets: a statement boundary (return + newline) -> DIFFERENT
+ok   snippets: a property name -> DIFFERENT
+ok   snippets: swapped import names -> DIFFERENT
+ok   snippets: an exported name -> DIFFERENT
+ok   snippets: input esbuild rejects -> DIFFERENT
+ok   snippets: two different inputs esbuild rejects (no match through failure) -> DIFFERENT
+=== summary: 36 ok, 0 FAIL ===

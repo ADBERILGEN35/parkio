@@ -1,0 +1,13 @@
+# Mutants of web-bundle-compare.py and w1-web-deploy.py against their self-tests (2026-10-13, comparator v3)
+C-keybearing: KILLED (2 failing case(s)): FAIL an unrelated JS change is reported (rc=1)
+C-none-equal: KILLED (1 failing case(s)): FAIL snippets: two different inputs esbuild rejects (no match through failure) -> DIFFERENT (rc=1)
+C-pin-skip: KILLED (1 failing case(s)): FAIL a binary other than the pinned esbuild is refused (usage) (rc=0)
+C-no-minify: KILLED (3 failing case(s)): FAIL the real candidate with another key: IDENTICAL through esbuild canonical equality of the key-bearing chun
+C-always-equal: KILLED (19 failing case(s)): FAIL the real key-bearing chunk with two imported names swapped (review probe) is DIFFERENT (rc=0)
+W-a-env: KILLED (4 failing case(s)): FAIL P1 docker gets the allowlisted environment only (21 calls)
+W-b-fixed-fp: KILLED (1 failing case(s)): FAIL P1c another --key-fp reaches the guard unchanged
+W-esbuild-check: KILLED (3 failing case(s)): FAIL P1 the staged esbuild is checked against its pin
+W-no-esbuild-arg: KILLED (3 failing case(s)): FAIL P1 pre passes on a clean PIN checkout with every check
+C-collide-hashed-only: SURVIVED in the first run; KILLED after case d8 (a literal normalized name sorting after its hashed twin) was added
+C-js-only: SURVIVED in the first run; KILLED after the key-bearing non-JavaScript whitespace case was added
+# 11 mutants, 11 killed. Equivalent mutant not run: canonical() without the exit-code test (esbuild prints nothing on error).

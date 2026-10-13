@@ -26,7 +26,9 @@ pre: nothing is started, stopped or recreated. It pulls one image and writes one
     match the fingerprint.
   - It compares the bundles of the old and the new image. Both images are created and copied, never started; the
     containers are removed. It requires:
-    - /usr/share/nginx/html IDENTICAL after normalization (web-bundle-compare.py, SHA-256 pinned);
+    - /usr/share/nginx/html IDENTICAL after normalization (web-bundle-compare.py, SHA-256 pinned). Its key-bearing
+      chunk check uses esbuild 0.27.4, staged beside W1 as esbuild-0.27.4-linux-x64 by fetch-esbuild-0.27.4.sh,
+      with its SHA-256 pinned here and in the comparator;
     - the nginx template, the CSP entrypoint and nginx.conf byte-identical, with equal modes;
     - apk packages equal, except libexpat and pcre2 (recorded).
 recreate: the only live change.
@@ -90,7 +92,9 @@ PROJECT = "parkio"
 OUT = cfg("W1_OUT", os.path.join(os.path.expanduser("~"), "parkio-release-20261009", "w1-maptiler"))
 APP = cfg("W1_APP", "https://app.parkio.dev")
 COMPARE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web-bundle-compare.py")
-COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "9b89d507e02a789771baab1f8e6b3f5cab44f0510d334a9919750b7cd40f36e3")
+COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "1b0de28f089d8373e69f390cf2c2c317a353938e19b15286dcca4a2e71181502")
+ESBUILD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "esbuild-0.27.4-linux-x64")
+ESBUILD_SHA256 = "5186a0791db7cff10adf1fef03dc4790db502eaaff86117664679412fedeccae"     # = web-bundle-compare.py
 HEALTH_WAIT = int(cfg("W1_HEALTH_WAIT", "180"))
 PRE_MAX_AGE = 6 * 3600
 NGINX_FILES = ("/etc/nginx/templates/default.conf.template", "/docker-entrypoint.d/15-parkio-web-csp.envsh",
@@ -158,10 +162,14 @@ def write_json(name, data):
 
 
 def sha256_file(path):
+    """SHA-256 of a file, or None when it cannot be read (a missing staged file is a FAIL, not a crash)."""
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return None
     return h.hexdigest()
 
 
@@ -299,12 +307,16 @@ def compare_bundles(old, new, rec):
         if not check("both images copied (created, never started, removed)", extract(old, a, paths) and extract(new, b, paths)):
             return False
         ok = check("web-bundle-compare.py matches its pinned SHA-256", sha256_file(COMPARE) == COMPARE_SHA256)
+        ok &= check("the staged esbuild 0.27.4 matches its pinned SHA-256", sha256_file(ESBUILD) == ESBUILD_SHA256)
         if ok:
             rc, out, err = run([sys.executable, "-I", COMPARE, "--a-dir", os.path.join(a, "usr/share/nginx/html"),
-                                "--b-dir", os.path.join(b, "usr/share/nginx/html")], timeout=300)
-            rec["bundleCompare"] = out.strip().splitlines()[-1:] if out.strip() else [err.strip()[:200]]
+                                "--b-dir", os.path.join(b, "usr/share/nginx/html"), "--esbuild", ESBUILD], timeout=300)
+            rec["bundleCompare"] = out.strip().splitlines() if out.strip() else [err.strip()[:200]]
             ok &= check("bundle IDENTICAL after normalizing the key, hashed names and CACHE_VERSION", rc == 0 and "IDENTICAL" in out,
                         (out.strip().splitlines() or ["?"])[-1][:120])
+            for line in out.splitlines():
+                if line.startswith(("key-bearing ", "  only in ")):
+                    say("    " + line[:160])
         for f in NGINX_FILES:
             fa, fb = os.path.join(a, f.lstrip("/")), os.path.join(b, f.lstrip("/"))
             same = os.path.isfile(fa) and os.path.isfile(fb) and open(fa, "rb").read() == open(fb, "rb").read()

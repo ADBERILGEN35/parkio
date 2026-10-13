@@ -10,9 +10,11 @@ Fakes:
 - systemctl, sudo, and an HTTP server standing in for app.parkio.dev.
 
 The release checkout is a real git clone of a local bare origin that carries the api branch and the release branch. The
-bundle comparison runs the real web-bundle-compare.py.
+bundle comparison runs the real web-bundle-compare.py with the real pinned esbuild (fetch-esbuild-0.27.4.sh). docker and
+git record the environment they receive, and the guard records its arguments.
 
-  python3 -I w1-web-deploy-selftest.py      (from the directory holding w1-web-deploy.py and web-bundle-compare.py)
+  python3 -I w1-web-deploy-selftest.py --esbuild ESBUILD   (from the directory holding w1-web-deploy.py and
+                                                            web-bundle-compare.py; ESBUILD = the pinned binary)
 """
 import hashlib
 import http.server
@@ -54,6 +56,7 @@ st = json.load(open(SP))
 def save(): json.dump(st, open(SP, "w"), indent=1)
 a = sys.argv[1:]
 open(os.path.join(W, "docker.log"), "a").write(" ".join(a) + "\n")
+open(os.path.join(W, "docker.env"), "a").write(json.dumps(sorted(os.environ)) + "\n")
 def resolve(ref):
     return st["images"].get(ref) or (ref if ref in st["imageInfo"] else None)
 if a[0] == "info":
@@ -120,6 +123,7 @@ json.dump(st, open(SP, "w"), indent=1)
 FAKE_GUARD = r'''#!/usr/bin/env bash
 set -euo pipefail
 W="$W1ST_W"; EV=""
+python3 -c 'import json, sys; open(sys.argv[1], "a").write(json.dumps(sys.argv[2:]) + "\n")' "$W/guard.args" "$@"
 while [ $# -gt 0 ]; do case "$1" in --evidence-out) EV="$2"; shift 2 ;; *) shift ;; esac; done
 python3 - "$W/state.json" "$EV" "$W/guard.env" <<'PY'
 import json, os, sys
@@ -134,12 +138,19 @@ PY
 '''
 
 
+ENV_BODIES = {   # the key-bearing chunk; "renamed" differs only in local names, "semantic" also in behaviour
+    "base": 'const e={{VITE_MAPTILER_KEY:"{key}"}};function g(a,b){{return a*b+a}}export{{e,g}};',
+    "renamed": 'const e={{VITE_MAPTILER_KEY:"{key}"}};function g(b,a){{return b*a+b}}export{{e,g}};',
+    "semantic": 'const e={{VITE_MAPTILER_KEY:"{key}"}};function g(a,b){{return a*b+b}}export{{e,g}};',
+}
+
+
 def bundle(root, key, env_hash, cache, apk_expat="2.8.5-r0", extra_js=False, nginx_conf="worker_processes auto;\n", apk_other=False,
-           nginx_mode=0o644):
+           nginx_mode=0o644, env_variant="base"):
     html = os.path.join(root, "usr/share/nginx/html")
     os.makedirs(os.path.join(html, "assets"))
     open(os.path.join(html, "index.html"), "w").write('<div id="root"></div><script src="/assets/app-AAAAAAAA.js"></script>')
-    open(os.path.join(html, f"assets/env-{env_hash}.js"), "w").write(f'export const e={{VITE_MAPTILER_KEY:"{key}"}};')
+    open(os.path.join(html, f"assets/env-{env_hash}.js"), "w").write(ENV_BODIES[env_variant].format(key=key))
     open(os.path.join(html, "assets/app-AAAAAAAA.js"), "w").write(f'import "./env-{env_hash}.js";console.log(1);' + ("x();" if extra_js else ""))
     open(os.path.join(html, "sw.js"), "w").write(f"const CACHE_VERSION = '{cache}';\n")
     for f, body in (("etc/nginx/templates/default.conf.template", "server {}\n"), ("docker-entrypoint.d/15-parkio-web-csp.envsh", "#!/bin/sh\n"),
@@ -215,6 +226,11 @@ def setup_repos(W, variant="good"):
 
 
 def main():
+    if sys.argv[1:2] != ["--esbuild"] or len(sys.argv) != 3 or not os.path.isfile(sys.argv[2]):
+        print("usage: w1-web-deploy-selftest.py --esbuild ESBUILD (the binary from fetch-esbuild-0.27.4.sh)", file=sys.stderr)
+        return 2
+    esbuild = os.path.abspath(sys.argv[2])
+    real_git = shutil.which("git")
     W = tempfile.mkdtemp(prefix="w1st-")
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -223,8 +239,15 @@ def main():
         os.makedirs(tool)
         for f in ("w1-web-deploy.py", "web-bundle-compare.py"):
             shutil.copy(os.path.join(HERE, f), tool)
+        staged = os.path.join(tool, "esbuild-0.27.4-linux-x64")
+        shutil.copy(esbuild, staged)
+        os.chmod(staged, 0o755)
         bindir = os.path.join(W, "bin")
         os.makedirs(bindir)
+        shim = os.path.join(bindir, "git")
+        open(shim, "w").write("#!/bin/sh\npython3 -c 'import json, os, sys; open(sys.argv[1], \"a\").write(json.dumps(sorted(os.environ)) + \"\\n\")' "
+                              f"\"$W1ST_W/git.env\"\nexec {real_git} \"$@\"\n")
+        os.chmod(shim, 0o755)
         for name, body in (("docker", FAKE_DOCKER), ("sudo", "#!/bin/sh\nexit 0\n"),
                            ("systemctl", "#!/bin/sh\ncat \"$W1ST_W/units\" 2>/dev/null\nexit 0\n")):
             p = os.path.join(bindir, name)
@@ -260,7 +283,7 @@ def main():
             st = base_state()
             st.update(changes)
             json.dump(st, open(os.path.join(W, "state.json"), "w"), indent=1)
-            for f in ("wrapper.calls", "units", "docker.log", "guard.env"):
+            for f in ("wrapper.calls", "units", "docker.log", "guard.env", "docker.env", "git.env", "guard.args"):
                 try:
                     os.remove(os.path.join(W, f))
                 except FileNotFoundError:
@@ -302,6 +325,25 @@ def main():
         genv = json.loads(open(os.path.join(W, "guard.env")).read().splitlines()[0])
         ok(not set(FORBIDDEN_ENV) & set(genv) and "PARKIO_ENV_FILE" in genv and "PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT" not in genv,
            "P1 the guard gets the allowlisted environment only", json.dumps(genv))
+
+        def leaked(name):
+            path = os.path.join(W, name)
+            lines = [set(json.loads(l)) for l in open(path)] if os.path.exists(path) else []
+            return len(lines), sorted(set().union(*lines) & set(FORBIDDEN_ENV)) if lines else []
+        for name in ("docker.env", "git.env"):
+            n, bad = leaked(name)
+            ok(n > 0 and not bad, f"P1 {name.split('.')[0]} gets the allowlisted environment only ({n} calls)", json.dumps(bad))
+
+        def guard_fp():
+            args = [json.loads(l) for l in open(os.path.join(W, "guard.args"))]
+            return [a[a.index("--expected-map-key-fingerprint") + 1] for a in args if "--expected-map-key-fingerprint" in a], args
+        fps, gargs = guard_fp()
+        ok(fps == [KFP], "P1 the guard is asked for the --key-fp fingerprint", json.dumps(gargs))
+        ok("PASS the staged esbuild 0.27.4 matches its pinned SHA-256" in out, "P1 the staged esbuild is checked against its pin", out)
+        reset()
+        rc, out = tool_run("pre", *targs(kfp="123456789abc"))
+        fps, gargs = guard_fp()
+        ok(fps == ["123456789abc"], "P1c another --key-fp reaches the guard unchanged", json.dumps(gargs))
 
         def pre_fails(label, expect, setup=None, args=None, variant="good", extra_env=None, no_side_effects=False):
             reset(variant)
@@ -345,6 +387,13 @@ def main():
                 bundle(d, NEW_KEY, "NEWHASH2", "2222222222222222", **kw)
             return f
         pre_fails("P11 a code change beside the key is refused", "bundle IDENTICAL", refix(apk_expat="2.8.6-r0", extra_js=True))
+        pre_fails("P11b a behaviour change in the key-bearing chunk is refused", "bundle IDENTICAL",
+                  refix(apk_expat="2.8.6-r0", env_variant="semantic"))
+        reset()
+        refix(apk_expat="2.8.6-r0", env_variant="renamed")()
+        rc, out = tool_run("pre", *targs())
+        ok(rc == 0 and "equal after esbuild 0.27.4 minification of both" in out and "W1 pre: PASS" in out,
+           "P11c renamed locals in the key-bearing chunk pass through esbuild canonical equality", out)
         pre_fails("P12 a changed nginx.conf is refused", "/etc/nginx/nginx.conf byte-identical", refix(apk_expat="2.8.6-r0", nginx_conf="worker_processes 1;\n"))
         pre_fails("P13 a changed nginx.conf mode is refused", "/etc/nginx/nginx.conf byte-identical with equal modes",
                   refix(apk_expat="2.8.6-r0", nginx_mode=0o600))
@@ -352,6 +401,12 @@ def main():
         refix(apk_expat="2.8.6-r0")()
         pre_fails("P15 a tampered comparator is refused", "web-bundle-compare.py matches its pinned SHA-256",
                   lambda: open(os.path.join(tool, "web-bundle-compare.py"), "a").write("\n# tampered\n"))
+        pre_fails("P15b a missing staged esbuild is refused", "the staged esbuild 0.27.4 matches its pinned SHA-256",
+                  lambda: os.rename(staged, staged + ".away"))
+        os.rename(staged + ".away", staged)
+        pre_fails("P15c a tampered staged esbuild is refused", "the staged esbuild 0.27.4 matches its pinned SHA-256",
+                  lambda: open(staged, "ab").write(b"\0"))
+        shutil.copy(esbuild, staged)
         pre_fails("P16 a u05 window unit is refused", "no u05-priv001a-* unit",
                   lambda: open(os.path.join(W, "units"), "w").write("u05-priv001a-window-x.service loaded active running\n"))
 
@@ -383,6 +438,9 @@ def main():
         ok(not set(FORBIDDEN_ENV) & set(calls[0]["env"]), "R4 the wrapper gets the allowlisted environment only (COMPOSE_*, DOCKER_*, "
            "PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY dropped)", json.dumps(calls[0]["env"]))
         ok(git(rel, "rev-parse", "HEAD") == state["r1"], "R4 the checkout is at R1")
+        for name in ("docker.env", "git.env"):
+            n, bad = leaked(name)
+            ok(n > 0 and not bad, f"R4 {name.split('.')[0]} gets the allowlisted environment only in pre and recreate ({n} calls)", json.dumps(bad))
         for s in ("web is healthy", "web is a new container", "web runs the expected image",
                   "web config hash = the wrapper's model hash", "every other container unchanged"):
             ok(f"PASS {s}" in out, f"R4 post-check: {s}", out)
