@@ -16,8 +16,11 @@ pre: nothing is started, stopped or recreated. It pulls one image and writes one
     - the file's blob equals origin/api's (the merged pin PR).
   - It writes the rollback tag <repo>:rollback-pre-maptiler-20261013 on the running web image. An existing tag must
     already point there.
-  - It pulls <repo>@<digest> and checks: image id = --image-id, the RepoDigests hold the ref, linux/amd64, and the OCI
-    revision is the PIN.
+  - It pulls <repo>@<digest> and checks: the RepoDigests hold the ref, linux/amd64, and the OCI revision is the PIN.
+    The F-05 guard of the release checkout then runs offline (--expected-platform linux/amd64,
+    --expected-map-key-fingerprint b9cf3e673752, --evidence-out). It must PASS, establish configDigest = --image-id
+    (the accepted image id; on the host's containerd store `.Id` is the manifest digest, not the config digest), and
+    match the fingerprint.
   - It compares the bundles of the old and the new image. Both images are created and copied, never started; the
     containers are removed. It requires:
     - /usr/share/nginx/html IDENTICAL after normalization (web-bundle-compare.py, SHA-256 pinned);
@@ -32,11 +35,20 @@ recreate: the only live change.
         ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
   - Post-checks:
     - web is healthy within 180 s, on --image-id, as a new container;
-    - its config hash equals the one rendered from its recorded Compose inputs (the guard's binding file is rebuilt);
+    - its config hash equals the wrapper's `config --hash web` from the active checkout (T1's D4 method; the guard's
+      binding pins the same image string, and pull_policy is not hashed);
     - every other container is unchanged against the baseline;
     - https://app.parkio.dev/, /login and /explore answer 200 with the app root.
 rollback: checks out the PIN, runs the same wrapper command without the fingerprint variable, then runs the same
   post-checks against the baseline web image.
+The wrapper and the guard get an allowlisted environment: PATH, HOME, LANG, USER, LOGNAME, PARKIO_ENV_FILE, plus the
+fingerprint for the recreate. COMPOSE_*, DOCKER_*, PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY and
+everything else from the operator's shell are dropped.
+If the wrapper fails and web is still the baseline container, the checkout goes back to the PIN.
+Not covered by W1, and still required before step 8 is accepted, from the workstation:
+  - headless Chromium render of /, /login and /explore (#root, no page error);
+  - `u04-live-ownership.mjs --map-only … --map-fingerprint b9cf3e673752`;
+  - the account-free CSRF/401 sign-in check.
 Records go to ~/parkio-release-20261009/w1-maptiler/<stamp>/ (mode 700): pre.json, recreate.json, rollback.json and logs.
 A failed check stops with exit 1 and changes nothing more. Key values are never printed.
 """
@@ -309,7 +321,8 @@ def cmd_pre(a):
                        for svc, entries in (cs or {}).items()}
     if not all(c["pass"] for c in CHECKS):
         return finish("pre", rec)
-    verify_r1(r1, digest)
+    if not verify_r1(r1, digest):
+        return finish("pre", rec)
     rc, existing, _ = docker("image", "inspect", "--format", "{{.Id}}", ROLLBACK_TAG)
     if rc == 0:
         check(f"rollback tag {ROLLBACK_TAG} already on the running image", existing.strip() == web["image"], existing.strip()[:19])
@@ -321,37 +334,74 @@ def cmd_pre(a):
     check("pulled the new pin by digest", rc == 0, err.strip()[:120])
     rc, info, _ = docker("image", "inspect", ref)
     d = (json.loads(info) or [{}])[0] if rc == 0 else {}
-    check("image id = --image-id", d.get("Id") == iid, (d.get("Id") or "?")[:19])
     check("RepoDigests hold the ref", ref in (d.get("RepoDigests") or []))
     check("linux/amd64", d.get("Os") == "linux" and d.get("Architecture") == "amd64", f"{d.get('Os')}/{d.get('Architecture')}")
     rev = ((d.get("Config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")
     check("OCI revision is the PIN", rev == PIN, (rev or "?")[:12])
+    grc, gdata, gline = guard(ref, rec)
+    check("F-05 guard PASS offline (platform, key fingerprint b9cf3e673752)", grc == 0 and gdata.get("fingerprintCheck") == "matched",
+          gline[0][:160])
+    check("guard-established config digest = --image-id (the accepted image id)", gdata.get("configDigest") == iid,
+          (gdata.get("configDigest") or "?")[:19])
     if all(c["pass"] for c in CHECKS):
-        compare_bundles(web["image"], iid, rec)
+        compare_bundles(web["image"], ref, rec)
     return finish("pre", rec)
 
 
 def latest_pre(r1, digest, iid):
+    """The most recent pre for exactly these arguments, passed or not (a later failure overrides an earlier PASS)."""
     best = None
     try:
         for stamp in sorted(os.listdir(OUT)):
             p = os.path.join(OUT, stamp, "pre.json")
             if os.path.isfile(p):
                 r = json.load(open(p, encoding="utf-8"))
-                if r.get("verdict") == "PASS" and (r.get("r1"), r.get("digest"), r.get("imageId")) == (r1, digest, iid):
+                if (r.get("r1"), r.get("digest"), r.get("imageId")) == (r1, digest, iid):
                     best = r
     except OSError:
         return None
     return best
 
 
-def wrapper(fingerprint):
-    env = dict(os.environ, PARKIO_ENV_FILE=ENV_FILE)
-    env.pop("PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT", None)
-    for k in [k for k in env if k.startswith("PARKIO_SKIP_")]:
-        env.pop(k)
+ENV_ALLOW = ("PATH", "HOME", "LANG", "USER", "LOGNAME")
+
+
+def clean_env(fingerprint=None):
+    """The wrapper's and the guard's environment: an allowlist, never the operator's shell as a whole."""
+    env = {k: os.environ[k] for k in ENV_ALLOW if k in os.environ}
+    env["PARKIO_ENV_FILE"] = ENV_FILE
+    if TEST and "W1ST_W" in os.environ:
+        env["W1ST_W"] = os.environ["W1ST_W"]     # the self-test's fakes find their state here
     if fingerprint:
         env["PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT"] = fingerprint
+    return env
+
+
+def model_hash():
+    """The wrapper's config hash for web from the active checkout (T1's model_hash)."""
+    rc, out, _ = run(["./scripts/parkio-prod-compose.sh", "config", "--hash", "web"], cwd=REL, env=clean_env(), timeout=180)
+    for line in out.splitlines():
+        parts = line.split()
+        if rc == 0 and len(parts) == 2 and parts[0] == "web":
+            return parts[1]
+    return None
+
+
+def guard(ref, rec):
+    """The release checkout's F-05 guard, offline: identity, configDigest and the key fingerprint of the pulled image."""
+    ev = os.path.join(record_dir(), "guard-evidence.json")
+    rc, out, err = run(["bash", "./scripts/guard-web-synthetic-map-deploy.sh", "--image", ref, "--expected-platform", "linux/amd64",
+                        "--expected-map-key-fingerprint", KEY_FP, "--evidence-out", ev], cwd=REL, env=clean_env(), timeout=600)
+    try:
+        data = json.load(open(ev, encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    rec["guard"] = {k: data.get(k) for k in ("configDigest", "configDigestStatus", "fingerprintCheck", "platform")}
+    return rc, data, (out + err).strip().splitlines()[-1:] or [""]
+
+
+def wrapper(fingerprint):
+    env = clean_env(fingerprint)
     args = ["./scripts/parkio-prod-compose.sh", "up", "-d", "--no-build", "--no-deps", "--force-recreate", "web"]
     say(f"  Run: cd {REL} && PARKIO_ENV_FILE={ENV_FILE}{' PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT=' + fingerprint if fingerprint else ''} "
         + " ".join(args))
@@ -363,40 +413,7 @@ def wrapper(fingerprint):
     return rc, sha256_file(log)
 
 
-def recorded_hash(web):
-    """The config hash rendered from the container's recorded Compose inputs; the wrapper's temporary web binding file is
-    rebuilt from the running image with pull_policy never (as T1 did for D4)."""
-    lab = web["labels"]
-    files = [f for f in (lab.get("com.docker.compose.project.config_files") or "").split(",") if f]
-    wd = lab.get("com.docker.compose.project.working_dir") or ""
-    env = lab.get("com.docker.compose.project.environment_file") or ENV_FILE
-    tmp = tempfile.mkdtemp(prefix="w1-hash-")
-    try:
-        fixed = []
-        for f in files:
-            if not os.path.isfile(f) and os.path.basename(f) == "web-binding.yml":
-                rebuilt = os.path.join(tmp, "web-binding.yml")
-                with open(rebuilt, "w", encoding="utf-8") as fh:
-                    json.dump({"services": {"web": {"image": web["image"], "pull_policy": "never"}}}, fh)
-                fixed.append(rebuilt)
-            else:
-                fixed.append(f)
-        if not fixed or any(not os.path.isfile(f) for f in fixed):
-            return None
-        cmd = ["compose", "--env-file", env] + (["--project-directory", wd] if wd else [])
-        for f in fixed:
-            cmd += ["-f", f]
-        rc, out, _ = docker(*(cmd + ["config", "--hash", "web"]), timeout=180)
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) == 2 and parts[0] == "web":
-                return parts[1]
-        return None
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def post_checks(rec, baseline, before_id, want_image):
+def post_checks(rec, baseline, before_id, want_ref):
     deadline = time.time() + HEALTH_WAIT
     web = None
     while time.time() < deadline:
@@ -406,9 +423,11 @@ def post_checks(rec, baseline, before_id, want_image):
         time.sleep(3)
     check("web is healthy", bool(web) and web["health"] == "healthy", (web or {}).get("health") or "?")
     check("web is a new container", bool(web) and web["id"] != before_id, (web or {}).get("id", "?")[:12])
-    check("web runs the expected image", bool(web) and web["image"] == want_image, (web or {}).get("image", "?")[:19])
-    h = recorded_hash(web) if web else None
-    check("web config hash = its recorded Compose inputs", bool(web) and h is not None and h == web["hash"], (h or "?")[:12])
+    rc, want_id, _ = docker("image", "inspect", "--format", "{{.Id}}", want_ref)
+    check("web runs the expected image", bool(web) and rc == 0 and web["image"] == want_id.strip(), (web or {}).get("image", "?")[:19])
+    h = model_hash()
+    check("web config hash = the wrapper's model hash from the active checkout", bool(web) and h is not None and h == web["hash"],
+          f"model {(h or '?')[:12]} container {((web or {}).get('hash') or '?')[:12]}")
     now_cs = containers() or {}
     changed = []
     for svc, entries in baseline.items():
@@ -439,13 +458,14 @@ def cmd_recreate(a):
     basics()
     pre = latest_pre(r1, digest, iid)
     age = (time.time() - calendar.timegm(time.strptime(pre["stamp"], "%Y%m%dT%H%M%SZ"))) if pre else None
-    check("a passing pre for these arguments within 6 hours", bool(pre) and age is not None and 0 <= age <= PRE_MAX_AGE,
-          f"{pre['stamp']}" if pre else "none")
+    check("a passing pre for these arguments within 6 hours (the latest one)",
+          bool(pre) and pre.get("verdict") == "PASS" and age is not None and 0 <= age <= PRE_MAX_AGE,
+          f"{pre['stamp']} {pre.get('verdict')}" if pre else "none")
     web = one(containers(), "web")
     base_web = ((pre or {}).get("baseline") or {}).get("web") or [{}]
     check("web is still the baseline container", bool(web) and web["id"] == base_web[0].get("id"), (web or {}).get("id", "?")[:12])
-    rc, iid_local, _ = docker("image", "inspect", "--format", "{{.Id}}", f"{REPO}@{digest}")
-    check("the new pin is present locally with the accepted id", rc == 0 and iid_local.strip() == iid)
+    rc, _, _ = docker("image", "inspect", "--format", "{{.Id}}", f"{REPO}@{digest}")
+    check("the new pin is present locally", rc == 0)
     head, clean = checkout_state()
     check("the release checkout is clean at the PIN or already at R1", clean and head in (PIN, r1), (head or "?")[:12])
     if not all(c["pass"] for c in CHECKS):
@@ -458,7 +478,17 @@ def cmd_recreate(a):
     rc, logsha = wrapper(KEY_FP)
     check("wrapper exit 0 (F-05 with the fingerprint, conf.d and API endpoint checks ran)", rc == 0, f"exit {rc}; log {logsha[:16]}")
     if rc == 0:
-        post_checks(rec, pre["baseline"], web["id"], iid)
+        post_checks(rec, pre["baseline"], web["id"], f"{REPO}@{digest}")
+    else:
+        now_web = one(containers(), "web")
+        if now_web and now_web["id"] == web["id"]:
+            grc, _, gerr = git("checkout", "--quiet", "--detach", PIN)
+            head, clean = checkout_state()
+            rec["checkoutRestored"] = grc == 0 and head == PIN and clean
+            say(f"  web is unchanged; the checkout went back to the PIN: {rec['checkoutRestored']}")
+        else:
+            rec["checkoutRestored"] = False
+            say("  web changed although the wrapper failed: the checkout stays at R1; see the wrapper log, then rollback")
     return finish("recreate", rec)
 
 
