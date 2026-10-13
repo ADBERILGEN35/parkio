@@ -67,7 +67,8 @@ case "$1" in
   network) case "$2" in inspect) [ -f "$FAKE_STATE/net" ] ;; create) touch "$FAKE_STATE/net" ;; rm) rm -f "$FAKE_STATE/net" ;; esac ;;
   run) echo "docker run $*" >> "$FAKE_LOG"; touch "$FAKE_STATE/target" ;;
   container) [ -f "$FAKE_STATE/target" ] ;;
-  exec) [ -f "$FAKE_STATE/target" ] ;;
+  exec) [ -f "$FAKE_STATE/target" ] || exit 1
+    case " $* " in *" pg_isready "*) case " $* " in *" -h 127.0.0.1 "*) ;; *) echo "pg_isready over the socket" >> "$FAKE_LOG"; exit 1 ;; esac ;; esac ;;
   rm) rm -f "$FAKE_STATE/target" ;;
 esac'
 fake git 'case "$*" in

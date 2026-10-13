@@ -339,8 +339,9 @@ PY
   docker network inspect "$NET" >/dev/null 2>&1 || docker network create --internal "$NET" >/dev/null || { pp=""; stop "network $NET"; }
   docker run -d --name "$TARGET" --network "$NET" --memory 1500m -e POSTGRES_USER=rd_admin \
     -e POSTGRES_PASSWORD="dummy-$(openssl rand -hex 12)" -e POSTGRES_DB=rd_admin "$POSTGIS" >/dev/null || { pp=""; stop "target container"; }
-  for _ in $(seq 1 60); do docker exec "$TARGET" pg_isready -q -U rd_admin -d rd_admin 2>/dev/null && break; sleep 2; done
-  docker exec "$TARGET" pg_isready -q -U rd_admin -d rd_admin 2>/dev/null || { pp=""; stop "the target did not become ready"; }
+  # Over TCP: the image's init server listens on the socket only, so a socket check can pass before the final server.
+  for _ in $(seq 1 60); do docker exec "$TARGET" pg_isready -q -h 127.0.0.1 -U rd_admin -d rd_admin 2>/dev/null && break; sleep 2; done
+  docker exec "$TARGET" pg_isready -q -h 127.0.0.1 -U rd_admin -d rd_admin 2>/dev/null || { pp=""; stop "the target did not become ready"; }
 
   say "D4 backup-dated-acceptance.sh --pulled (outcomes 3-5), drill $DRILL_ID, target $TARGET on --internal $NET"
   mkdir -p "$RD/work"                         # the acceptance itself creates $EV/B and $RD/work/B (it refuses existing ones)
