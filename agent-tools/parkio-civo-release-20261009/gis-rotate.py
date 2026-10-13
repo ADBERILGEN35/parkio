@@ -545,7 +545,8 @@ def cmd_rotate(yes):
     basics()
     pre = latest("pre")
     age = (time.time() - calendar.timegm(time.strptime(pre["stamp"][:15], "%Y%m%dT%H%M%S"))) if pre else None
-    check("the latest pre passed within an hour", bool(pre) and pre.get("verdict") == "PASS" and age is not None and 0 <= age <= PRE_MAX_AGE,
+    # -60: a clock stepped back a little (NTP, or WSL in the self-test) must not refuse a pre taken moments ago
+    check("the latest pre passed within an hour", bool(pre) and pre.get("verdict") == "PASS" and age is not None and -60 <= age <= PRE_MAX_AGE,
           f"{pre['stamp']} {pre.get('verdict')}" if pre else "none")
     data = open(ENV_FILE, "rb").read()
     check("the env file is unchanged since that pre", bool(pre) and hashlib.sha256(data).hexdigest() == pre.get("envSha256"))

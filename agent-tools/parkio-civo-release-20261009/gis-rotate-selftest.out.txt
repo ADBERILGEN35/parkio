@@ -37,22 +37,8 @@ ok   R5 an interruption after a recreate in B: the rotation stops
 ok   R5 an interruption after a recreate in B: rollback restores the original secret everywhere and verifies it
 ok   R6 an interruption after the env write in B: the rotation stops
 ok   R6 an interruption after the env write in B: rollback restores the original secret everywhere and verifies it
-FAIL R7 a recreated service without the expected values: the rotation stops in phase A
-gateway secret rotation rotate | 20261013T144539790Z
-  PASS host ADBERILGEN (ADBERILGEN)
-  PASS docker usable without sudo
-  PASS dockerd debug logging is off (it would log exec requests) (false)
-  PASS the release checkout is clean at R2 (a66cce24fb66)
-  FAIL the latest pre passed within an hour (20261013T144540263Z PASS)
-  PASS the env file is unchanged since that pre
-  PASS the containers are the ones pre recorded
-gateway secret rotation rotate: FAIL | record /tmp/gis-4otq7wfj/out/gr-20261013T144539790Z/rotate.json
-
-FAIL R7 a recreated service without the expected values: rollback restores the original secret everywhere and verifies it
-gateway secret rotation rollback | 20261013T144539875Z | brings the EXPOSED secret back
-  FAIL a rotation stopped in phase A, B or C (after the backup) (none)
-gateway secret rotation rollback: FAIL | record /tmp/gis-4otq7wfj/out/gr-20261013T144539875Z/rollback.json
-
+ok   R7 a recreated service without the expected values: the rotation stops in phase A
+ok   R7 a recreated service without the expected values: rollback restores the original secret everywhere and verifies it
 ok   R8 another container changing at the gateway recreate in B: the rotation stops in phase B
 ok   R8 another container changing at the gateway recreate in B: rollback restores the original secret everywhere and verifies it
 ok   R9 a service that keeps accepting the old value after C: the rotation stops in phase C
@@ -68,9 +54,10 @@ ok   R13 rollback without the backup is refused and changes nothing
 ok   X1 redact before a rotation is refused
 ok   X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched
 ok   X5 a second redact reports completion
-Traceback (most recent call last):
-  File "/mnt/c/Users/ADBERILGEN/Documents/parkio-wt-redis-rotate/agent-tools/parkio-civo-release-20261009/gis-rotate-selftest.py", line 556, in <module>
-    sys.exit(main())
-  File "/mnt/c/Users/ADBERILGEN/Documents/parkio-wt-redis-rotate/agent-tools/parkio-civo-release-20261009/gis-rotate-selftest.py", line 514, in main
-    rbak = os.path.join(L, "docker", bak()[0])
-IndexError: list index out of range
+ok   X3 an unlisted copy fails the scan; the backup keeps the old value
+ok   X4 a listed file holding the new value is left alone
+ok   X6 the live env file is never redacted, even through a link
+ok   no secret value in any output or record (25 values)
+ok   no secret value in any docker or wrapper argument
+ok   no child saw a variable outside the allowlist
+=== summary: 62 ok, 0 FAIL ===

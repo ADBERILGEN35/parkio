@@ -30,7 +30,7 @@ MUTANTS = [
     ('pre-public', '    check("the public API answers 200 through the gateway", public_ok())\n    rec["baseline"]', '    check("the public API answers 200 through the gateway", True)\n    rec["baseline"]'),
     ('inbox-overlay-detected', '_OVERLAYS = ["-f", INBOX_OVERLAY] if any(', '_OVERLAYS = [] if any('),
     ('inbox-overlay-always', ' else []\n    return _OVERLAYS', ' else ["-f", INBOX_OVERLAY]\n    return _OVERLAYS'),
-    ('pre-age', ' and age is not None and 0 <= age <= PRE_MAX_AGE', ''),
+    ('pre-age', ' and age is not None and -60 <= age <= PRE_MAX_AGE', ''),
     ('env-unchanged-since-pre', 'hashlib.sha256(data).hexdigest() == pre.get("envSha256")', 'True'),
     ('containers-unchanged-since-pre', 'bool(pre) and baseline(inspect_all()) == pre.get("baseline")', 'bool(pre)'),
     ('preflight', 'ok &= check(f"{phase}: the release preflight passes", preflight_ok())', 'ok &= check(f"{phase}: the release preflight passes", True)'),

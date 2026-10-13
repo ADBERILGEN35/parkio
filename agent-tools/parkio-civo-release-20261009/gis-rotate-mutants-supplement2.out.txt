@@ -1,0 +1,4 @@
+supplement 2: the pre-age mutant re-anchored after the clock-step tolerance; tool a72a5999826c8b2d, self-test 6fd254fdffea5690
+anchors: 46 mutants, 46 anchor exactly once
+pre-age                            killed: R1c a pre older than an hour blocks rotate
+exit=0
