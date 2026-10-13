@@ -16,6 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL, SELFTEST = "jwt-rotate.py", "jwt-rotate-selftest.py"
 
 MUTANTS = [
+    ('inbox-overlay-detected', '_OVERLAYS = ["-f", INBOX_OVERLAY] if any(', '_OVERLAYS = [] if any('),
+    ('inbox-overlay-always', ' else []\n    return _OVERLAYS', ' else ["-f", INBOX_OVERLAY]\n    return _OVERLAYS'),
     ("release-at-r2", 'head == R2 and not status.strip()', 'not status.strip()'),
     ("backup-window", 'not (t.hour == 3 or (t.hour == 4 and t.minute < 30))', 'True'),
     ("no-additional-keys-env", 'check("no additional (previous) public keys in the env file", not ev.get(ADD))',

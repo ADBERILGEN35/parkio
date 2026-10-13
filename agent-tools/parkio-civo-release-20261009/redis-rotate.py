@@ -174,8 +174,29 @@ def git(*args):
     return rc, out.decode("utf-8", "replace")
 
 
+INBOX_OVERLAY = "docker/docker-compose.waitlist-ops-inbox.yml"
+_OVERLAYS = None
+
+
+def overlays():
+    """`-f INBOX_OVERLAY` when the live gateway was created with that activation-only overlay, else nothing. Every
+    Compose call then renders and recreates what runs today; without it a gateway recreate would drop the relay inbox
+    (first live pre, 2026-10-13)."""
+    global _OVERLAYS
+    if _OVERLAYS is None:
+        rc, out, _ = run(["docker", "ps", "-q", "--no-trunc", "--filter", f"label=com.docker.compose.project={PROJECT}",
+                          "--filter", "label=com.docker.compose.service=gateway-service"])
+        files = ""
+        if rc == 0 and out.split():
+            rc, out, _ = run(["docker", "inspect", "--format", '{{index .Config.Labels "com.docker.compose.project.config_files"}}',
+                              out.split()[0].decode()])
+            files = out.decode() if rc == 0 else ""
+        _OVERLAYS = ["-f", INBOX_OVERLAY] if any(f.endswith("/" + os.path.basename(INBOX_OVERLAY)) for f in files.strip().split(",")) else []
+    return _OVERLAYS
+
+
 def wrapper(*args, timeout=900):
-    return run(["./scripts/parkio-prod-compose.sh"] + list(args), cwd=REL, extra_env={"PARKIO_ENV_FILE": ENV_FILE}, timeout=timeout)
+    return run(["./scripts/parkio-prod-compose.sh"] + overlays() + list(args), cwd=REL, extra_env={"PARKIO_ENV_FILE": ENV_FILE}, timeout=timeout)
 
 
 def private_write(path, text):
@@ -439,6 +460,7 @@ def cmd_pre():
     red = parkio(REDIS, ds)
     check("redis is running and healthy", bool(red) and health(red) == "healthy", health(red) or "?")
     check("the env file's value is the one redis runs with", bool(red) and env_of(red).get(KEY) == value)
+    say(f"  NOTE Compose calls {'include ' + INBOX_OVERLAY + ' (the live gateway was created with it)' if overlays() else 'use the production file list only'}")
     m = model()
     if check("the release model renders", m is not None):
         rs = (m.get("services") or {}).get(REDIS) or {}
@@ -456,7 +478,12 @@ def cmd_pre():
             check(f"{svc}: the container runs the model's image reference, which resolves to its image (no moved tag)",
                   bool(d) and (d.get("Config") or {}).get("Image") == ref and image_id(ref) == d.get("Image"), ref)
     live = carriers(value or "\0", ds)
-    want_live = {red.get("Name", "").lstrip("/"): [KEY]} if red else {}
+    rname0 = red.get("Name", "").lstrip("/") if red else ""
+    if live.get(rname0) == [KEY, "OUTSIDE Env (inspect)"]:
+        # the running redis predates the fix: its healthcheck carries the value (the leak phase D removes)
+        live[rname0] = [KEY]
+        say("  NOTE the running redis also carries the value outside Env (its old healthcheck): phase D removes it")
+    want_live = {rname0: [KEY]} if red else {}
     for svc in CONSUMERS:
         d = parkio(svc, ds)
         if d:

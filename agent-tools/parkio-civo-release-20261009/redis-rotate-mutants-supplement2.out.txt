@@ -1,0 +1,6 @@
+supplement 2 to redis-rotate-mutants.out.txt: the mutants of the first live pre's fixes (inbox overlay, old redis healthcheck); tool b2bab2fe92d74395, self-test a8e3da56d7907274
+anchors: 72 mutants, 72 anchor exactly once
+inbox-overlay-detected             killed: P1 pre passes at R2 (old redis healthcheck noted; inbox overlay included); R8 a failed ACL SETUSER stops before the env file is touched
+inbox-overlay-always               killed: P18 a gateway created without the inbox overlay: pre passes, and no Compose call adds it; R11 a recreated redis that does not accept the new value fai
+redis-pre-leak-allowance           killed: P1 pre passes at R2 (old redis healthcheck noted; inbox overlay included); P18 a gateway created without the inbox overlay: pre passes, and no Compose
+exit=0

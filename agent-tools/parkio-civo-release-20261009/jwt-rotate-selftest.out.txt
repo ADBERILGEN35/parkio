@@ -14,6 +14,7 @@ ok   P7 a moved image tag fails
 ok   P8 a JWKS with another key fails
 ok   P10 auth-service off the model's hash fails
 ok   P11 another host fails
+ok   P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
 ok   P12 a build-only gateway (no image in the model) passes under its implicit name
 ok   P13 a container not running the model's image reference fails
 ok   P9 the backup window is refused
@@ -26,6 +27,7 @@ ok   R2 the env file holds a new PKCS#8 key in the file form (two backslashes an
 ok   R2 the env file holds a new kid
 ok   R2 auth-service runs with the new key (container form) and kid
 ok   R2 the gateway's cache holds only the new key
+ok   R2 the recreated gateway kept the relay inbox (the overlay was in its Compose call)
 ok   R2 auth-service first, then gateway-service with --force-recreate
 ok   R2 the backup holds the old env, mode 600
 ok   R2b rollback after a passing rotation is refused
@@ -58,4 +60,4 @@ ok   X9 an unwritable directory is a recorded FAIL, not a crash; the backup keep
 ok   no key material in any output or record (20 keys)
 ok   no key material in any docker or wrapper argument
 ok   no child saw a variable outside the allowlist
-=== summary: 60 ok, 0 FAIL ===
+=== summary: 62 ok, 0 FAIL ===

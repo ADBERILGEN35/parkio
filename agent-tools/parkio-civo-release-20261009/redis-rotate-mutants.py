@@ -16,6 +16,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL, SELFTEST = "redis-rotate.py", "redis-rotate-selftest.py"
 
 MUTANTS = [
+    ('inbox-overlay-detected', '_OVERLAYS = ["-f", INBOX_OVERLAY] if any(', '_OVERLAYS = [] if any('),
+    ('inbox-overlay-always', ' else []\n    return _OVERLAYS', ' else ["-f", INBOX_OVERLAY]\n    return _OVERLAYS'),
+    ('redis-pre-leak-allowance', '    if live.get(rname0) == [KEY, "OUTSIDE Env (inspect)"]:', '    if False:'),
     ("backup-window", 'not (t.hour == 3 or (t.hour == 4 and t.minute < 30))', 'True'),
     ("env-matches-redis", 'check("the env file\'s value is the one redis runs with", bool(red) and env_of(red).get(KEY) == value)',
      'check("the env file\'s value is the one redis runs with", True)'),

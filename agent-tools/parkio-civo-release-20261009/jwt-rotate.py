@@ -152,8 +152,29 @@ def git(*args):
     return rc, out.decode("utf-8", "replace")
 
 
+INBOX_OVERLAY = "docker/docker-compose.waitlist-ops-inbox.yml"
+_OVERLAYS = None
+
+
+def overlays():
+    """`-f INBOX_OVERLAY` when the live gateway was created with that activation-only overlay, else nothing. Every
+    Compose call then renders and recreates what runs today; without it a gateway recreate would drop the relay inbox
+    (first live pre, 2026-10-13)."""
+    global _OVERLAYS
+    if _OVERLAYS is None:
+        rc, out, _ = run(["docker", "ps", "-q", "--no-trunc", "--filter", f"label=com.docker.compose.project={PROJECT}",
+                          "--filter", "label=com.docker.compose.service=gateway-service"])
+        files = ""
+        if rc == 0 and out.split():
+            rc, out, _ = run(["docker", "inspect", "--format", '{{index .Config.Labels "com.docker.compose.project.config_files"}}',
+                              out.split()[0].decode()])
+            files = out.decode() if rc == 0 else ""
+        _OVERLAYS = ["-f", INBOX_OVERLAY] if any(f.endswith("/" + os.path.basename(INBOX_OVERLAY)) for f in files.strip().split(",")) else []
+    return _OVERLAYS
+
+
 def wrapper(*args, timeout=900):
-    return run(["./scripts/parkio-prod-compose.sh"] + list(args), cwd=REL, extra_env={"PARKIO_ENV_FILE": ENV_FILE}, timeout=timeout)
+    return run(["./scripts/parkio-prod-compose.sh"] + overlays() + list(args), cwd=REL, extra_env={"PARKIO_ENV_FILE": ENV_FILE}, timeout=timeout)
 
 
 def private_write(path, text):
@@ -468,6 +489,7 @@ def cmd_pre():
           bool(auth) and aenv.get(PEM) == container_form(key) and aenv.get(KID) == kid and not aenv.get(ADD))
     carriers = sorted(name_of(d) for d in ds if needle and needle in json.dumps(d.get("Config") or {}))
     check("only auth-service carries the PEM, in any project's containers", carriers == [name_of(auth)] if auth else False, ", ".join(carriers))
+    say(f"  NOTE Compose calls {'include ' + INBOX_OVERLAY + ' (the live gateway was created with it)' if overlays() else 'use the production file list only'}")
     m = model()
     if check("the release model renders", m is not None):
         holders = sorted(s for s in (m.get("services") or {}) if needle and needle in json.dumps(m["services"][s]))

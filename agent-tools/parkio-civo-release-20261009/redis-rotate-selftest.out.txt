@@ -13,8 +13,10 @@ ok   K5 an R2 with another compose blob is refused; the checkout stays at R1
 ok   K6 an R2 whose parent is not R1 is refused; the checkout stays at R1
 ok   K7 R1 -> R2 passes
 ok   K8 checkout at R2 again passes, unchanged
-ok   P1 pre passes at R2
+ok   P1 pre passes at R2 (old redis healthcheck noted; inbox overlay included)
 ok   P1 pre notes the redis definition change
+ok   P18 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+ok   P5b another container carrying the value outside Env (its command) fails
 ok   P15 another host fails
 ok   P2 the checkout at R1 (no fix) fails
 ok   P4 an unfixed model (value in the healthcheck) fails
@@ -45,6 +47,7 @@ ok   R2 every consumer runs with the new value
 ok   R2 redis accepts only the new value
 ok   R2 existing data kept; the probe key removed
 ok   R2 the order: gamification, parking, auth, gateway, then redis
+ok   R2 every Compose call carried the inbox overlay; the recreated gateway kept the relay inbox
 ok   R2 the backup holds the old value, mode 600
 ok   R7 rollback after the redis recreate is refused; nothing changes
 ok   X1 redact before a rotation is refused; nothing changes
@@ -95,4 +98,4 @@ ok   no old or new value in any output or record
 ok   no value in any process argument (docker, wrapper)
 ok   no child saw a variable outside the allowlist
 ok   REDISCLI_AUTH reached only `docker exec` (redis-cli)
-=== summary: 97 ok, 0 FAIL ===
+=== summary: 100 ok, 0 FAIL ===

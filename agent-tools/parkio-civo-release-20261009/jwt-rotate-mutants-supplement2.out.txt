@@ -1,0 +1,5 @@
+supplement 2 to jwt-rotate-mutants.out.txt: the mutants of the first live pre's fixes (inbox overlay, old redis healthcheck); tool 54a690932c5b9f08, self-test aab30c81ef36603b
+anchors: 51 mutants, 51 anchor exactly once
+inbox-overlay-detected             killed: P1 pre passes; P12 a build-only gateway (no image in the model) passes under its implicit name
+inbox-overlay-always               killed: P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+exit=0

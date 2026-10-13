@@ -55,7 +55,13 @@ mark = lambda m: os.path.exists(os.path.join(W, m))
 def seen(v): open(os.path.join(W, "seen.txt"), "a").write(v + "\n")
 if a[0] == "info":
     print(("true" if mark("daemon-debug") else "false") if "{{.Debug}}" in a else "29.8.1"); sys.exit(0)
-if a[0] == "ps": print("\n".join(cs)); sys.exit(0)
+if a[0] == "ps":
+    flt = [a[i + 1].split("=", 2) for i in range(len(a) - 1) if a[i] == "--filter"]
+    keep = lambda c: all((k == "com.docker.compose.service" and c["service"] == v) or (k == "com.docker.compose.project" and c["project"] == v)
+                         for _, k, v in flt)
+    print("\n".join(i for i, c in cs.items() if keep(c))); sys.exit(0)
+if a[0] == "inspect" and "--format" in a:
+    print(cs[a[-1]].get("files", "")); sys.exit(0)
 if a[0] == "inspect":
     out = []
     for i in a[1:]:
@@ -122,6 +128,10 @@ a = sys.argv[1:]
 mark = lambda m: os.path.exists(os.path.join(W, m))
 open(os.path.join(W, "argv.log"), "a").write(json.dumps(["wrapper"] + a) + "\n")
 open(os.path.join(W, "env.log"), "a").write(json.dumps({"argv0": "wrapper", "env": sorted(os.environ)}) + "\n")
+OVERLAYS = []
+while a[:1] == ["-f"]:
+    OVERLAYS.append(a[1]); a = a[2:]
+INBOX = any(o.endswith("docker-compose.waitlist-ops-inbox.yml") for o in OVERLAYS)
 env = {}
 for line in open(os.environ["PARKIO_ENV_FILE"], encoding="utf-8"):
     if "=" in line and not line.startswith("#"):
@@ -135,6 +145,7 @@ def service(svc):
                 "healthcheck": {"test": ["CMD-SHELL", "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli ping" if fixed else f"redis-cli -a {pw} ping"]}}
     if svc in ("gamification-service", "parking-service", "auth-service", "gateway-service"):
         e = {"SPRING_DATA_REDIS_PASSWORD": pw, "X": "1"}
+        if svc == "gateway-service" and INBOX: e["PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR"] = "/var/lib/parkio/waitlist-ops-inbox"
         if mark("model-drops-" + svc): e.pop("SPRING_DATA_REDIS_PASSWORD")
         if svc == "gamification-service":
             return {"environment": e}                     # build-only, as in production: no image key (review T1)
@@ -163,6 +174,7 @@ if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
     if not mark("stale-env-" + svc):
         c["env"] = {k: v for k, v in service(svc)["environment"].items()}
     c["hash"] = mhash(svc)
+    c["files"] = "/opt/parkio-release/docker/docker-compose.yml,/opt/parkio-release/docker/docker-compose.apps.yml" + (",/opt/parkio-release/docker/docker-compose.waitlist-ops-inbox.yml" if INBOX and svc == "gateway-service" else "")
     c["health"] = "unhealthy" if mark("unhealthy-" + svc) else "healthy"
     now = time.time()
     if svc == "redis":
@@ -267,7 +279,7 @@ def main():
         OTHER = secrets.token_urlsafe(24)
         allvalues.append(OTHER)
 
-        def reset(checkout=r2, extra_carrier=False, env_value=None, embedded_carrier=False):
+        def reset(checkout=r2, extra_carrier=False, env_value=None, embedded_carrier=False, gateway_inbox=True, cmd_carrier=False):
             if os.path.isdir(REC):
                 os.chmod(REC, 0o755)
             for f in os.listdir(os.path.join(L, "docker")):
@@ -299,18 +311,27 @@ def main():
             for i, svc in enumerate(("redis",) + CONSUMERS + ("web", "caddy")):
                 e = {"REDIS_PASSWORD": OLD} if svc == "redis" else ({"SPRING_DATA_REDIS_PASSWORD": OLD, "X": "1"} if svc in CONSUMERS else {"Y": "2"})
                 ref = "redis:7-alpine" if svc == "redis" else ("parkio-gamification-service" if svc == "gamification-service" else "ghcr.io/x/" + svc)
+                if svc == "gateway-service" and gateway_inbox:
+                    e = dict(e, **{"PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR": "/var/lib/parkio/waitlist-ops-inbox"})
                 cs[f"{i}" * 64] = {"name": "parkio-redis" if svc == "redis" else f"parkio-{svc}-1", "project": "parkio", "service": svc,
-                                   "image": f"sha256:{i}{'0' * 63}", "ref": ref, "hash": "", "health": "healthy", "env": e, "logs": []}
+                                   "image": f"sha256:{i}{'0' * 63}", "ref": ref, "hash": "", "health": "healthy", "env": e, "logs": [],
+                                   "files": "/opt/parkio-release/docker/docker-compose.yml,/opt/parkio-release/docker/docker-compose.apps.yml" + (",/opt/parkio-release/docker/docker-compose.waitlist-ops-inbox.yml" if gateway_inbox and svc == "gateway-service" else ""),
+                                   # the running redis predates the fix: its healthcheck carries the value (first live pre)
+                                   "hc": ["CMD-SHELL", f"redis-cli -a {OLD} ping"] if svc == "redis" else []}
             if extra_carrier:
                 cs["e" * 64] = {"name": "other-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
                                 "env": {"CACHE_PW": OLD}, "logs": []}
+            if cmd_carrier:
+                cs["a" * 64] = {"name": "cmd-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
+                                "env": {}, "cmd": ["sh", "-c", f"use {OLD}"], "logs": []}
             if embedded_carrier:
                 cs["f" * 64] = {"name": "url-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
                                 "env": {"REDIS_URL": f"redis://:{OLD}@redis:6379"}, "logs": []}
             images = {c["ref"]: c["image"] for c in cs.values() if c["project"] == "parkio"}
             json.dump({"containers": cs, "redis": {"passwords": [OLD], "keys": {"k1": "v1"}}, "images": images}, open(os.path.join(W, "state.json"), "w"))
             # align the consumers' and redis's hashes with the model, as after a normal deploy
-            p = subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "config", "--hash", "*"], cwd=R, capture_output=True,
+            overlay = ["-f", "docker/docker-compose.waitlist-ops-inbox.yml"] if gateway_inbox else []
+            p = subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh")] + overlay + ["config", "--hash", "*"], cwd=R, capture_output=True,
                                text=True, env={k: v for k, v in dict(env, PARKIO_ENV_FILE=ENV).items() if k != "LEAKY_SECRET"})
             hashes = dict(l.split() for l in p.stdout.splitlines())
             st = json.load(open(os.path.join(W, "state.json")))
@@ -393,7 +414,8 @@ def main():
         # ---- pre
         reset()
         rc, out = tool("pre")
-        ok(rc == 0 and "redis rotation pre: PASS" in out and "R1 plus the reviewed redis fix" in out, "P1 pre passes at R2", out)
+        ok(rc == 0 and "redis rotation pre: PASS" in out and "R1 plus the reviewed redis fix" in out and "its old healthcheck" in out
+           and "include docker/docker-compose.waitlist-ops-inbox.yml" in out, "P1 pre passes at R2 (old redis healthcheck noted; inbox overlay included)", out)
         ok("NOTE redis will be recreated from the model: its definition differs" in out, "P1 pre notes the redis definition change", out)
         cases = [
             ("P2 the checkout at R1 (no fix) fails", dict(checkout=r1), None, "FAIL the release checkout is clean at R2"),
@@ -416,6 +438,14 @@ def main():
             ("P17 a container not running the model's image reference fails", {}, "config-image-differs",
              "FAIL gateway-service: the container runs the model's image reference"),
         ]
+        reset(gateway_inbox=False)
+        rc, out = tool("pre")
+        ok(rc == 0 and "use the production file list only" in out and not [u for u in ups() if u[:2] == ["wrapper", "-f"]],
+           "P18 a gateway created without the inbox overlay: pre passes, and no Compose call adds it", out)
+        reset(cmd_carrier=True)
+        rc, out = tool("pre")
+        ok(rc == 1 and "FAIL the live containers carrying the value are exactly the expected ones" in out,
+           "P5b another container carrying the value outside Env (its command) fails", out)
         reset()
         rc, out = tool("pre", extra={"RRT_HOST": "some-other-host"})
         ok(rc == 1 and "FAIL host some-other-host" in out, "P15 another host fails", out)
@@ -499,8 +529,12 @@ def main():
         ok(state()["redis"]["passwords"] == [NEW], "R2 redis accepts only the new value")
         ok(state()["redis"]["keys"].get("k1") == "v1" and not [k for k in state()["redis"]["keys"] if k.startswith("rotation:probe")],
            "R2 existing data kept; the probe key removed")
-        order = [u[5] for u in ups() if u[:5] == ["wrapper", "up", "-d", "--no-build", "--no-deps"]]
+        order = [u[-1] for u in ups() if u[0] == "wrapper" and "up" in u and "--force-recreate" not in u]
         ok(order == list(CONSUMERS) + ["redis"], "R2 the order: gamification, parking, auth, gateway, then redis", str(order))
+        gw = [c for c in state()["containers"].values() if c["service"] == "gateway-service"][0]
+        ok(gw["env"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR") and gw["files"].endswith("docker-compose.waitlist-ops-inbox.yml")
+           and all(u[1:3] == ["-f", "docker/docker-compose.waitlist-ops-inbox.yml"] for u in ups() if u[0] == "wrapper"),
+           "R2 every Compose call carried the inbox overlay; the recreated gateway kept the relay inbox")
         bak = [f for f in os.listdir(os.path.join(L, "docker")) if ".bak-rrt-" in f]
         ok(len(bak) == 1 and f"REDIS_PASSWORD={OLD}".encode() in open(os.path.join(L, "docker", bak[0]), "rb").read() and
            oct(os.stat(os.path.join(L, "docker", bak[0])).st_mode & 0o777) == "0o600", "R2 the backup holds the old value, mode 600")

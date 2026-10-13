@@ -49,7 +49,13 @@ st = json.load(open(os.path.join(W, "state.json")))
 cs = st["containers"]
 mark = lambda m: os.path.exists(os.path.join(W, m))
 if a[0] == "info": print("29.8.1"); sys.exit(0)
-if a[0] == "ps": print("\n".join(cs)); sys.exit(0)
+if a[0] == "ps":
+    flt = [a[i + 1].split("=", 2) for i in range(len(a) - 1) if a[i] == "--filter"]
+    keep = lambda c: all((k == "com.docker.compose.service" and c["service"] == v) or (k == "com.docker.compose.project" and c["project"] == v)
+                         for _, k, v in flt)
+    print("\n".join(i for i, c in cs.items() if keep(c))); sys.exit(0)
+if a[0] == "inspect" and "--format" in a:
+    print(cs[a[-1]].get("files", "")); sys.exit(0)
 if a[:2] == ["image", "inspect"]:
     iid = st["images"].get(a[-1])
     if iid and mark("tag-moved") and "auth" in a[-1]: iid = "sha256:" + "f" * 64
@@ -76,6 +82,10 @@ a = sys.argv[1:]
 mark = lambda m: os.path.exists(os.path.join(W, m))
 open(os.path.join(W, "argv.log"), "a").write(json.dumps(["wrapper"] + a) + "\n")
 open(os.path.join(W, "env.log"), "a").write(json.dumps({"argv0": "wrapper", "env": sorted(os.environ)}) + "\n")
+OVERLAYS = []
+while a[:1] == ["-f"]:
+    OVERLAYS.append(a[1]); a = a[2:]
+INBOX = any(o.endswith("docker-compose.waitlist-ops-inbox.yml") for o in OVERLAYS)
 env = {}
 for line in open(os.environ["PARKIO_ENV_FILE"], encoding="utf-8"):
     if "=" in line and not line.startswith("#"):
@@ -89,6 +99,7 @@ def service(svc):
         return {"image": "ghcr.io/x/auth", "environment": {k: env.get(k, "") for k in JWT}}
     if svc == "gateway-service":
         e = {"PARKIO_AUTH_JWKS_URI": "http://auth-service:8081/jwks"}
+        if INBOX: e["PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR"] = "/var/lib/parkio/waitlist-ops-inbox"
         return {"environment": e} if mark("gateway-build-only") else {"image": "ghcr.io/x/gateway", "environment": e}
     e = {"Y": "2"}
     if svc == "web" and mark("model-leak"): e["LEAK"] = env.get("PARKIO_JWT_PRIVATE_KEY_PEM", "")
@@ -111,6 +122,7 @@ if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
     if not mark("stale-env-" + svc):
         c["env"] = dict(service(svc)["environment"])
     c["hash"] = mhash(svc)
+    c["files"] = "/opt/parkio-release/docker/docker-compose.yml,/opt/parkio-release/docker/docker-compose.apps.yml" + (",/opt/parkio-release/docker/docker-compose.waitlist-ops-inbox.yml" if INBOX and svc == "gateway-service" else "")
     c["health"] = "unhealthy" if mark("unhealthy-" + svc) else "healthy"
     if svc == "gateway-service":
         auth = [x for x in st["containers"].values() if x["service"] == "auth-service"][0]
@@ -272,7 +284,7 @@ def main():
                         dst.write(open(src).read())
                     os.remove(src)
 
-        def reset(checkout=r2, env_pem_file=None, add="", auth_pem=None, extra_carrier=False, gateway_build_only=False):
+        def reset(checkout=r2, env_pem_file=None, add="", auth_pem=None, extra_carrier=False, gateway_build_only=False, gateway_inbox=True):
             for f in os.listdir(W):
                 if f in ("tag-moved", "model-leak", "env-affects-web", "jwks-stale", "jwks-extra", "gateway-keeps-old", "gateway-rejects-new",
                          "probe-forwards", "preflight-fail", "gateway-build-only", "config-image-differs") or\
@@ -297,10 +309,13 @@ def main():
             cs = {}
             for i, svc in enumerate(("auth-service", "gateway-service", "web", "caddy")):
                 e = auth_env if svc == "auth-service" else ({"PARKIO_AUTH_JWKS_URI": "http://auth-service:8081/jwks"} if svc == "gateway-service" else {"Y": "2"})
+                if svc == "gateway-service" and gateway_inbox:
+                    e = dict(e, **{"PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR": "/var/lib/parkio/waitlist-ops-inbox"})
                 cs[f"{i}" * 64] = {"name": f"parkio-{svc}-1", "project": "parkio", "service": svc, "image": f"sha256:{i}{'0' * 63}",
                                    "ref": ("parkio-gateway-service" if gateway_build_only and svc == "gateway-service" else
                                            "ghcr.io/x/" + ("auth" if svc == "auth-service" else "gateway" if svc == "gateway-service" else svc)),
-                                   "hash": "", "health": "healthy", "env": dict(e)}
+                                   "hash": "", "health": "healthy", "env": dict(e),
+                                   "files": "/opt/parkio-release/docker/docker-compose.yml,/opt/parkio-release/docker/docker-compose.apps.yml" + (",/opt/parkio-release/docker/docker-compose.waitlist-ops-inbox.yml" if gateway_inbox and svc == "gateway-service" else "")}
             if extra_carrier:
                 cs["e" * 64] = {"name": "other-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
                                 "env": {"COPY": OLD.replace("\n", "\\n")}}
@@ -308,7 +323,8 @@ def main():
             st = {"containers": cs, "images": images, "gateway_keys": {"parkio-auth-rs256-1": OLD.replace("\n", "\\n")},
                   "jwks_stale": dict(auth_env)}
             json.dump(st, open(os.path.join(W, "state.json"), "w"))
-            p = subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "config", "--hash", "*"], cwd=R, capture_output=True, text=True,
+            overlay = ["-f", "docker/docker-compose.waitlist-ops-inbox.yml"] if gateway_inbox else []
+            p = subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh")] + overlay + ["config", "--hash", "*"], cwd=R, capture_output=True, text=True,
                                env={k: v for k, v in dict(env, PARKIO_ENV_FILE=ENV).items() if k != "LEAKY_SECRET"})
             hashes = dict(l.split() for l in p.stdout.splitlines())
             for c in st["containers"].values():
@@ -343,7 +359,7 @@ def main():
 
         def ups():
             p = os.path.join(W, "argv.log")
-            return [json.loads(l) for l in open(p) if l.startswith('["wrapper", "up"')] if os.path.exists(p) else []
+            return [u for u in (json.loads(l) for l in open(p)) if u[0] == "wrapper" and "up" in u] if os.path.exists(p) else []
 
         def jbak():
             return [f for f in os.listdir(os.path.join(L, "docker")) if ".bak-jrt-" in f]
@@ -388,6 +404,10 @@ def main():
         reset()
         rc, out = tool("pre", extra={"JRT_HOST": "some-other-host"})
         ok(rc == 1 and "FAIL host some-other-host" in out, "P11 another host fails", out)
+        reset(gateway_inbox=False)
+        rc, out = tool("pre")
+        ok(rc == 0 and "use the production file list only" in out and not [u for u in ups() if u[:2] == ["wrapper", "-f"]],
+           "P14 a gateway created without the inbox overlay: pre passes, and no Compose call adds it", out)
         reset(gateway_build_only=True)
         rc, out = tool("pre")
         ok(rc == 0, "P12 a build-only gateway (no image in the model) passes under its implicit name", out)
@@ -438,6 +458,9 @@ def main():
         ok(auth()["env"]["PARKIO_JWT_PRIVATE_KEY_PEM"] == new.replace("\n", "\\n") and auth()["env"]["PARKIO_JWT_KEY_ID"] == env_kid(),
            "R2 auth-service runs with the new key (container form) and kid")
         ok(state()["gateway_keys"] == {env_kid(): new.replace("\n", "\\n")}, "R2 the gateway's cache holds only the new key")
+        gw = [c for c in state()["containers"].values() if c["service"] == "gateway-service"][0]
+        ok(gw["env"].get("PARKIO_WAITLIST_OPS_NOTIFICATIONS_EXPORT_DIR") and gw["files"].endswith("docker-compose.waitlist-ops-inbox.yml"),
+           "R2 the recreated gateway kept the relay inbox (the overlay was in its Compose call)")
         order = [(u[-1], "--force-recreate" in u) for u in ups()]
         ok(order == [("auth-service", False), ("gateway-service", True)], "R2 auth-service first, then gateway-service with --force-recreate", str(order))
         bak = jbak()
