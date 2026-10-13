@@ -15,6 +15,7 @@ ok   K7 R1 -> R2 passes
 ok   K8 checkout at R2 again passes, unchanged
 ok   P1 pre passes at R2
 ok   P1 pre notes the redis definition change
+ok   P15 another host fails
 ok   P2 the checkout at R1 (no fix) fails
 ok   P4 an unfixed model (value in the healthcheck) fails
 ok   P5 another container of another project carrying the value fails
@@ -23,6 +24,11 @@ ok   P6b another service of the model carrying the value fails
 ok   P11 a moved redis tag fails
 ok   P4b a redis command that passes the password as an argument fails
 ok   P9 an env file value that redis does not run with fails
+ok   P12 another project's container embedding the value in a URL fails
+ok   P13 a consumer whose aggregate health is not 200 fails
+ok   P14 dockerd debug logging fails
+ok   P16 a moved implicit tag of the build-only consumer fails
+ok   P17 a container not running the model's image reference fails
 ok   P3 a compose file other than the reviewed fix fails
 ok   P7 a consumer with another pending change fails
 ok   P8 the backup window is refused
@@ -52,10 +58,24 @@ ok   X4 an unlisted file still holding the old value fails; the backup keeps the
 ok   X5 a listed symlink is left alone, and so is its target
 ok   X7 redact while redis still accepts the old value is refused; nothing changes
 ok   X5b the live env file is never redacted, even through a link
+ok   X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup
+ok   X10 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old value
 ok   R3 a consumer that does not come back stops the rotation before redis
 ok   R3 rollback: the env file, the moved consumers and redis are back on the old value only
 ok   R4 a failing preflight restores the env file at once
 ok   R4 rollback resets redis to the old password only (resetpass)
+ok   R15 setup: interrupted right after recreating parking-service (it holds the new value)
+ok   R15 rollback after an interruption recreates the moving consumer too and verifies the end state
+ok   R17 a second rollback is refused (the rotation is marked rolled-back)
+ok   R16 rollback without the backup is refused and changes nothing
+ok   R18 setup: interrupted right after ACL SETUSER (two passwords)
+ok   R18 rollback after an interruption in phase A resets redis to the old password only
+ok   R24 rollback also recreates a consumer that moved outside the tool's lists (live state)
+ok   R22 rollback that leaves a consumer on the new value fails its end-state check
+ok   R23 rollback that leaves redis accepting the new value fails
+ok   R20 a redis restart during phase C stops the rotation at the next consumer
+ok   R20 rollback restores the old value everywhere
+ok   R21 a redis restart during the last consumer stops before the redis recreate (the probe write)
 ok   R5 redis not healthy after its recreate fails and points to the emergency section
 ok   R5b rollback after phase D is refused; nothing changes
 ok   R6a an authentication error in a consumer's logs fails
@@ -69,9 +89,10 @@ ok   R12 a recreated redis with the value in its healthcheck fails
 ok   R13 a recreated redis with the value in its arguments fails
 ok   R14a a recreated redis on another image fails
 ok   R14b a recreated redis off the model's hash fails
+ok   R19 a consumer whose aggregate health fails after the redis recreate fails
 ok   S status lists the records
 ok   no old or new value in any output or record
 ok   no value in any process argument (docker, wrapper)
 ok   no child saw a variable outside the allowlist
 ok   REDISCLI_AUTH reached only `docker exec` (redis-cli)
-=== summary: 76 ok, 0 FAIL ===
+=== summary: 97 ok, 0 FAIL ===

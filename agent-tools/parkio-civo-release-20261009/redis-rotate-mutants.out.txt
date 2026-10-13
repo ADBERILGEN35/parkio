@@ -1,11 +1,27 @@
-tool sha256 88166a1a00a2f358; self-test sha256 05bff7b70bd00a95
+tool sha256 e908115001a2168a; self-test sha256 096ac0ed1a2c613a
 backup-window                      killed: P8 the backup window is refused
 env-matches-redis                  killed: P9 an env file value that redis does not run with fails
 model-value-outside-env            killed: P4 an unfixed model (value in the healthcheck) fails
 model-fix-command                  killed: P4b a redis command that passes the password as an argument fails
 model-consumers                    killed: P6 a consumer missing from the model fails; P6b another service of the model carrying the value fails
-image-identity                     killed: P11 a moved redis tag fails
-live-carriers                      killed: P5 another container of another project carrying the value fails
+image-identity                     killed: P11 a moved redis tag fails; P16 a moved implicit tag of the build-only consumer fails
+build-only-implicit-ref            killed: P1 pre passes at R2; R8 a failed ACL SETUSER stops before the env file is touched
+container-runs-model-ref           killed: P17 a container not running the model's image reference fails
+dockerd-debug-off                  killed: P14 dockerd debug logging fails
+pre-aggregate-health               killed: P13 a consumer whose aggregate health is not 200 fails
+post-aggregate-health              killed: R19 a consumer whose aggregate health fails after the redis recreate fails
+carriers-substring                 killed: P12 another project's container embedding the value in a URL fails
+redis-accepts-new-before-consumer  killed: R20 a redis restart during phase C stops the rotation at the next consumer
+probe-write-stops                  killed: R21 a redis restart during the last consumer stops before the redis recreate (the probe write)
+progress-before-acl                killed: R18 rollback after an interruption in phase A resets redis to the old password only
+rollback-live-state                killed: R24 rollback also recreates a consumer that moved outside the tool's lists (live state)
+rollback-backup-required           killed: R16 rollback without the backup is refused and changes nothing
+rollback-end-state-consumers       killed: R22 rollback that leaves a consumer on the new value fails its end-state check
+rollback-end-state-redis-refuses   killed: R23 rollback that leaves redis accepting the new value fails
+rollback-marks-rolled-back         killed: R17 a second rollback is refused (the rotation is marked rolled-back)
+redact-older-attempts              killed: X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup
+redact-oserror-recorded            killed: X10 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old value
+live-carriers                      killed: P5 another container of another project carrying the value fails; P12 another project's container embedding the value in a URL fails
 consumer-at-model-hash             killed: P7 a consumer with another pending change fails
 redis-accepts-current              killed: P10 a redis that does not accept the env file's value fails
 pre-age                            killed: R1c a pre older than an hour blocks rotate
@@ -15,11 +31,11 @@ acl-setuser-ok                     killed: R8 a failed ACL SETUSER stops before 
 preflight                          killed: R4 a failing preflight restores the env file at once; R4 rollback resets redis to the old password only (resetpass)
 hash-set                           killed: R9 another service's model changing with the value restores the env file and stops
 restore-env-on-B-failure           killed: R9 another service's model changing with the value restores the env file and stops; R4 a failing preflight restores the env file at once
-consumer-new-healthy               killed: R3 a consumer that does not come back stops the rotation before redis; R3 rollback: the env file, the moved consumers and redis are back on the old va
+consumer-new-healthy               killed: X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup; R3 a consumer that does not come back stops the rotat
 consumer-new-value                 killed: R10 a recreated consumer without the new value fails
 consumer-others-unchanged          killed: R6e another container changed at a consumer's recreate fails
-stop-before-redis                  killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
-consumer-order                     killed: R2 the order: gamification, parking, auth, gateway, then redis
+stop-before-redis                  ANCHOR x2
+consumer-order                     killed: R2 the order: gamification, parking, auth, gateway, then redis; R20 a redis restart during phase C stops the rotation at the next consumer
 redis-new-healthy                  killed: R5 redis not healthy after its recreate fails and points to the emergency section
 redis-model-hash                   killed: R14b a recreated redis off the model's hash fails
 redis-same-image                   killed: R14a a recreated redis on another image fails
@@ -30,9 +46,9 @@ redis-inspect-leak                 killed: R12 a recreated redis with the value 
 redis-argv-leak                    killed: R13 a recreated redis with the value in its arguments fails
 consumer-auth-errors               killed: R6a an authentication error in a consumer's logs fails
 final-others-unchanged             killed: R6c another container changed at the redis recreate fails
-rollback-phase-guard               killed: R7 rollback after the redis recreate is refused; nothing changes; R5b rollback after phase D is refused; nothing changes
-rollback-env-restore               killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
-rollback-consumers                 killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only
+rollback-phase-guard               killed: R7 rollback after the redis recreate is refused; nothing changes; R17 a second rollback is refused (the rotation is marked rolled-back)
+rollback-env-restore               ANCHOR x0
+rollback-consumers                 ANCHOR x0
 rollback-resetpass                 killed: R3 rollback: the env file, the moved consumers and redis are back on the old value only; R4 rollback resets redis to the old password only (resetpass)
 child-env-allowlist                killed: no child saw a variable outside the allowlist
 auth-as-argument                   killed: no value in any process argument (docker, wrapper)
@@ -49,14 +65,16 @@ redact-holds-new                   killed: X3 a listed file holding the new valu
 redact-missing-ok                  killed: X2 redact after a passing rotation passes; X2 the rotation's backup is redacted last; the live env file is untouched
 redact-keeps-mode                  killed: X2 redact after a passing rotation passes; X2 each file's mode (600, 640, 664, 644) and modification time kept
 redact-keeps-mtime                 killed: X2 redact after a passing rotation passes; X2 each file's mode (600, 640, 664, 644) and modification time kept
-redact-scan                        killed: X4 an unlisted file still holding the old value fails; the backup keeps the old value
+redact-scan                        killed: X4 an unlisted file still holding the old value fails; the backup keeps the old value; R10 a recreated consumer without the new value fails
 redact-backup-last                 killed: X3 a listed file holding the new value fails and is untouched; the backup keeps the old value; X4 an unlisted file still holding the old value fails; 
 redact-already-complete            killed: X6 a second redact reports completion; no old or new value in any output or record
+rollback-moving                    EQUIVALENT (not run): the live-state rule recreates every consumer holding the new value, which covers the moving one
+placeholder-redraw                 EQUIVALENT (not run): a random value matches a placeholder pattern about once in 25,000 draws; the redraw cannot be observed
 new-value-alphabet                 EQUIVALENT (not run): secrets.token_urlsafe(32) always matches [A-Za-z0-9_-]{43}; the check documents the #344 R1 condition
 record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
 scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
 backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
 only-key-changed                   EQUIVALENT (not run): with_value() changes only the key's line; the check guards against a future edit of it
 rotate-model-new-value             EQUIVALENT (not run): pre already refuses a model that interpolates the value outside `environment`
-=== 53/53 killed, 0 survived or broken; 6 equivalent listed ===
-exit=0
+=== 66/69 killed, 3 survived or broken; 8 equivalent listed ===
+exit=1

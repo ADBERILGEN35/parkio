@@ -1,0 +1,5 @@
+supplement to redis-rotate-mutants.out.txt: the three mutants whose anchors the T2/T5 edits moved, rerun on the same tool e908115001a2168a and self-test 096ac0ed1a2c613a
+stop-before-redis                  killed: X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup; R3 rollback: the env file, the moved consumers and re
+rollback-env-restore               killed: X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup; R3 rollback: the env file, the moved consumers and re
+rollback-consumers                 killed: X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup; R3 rollback: the env file, the moved consumers and re
+exit=0

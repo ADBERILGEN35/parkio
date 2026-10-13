@@ -69,6 +69,7 @@ redact (--yes), after a passing rotation, while redis refuses the old value and 
 Records: ~/parkio-release-20261009/redis-rotation/rr-<stamp>/ (mode 700, files 600). Exit 0 = PASS, 1 = FAIL, 2 = usage.
 """
 import calendar
+import glob
 import hashlib
 import json
 import os
@@ -118,6 +119,11 @@ REDACT_FILES = cfg("RRT_REDACT_FILES", ":".join((
 SCAN_ROOTS = cfg("RRT_SCAN_ROOTS", "/opt:/home:/usr/local:/tmp:/var/tmp").split(":")
 MARKER = "CHANGE_ME_redacted_after_rotation_20261013"   # the preflight's is_placeholder refuses CHANGE_ME
 NEW_VALUE = re.compile(r"[A-Za-z0-9_-]{43}")   # secrets.token_urlsafe(32): no quote, backslash or newline (#344 review R1)
+# The preflight's is_placeholder (case-insensitive); a value that happens to contain one is drawn again (review T9).
+PLACEHOLDER = re.compile(r"CHANGE_ME|CHANGEME|CHANGE-ME|PLACEHOLDER|REPLACE_ME|REPLACEME|YOUR_|<[A-Za-z_-]+>|DUMMY|SAMPLE_|TODO|FIXME", re.I)
+# Consumers whose aggregate /actuator/health includes the Redis indicator (gamification only carries the value).
+APP_PORTS = {"gateway-service": 8080, "auth-service": 8081, "parking-service": 8083}
+FAULT = cfg("RRT_FAULT", "")                   # self-test only: simulate an interruption at a named point
 PRE_MAX_AGE = 3600
 _T = time.time()
 STAMP = time.strftime("%Y%m%dT%H%M%S", time.gmtime(_T)) + "%03dZ" % (int(_T * 1000) % 1000)
@@ -186,7 +192,7 @@ def record_dir():
 
 def save_progress(rec):
     """The rotation's phase and moved consumers, for a rollback after an interruption (replaced atomically)."""
-    text = json.dumps({k: rec.get(k) for k in ("stamp", "phase", "backup", "moved")}, sort_keys=True)
+    text = json.dumps({k: rec.get(k) for k in ("stamp", "phase", "backup", "moved", "moving")}, sort_keys=True)
     path = os.path.join(record_dir(), "rotate-progress.json")
     fd, tmp = tempfile.mkstemp(dir=record_dir())
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -251,7 +257,7 @@ def carriers(value, ds):
     """{container name: [where]} for every container of any project that carries `value` anywhere."""
     out = {}
     for d in ds:
-        where = sorted(k for k, v in env_of(d).items() if v == value)
+        where = sorted(k for k, v in env_of(d).items() if value in v)     # embedded too, e.g. redis://:<v>@redis (review T6)
         rest = dict(d)
         rest["Config"] = {k: v for k, v in (d.get("Config") or {}).items() if k != "Env"}
         if value in json.dumps(rest):
@@ -288,7 +294,7 @@ def model_consumers(m, value):
         env = s.get("environment") or {}
         if isinstance(env, list):
             env = dict(e.split("=", 1) if "=" in e else (e, "") for e in env)
-        keys = sorted(k for k, v in env.items() if v is not None and str(v) == value)
+        keys = sorted(k for k, v in env.items() if v is not None and value in str(v))
         if keys:
             found[svc] = keys
     return found
@@ -304,6 +310,13 @@ def redis_cli(name, password, commands):
     rc, out, err = run(["docker", "exec", "-i", "-e", "REDISCLI_AUTH", name, "redis-cli"], extra_env={"REDISCLI_AUTH": password},
                        stdin=commands.encode(), timeout=60)
     return rc, (out + err).decode("utf-8", "replace")
+
+
+def aggregate_health(name, port):
+    """The HTTP status of the consumer's aggregate /actuator/health, which includes its Redis indicator."""
+    rc, out, _ = run(["docker", "exec", name, "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", f"http://localhost:{port}/actuator/health"],
+                     timeout=60)
+    return out.decode().strip() if rc == 0 else f"exit {rc}"
 
 
 def ping(name, password):
@@ -406,6 +419,9 @@ def basics():
     check(f"host {HOST}", socket.gethostname() == HOST, socket.gethostname())
     rc, out, _ = run(["docker", "info", "--format", "{{.ServerVersion}}"])
     check("docker usable without sudo", rc == 0)
+    rc, out, _ = run(["docker", "info", "--format", "{{.Debug}}"])
+    check("dockerd debug logging is off (it would log the exec request carrying REDISCLI_AUTH; review T8)", rc == 0 and out.decode().strip() == "false",
+          out.decode().strip())
     ok, detail = release_ok()
     check("the release checkout is clean at R2 (R1 plus the reviewed redis fix)", ok, detail)
 
@@ -435,9 +451,10 @@ def cmd_pre():
         check("the model's consumers are exactly the expected ones", mc == want, ", ".join(f"{k}:{'/'.join(v)}" for k, v in sorted(mc.items())))
         for svc in (REDIS,) + CONSUMERS:
             d = parkio(svc, ds)
-            ref = ((m.get("services") or {}).get(svc) or {}).get("image") or ""
-            check(f"{svc}: the model's image resolves to the running container's image (no moved tag)",
-                  bool(d) and bool(ref) and image_id(ref) == d.get("Image"), ref)
+            # a build-only service has no `image` in the model: Compose names it <project>-<service> (review T1)
+            ref = ((m.get("services") or {}).get(svc) or {}).get("image") or f"{PROJECT}-{svc}"
+            check(f"{svc}: the container runs the model's image reference, which resolves to its image (no moved tag)",
+                  bool(d) and (d.get("Config") or {}).get("Image") == ref and image_id(ref) == d.get("Image"), ref)
     live = carriers(value or "\0", ds)
     want_live = {red.get("Name", "").lstrip("/"): [KEY]} if red else {}
     for svc in CONSUMERS:
@@ -458,6 +475,10 @@ def cmd_pre():
     say(f"  NOTE redis will be recreated from the model: its definition {'differs' if rec['redisPendingDefinition'] else 'does not differ'} "
         "from the running container (the disclosure fix, plus the model's other redis settings; see the procedure)")
     check("redis accepts the current value", bool(red) and ping(red.get("Name", "").lstrip("/"), value or ""))
+    for svc, port in APP_PORTS.items():
+        d = parkio(svc, ds)
+        code = aggregate_health(d.get("Name", "").lstrip("/"), port) if d else "?"
+        check(f"{svc}: aggregate health 200 (it includes Redis), the baseline for the post-check", code == "200", code)
     rec["baseline"] = baseline(ds)
     rec["envSha256"] = hashlib.sha256(data).hexdigest() if data else None
     return finish("pre", rec)
@@ -498,15 +519,19 @@ def cmd_rotate(yes):
     red = parkio(REDIS, ds)
     rname = red.get("Name", "").lstrip("/")
     new = secrets.token_urlsafe(32)
+    while PLACEHOLDER.search(new):
+        new = secrets.token_urlsafe(32)
     SECRETS.append(new)
     if not check("the new value is 43 URL-safe base64 characters (valid in redis's quoted config string)", NEW_VALUE.fullmatch(new)):
         return finish("rotate", rec)
     st = os.stat(ENV_FILE)
 
     say("A. add the new value as a second password of the running redis (stdin; never an argument)")
-    rc, out = redis_cli(rname, old, f"ACL SETUSER default >{new}\n")
     rec["phase"] = "A"
-    save_progress(rec)
+    save_progress(rec)                       # before the ACL command: an interruption here is still rolled back (review T2)
+    rc, out = redis_cli(rname, old, f"ACL SETUSER default >{new}\n")
+    if FAULT == "after-acl":
+        raise SystemExit(99)
     if not check("ACL SETUSER default >new: OK", rc == 0 and "OK" in out) or not check("old and new both work", ping(rname, old) and ping(rname, new)):
         say("  run `rollback --yes`: it resets redis to the old password only")
         return finish("rotate", rec)
@@ -528,6 +553,8 @@ def cmd_rotate(yes):
     rec["phase"] = "B"
     save_progress(rec)
     write_atomically(newdata, st)
+    if FAULT == "after-env-write":
+        raise SystemExit(99)
     after = open(ENV_FILE, "rb").read()
     ok = check("only REDIS_PASSWORD changed, mode and owner kept", after == newdata and only_key_changed(data, after) and
                (os.stat(ENV_FILE).st_mode, os.stat(ENV_FILE).st_uid) == (st.st_mode, st.st_uid))
@@ -550,8 +577,16 @@ def cmd_rotate(yes):
     base = baseline(inspect_all())
     moved = []
     for svc in CONSUMERS:
+        if not check(f"redis still accepts the new value before {svc} (a restart would have dropped it; review T5)", ping(rname, new)):
+            say("  STOP before redis was recreated: the old value still works. Run `rollback --yes`.")
+            return finish("rotate", rec)
+        rec["phase"] = "C"
+        rec["moving"] = svc
+        save_progress(rec)                   # before the recreate: rollback knows which consumer may have moved (review T2)
         before = parkio(svc)
         rc, out, err = wrapper("up", "-d", "--no-build", "--no-deps", svc)
+        if FAULT == f"after-up:{svc}":
+            raise SystemExit(99)
         d = wait_container(svc, (before or {}).get("Id"))
         lab = ((d or {}).get("Config") or {}).get("Labels") or {}
         good = check(f"{svc}: wrapper exit 0, a new healthy container", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy",
@@ -560,7 +595,7 @@ def cmd_rotate(yes):
                       bool(d) and env_of(d).get(CONSUMER_KEY) == new and lab.get("com.docker.compose.config-hash") == (model_hashes() or {}).get(svc))
         moved.append(svc)
         rec["moved"] = list(moved)
-        rec["phase"] = "C"
+        rec["moving"] = None
         save_progress(rec)
         others = changed_since(base, inspect_all(), {f"{PROJECT}/{s}" for s in moved})
         good &= check(f"{svc}: every other container unchanged", not others, ", ".join(others))
@@ -572,7 +607,9 @@ def cmd_rotate(yes):
     probe = "rotation:probe:" + secrets.token_hex(6)
     marker = secrets.token_hex(8)
     rc, out = redis_cli(rname, new, f"SET {probe} {marker} EX 3600\n")
-    check("probe key written", rc == 0 and "OK" in out)
+    if not check("probe key written with the new value (redis still accepts it)", rc == 0 and "OK" in out):
+        say("  STOP before redis was recreated: the old value still works. Run `rollback --yes`.")
+        return finish("rotate", rec)
     before = parkio(REDIS)
     t_switch = time.time()
     rec["phase"] = "D"
@@ -602,6 +639,10 @@ def cmd_rotate(yes):
         rc, logs, lerr = run(["docker", "logs", "--since", str(int(t_switch)), c.get("Id")]) if c else (1, b"", b"")
         check(f"{svc}: healthy after the redis recreate, no authentication error in its logs since",
               bool(c) and health(c) == "healthy" and not AUTH_ERRORS.search(logs + lerr), health(c) or "?")
+    for svc, port in APP_PORTS.items():
+        c = parkio(svc, ds)
+        code = aggregate_health(c.get("Name", "").lstrip("/"), port) if c else "?"
+        check(f"{svc}: reconnected with the new value (aggregate health 200, which includes Redis; review T7)", code == "200", code)
     others = changed_since(base, ds, {f"{PROJECT}/{s}" for s in CONSUMERS + (REDIS,)})
     check("every other container unchanged", not others, ", ".join(others))
     rec["phase"] = "done"
@@ -610,42 +651,90 @@ def cmd_rotate(yes):
     return finish("rotate", rec)
 
 
+def latest_path(name):
+    """The path of the newest rr-*/<name>.json, or None."""
+    try:
+        found = [os.path.join(OUT, d, f"{name}.json") for d in sorted(os.listdir(OUT)) if d.startswith("rr-")]
+    except OSError:
+        return None
+    found = [p for p in found if os.path.isfile(p)]
+    return found[-1] if found else None
+
+
+def value_of(data):
+    value = None
+    for line in (data or b"").splitlines():
+        if line.startswith(KEY.encode() + b"="):
+            value = line.split(b"=", 1)[1].decode("utf-8", "replace").strip().strip('"').strip("'")
+    return value
+
+
 def cmd_rollback(yes):
     if not yes:
         print("usage: rollback needs --yes", file=sys.stderr)
         return 2
     say(f"redis rotation rollback | {STAMP}")
     rec = {"tool": "redis-rotate", "command": "rollback", "stamp": STAMP}
-    rot = latest("rotate-progress")
-    phase = (rot or {}).get("phase")
+    path = latest_path("rotate-progress")
+    prog = json.load(open(path, encoding="utf-8")) if path else None
+    phase = (prog or {}).get("phase")
     if not check("a rotate record exists, stopped before redis was recreated (phase A, B or C)", phase in ("A", "B", "C"), phase or "none"):
         say("  after phase D the old value is invalid by design; see the procedure's emergency section")
         return finish("rollback", rec)
     current, data = env_file_value()
-    backup = os.path.join(os.path.dirname(ENV_FILE), rot.get("backup") or "")
-    old_data = open(backup, "rb").read() if rot.get("backup") and os.path.isfile(backup) else data
-    old = None
-    for line in (old_data or b"").splitlines():
-        if line.startswith(KEY.encode() + b"="):
-            old = line.split(b"=", 1)[1].decode().strip().strip('"').strip("'")
+    old_data = data
+    if phase in ("B", "C"):
+        # The env file was written: the backup is the only trusted source of the previous value (review T2).
+        try:
+            old_data = open(os.path.join(os.path.dirname(ENV_FILE), prog.get("backup") or ""), "rb").read() if prog.get("backup") else None
+        except OSError:
+            old_data = None
+        if not check("the rotation's backup exists and is readable", old_data is not None):
+            return finish("rollback", rec)
+    old = value_of(old_data)
     SECRETS.extend([current or "", old or ""])
-    st = os.stat(ENV_FILE)
-    if phase in ("B", "C") and data != old_data:
+    if not check("the previous value is known", bool(old)):
+        return finish("rollback", rec)
+    if data != old_data:
         if not check("the backup differs from the env file only in REDIS_PASSWORD", only_key_changed(old_data, data)):
             return finish("rollback", rec)
-        write_atomically(old_data, st)
-        check("the env file holds the previous value again", open(ENV_FILE, "rb").read() == old_data)
-    for svc in rot.get("moved") or []:
+        write_atomically(old_data, os.stat(ENV_FILE))
+    check("the env file is byte-identical to the previous state", open(ENV_FILE, "rb").read() == old_data)
+    # Recreate from live state: every consumer not carrying the previous value, plus the moved and moving ones (review T2).
+    ds = inspect_all()
+    todo = [s for s in CONSUMERS if s in (prog.get("moved") or []) or s == prog.get("moving")
+            or env_of(parkio(s, ds) or {}).get(CONSUMER_KEY) != old]
+    rec["recreated"] = todo
+    for svc in todo:
         before = parkio(svc)
-        rc, _, _ = wrapper("up", "-d", "--no-build", "--no-deps", svc)
+        rc, _, _ = wrapper("up", "-d", "--no-build", "--no-deps", "--force-recreate", svc)
         d = wait_container(svc, (before or {}).get("Id"))
-        check(f"{svc}: recreated with the previous value, healthy", rc == 0 and bool(d) and env_of(d).get(CONSUMER_KEY) == old and health(d) == "healthy")
+        check(f"{svc}: recreated and healthy", rc == 0 and bool(d) and d.get("Id") != (before or {}).get("Id") and health(d) == "healthy",
+              f"exit {rc}, {health(d) or '?'}")
     red = parkio(REDIS)
     rname = (red or {}).get("Name", "").lstrip("/")
     # resetpass drops every password, the unknown new one included, and >old adds the previous one back
     rc, out = redis_cli(rname, old, f"ACL SETUSER default resetpass >{old}\n")
-    check("redis reset to the previous password only", rc == 0 and "OK" in out and ping(rname, old) and
-          (current == old or not ping(rname, current)))
+    check("redis reset to the previous password only (resetpass, on stdin)", rc == 0 and "OK" in out)
+    # The end state, verified before PASS (review T2).
+    ds = inspect_all()
+    hashes = model_hashes() or {}
+    for svc in CONSUMERS:
+        d = parkio(svc, ds)
+        lab = ((d or {}).get("Config") or {}).get("Labels") or {}
+        check(f"{svc}: carries the previous value, healthy, at the model's hash",
+              bool(d) and env_of(d).get(CONSUMER_KEY) == old and health(d) == "healthy" and lab.get("com.docker.compose.config-hash") == hashes.get(svc))
+    check("redis accepts the previous value", ping(rname, old))
+    if current and current != old:
+        check("redis refuses the rotation's value", not ping(rname, current))
+    if all(c["pass"] for c in CHECKS):
+        prog["phase"] = "rolled-back"
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(prog, sort_keys=True))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+        say("  the rotation is marked rolled-back; run pre before another attempt")
     return finish("rollback", rec)
 
 
@@ -661,14 +750,20 @@ def redact_file(path, old, new):
         return False, "cannot be read"
     if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
         return False, "not a regular file of this user; left alone"
-    data = open(path, "rb").read()
+    try:
+        data = open(path, "rb").read()
+    except OSError as e:
+        return False, f"cannot be read ({e.__class__.__name__}); left alone"
     if new.encode() in data:
         return False, "holds the new value; left alone"
     n = data.count(old.encode())
     if n == 0:
         return True, "no occurrence (already redacted)"
     out = data.replace(old.encode(), MARKER.encode())
-    fd, tmp = tempfile.mkstemp(prefix=".rrt-redact-", dir=os.path.dirname(path))
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".rrt-redact-", dir=os.path.dirname(path))
+    except OSError as e:
+        return False, f"cannot be rewritten ({e.__class__.__name__}); left alone (review T4)"
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(out)
@@ -678,6 +773,10 @@ def redact_file(path, old, new):
             os.fchown(fh.fileno(), st.st_uid, st.st_gid)
         os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
         os.replace(tmp, path)
+    except OSError as e:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        return False, f"cannot be rewritten ({e.__class__.__name__}); left alone (review T4)"
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -733,7 +832,9 @@ def cmd_redact(yes):
                  bool(old) and bool(new) and old != new and bool(red) and not ping(rname, old) and ping(rname, new)):
         return finish("redact", rec)
     rec["files"] = {}
-    for path in REDACT_FILES:
+    # every rotation attempt's backup holds the old value; the latest one is the source and goes last (review T3)
+    attempts = sorted(p for p in glob.glob(ENV_FILE + ".bak-rrt-*") if os.path.realpath(p) != os.path.realpath(backup))
+    for path in REDACT_FILES + attempts:
         ok, detail = redact_file(path, old, new)
         rec["files"][path] = detail
         check(f"{path}: redacted", ok, detail)

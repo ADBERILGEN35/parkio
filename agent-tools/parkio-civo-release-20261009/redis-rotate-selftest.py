@@ -53,7 +53,8 @@ def save(): json.dump(st, open(P + ".t", "w")); os.replace(P + ".t", P)
 def by_name(n): return next((i for i, c in cs.items() if c["name"] == n or i == n), None)
 mark = lambda m: os.path.exists(os.path.join(W, m))
 def seen(v): open(os.path.join(W, "seen.txt"), "a").write(v + "\n")
-if a[0] == "info": print("29.8.1"); sys.exit(0)
+if a[0] == "info":
+    print(("true" if mark("daemon-debug") else "false") if "{{.Debug}}" in a else "29.8.1"); sys.exit(0)
 if a[0] == "ps": print("\n".join(cs)); sys.exit(0)
 if a[0] == "inspect":
     out = []
@@ -61,6 +62,7 @@ if a[0] == "inspect":
         c = cs[i]
         out.append({"Id": i, "Name": "/" + c["name"], "Image": c["image"],
                     "Config": {"Env": [f"{k}={v}" for k, v in c["env"].items()], "Cmd": c.get("cmd", []),
+                               "Image": "other:tag" if mark("config-image-differs") and c["service"] == "gateway-service" else c.get("ref"),
                                "Healthcheck": {"Test": c.get("hc", [])},
                                "Labels": {"com.docker.compose.project": c["project"], "com.docker.compose.service": c["service"],
                                           "com.docker.compose.config-hash": c["hash"]}},
@@ -69,6 +71,8 @@ if a[0] == "inspect":
 if a[:2] == ["image", "inspect"]:
     iid = st.get("images", {}).get(a[-1])
     if iid and mark("tag-moved") and a[-1].startswith("redis"):
+        iid = "sha256:" + "f" * 64
+    if iid and mark("tag-moved-gamification") and a[-1].startswith("parkio-gamification"):
         iid = "sha256:" + "f" * 64
     print(iid or "") if iid else sys.exit(1)
     sys.exit(0)
@@ -79,6 +83,10 @@ if a[0] == "logs":
     c = cs[by_name(a[-1])]
     since = float(a[a.index("--since") + 1]) if "--since" in a else 0
     print("\n".join(l for t, l in c.get("logs", []) if t >= since)); sys.exit(0)
+if a[0] == "exec" and a[2] == "curl":
+    c = cs[by_name(a[1])]
+    down = mark("agg-503-" + c["service"]) or (mark("agg-503-after-redis-" + c["service"]) and st.get("redis_recreated"))
+    print("503" if down else "200"); sys.exit(0)
 if a[0] == "exec":
     c = cs[by_name(a[4])]
     assert a[1:4] == ["-i", "-e", "REDISCLI_AUTH"] and a[5] == "redis-cli", a
@@ -96,7 +104,7 @@ if a[0] == "exec":
             if mark("acl-fail"):
                 print("(error) ERR Error in ACL SETUSER modifier"); continue
             for op in w[3:]:
-                if op == "resetpass": st["redis"]["passwords"] = []
+                if op == "resetpass" and not mark("resetpass-noop"): st["redis"]["passwords"] = []
                 elif op.startswith(">"): st["redis"]["passwords"].append(op[1:])
                 elif op.startswith("<") and op[1:] in st["redis"]["passwords"]: st["redis"]["passwords"].remove(op[1:])
             print("OK")
@@ -128,6 +136,8 @@ def service(svc):
     if svc in ("gamification-service", "parking-service", "auth-service", "gateway-service"):
         e = {"SPRING_DATA_REDIS_PASSWORD": pw, "X": "1"}
         if mark("model-drops-" + svc): e.pop("SPRING_DATA_REDIS_PASSWORD")
+        if svc == "gamification-service":
+            return {"environment": e}                     # build-only, as in production: no image key (review T1)
         return {"image": "ghcr.io/x/" + svc, "environment": e}
     if svc == "redis-exporter":
         return {"image": "x/redis-exporter", "environment": {"REDIS_PASSWORD": pw}}
@@ -142,8 +152,12 @@ if a[:2] == ["config", "--format"]:
 if a[:2] == ["config", "--hash"]:
     print("\n".join(f"{s} {mhash(s)}" for s in SERVICES)); sys.exit(0)
 if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
-    svc = a[4]
+    svc = a[-1]
     P = os.path.join(W, "state.json"); st = json.load(open(P))
+    if svc == "parking-service" and mark("redis-restart-during-c"):
+        st["redis"]["passwords"] = st["redis"]["passwords"][:1]       # the old container restarted with --requirepass OLD
+    if svc == "gateway-service" and mark("redis-restart-during-c-gateway"):
+        st["redis"]["passwords"] = st["redis"]["passwords"][:1]
     old = [i for i, c in st["containers"].items() if c["project"] == "parkio" and c["service"] == svc][0]
     c = dict(st["containers"].pop(old))
     if not mark("stale-env-" + svc):
@@ -152,6 +166,7 @@ if a[:4] == ["up", "-d", "--no-build", "--no-deps"]:
     c["health"] = "unhealthy" if mark("unhealthy-" + svc) else "healthy"
     now = time.time()
     if svc == "redis":
+        st["redis_recreated"] = True
         prev = st["redis"]["passwords"]
         st["redis"]["passwords"] = [pw] + ([x for x in prev if x != pw] if mark("keeps-old") else [])
         if mark("keys-lost"): st["redis"]["keys"] = {}
@@ -252,12 +267,16 @@ def main():
         OTHER = secrets.token_urlsafe(24)
         allvalues.append(OTHER)
 
-        def reset(checkout=r2, extra_carrier=False, env_value=None):
+        def reset(checkout=r2, extra_carrier=False, env_value=None, embedded_carrier=False):
+            if os.path.isdir(REC):
+                os.chmod(REC, 0o755)
             for f in os.listdir(os.path.join(L, "docker")):
                 os.remove(os.path.join(L, "docker", f))
             shutil.rmtree(OUT, ignore_errors=True)
             for f in os.listdir(W):
-                if f.startswith(("unhealthy-", "model-drops-", "collateral-", "stale-env-")) or f in (
+                if f.startswith(("unhealthy-", "model-drops-", "collateral-", "stale-env-", "agg-503-")) or f in (
+                        "daemon-debug", "tag-moved-gamification", "redis-restart-during-c", "redis-restart-during-c-gateway", "resetpass-noop",
+                        "config-image-differs",
                         "unfixed", "keys-lost", "auth-error-log", "keeps-old", "preflight-fail", "argv-command", "model-adds-consumer",
                         "env-affects-web", "redis-wrong-pw", "hc-leak", "argv-leak", "acl-fail", "tag-moved", "image-changed", "hash-off"):
                     os.remove(os.path.join(W, f))
@@ -279,12 +298,16 @@ def main():
             cs = {}
             for i, svc in enumerate(("redis",) + CONSUMERS + ("web", "caddy")):
                 e = {"REDIS_PASSWORD": OLD} if svc == "redis" else ({"SPRING_DATA_REDIS_PASSWORD": OLD, "X": "1"} if svc in CONSUMERS else {"Y": "2"})
+                ref = "redis:7-alpine" if svc == "redis" else ("parkio-gamification-service" if svc == "gamification-service" else "ghcr.io/x/" + svc)
                 cs[f"{i}" * 64] = {"name": "parkio-redis" if svc == "redis" else f"parkio-{svc}-1", "project": "parkio", "service": svc,
-                                   "image": f"sha256:{i}{'0' * 63}", "hash": "", "health": "healthy", "env": e, "logs": []}
+                                   "image": f"sha256:{i}{'0' * 63}", "ref": ref, "hash": "", "health": "healthy", "env": e, "logs": []}
             if extra_carrier:
                 cs["e" * 64] = {"name": "other-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
                                 "env": {"CACHE_PW": OLD}, "logs": []}
-            images = {("redis:7-alpine" if c["service"] == "redis" else "ghcr.io/x/" + c["service"]): c["image"] for c in cs.values() if c["project"] == "parkio"}
+            if embedded_carrier:
+                cs["f" * 64] = {"name": "url-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
+                                "env": {"REDIS_URL": f"redis://:{OLD}@redis:6379"}, "logs": []}
+            images = {c["ref"]: c["image"] for c in cs.values() if c["project"] == "parkio"}
             json.dump({"containers": cs, "redis": {"passwords": [OLD], "keys": {"k1": "v1"}}, "images": images}, open(os.path.join(W, "state.json"), "w"))
             # align the consumers' and redis's hashes with the model, as after a normal deploy
             p = subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "config", "--hash", "*"], cwd=R, capture_output=True,
@@ -379,12 +402,23 @@ def main():
              "FAIL the live containers carrying the value are exactly the expected ones"),
             ("P6 a consumer missing from the model fails", {}, "model-drops-parking-service", "FAIL the model's consumers are exactly the expected ones"),
             ("P6b another service of the model carrying the value fails", {}, "model-adds-consumer", "FAIL the model's consumers are exactly the expected ones"),
-            ("P11 a moved redis tag fails", {}, "tag-moved", "FAIL redis: the model's image resolves to the running container's image"),
+            ("P11 a moved redis tag fails", {}, "tag-moved", "FAIL redis: the container runs the model's image reference"),
             ("P4b a redis command that passes the password as an argument fails", {}, "argv-command",
              "FAIL the model's redis command writes /tmp/redis-auth.conf"),
             ("P9 an env file value that redis does not run with fails", dict(env_value=OTHER), None,
              "FAIL the env file's value is the one redis runs with"),
+            ("P12 another project's container embedding the value in a URL fails", dict(embedded_carrier=True), None,
+             "FAIL the live containers carrying the value are exactly the expected ones"),
+            ("P13 a consumer whose aggregate health is not 200 fails", {}, "agg-503-auth-service", "FAIL auth-service: aggregate health 200"),
+            ("P14 dockerd debug logging fails", {}, "daemon-debug", "FAIL dockerd debug logging is off"),
+            ("P16 a moved implicit tag of the build-only consumer fails", {}, "tag-moved-gamification",
+             "FAIL gamification-service: the container runs the model's image reference"),
+            ("P17 a container not running the model's image reference fails", {}, "config-image-differs",
+             "FAIL gateway-service: the container runs the model's image reference"),
         ]
+        reset()
+        rc, out = tool("pre", extra={"RRT_HOST": "some-other-host"})
+        ok(rc == 1 and "FAIL host some-other-host" in out, "P15 another host fails", out)
         for label, kw, marker, expect in cases:
             reset(**kw)
             if marker:
@@ -532,6 +566,28 @@ def main():
         rc, out = tool("redact", "--yes")
         ok(rc == 1 and "the live env file is never redacted" in out and env_value() == newx, "X5b the live env file is never redacted, even through a link", out)
 
+        reset()
+        tool("pre")
+        mark("unhealthy-auth-service")
+        tool("rotate", "--yes")
+        allvalues.append(env_value())
+        first = os.path.join(L, "docker", bak_files()[0])
+        os.remove(os.path.join(W, "unhealthy-auth-service"))
+        tool("rollback", "--yes")
+        tool("pre")
+        rc0, out = tool("rotate", "--yes")
+        allvalues.append(env_value())
+        rc, out = tool("redact", "--yes")
+        ok(rc0 == 0 and rc == 0 and OLD not in open(first).read() and "CHANGE_ME_redacted_after_rotation_20261013" in open(first).read(),
+           "X9 after a rolled-back attempt and a passing one, redact also clears the first attempt's backup", out)
+        _, newx, rbak = rotated()
+        os.chmod(REC, 0o555)
+        rc, out = tool("redact", "--yes")
+        os.chmod(REC, 0o755)
+        recs = [os.path.join(OUT, d, "redact.json") for d in os.listdir(OUT) if os.path.exists(os.path.join(OUT, d, "redact.json"))]
+        ok(rc == 1 and "cannot be rewritten (PermissionError)" in out and recs and OLD in open(rbak).read(),
+           "X10 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old value", out)
+
         # ---- interrupted rotations and their rollbacks
         reset()
         tool("pre")
@@ -554,6 +610,65 @@ def main():
         os.remove(os.path.join(W, "preflight-fail"))
         rc, out = tool("rollback", "--yes")
         ok(rc == 0 and state()["redis"]["passwords"] == [OLD], "R4 rollback resets redis to the old password only (resetpass)", out)
+
+        def interrupted(fault):
+            reset()
+            tool("pre")
+            rc, out = tool("rotate", "--yes", extra={"RRT_FAULT": fault})
+            allvalues.append(env_value())
+            allvalues.extend(state()["redis"]["passwords"])
+            return rc, out
+        rc, out = interrupted("after-up:parking-service")
+        ok(rc == 99 and consumer_values()["parking-service"] != OLD, "R15 setup: interrupted right after recreating parking-service (it holds the new value)", out)
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and env_value() == OLD and set(consumer_values().values()) == {OLD} and state()["redis"]["passwords"] == [OLD],
+           "R15 rollback after an interruption recreates the moving consumer too and verifies the end state", out)
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL a rotate record exists, stopped before redis was recreated" in out and "rolled-back" in out,
+           "R17 a second rollback is refused (the rotation is marked rolled-back)", out)
+        rc, out = interrupted("after-up:parking-service")
+        os.remove(os.path.join(L, "docker", bak_files()[0]))
+        n_up = len(ups())
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL the rotation's backup exists and is readable" in out and env_value() != OLD and len(ups()) == n_up,
+           "R16 rollback without the backup is refused and changes nothing", out)
+        rc, out = interrupted("after-acl")
+        ok(rc == 99 and len(state()["redis"]["passwords"]) == 2, "R18 setup: interrupted right after ACL SETUSER (two passwords)", out)
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and state()["redis"]["passwords"] == [OLD] and set(consumer_values().values()) == {OLD},
+           "R18 rollback after an interruption in phase A resets redis to the old password only", out)
+        rc, out = interrupted("after-env-write")
+        subprocess.run([os.path.join(R, "scripts", "parkio-prod-compose.sh"), "up", "-d", "--no-build", "--no-deps", "gateway-service"], cwd=R,
+                       capture_output=True, env={k: v for k, v in dict(env, PARKIO_ENV_FILE=ENV).items() if k != "LEAKY_SECRET"})
+        archive_logs()
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and set(consumer_values().values()) == {OLD} and state()["redis"]["passwords"] == [OLD],
+           "R24 rollback also recreates a consumer that moved outside the tool's lists (live state)", out)
+        rc, out = interrupted("after-up:parking-service")
+        mark("stale-env-parking-service")
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL parking-service: carries the previous value" in out, "R22 rollback that leaves a consumer on the new value fails its end-state check", out)
+        rc, out = interrupted("after-up:parking-service")
+        mark("resetpass-noop")
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL redis refuses the rotation's value" in out, "R23 rollback that leaves redis accepting the new value fails", out)
+        reset()
+        tool("pre")
+        mark("redis-restart-during-c")
+        rc, out = tool("rotate", "--yes")
+        allvalues.append(env_value())
+        ok(rc == 1 and "FAIL redis still accepts the new value before auth-service" in out and "STOP before redis was recreated" in out,
+           "R20 a redis restart during phase C stops the rotation at the next consumer", out)
+        os.remove(os.path.join(W, "redis-restart-during-c"))
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 0 and set(consumer_values().values()) == {OLD} and state()["redis"]["passwords"] == [OLD], "R20 rollback restores the old value everywhere", out)
+        reset()
+        tool("pre")
+        mark("redis-restart-during-c-gateway")
+        rc, out = tool("rotate", "--yes")
+        allvalues.append(env_value())
+        ok(rc == 1 and "FAIL probe key written with the new value" in out and not state().get("redis_recreated"),
+           "R21 a redis restart during the last consumer stops before the redis recreate (the probe write)", out)
         reset()
         tool("pre")
         mark("unhealthy-redis")
@@ -577,7 +692,9 @@ def main():
                                       ("R12 a recreated redis with the value in its healthcheck", "hc-leak", "FAIL redis: no value in docker inspect outside Env"),
                                       ("R13 a recreated redis with the value in its arguments", "argv-leak", "FAIL redis: no value in process arguments"),
                                       ("R14a a recreated redis on another image", "image-changed", "FAIL redis: at the model's hash, on the same image"),
-                                      ("R14b a recreated redis off the model's hash", "hash-off", "FAIL redis: at the model's hash, on the same image")):
+                                      ("R14b a recreated redis off the model's hash", "hash-off", "FAIL redis: at the model's hash, on the same image"),
+                                      ("R19 a consumer whose aggregate health fails after the redis recreate", "agg-503-after-redis-parking-service",
+                                       "FAIL parking-service: reconnected with the new value")):
             reset()
             tool("pre")
             mark(marker)
