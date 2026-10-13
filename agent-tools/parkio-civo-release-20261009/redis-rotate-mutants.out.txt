@@ -1,4 +1,4 @@
-tool sha256 5bea1733a832b5df; self-test sha256 b8d8c3f1d20a8e34
+tool sha256 88166a1a00a2f358; self-test sha256 05bff7b70bd00a95
 backup-window                      killed: P8 the backup window is refused
 env-matches-redis                  killed: P9 an env file value that redis does not run with fails
 model-value-outside-env            killed: P4 an unfixed model (value in the healthcheck) fails
@@ -41,11 +41,22 @@ checkout-branch-tip                killed: K3 an R2 that is not the branch tip i
 r2-parent                          killed: K6 an R2 whose parent is not R1 is refused; the checkout stays at R1
 r2-only-compose                    killed: K4 an R2 with another changed file is refused; the checkout stays at R1
 r2-fix-blob                        killed: K5 an R2 with another compose blob is refused; the checkout stays at R1; P3 a compose file other than the reviewed fix fails
+redact-needs-passing-rotation      killed: X1 redact before a rotation is refused; nothing changes
+redact-old-invalid                 killed: X7 redact while redis still accepts the old value is refused; nothing changes
+redact-live-env-guard              killed: X5b the live env file is never redacted, even through a link
+redact-regular-own-file            killed: X5 a listed symlink is left alone, and so is its target
+redact-holds-new                   killed: X3 a listed file holding the new value fails and is untouched; the backup keeps the old value
+redact-missing-ok                  killed: X2 redact after a passing rotation passes; X2 the rotation's backup is redacted last; the live env file is untouched
+redact-keeps-mode                  killed: X2 redact after a passing rotation passes; X2 each file's mode (600, 640, 664, 644) and modification time kept
+redact-keeps-mtime                 killed: X2 redact after a passing rotation passes; X2 each file's mode (600, 640, 664, 644) and modification time kept
+redact-scan                        killed: X4 an unlisted file still holding the old value fails; the backup keeps the old value
+redact-backup-last                 killed: X3 a listed file holding the new value fails and is untouched; the backup keeps the old value; X4 an unlisted file still holding the old value fails; 
+redact-already-complete            killed: X6 a second redact reports completion; no old or new value in any output or record
 new-value-alphabet                 EQUIVALENT (not run): secrets.token_urlsafe(32) always matches [A-Za-z0-9_-]{43}; the check documents the #344 R1 condition
 record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
 scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
 backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
 only-key-changed                   EQUIVALENT (not run): with_value() changes only the key's line; the check guards against a future edit of it
 rotate-model-new-value             EQUIVALENT (not run): pre already refuses a model that interpolates the value outside `environment`
-=== 42/42 killed, 0 survived or broken; 6 equivalent listed ===
+=== 53/53 killed, 0 survived or broken; 6 equivalent listed ===
 exit=0

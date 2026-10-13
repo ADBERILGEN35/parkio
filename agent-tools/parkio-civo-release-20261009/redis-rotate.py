@@ -7,6 +7,7 @@ PROCEDURE.md) and its gates:
   python3 -I redis-rotate.py pre
   python3 -I redis-rotate.py rotate --yes
   python3 -I redis-rotate.py rollback --yes        (only before redis itself was recreated)
+  python3 -I redis-rotate.py redact --yes          (after a passing rotation)
   python3 -I redis-rotate.py status
 
 No password value is ever printed, logged, passed as a process argument or written outside the env file:
@@ -53,6 +54,18 @@ rollback (--yes), before phase D only, read from the rotation's progress file:
   no knowledge of the new value.
 After phase D the old value is invalid by design, and a rollback would bring the exposed value back. The tool
 refuses; the procedure's emergency section covers that case.
+redact (--yes), after a passing rotation, while redis refuses the old value and accepts the env file's:
+- in each file of a fixed list, every occurrence of the old value is replaced with
+  CHANGE_ME_redacted_after_rotation_20261013. The list is the old env backups, the recovery checkpoint's env copy and
+  rendered model (the 2026-10-13 scans). The preflight refuses that marker, so a restored backup cannot start with it.
+  Each file is written atomically, keeping its mode, owner and modification time. A missing file is reported and
+  skipped. The live env file is never touched, and neither is a file that holds the new value or is not a regular
+  file of this user;
+- then /opt, /home, /usr/local, /tmp and /var/tmp are scanned in memory, paths only: apart from the rotation's backup,
+  no readable file may still hold the old value;
+- only when all of that passed is the rotation's own backup redacted last. It is where the old value is read from, so
+  a failed run can be repeated once the reported file is dealt with. A run after that finds the backup redacted and
+  reports the redaction complete.
 Records: ~/parkio-release-20261009/redis-rotation/rr-<stamp>/ (mode 700, files 600). Exit 0 = PASS, 1 = FAIL, 2 = usage.
 """
 import calendar
@@ -60,6 +73,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import secrets
 import socket
 import subprocess
@@ -93,6 +107,16 @@ CONSUMER_KEY = "SPRING_DATA_REDIS_PASSWORD"
 REDIS = "redis"
 CONSUMERS = ("gamification-service", "parking-service", "auth-service", "gateway-service")   # least user-facing first
 COMPOSE_FILE = "docker/docker-compose.yml"
+REDACT_FILES = cfg("RRT_REDACT_FILES", ":".join((
+    "/opt/parkio/docker/.env.azure-hosted-beta.bak-sas-quote-20260917T192536Z",
+    "/opt/parkio/docker/.env.azure-hosted-beta.bak-pre-cron-quote-20260921T073414Z",
+    "/opt/parkio/docker/.env.azure-hosted-beta.bak-20261008T180235Z",
+    "/opt/parkio/docker/.env.azure-hosted-beta.bak-20261010T174445Z",
+    "/opt/parkio/backup-artifacts/pr68-auth-email-20260922T114212Z/env.azure-hosted-beta.pre",
+    "/opt/parkio-recovery/checkpoint-550848-postrestore/.env.azure-hosted-beta",
+    "/opt/parkio-recovery/checkpoint-550848-postrestore/compose-550848-rendered.yml"))).split(":")
+SCAN_ROOTS = cfg("RRT_SCAN_ROOTS", "/opt:/home:/usr/local:/tmp:/var/tmp").split(":")
+MARKER = "CHANGE_ME_redacted_after_rotation_20261013"   # the preflight's is_placeholder refuses CHANGE_ME
 NEW_VALUE = re.compile(r"[A-Za-z0-9_-]{43}")   # secrets.token_urlsafe(32): no quote, backslash or newline (#344 review R1)
 PRE_MAX_AGE = 3600
 _T = time.time()
@@ -625,6 +649,105 @@ def cmd_rollback(yes):
     return finish("rollback", rec)
 
 
+def redact_file(path, old, new):
+    """(ok, detail): replace every occurrence of old in path with MARKER, atomically, keeping mode, owner and times."""
+    if os.path.realpath(path) == os.path.realpath(ENV_FILE):
+        return False, "the live env file is never redacted"
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return True, "missing; nothing to redact"
+    except OSError:
+        return False, "cannot be read"
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+        return False, "not a regular file of this user; left alone"
+    data = open(path, "rb").read()
+    if new.encode() in data:
+        return False, "holds the new value; left alone"
+    n = data.count(old.encode())
+    if n == 0:
+        return True, "no occurrence (already redacted)"
+    out = data.replace(old.encode(), MARKER.encode())
+    fd, tmp = tempfile.mkstemp(prefix=".rrt-redact-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(out)
+            fh.flush()
+            os.fsync(fh.fileno())
+            os.fchmod(fh.fileno(), st.st_mode & 0o7777)
+            os.fchown(fh.fileno(), st.st_uid, st.st_gid)
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    after = os.lstat(path)
+    ok = open(path, "rb").read() == out and (after.st_mode, after.st_uid, after.st_gid, after.st_mtime_ns) == \
+        (st.st_mode, st.st_uid, st.st_gid, st.st_mtime_ns)
+    return ok, f"{n} occurrence(s) replaced; mode, owner and mtime kept" if ok else "written, but the read-back differs"
+
+
+def scan_for(value):
+    found = []
+    for root in SCAN_ROOTS:
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [d for d in dns if d not in (".git", "node_modules", "journal")]
+            for fn in fns:
+                p = os.path.join(dp, fn)
+                try:
+                    if os.path.islink(p) or not os.path.isfile(p) or os.path.getsize(p) > 200_000_000:
+                        continue
+                    with open(p, "rb") as fh:
+                        if value.encode() in fh.read():
+                            found.append(p)
+                except OSError:
+                    continue
+    return found
+
+
+def cmd_redact(yes):
+    if not yes:
+        print("usage: redact needs --yes (after a passing rotation)", file=sys.stderr)
+        return 2
+    say(f"redis rotation redact | {STAMP}")
+    rec = {"tool": "redis-rotate", "command": "redact", "stamp": STAMP}
+    check(f"host {HOST}", socket.gethostname() == HOST, socket.gethostname())
+    rot, prog = latest("rotate"), latest("rotate-progress")
+    if not check("the latest rotation passed (phase done)", bool(rot) and rot.get("verdict") == "PASS" and (prog or {}).get("phase") == "done" and
+                 rot.get("stamp") == (prog or {}).get("stamp")):
+        return finish("redact", rec)
+    backup = os.path.join(os.path.dirname(ENV_FILE), rot.get("backup") or "")
+    old = None
+    for line in (open(backup, "rb").read() if os.path.isfile(backup) else b"").splitlines():
+        if line.startswith(KEY.encode() + b"="):
+            old = line.split(b"=", 1)[1].decode().strip().strip('"').strip("'")
+    if old == MARKER:
+        check("redaction already complete: the rotation's backup no longer holds the old value", True)
+        return finish("redact", rec)
+    new, _ = env_file_value()
+    SECRETS.extend([old or "", new or ""])
+    red = parkio(REDIS)
+    rname = (red or {}).get("Name", "").lstrip("/")
+    if not check("the old value is known (the rotation's backup), redis refuses it and accepts the env file's value",
+                 bool(old) and bool(new) and old != new and bool(red) and not ping(rname, old) and ping(rname, new)):
+        return finish("redact", rec)
+    rec["files"] = {}
+    for path in REDACT_FILES:
+        ok, detail = redact_file(path, old, new)
+        rec["files"][path] = detail
+        check(f"{path}: redacted", ok, detail)
+    left = [p for p in scan_for(old) if os.path.realpath(p) != os.path.realpath(backup)]
+    check(f"apart from the rotation's backup, no readable file under {', '.join(SCAN_ROOTS)} holds the old value", not left, ", ".join(left))
+    if not all(c["pass"] for c in CHECKS):
+        say("  the rotation's backup keeps the old value, so this can run again once the failures above are dealt with")
+        return finish("redact", rec)
+    ok, detail = redact_file(backup, old, new)
+    rec["files"][backup] = detail
+    check(f"{backup}: redacted last", ok, detail)
+    return finish("redact", rec)
+
+
 def cmd_checkout(r2):
     say(f"redis rotation checkout | {STAMP} | {r2[:12]}")
     rec = {"tool": "redis-rotate", "command": "checkout", "stamp": STAMP, "r2": r2}
@@ -663,7 +786,7 @@ def cmd_status():
 
 
 def main(argv):
-    if not argv or argv[0] not in ("checkout", "pre", "rotate", "rollback", "status"):
+    if not argv or argv[0] not in ("checkout", "pre", "rotate", "rollback", "redact", "status"):
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = argv[0], argv[1:]
@@ -682,6 +805,8 @@ def main(argv):
         return cmd_status()
     if cmd == "rotate":
         return cmd_rotate(yes)
+    if cmd == "redact":
+        return cmd_redact(yes)
     return cmd_rollback(yes)
 
 

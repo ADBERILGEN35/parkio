@@ -236,12 +236,18 @@ def main():
             subprocess.run(["git", "-C", ORIGIN, "update-ref", f"refs/heads/{BRANCH}", c], check=True)
         branch_tip(r2)
         ENV = os.path.join(L, "docker", ".env.azure-hosted-beta")
+        REC = os.path.join(L, "recovery")
+        REDACT = [os.path.join(L, "docker", ".env.azure-hosted-beta.bak-old1"), os.path.join(REC, "env-copy"), os.path.join(REC, "rendered.yml"),
+                  os.path.join(REC, "already.yml"), os.path.join(REC, "holds-new.env"), os.path.join(REC, "link.env")]
+        MARKER = "CHANGE_ME_redacted_after_rotation_20261013"
+        OLD_TIME = calendar.timegm(time.strptime("2026-09-17 12:00", "%Y-%m-%d %H:%M"))
+        SEED_MODES = {REDACT[0]: 0o600, REDACT[1]: 0o640, REDACT[2]: 0o664, REDACT[3]: 0o644}
         OLD = secrets.token_urlsafe(24)
         allvalues = [OLD]
         env = {"PATH": BIN + ":" + os.environ["PATH"], "HOME": W, "LANG": "C.UTF-8", "LEAKY_SECRET": "x", "RRT_TEST": "1", "RRT_W": W,
                "RRT_R1": r1, "RRT_BRANCH": BRANCH, "RRT_FIX_BLOB": fix_blob, "RRT_HOST": socket.gethostname(), "RRT_RELEASE": R,
                "RRT_ENV_FILE": ENV, "RRT_OUT": OUT, "RRT_NOW": str(calendar.timegm(time.strptime("2026-10-13 10:00", "%Y-%m-%d %H:%M"))),
-               "RRT_HEALTH_WAIT": "3", "RRT_SETTLE": "0.2", "RRT_POLL": "0.1"}
+               "RRT_HEALTH_WAIT": "3", "RRT_SETTLE": "0.2", "RRT_POLL": "0.1", "RRT_REDACT_FILES": ":".join(REDACT), "RRT_SCAN_ROOTS": L}
         outputs = []
         OTHER = secrets.token_urlsafe(24)
         allvalues.append(OTHER)
@@ -260,6 +266,16 @@ def main():
             fd = os.open(ENV, os.O_WRONLY | os.O_CREAT, 0o600)
             os.write(fd, f"PARKIO_DOMAIN=parkio.dev\nREDIS_PASSWORD={env_value or OLD}\nOTHER_SECRET=s3cr3tvalue123456\n".encode())
             os.close(fd)
+            shutil.rmtree(REC, ignore_errors=True)
+            os.makedirs(REC)
+            seed = {REDACT[0]: f"A=1\nREDIS_PASSWORD={OLD}\nB=2\n", REDACT[1]: f'REDIS_PASSWORD="{OLD}"\n',
+                    REDACT[2]: f"x: {OLD}\ny: \"{OLD}\"\nz: [CMD, redis-cli, -a, {OLD}]\n", REDACT[3]: "nothing here\n"}
+            for path, text in seed.items():
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                os.write(fd, text.encode())
+                os.close(fd)
+                os.chmod(path, SEED_MODES[path])
+                os.utime(path, (OLD_TIME, OLD_TIME))
             cs = {}
             for i, svc in enumerate(("redis",) + CONSUMERS + ("web", "caddy")):
                 e = {"REDIS_PASSWORD": OLD} if svc == "redis" else ({"SPRING_DATA_REDIS_PASSWORD": OLD, "X": "1"} if svc in CONSUMERS else {"Y": "2"})
@@ -458,6 +474,63 @@ def main():
         rc, out = tool("rollback", "--yes")
         ok(rc == 1 and "FAIL a rotate record exists, stopped before redis was recreated" in out and env_value() == NEW and
            len(ups()) == n_up and state()["redis"]["passwords"] == [NEW], "R7 rollback after the redis recreate is refused; nothing changes", out)
+
+        # ---- redact
+        def mtime(p):
+            return os.stat(p).st_mtime_ns
+
+        def rotated():
+            reset()
+            tool("pre")
+            rc, _ = tool("rotate", "--yes")
+            v = env_value()
+            allvalues.append(v)
+            return rc, v, os.path.join(L, "docker", bak_files()[0])
+        reset()
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "FAIL the latest rotation passed" in out and OLD in open(REDACT[0]).read(), "X1 redact before a rotation is refused; nothing changes", out)
+        rc0, newx, rbak = rotated()
+        t0 = {q: mtime(q) for q in REDACT[:4]}
+        rc, out = tool("redact", "--yes")
+        texts = {q: open(q).read() for q in REDACT[:4]}
+        ok(rc0 == 0 and rc == 0 and "redis rotation redact: PASS" in out, "X2 redact after a passing rotation passes", out)
+        ok(all(OLD not in t for t in texts.values()) and texts[REDACT[0]] == f"A=1\nREDIS_PASSWORD={MARKER}\nB=2\n" and
+           texts[REDACT[1]] == f'REDIS_PASSWORD="{MARKER}"\n' and texts[REDACT[2]].count(MARKER) == 3 and texts[REDACT[3]] == "nothing here\n",
+           "X2 the listed files hold the marker instead of the old value; everything else kept", str(texts))
+        ok(all(mtime(q) == t0[q] and os.stat(q).st_mode & 0o777 == SEED_MODES[q] for q in REDACT[:4]), "X2 each file's mode (600, 640, 664, 644) and modification time kept")
+        ok(OLD not in open(rbak).read() and MARKER in open(rbak).read() and env_value() == newx,
+           "X2 the rotation's backup is redacted last; the live env file is untouched")
+        rc, out = tool("redact", "--yes")
+        ok(rc == 0 and "redaction already complete" in out, "X6 a second redact reports completion", out)
+        _, newx, rbak = rotated()
+        open(REDACT[4], "w").write(f"REDIS_PASSWORD={newx}\n")
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "holds the new value; left alone" in out and open(REDACT[4]).read() == f"REDIS_PASSWORD={newx}\n" and OLD in open(rbak).read(),
+           "X3 a listed file holding the new value fails and is untouched; the backup keeps the old value", out)
+        _, newx, rbak = rotated()
+        open(os.path.join(REC, "stray.txt"), "w").write(OLD)
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "stray.txt" in out and "FAIL apart from the rotation's backup" in out and OLD in open(rbak).read(),
+           "X4 an unlisted file still holding the old value fails; the backup keeps the old value", out)
+        _, newx, rbak = rotated()
+        target = os.path.join(W, "outside-target.txt")
+        open(target, "w").write(OLD)
+        os.symlink(target, REDACT[5])
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "not a regular file of this user; left alone" in out and open(target).read() == OLD,
+           "X5 a listed symlink is left alone, and so is its target", out)
+        os.remove(target)
+        _, newx, rbak = rotated()
+        st = state()
+        st["redis"]["passwords"].append(OLD)
+        json.dump(st, open(os.path.join(W, "state.json"), "w"))
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "FAIL the old value is known" in out and OLD in open(REDACT[0]).read() and OLD in open(rbak).read(),
+           "X7 redact while redis still accepts the old value is refused; nothing changes", out)
+        _, newx, rbak = rotated()
+        os.symlink(ENV, REDACT[5])
+        rc, out = tool("redact", "--yes")
+        ok(rc == 1 and "the live env file is never redacted" in out and env_value() == newx, "X5b the live env file is never redacted, even through a link", out)
 
         # ---- interrupted rotations and their rollbacks
         reset()
