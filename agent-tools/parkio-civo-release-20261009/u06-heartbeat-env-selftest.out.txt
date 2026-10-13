@@ -1,0 +1,34 @@
+ok   S0 no terminal stops
+ok     S0 no terminal stops: no URL value in the transcript
+ok   S1 entries that differ stop
+ok     S1 entries that differ stop: no URL value in the transcript
+ok   S2 the Slack webhook URL is refused
+ok     S2 the Slack webhook URL is refused: no URL value in the transcript
+ok   S3 a placeholder is refused
+ok     S3 a placeholder is refused: no URL value in the transcript
+ok   S3b plain http is refused
+ok     S3b plain http is refused: no URL value in the transcript
+ok   S4 an unknown argument stops before any prompt
+ok     S4 an unknown argument stops before any prompt: no URL value in the transcript
+ok   S8 a dirty release checkout stops
+ok     S8 a dirty release checkout stops: no URL value in the transcript
+ok   S9 a release checkout at another commit stops
+ok     S9 a release checkout at another commit stops: no URL value in the transcript
+ok   S5 the normal run passes
+ok   S5 one backup, identical to the original
+ok   S5 the key is appended under its comment; every other byte unchanged
+ok   S5 PASS preflight (azure-hosted-beta, env validation)
+ok   S5 PASS preflight reports nothing about the heartbeat
+ok   S5 PASS release model gives alertmanager the entered URL
+ok   S5 PASS only alertmanager's release config changes
+ok   S5 PASS running alertmanager untouched
+ok   S5 PASS live checkout git status unchanged
+ok     S5: no URL value in the transcript
+ok   S6 a re-run stops because the URL is set
+ok     S6: no URL value in the transcript
+ok   S7 --replace-url rewrites in place with a second backup
+ok     S7: no URL value in the transcript
+ok   S10 a web-pin-only descendant (R1) is accepted
+ok     S10: no URL value in the transcript
+ok   no URL value in any saved report
+=== summary: 33 ok, 0 FAIL ===

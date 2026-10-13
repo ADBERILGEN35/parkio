@@ -1,0 +1,32 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre --yes
+ok   U usage refusal: recreate without --yes
+ok   U usage refusal: an unknown argument
+ok   U usage refusal: a malformed backup name
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: a repeated --yes
+ok   P1 pre fails without a heartbeat URL
+ok   P2 pre fails when the generic webhook is set
+ok   P3 pre fails when another key changed too
+ok   P4 pre fails when alertmanager has another pending difference
+ok   P5 pre fails while a BackupStale test is armed
+ok   P6 pre fails on a dirty release checkout
+ok   P7 pre passes, names the backup and changes nothing
+ok   P7 the wrapper gets PARKIO_ENV_FILE and no other variable
+ok   R1 recreate refuses an env changed after pre
+ok   R2 a later failing pre blocks recreate
+ok   R3 a pre older than 2 hours blocks recreate
+ok   R4 recreate passes
+ok   R4 the wrapper ran exactly once: up -d --no-build --no-deps alertmanager
+ok   R4 only alertmanager was replaced; its hash is the heartbeat model's
+ok   R4 post-checks: route, two deliveries, no failure, others unchanged, hash
+ok   R4 the wrapper saw no variable outside the allowlist
+ok   B2 rollback restores the backup and Watchdog -> null
+ok   B2 the env file keeps mode 600
+ok   S status lists the records
+ok   R5 a failing webhook fails the recreate
+ok   R6 a collateral change fails
+ok   R7 a wrapper error stops the post-checks
+ok   B1 rollback refuses a backup that differs elsewhere
+ok   no URL value in any output or record
+=== summary: 31 ok, 0 FAIL ===

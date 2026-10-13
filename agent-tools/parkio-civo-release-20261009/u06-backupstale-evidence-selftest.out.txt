@@ -1,0 +1,25 @@
+ok   B1 baseline passes at 10:00 UTC
+ok   B1 evidence directory 700, record 600
+ok   B2 02:00 UTC is refused (the window would reach the 03:30 backup)
+ok   B2b 04:00 UTC is refused
+ok   B2c 04:10 UTC passes
+ok   B2d 01:10 UTC passes (ends 02:50)
+ok   B3 a synthetic file present fails the baseline
+ok   B4 an active heartbeat passes with the NOTE about the slack|webhook sum
+ok   C1 close passes with +2 Slack and everything cleaned up
+ok   C1 a versioned manifest lists every evidence file with its SHA-256
+ok   C2 the synthetic file left behind fails
+ok   C3 the synthetic series still in Prometheus fails
+ok   C4 a new silence fails
+ok   C5 a failed Slack notification fails
+ok   C6 a changed container fails
+ok   C7 a BackupStale alert still in Alertmanager fails
+ok   C8 fewer than two Slack notifications fails
+ok   C9 a missing milestone fails
+ok   C10 +3 Slack passes with the NOTE naming the other active alert
+ok   C11 close without a baseline fails
+ok   U usage refusal: no evidence directory
+ok   U usage refusal: a missing directory
+ok   U usage refusal: an unknown command
+ok   no URL from the APIs in any output or record
+=== summary: 24 ok, 0 FAIL ===
