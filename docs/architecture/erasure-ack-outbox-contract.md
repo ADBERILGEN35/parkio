@@ -32,7 +32,7 @@ Source merge, deployment and production acceptance are separate states.
 | media | #141 | merged (`01f7e442`) | `sha256:db3065e39a70` | PASS, 2026-10-12 |
 
 - **Deployed.** Release PIN `f888a81b113c0c486ea0949067779443857e644d`, deployed 2026-10-12:
-  - media and parking: published images, D6a and D6b;
+  - media and parking: published images built from `504b9cb4`, D6a and D6b;
   - the other six: built on the host from the PIN, D7.
 
   Every participant's migrations are applied. The image ids are those of the host's deployed manifest (final
@@ -52,8 +52,9 @@ Source merge, deployment and production acceptance are separate states.
   - Request id `c741c998-9c77-4d34-8188-3be88e92772d`; window run `20261012T222911Z`.
   - The window's temporary settings were restored, and the snapshot comparison found every other container
     unchanged.
-- **A failed or unconfirmable participant (criterion 3).** This was proven by isolated fault injection on the
-  deployed commit, not by stopping a production service:
+- **A failed or unconfirmable participant (criterion 3).** This was proven without stopping a production service,
+  by coordinator-level fault injection on the deployed commit together with the participants' SUCCESS-only ACK
+  code:
   - `AccountErasureParticipantContractPostgresIT` at `f888a81b`: 57 tests, 0 failures. A missing ACK, for every
     participant, leaves the request `IN_PROGRESS`; a `FAILED` ACK gives `FAILED_RETRYING`; invalid statuses and
     duplicate ACKs never count. None of them reaches `COMPLETE`.

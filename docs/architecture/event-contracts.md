@@ -540,19 +540,23 @@ not an implemented restore guard.
   that value, and level until the user's next level change.
 
   Events produced after the backup was taken can still be in the Kafka topics or the DLT, and their
-  versions are above the restored gamification rows. If a DLT redrive or a consumer offset reset
-  delivers them to the restored user-service, user-service ends up ahead of gamification. That breaks
-  the invariant, as described under "Unsupported".
+  versions are above the restored gamification rows. If a DLT redrive, a consumer offset reset or a
+  consumer whose committed offset is older than those events delivers them to the restored
+  user-service, user-service ends up ahead of gamification. That breaks the invariant, as described
+  under "Unsupported".
 - **Unsupported.** These break the invariant:
   - restoring or rolling back gamification on its own, or to an older state than user-service;
   - letting events produced after the backup reach a restored user-service.
 
   Both are unsupported until a reviewed procedure exists to reconcile or reset user-service's
   projection versions.
-- **Coordinated restore (U12-R decision, 2026-10-13).** The prerequisite above is the chosen
-  approach: restore user and gamification together from the same backup set, and keep events
-  produced after that backup away from the restored user-service. No reconcile or reset procedure
-  exists; one would be needed first for any restore that cannot meet this prerequisite.
+- **Coordinated restore (U12-R decision, 2026-10-12).** The chosen approach is the "Coordinated
+  restore prerequisite" of `docs/operations/disaster-recovery-runbook.md`: restore user and
+  gamification together from the same backup set, and keep every event produced between that backup
+  and the restore away from the restored user-service. That covers a DLT redrive, a consumer offset
+  reset, and normal consumption by a consumer whose committed offset is older than those events.
+  No reconcile or reset procedure exists; one would be needed first for any restore that cannot
+  meet this prerequisite.
 - **Not U12 guards.** The existing restore refusals are about erasure coverage:
   - a production restore is blocked (`parkio_restore_refuse_unverified_production`);
   - a standalone single-database restore is refused in production because it does not replay
