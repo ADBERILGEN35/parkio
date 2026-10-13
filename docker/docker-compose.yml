@@ -190,12 +190,18 @@ services:
     logging: *default-logging
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # The password never enters the rendered model or a process's arguments (2026-10-13 incident): the shell reads it
+    # from the container's environment ($$ escapes Compose's interpolation) and writes it to a 0600 file on /tmp
+    # (a tmpfs in production), which redis-server reads as its config. scripts/test_compose_secret_interpolation.py
+    # fails if a secret is interpolated outside `environment`.
     command:
       - /bin/sh
       - -c
       - |
         if [ -n "$$REDIS_PASSWORD" ]; then
-          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+          umask 077
+          printf 'requirepass "%s"\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf
+          exec redis-server /tmp/redis-auth.conf --appendonly yes
         else
           exec redis-server --appendonly yes
         fi
@@ -206,7 +212,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'if [ -n "$REDIS_PASSWORD" ]; then redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi',
+          'if [ -n "$$REDIS_PASSWORD" ]; then REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi',
         ]
       interval: 10s
       timeout: 3s
