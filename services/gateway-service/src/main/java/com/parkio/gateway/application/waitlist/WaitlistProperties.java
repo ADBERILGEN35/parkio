@@ -41,6 +41,14 @@ public class WaitlistProperties {
     @NotBlank
     private String hashSecret;
 
+    /**
+     * Optional previous HMAC secret kept only for lookups during a rotation.
+     * When set, {@link WaitlistHasher#hashCandidates(String)} also accepts digests
+     * produced with this value. New writes always use {@link #hashSecret}. Empty
+     * means dual-accept is off.
+     */
+    private String hashSecretPrevious = "";
+
     @NotBlank
     private String confirmBaseUrl = "https://parkio.dev/waitlist/confirm/";
 
@@ -117,6 +125,14 @@ public class WaitlistProperties {
 
     public void setHashSecret(String hashSecret) {
         this.hashSecret = hashSecret;
+    }
+
+    public String getHashSecretPrevious() {
+        return hashSecretPrevious;
+    }
+
+    public void setHashSecretPrevious(String hashSecretPrevious) {
+        this.hashSecretPrevious = hashSecretPrevious;
     }
 
     public String getConfirmBaseUrl() {

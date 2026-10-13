@@ -83,6 +83,19 @@ public class WaitlistApplicationService {
         String emailHash = hasher.hash(email);
         String ipHash = hasher.hash(command.clientIp() == null ? "unknown" : command.clientIp());
         String userAgentHash = userAgent == null ? null : hasher.hash(userAgent);
+        // During hash rotation an existing row may still use the previous secret's digest.
+        // Look that up before insert so we never create a second row for the same email.
+        Optional<WaitlistInterest> existing = findByAnyEmailHash(email);
+        if (existing.isPresent()) {
+            String storedEmailHash = existing.get().emailHash();
+            return rateLimiter.check(ipHash, emailHash)
+                    .then(Mono.fromCallable(() -> {
+                                maybeResendPending(storedEmailHash, email);
+                                return true;
+                            })
+                            .subscribeOn(Schedulers.boundedElastic()))
+                    .then();
+        }
         String verificationToken = newToken();
         String withdrawToken = newToken();
         // verification_sent_at stays null until outbound delivery succeeds so failed
@@ -178,24 +191,26 @@ public class WaitlistApplicationService {
         // Confirmation remains available during containment so already-issued tokens
         // can complete double opt-in. No new outbound email is sent here.
         return Mono.fromCallable(() -> {
-                    String tokenHash = hasher.hash(requireToken(rawToken));
+                    String raw = requireToken(rawToken);
                     Instant now = clock.instant();
-                    // The ops notification row commits atomically with the PENDING -> CONFIRMED
-                    // transition, so rolled-back or idempotent repeat confirms emit nothing.
-                    Boolean transitioned = transactions.execute(tx -> {
-                        if (!repository.confirmByTokenHash(tokenHash, now)) {
-                            return false;
+                    for (String tokenHash : hasher.hashCandidates(raw)) {
+                        // The ops notification row commits atomically with the PENDING -> CONFIRMED
+                        // transition, so rolled-back or idempotent repeat confirms emit nothing.
+                        Boolean transitioned = transactions.execute(tx -> {
+                            if (!repository.confirmByTokenHash(tokenHash, now)) {
+                                return false;
+                            }
+                            repository.findByVerificationTokenHash(tokenHash)
+                                    .ifPresent(row -> opsNotifier.subscriptionConfirmed(row.id(), now));
+                            return true;
+                        });
+                        if (Boolean.TRUE.equals(transitioned)) {
+                            return true;
                         }
-                        repository.findByVerificationTokenHash(tokenHash)
-                                .ifPresent(row -> opsNotifier.subscriptionConfirmed(row.id(), now));
-                        return true;
-                    });
-                    if (Boolean.TRUE.equals(transitioned)) {
-                        return true;
-                    }
-                    Optional<WaitlistInterest> byVerify = repository.findByVerificationTokenHash(tokenHash);
-                    if (byVerify.isPresent() && byVerify.get().status() == WaitlistStatus.CONFIRMED) {
-                        return true;
+                        Optional<WaitlistInterest> byVerify = repository.findByVerificationTokenHash(tokenHash);
+                        if (byVerify.isPresent() && byVerify.get().status() == WaitlistStatus.CONFIRMED) {
+                            return true;
+                        }
                     }
                     return false;
                 })
@@ -211,20 +226,26 @@ public class WaitlistApplicationService {
         // provider failures are logged without revealing subscriber PII and do not
         // roll back the withdrawal.
         return Mono.fromCallable(() -> {
-                    String tokenHash = hasher.hash(requireToken(rawToken));
+                    String raw = requireToken(rawToken);
                     Instant now = clock.instant();
-                    Optional<WaitlistInterest> before = repository.findByWithdrawTokenHash(tokenHash);
-                    boolean withdrawn = repository.withdrawByTokenHash(tokenHash, now);
-                    if (withdrawn && before.isPresent()) {
-                        try {
-                            emailSender.sendWithdrawalNotice(before.get().email(), before.get().locale());
-                        } catch (RuntimeException ex) {
-                            log.warn(
-                                    "Waitlist withdrawal notice delivery failed; emailHash={}",
-                                    before.get().emailHash());
+                    for (String tokenHash : hasher.hashCandidates(raw)) {
+                        Optional<WaitlistInterest> before = repository.findByWithdrawTokenHash(tokenHash);
+                        boolean withdrawn = repository.withdrawByTokenHash(tokenHash, now);
+                        if (withdrawn && before.isPresent()) {
+                            try {
+                                emailSender.sendWithdrawalNotice(before.get().email(), before.get().locale());
+                            } catch (RuntimeException ex) {
+                                log.warn(
+                                        "Waitlist withdrawal notice delivery failed; emailHash={}",
+                                        before.get().emailHash());
+                            }
+                            return true;
+                        }
+                        if (withdrawn) {
+                            return true;
                         }
                     }
-                    return withdrawn;
+                    return false;
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(ok -> Boolean.TRUE.equals(ok)
@@ -239,9 +260,10 @@ public class WaitlistApplicationService {
         String email = normalizeEmail(emailRaw);
         String emailHash = hasher.hash(email);
         String ipHash = hasher.hash(clientIp == null ? "unknown" : clientIp);
+        String storedEmailHash = findByAnyEmailHash(email).map(WaitlistInterest::emailHash).orElse(emailHash);
         return rateLimiter.check(ipHash, emailHash)
                 .then(Mono.fromCallable(() -> {
-                            resendPendingWithoutRevealingIt(emailHash, email);
+                            resendPendingWithoutRevealingIt(storedEmailHash, email);
                             return true;
                         })
                         .subscribeOn(Schedulers.boundedElastic()))
@@ -321,6 +343,17 @@ public class WaitlistApplicationService {
             int size) {
         return Mono.fromCallable(() -> repository.findAdminPage(status, createdFrom, createdTo, page, size))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** Resolve a row under the current or previous hash secret (rotation dual-accept). */
+    private Optional<WaitlistInterest> findByAnyEmailHash(String email) {
+        for (String candidate : hasher.hashCandidates(email)) {
+            Optional<WaitlistInterest> found = repository.findByEmailHash(candidate);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
     }
 
     private void maybeResendPending(String emailHash, String email) {
