@@ -8,6 +8,7 @@ ok   B2d 04:10 UTC passes
 ok   B2e 00:45 UTC passes (the window ends 02:50)
 ok   B3 a synthetic file present fails the baseline
 ok   B3b a crashed arm's temporary file fails the baseline
+ok   B3c a .gitkeep with content is not the tracked empty file
 ok   B4 an active heartbeat passes with the NOTE about the slack|webhook sum
 ok   B5 a baseline once the test is armed is refused (review M5)
 ok   C1 close passes with Slack +2 while the heartbeat added webhook +4 (Slack only is counted)
@@ -35,4 +36,4 @@ ok   U usage refusal: a missing directory
 ok   U usage refusal: an extra argument
 ok   U usage refusal: an unknown command
 ok   no URL from the APIs in any output or record
-=== summary: 37 ok, 0 FAIL ===
+=== summary: 38 ok, 0 FAIL ===

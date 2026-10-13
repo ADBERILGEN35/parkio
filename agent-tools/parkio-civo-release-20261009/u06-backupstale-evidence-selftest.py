@@ -151,6 +151,7 @@ def main():
             for f in os.listdir(TF):
                 os.remove(os.path.join(TF, f))
             open(os.path.join(TF, "parkio_backup.prom"), "w").write("parkio_backup_last_success{scope=\"hosted-beta\"} 1\n")
+            open(os.path.join(TF, ".gitkeep"), "w").close()        # tracked in the repository, present on the host (N1)
             shutil.rmtree(EV, ignore_errors=True)
             json.dump({"containers": [container("prometheus", 1), container("alertmanager", 2), container("node-exporter", 3),
                                       container("web", 4)], "receiver": receiver}, open(os.path.join(W, "docker.json"), "w"))
@@ -204,6 +205,10 @@ def main():
             open(os.path.join(TF, name), "w").write("# marker\n")
             rc, out = tool("baseline", "--evidence-dir", EV)
             ok(rc == 1 and "FAIL the textfile directory holds only parkio_backup.prom" in out, label, out)
+        reset()
+        open(os.path.join(TF, ".gitkeep"), "w").write("x")
+        rc, out = tool("baseline", "--evidence-dir", EV)
+        ok(rc == 1 and "FAIL the textfile directory holds only parkio_backup.prom" in out, "B3c a .gitkeep with content is not the tracked empty file", out)
         reset(receiver="heartbeat")
         rc, out = tool("baseline", "--evidence-dir", EV)
         ok(rc == 0 and "NOTE the heartbeat is active" in out, "B4 an active heartbeat passes with the NOTE about the slack|webhook sum", out)

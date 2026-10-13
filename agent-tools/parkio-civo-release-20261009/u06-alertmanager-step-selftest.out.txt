@@ -38,11 +38,13 @@ ok   B7 the env file keeps mode 600 and no temp file is left (atomic write, L2)
 ok   R5 a failing webhook fails the recreate
 ok   R6 a collateral change fails
 ok   R7 a wrapper error stops the post-checks
+ok   R7b a recreate onto another image fails (review round 2)
 ok   R8 a single delivery is not enough
 ok   B1 rollback refuses a backup that differs elsewhere
 ok   B5a a wrong hash after the rollback fails
 ok   B5b a receiver still on heartbeat after the rollback fails
 ok   B5c a collateral change during the rollback fails
+ok   B5d a rollback onto another image fails (review round 2)
 ok   S status lists the records
 ok   no URL value in any output or record
-=== summary: 47 ok, 0 FAIL ===
+=== summary: 49 ok, 0 FAIL ===

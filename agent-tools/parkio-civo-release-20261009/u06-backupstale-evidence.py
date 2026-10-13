@@ -185,12 +185,19 @@ def containers():
     return {k: sorted(v) for k, v in result.items()}
 
 
+TRACKED = ".gitkeep"      # the repository tracks docker/prometheus/textfile/.gitkeep, and the live directory is in that checkout
+
+
 def textfiles():
-    """Every entry of the textfile directory, dot files included (a crashed arm leaves .parkio_backup_synthetic_stale.*)."""
+    """Every entry of the textfile directory, dot files included (a crashed arm leaves .parkio_backup_synthetic_stale.*),
+    except the tracked empty .gitkeep (review round 2, N1)."""
     try:
-        return sorted(os.listdir(TEXTFILE_DIR))
+        names = os.listdir(TEXTFILE_DIR)
     except OSError:
         return None
+    keep = os.path.join(TEXTFILE_DIR, TRACKED)
+    tracked_ok = TRACKED in names and os.path.isfile(keep) and not os.path.islink(keep) and os.path.getsize(keep) == 0
+    return sorted(n for n in names if not (n == TRACKED and tracked_ok))
 
 
 def private_write(path, text):

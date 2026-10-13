@@ -129,7 +129,7 @@ if a == ["up", "-d", "--no-build", "--no-deps", "alertmanager"]:
     for i in [i for i, c in cs.items() if c["service"] == "alertmanager"]:
         del cs[i]
     new = hashlib.sha256(("new|" + str(time.time())).encode()).hexdigest()
-    cs[new] = {"service": "alertmanager", "name": "parkio-alertmanager", "image": "sha256:" + "a" * 64,
+    cs[new] = {"service": "alertmanager", "name": "parkio-alertmanager", "image": "sha256:" + ("9" if mark("wrong-image") else "a") * 64,
                "hash": "drifted0000000000" if mark("drift-hash") else model, "status": "running", "health": "healthy",
                "started": time.time(), "receiver": old["receiver"] if mark("stuck-receiver") else ("heartbeat" if url else "null"),
                "fail": "failing" in url, "single": mark("single-delivery")}
@@ -141,7 +141,7 @@ if a == ["up", "-d", "--no-build", "--no-deps", "alertmanager"]:
 sys.exit(2)
 '''
 
-MARKERS = ("wrapper-fail", "touch-prometheus", "hash-ignores-url", "drift-hash", "stuck-receiver", "single-delivery")
+MARKERS = ("wrapper-fail", "touch-prometheus", "hash-ignores-url", "drift-hash", "stuck-receiver", "single-delivery", "wrong-image")
 
 
 def git(repo, *args):
@@ -395,6 +395,11 @@ def main():
         ok(rc == 1 and "FAIL wrapper exit 0 (exit 3)" in out and "Watchdog routes to heartbeat" not in out, "R7 a wrapper error stops the post-checks", out)
         reset()
         tool("pre")
+        marker("wrong-image")
+        rc, out = tool("recreate", "--yes")
+        ok(rc == 1 and "FAIL alertmanager runs the image pre recorded" in out, "R7b a recreate onto another image fails (review round 2)", out)
+        reset()
+        tool("pre")
         marker("single-delivery")
         rc, out = tool("recreate", "--yes")
         ok(rc == 1 and "FAIL heartbeat delivered at least twice" in out, "R8 a single delivery is not enough", out)
@@ -412,7 +417,8 @@ def main():
         for mark_, expect, label in (("drift-hash", "FAIL alertmanager config hash = the backup's model hash", "B5a a wrong hash after the rollback fails"),
                                      ("stuck-receiver", "FAIL Watchdog routes to null", "B5b a receiver still on heartbeat after the rollback fails"),
                                      ("touch-prometheus", "FAIL every other container unchanged against the rollback's fresh baseline (prometheus)",
-                                      "B5c a collateral change during the rollback fails")):
+                                      "B5c a collateral change during the rollback fails"),
+                                     ("wrong-image", "FAIL alertmanager runs the same image as before", "B5d a rollback onto another image fails (review round 2)")):
             reset()
             tool("pre")
             tool("recreate", "--yes")
