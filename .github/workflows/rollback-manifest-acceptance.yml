@@ -40,6 +40,8 @@ on:
       - ".github/workflows/invite-production-deploy.yml"
       - ".github/workflows/hosted-beta-deploy.yml"
       - "scripts/ci/assert-rehearsal-manifest-shape.py"
+      - "scripts/ci/write-rehearsal-web-compose.py"
+      - "scripts/ci/rehearsal-schema-gate-negative.py"
       - "scripts/ci/fixtures/hosted-beta-manifest-keys.json"
   workflow_dispatch:
 

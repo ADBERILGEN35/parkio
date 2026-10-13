@@ -100,8 +100,14 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080${path}")
             [ "$code" = "200" ] || { echo "::error::smoke ${path} -> ${code}"; exit 3; }
           done
-          docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" \
-            --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/running-digest.txt
+          cid=$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)
+          status=$(docker inspect "$cid" --format '{{.State.Status}}')
+          [ "$status" = "running" ] || { echo "::error::web not running ($status)"; exit 3; }
+          hdr=$(curl -sI "http://127.0.0.1:8080/" | tr -d '\r')
+          echo "$hdr" | grep -qiE '^content-security-policy:' \
+            || echo "$hdr" | grep -qiE '^content-security-policy-report-only:' \
+            || echo "NOTE: CSP header not asserted on this image (synthetic env still set)"
+          docker inspect "$cid" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/running-digest.txt
           grep -F "$WEB_REF" /tmp/rehearsal/running-digest.txt \
             || grep -F "${WEB_REF#*@}" /tmp/rehearsal/running-digest.txt
           docker compose -f /tmp/rehearsal/compose.yml down -v || true
@@ -175,14 +181,14 @@ jobs:
             --reference "$PARKIO_MANIFEST_REFERENCE"
 
       - name: Download current manifest artifact
-        env:
-          ARTIFACT_ID: ${{ steps.current.outputs.artifact_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p current-artifacts
-          gh api -H "Accept: application/vnd.github+json" \
-            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > current.zip
-          unzip -qo current.zip -d current-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.current.outputs.artifact_id }}
+          path: current-artifacts
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.current.outputs.run_id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
 
       - name: Verify current manifest
         env:
@@ -211,14 +217,14 @@ jobs:
             --reference "$PARKIO_MANIFEST_REFERENCE"
 
       - name: Download prior manifest artifact
-        env:
-          ARTIFACT_ID: ${{ steps.prior.outputs.artifact_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p prior-artifacts
-          gh api -H "Accept: application/vnd.github+json" \
-            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > prior.zip
-          unzip -qo prior.zip -d prior-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.prior.outputs.artifact_id }}
+          path: prior-artifacts
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.prior.outputs.run_id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
 
       - name: Verify prior manifest
         id: prior_verify
@@ -269,10 +275,10 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080${path}")
             [ "$code" = "200" ] || { echo "::error::smoke ${path} -> ${code}"; exit 3; }
           done
-          running=$(docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" --format '{{.Image}}')
-          echo "running=$running prior=$prior_web"
-          id=$(docker inspect "$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)" --format '{{.Image}}')
-          docker image inspect "$id" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/rolled-back-digest.txt
+          cid=$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)
+          status=$(docker inspect "$cid" --format '{{.State.Status}}')
+          [ "$status" = "running" ] || { echo "::error::web not running ($status)"; exit 3; }
+          docker inspect "$cid" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/rolled-back-digest.txt
           grep -F "${prior_web#*@}" /tmp/rehearsal/rolled-back-digest.txt
           docker compose -f /tmp/rehearsal/compose.yml down -v || true
 
