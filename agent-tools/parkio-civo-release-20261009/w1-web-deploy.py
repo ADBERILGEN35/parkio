@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """W1 - the MapTiler web fix on parkio-civo-prod (MAPTILER-FIX-PLAN v2, step 8). Run as civo on the host (Python 3.8+):
 
-  python3 -I w1-web-deploy.py pre      --r1 SHA40 --digest sha256:HEX64 --image-id sha256:HEX64
-  python3 -I w1-web-deploy.py recreate --r1 SHA40 --digest sha256:HEX64 --image-id sha256:HEX64 --yes
+  python3 -I w1-web-deploy.py pre      --r1 SHA40 --digest sha256:HEX64 --image-id sha256:HEX64 --key-fp HEX12
+  python3 -I w1-web-deploy.py recreate --r1 SHA40 --digest sha256:HEX64 --image-id sha256:HEX64 --key-fp HEX12 --yes
+
+--key-fp is the SHA-256 fingerprint (first 12 hex) of the MapTiler key the owner confirmed for production. It is never
+a key value. The guard enforces it in pre, and the wrapper enforces it at the recreate.
   python3 -I w1-web-deploy.py rollback --yes
   python3 -I w1-web-deploy.py status
 
@@ -18,7 +21,7 @@ pre: nothing is started, stopped or recreated. It pulls one image and writes one
     already point there.
   - It pulls <repo>@<digest> and checks: the RepoDigests hold the ref, linux/amd64, and the OCI revision is the PIN.
     The F-05 guard of the release checkout then runs offline (--expected-platform linux/amd64,
-    --expected-map-key-fingerprint b9cf3e673752, --evidence-out). It must PASS, establish configDigest = --image-id
+    --expected-map-key-fingerprint <--key-fp>, --evidence-out). It must PASS, establish configDigest = --image-id
     (the accepted image id; on the host's containerd store `.Id` is the manifest digest, not the config digest), and
     match the fingerprint.
   - It compares the bundles of the old and the new image. Both images are created and copied, never started; the
@@ -31,7 +34,7 @@ recreate: the only live change.
     the baseline's.
   - It checks out R1 (detached, clean, verified), then runs exactly:
       cd /opt/parkio-release && PARKIO_ENV_FILE=/opt/parkio/docker/.env.azure-hosted-beta \
-        PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT=b9cf3e673752 \
+        PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT=<--key-fp> \
         ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
   - Post-checks:
     - web is healthy within 180 s, on --image-id, as a new container;
@@ -41,13 +44,13 @@ recreate: the only live change.
     - https://app.parkio.dev/, /login and /explore answer 200 with the app root.
 rollback: checks out the PIN, runs the same wrapper command without the fingerprint variable, then runs the same
   post-checks against the baseline web image.
-The wrapper and the guard get an allowlisted environment: PATH, HOME, LANG, USER, LOGNAME, PARKIO_ENV_FILE, plus the
-fingerprint for the recreate. COMPOSE_*, DOCKER_*, PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY and
+The wrapper, the guard and W1's own docker and git calls get an allowlisted environment: PATH, HOME, LANG, USER,
+LOGNAME, plus PARKIO_ENV_FILE for the wrapper and the guard, plus the fingerprint for the recreate. COMPOSE_*, DOCKER_*, PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY and
 everything else from the operator's shell are dropped.
 If the wrapper fails and web is still the baseline container, the checkout goes back to the PIN.
 Not covered by W1, and still required before step 8 is accepted, from the workstation:
   - headless Chromium render of /, /login and /explore (#root, no page error);
-  - `u04-live-ownership.mjs --map-only … --map-fingerprint b9cf3e673752`;
+  - `u04-live-ownership.mjs --map-only … --map-fingerprint <--key-fp>`;
   - the account-free CSRF/401 sign-in check.
 Records go to ~/parkio-release-20261009/w1-maptiler/<stamp>/ (mode 700): pre.json, recreate.json, rollback.json and logs.
 A failed check stops with exit 1 and changes nothing more. Key values are never printed.
@@ -80,7 +83,6 @@ REPO = "ghcr.io/adberilgen35/parkio/web"
 BRANCH = "release/civo-web-maptiler-20261013"
 PIN_FILE = "docker/docker-compose.web-release-pin.yml"
 ROLLBACK_TAG = REPO + ":rollback-pre-maptiler-20261013"
-KEY_FP = "b9cf3e673752"
 HOST = cfg("W1_HOST", "parkio-civo-prod")
 REL = cfg("W1_RELEASE", "/opt/parkio-release")
 ENV_FILE = cfg("W1_ENV_FILE", "/opt/parkio/docker/.env.azure-hosted-beta")
@@ -88,7 +90,7 @@ PROJECT = "parkio"
 OUT = cfg("W1_OUT", os.path.join(os.path.expanduser("~"), "parkio-release-20261009", "w1-maptiler"))
 APP = cfg("W1_APP", "https://app.parkio.dev")
 COMPARE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web-bundle-compare.py")
-COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "ac742e62b4980e2372f21f1db7a924cc9f65a6f25fc334c08a505e723b6278e4")
+COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "9b89d507e02a789771baab1f8e6b3f5cab44f0510d334a9919750b7cd40f36e3")
 HEALTH_WAIT = int(cfg("W1_HEALTH_WAIT", "180"))
 PRE_MAX_AGE = 6 * 3600
 NGINX_FILES = ("/etc/nginx/templates/default.conf.template", "/docker-entrypoint.d/15-parkio-web-csp.envsh",
@@ -98,6 +100,17 @@ PIN_LINES = (r"name: parkio", r"services:", r"  web:", r"    image: ghcr\.io/adb
 STAMP = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 CHECKS = []
 DOCKER = ["docker"]
+
+
+ENV_ALLOW = ("PATH", "HOME", "LANG", "USER", "LOGNAME")
+
+
+def base_env():
+    """The allowlisted environment for every external command (docker, git, the wrapper, the guard)."""
+    env = {k: os.environ[k] for k in ENV_ALLOW if k in os.environ}
+    if TEST and "W1ST_W" in os.environ:
+        env["W1ST_W"] = os.environ["W1ST_W"]     # the self-test's fakes find their state here
+    return env
 
 
 def say(line=""):
@@ -111,8 +124,10 @@ def check(what, ok, detail=""):
 
 
 def run(cmd, cwd=None, env=None, timeout=120, stdin=None):
+    """Every external command gets an allowlisted environment (base_env() unless the caller passes one)."""
     try:
-        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout, input=stdin)
+        p = subprocess.run(cmd, cwd=cwd, env=env if env is not None else base_env(), capture_output=True, text=True,
+                           timeout=timeout, input=stdin)
     except FileNotFoundError:
         return 127, "", "not found"
     except subprocess.TimeoutExpired:
@@ -193,7 +208,7 @@ def pin_file_image(text):
 def args_of(argv):
     a, i = {}, 0
     while i < len(argv):
-        if argv[i] in ("--r1", "--digest", "--image-id") and i + 1 < len(argv):
+        if argv[i] in ("--r1", "--digest", "--image-id", "--key-fp") and i + 1 < len(argv):
             a[argv[i]] = argv[i + 1]
             i += 2
         elif argv[i] == "--yes":
@@ -205,11 +220,11 @@ def args_of(argv):
 
 
 def want_target(a):
-    r1, digest, iid = a.get("--r1", ""), a.get("--digest", ""), a.get("--image-id", "")
+    r1, digest, iid, kfp = a.get("--r1", ""), a.get("--digest", ""), a.get("--image-id", ""), a.get("--key-fp", "")
     if not (re.fullmatch(r"[0-9a-f]{40}", r1) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
-            and re.fullmatch(r"sha256:[0-9a-f]{64}", iid)):
-        raise SystemExit("usage: --r1 takes 40 hex, --digest and --image-id take sha256:<64 hex>")
-    return r1, digest, iid
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", iid) and re.fullmatch(r"[0-9a-f]{12}", kfp)):
+        raise SystemExit("usage: --r1 takes 40 hex, --digest and --image-id take sha256:<64 hex>, --key-fp takes 12 hex")
+    return r1, digest, iid, kfp
 
 
 def basics():
@@ -307,9 +322,10 @@ def compare_bundles(old, new, rec):
 
 
 def cmd_pre(a):
-    r1, digest, iid = want_target(a)
+    r1, digest, iid, kfp = want_target(a)
     say(f"W1 pre | {STAMP} | read-only apart from one pull and one local tag")
-    rec = {"tool": "w1-web-deploy", "command": "pre", "stamp": STAMP, "r1": r1, "digest": digest, "imageId": iid, "pin": PIN}
+    rec = {"tool": "w1-web-deploy", "command": "pre", "stamp": STAMP, "r1": r1, "digest": digest, "imageId": iid, "keyFp": kfp,
+           "pin": PIN}
     basics()
     head, clean = checkout_state()
     check("the release checkout is clean at the PIN", head == PIN and clean, (head or "?")[:12])
@@ -338,8 +354,8 @@ def cmd_pre(a):
     check("linux/amd64", d.get("Os") == "linux" and d.get("Architecture") == "amd64", f"{d.get('Os')}/{d.get('Architecture')}")
     rev = ((d.get("Config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")
     check("OCI revision is the PIN", rev == PIN, (rev or "?")[:12])
-    grc, gdata, gline = guard(ref, rec)
-    check("F-05 guard PASS offline (platform, key fingerprint b9cf3e673752)", grc == 0 and gdata.get("fingerprintCheck") == "matched",
+    grc, gdata, gline = guard(ref, rec, kfp)
+    check(f"F-05 guard PASS offline (platform, key fingerprint {kfp})", grc == 0 and gdata.get("fingerprintCheck") == "matched",
           gline[0][:160])
     check("guard-established config digest = --image-id (the accepted image id)", gdata.get("configDigest") == iid,
           (gdata.get("configDigest") or "?")[:19])
@@ -348,7 +364,7 @@ def cmd_pre(a):
     return finish("pre", rec)
 
 
-def latest_pre(r1, digest, iid):
+def latest_pre(r1, digest, iid, kfp):
     """The most recent pre for exactly these arguments, passed or not (a later failure overrides an earlier PASS)."""
     best = None
     try:
@@ -356,22 +372,17 @@ def latest_pre(r1, digest, iid):
             p = os.path.join(OUT, stamp, "pre.json")
             if os.path.isfile(p):
                 r = json.load(open(p, encoding="utf-8"))
-                if (r.get("r1"), r.get("digest"), r.get("imageId")) == (r1, digest, iid):
+                if (r.get("r1"), r.get("digest"), r.get("imageId"), r.get("keyFp")) == (r1, digest, iid, kfp):
                     best = r
     except OSError:
         return None
     return best
 
 
-ENV_ALLOW = ("PATH", "HOME", "LANG", "USER", "LOGNAME")
-
-
 def clean_env(fingerprint=None):
-    """The wrapper's and the guard's environment: an allowlist, never the operator's shell as a whole."""
-    env = {k: os.environ[k] for k in ENV_ALLOW if k in os.environ}
+    """The wrapper's and the guard's environment: the allowlist plus PARKIO_ENV_FILE (and the fingerprint)."""
+    env = base_env()
     env["PARKIO_ENV_FILE"] = ENV_FILE
-    if TEST and "W1ST_W" in os.environ:
-        env["W1ST_W"] = os.environ["W1ST_W"]     # the self-test's fakes find their state here
     if fingerprint:
         env["PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT"] = fingerprint
     return env
@@ -387,11 +398,11 @@ def model_hash():
     return None
 
 
-def guard(ref, rec):
+def guard(ref, rec, kfp):
     """The release checkout's F-05 guard, offline: identity, configDigest and the key fingerprint of the pulled image."""
     ev = os.path.join(record_dir(), "guard-evidence.json")
     rc, out, err = run(["bash", "./scripts/guard-web-synthetic-map-deploy.sh", "--image", ref, "--expected-platform", "linux/amd64",
-                        "--expected-map-key-fingerprint", KEY_FP, "--evidence-out", ev], cwd=REL, env=clean_env(), timeout=600)
+                        "--expected-map-key-fingerprint", kfp, "--evidence-out", ev], cwd=REL, env=clean_env(), timeout=600)
     try:
         data = json.load(open(ev, encoding="utf-8"))
     except (OSError, ValueError):
@@ -450,13 +461,13 @@ def post_checks(rec, baseline, before_id, want_ref):
 
 
 def cmd_recreate(a):
-    r1, digest, iid = want_target(a)
+    r1, digest, iid, kfp = want_target(a)
     if not a.get("--yes"):
         raise SystemExit("usage: recreate needs --yes (the owner's written go for this step)")
     say(f"W1 recreate | {STAMP} | the only live change: web")
-    rec = {"tool": "w1-web-deploy", "command": "recreate", "stamp": STAMP, "r1": r1, "digest": digest, "imageId": iid}
+    rec = {"tool": "w1-web-deploy", "command": "recreate", "stamp": STAMP, "r1": r1, "digest": digest, "imageId": iid, "keyFp": kfp}
     basics()
-    pre = latest_pre(r1, digest, iid)
+    pre = latest_pre(r1, digest, iid, kfp)
     age = (time.time() - calendar.timegm(time.strptime(pre["stamp"], "%Y%m%dT%H%M%SZ"))) if pre else None
     check("a passing pre for these arguments within 6 hours (the latest one)",
           bool(pre) and pre.get("verdict") == "PASS" and age is not None and 0 <= age <= PRE_MAX_AGE,
@@ -475,7 +486,7 @@ def cmd_recreate(a):
         head, clean = checkout_state()
         if not check("checked out R1 (clean)", rc == 0 and head == r1 and clean, err.strip()[:120]):
             return finish("recreate", rec)
-    rc, logsha = wrapper(KEY_FP)
+    rc, logsha = wrapper(kfp)
     check("wrapper exit 0 (F-05 with the fingerprint, conf.d and API endpoint checks ran)", rc == 0, f"exit {rc}; log {logsha[:16]}")
     if rc == 0:
         post_checks(rec, pre["baseline"], web["id"], f"{REPO}@{digest}")

@@ -35,6 +35,7 @@ DIGEST = "sha256:" + "d" * 64
 OTHER_DIGEST = "sha256:" + "e" * 64
 OLD_DIGEST = "sha256:" + "c" * 64
 REPO = "ghcr.io/adberilgen35/parkio/web"
+KFP = "0e1413b0e161"                   # the --key-fp under test (only a fingerprint; the fakes never see a key)
 FORBIDDEN_ENV = ("COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES", "DOCKER_HOST", "DOCKER_CONTEXT", "PARKIO_COMPOSE_FILES_LIST",
                  "PARKIO_GMP_RECOVERY", "PARKIO_SKIP_WEB_MAP_GUARD")
 results = []
@@ -107,7 +108,7 @@ ref = "ghcr.io/adberilgen35/parkio/web@" + digest
 iid = st["images"].get(ref) or st["registry"].get(ref)
 web = [c for c in st["containers"] if c["Config"]["Labels"]["com.docker.compose.service"] == "web"][0]
 web["Id"] = ("f" if web["Id"].startswith("1") else "1") * 64
-web["Image"] = iid
+web["Image"] = st.get("wrongImage") or iid
 web["Config"]["Image"] = ref
 web["Config"]["Labels"]["com.docker.compose.config-hash"] = "drifted" if st.get("labelDrift") else model_hash
 web["State"] = {"Status": "running", "Health": {"Status": "healthy"}}
@@ -201,9 +202,11 @@ def setup_repos(W, variant="good"):
     git(seed, "commit", "-q", "-am", "web pin (api)")
     api_head = git(seed, "rev-parse", "HEAD")
     git(seed, "checkout", "-q", "-b", "release/civo-web-maptiler-20261013", api_head if variant == "r1-not-on-pin" else pin)
-    open(os.path.join(seed, "docker/docker-compose.web-release-pin.yml"), "w").write(PIN_FILE.format(DIGEST) +
-                                                                                   ("# r1\n" if variant == "r1-not-on-pin" else ""))
-    git(seed, "commit", "-q", "-am", "web pin (R1)")
+    if variant == "r1-not-on-pin":
+        git(seed, "commit", "-q", "--allow-empty", "-m", "R1 as an empty commit on api: same tree and blob, parent is not the PIN")
+    else:
+        open(os.path.join(seed, "docker/docker-compose.web-release-pin.yml"), "w").write(PIN_FILE.format(DIGEST))
+        git(seed, "commit", "-q", "-am", "web pin (R1)")
     r1 = git(seed, "rev-parse", "HEAD")
     subprocess.run(["git", "clone", "-q", "--bare", seed, origin], check=True)
     subprocess.run(["git", "clone", "-q", origin, rel], check=True)
@@ -277,8 +280,8 @@ def main():
             ok(OLD_KEY not in out and NEW_KEY not in out, f"  (no key value in the output of {args[0]})")
             return p.returncode, out
 
-        def targs(digest=DIGEST, image_id=NEW_CONFIG, r1=None):
-            return ["--r1", r1 or state["r1"], "--digest", digest, "--image-id", image_id]
+        def targs(digest=DIGEST, image_id=NEW_CONFIG, r1=None, kfp=KFP):
+            return ["--r1", r1 or state["r1"], "--digest", digest, "--image-id", image_id, "--key-fp", kfp]
 
         def docker_log():
             try:
@@ -305,7 +308,7 @@ def main():
             if setup:
                 setup()
             rc, out = tool_run("pre", *(args or targs()), extra_env=extra_env)
-            ok(rc == 1 and "W1 pre: FAIL" in out and expect in out, label, out)
+            ok(rc == 1 and "W1 pre: FAIL" in out and ("  FAIL " + expect) in out, label, out)
             if no_side_effects:
                 log = docker_log()
                 ok(" tag " not in f" {log} " and "pull" not in log, label + ": no tag and no pull happened", log)
@@ -315,10 +318,10 @@ def main():
         pre_fails("P3 web on another image is refused", "one web container, on the current pin",
                   lambda: mutate_state(lambda s: s["containers"][0].__setitem__("Image", "sha256:" + "9" * 64)))
         pre_fails("P4 an --r1 that is not the release branch tip is refused", "R1 is the release branch tip",
-                  args=["--r1", "0" * 40, "--digest", DIGEST, "--image-id", NEW_CONFIG], no_side_effects=True)
+                  args=["--r1", "0" * 40, "--digest", DIGEST, "--image-id", NEW_CONFIG, "--key-fp", KFP], no_side_effects=True)
         reset()
         rc, out = tool_run("pre", *targs(digest=OTHER_DIGEST))
-        ok(rc == 1 and "pins only the web image, at --digest" in out and "pull" not in docker_log(),
+        ok(rc == 1 and "  FAIL the R1 pin file pins only the web image, at --digest" in out and "pull" not in docker_log(),
            "P5 a pin file digest other than --digest is refused before any tag or pull", out)
         pre_fails("P6 the api blob differing from R1's is refused", "the pin file blob equals origin/api's",
                   variant="api-blob-differs", no_side_effects=True)
@@ -328,6 +331,10 @@ def main():
                   lambda: mutate_state(lambda s: s["guard"].__setitem__("configDigest", "sha256:" + "7" * 64)))
         pre_fails("P9 a guard fingerprint mismatch is refused", "F-05 guard PASS offline",
                   lambda: mutate_state(lambda s: s["guard"].update(rc=1, fingerprintCheck="mismatch")))
+        pre_fails("P9b a guard PASS without a requested fingerprint check is refused", "F-05 guard PASS offline",
+                  lambda: mutate_state(lambda s: s["guard"].update(rc=0, fingerprintCheck="not-requested")))
+        pre_fails("P9c a guard exit 1 with a matched fingerprint is refused", "F-05 guard PASS offline",
+                  lambda: mutate_state(lambda s: s["guard"].update(rc=1, fingerprintCheck="matched")))
         pre_fails("P10 a wrong OCI revision is refused", "OCI revision is the PIN",
                   lambda: mutate_state(lambda s: s["imageInfo"][NEW_ID]["Config"]["Labels"].__setitem__("org.opencontainers.image.revision", "deadbeef")))
 
@@ -338,8 +345,8 @@ def main():
                 bundle(d, NEW_KEY, "NEWHASH2", "2222222222222222", **kw)
             return f
         pre_fails("P11 a code change beside the key is refused", "bundle IDENTICAL", refix(apk_expat="2.8.6-r0", extra_js=True))
-        pre_fails("P12 a changed nginx.conf is refused", "nginx.conf byte-identical", refix(apk_expat="2.8.6-r0", nginx_conf="worker_processes 1;\n"))
-        pre_fails("P13 a changed nginx.conf mode is refused", "nginx.conf byte-identical with equal modes",
+        pre_fails("P12 a changed nginx.conf is refused", "/etc/nginx/nginx.conf byte-identical", refix(apk_expat="2.8.6-r0", nginx_conf="worker_processes 1;\n"))
+        pre_fails("P13 a changed nginx.conf mode is refused", "/etc/nginx/nginx.conf byte-identical with equal modes",
                   refix(apk_expat="2.8.6-r0", nginx_mode=0o600))
         pre_fails("P14 an apk change outside libexpat/pcre2 is refused", "apk packages equal except", refix(apk_expat="2.8.6-r0", apk_other=True))
         refix(apk_expat="2.8.6-r0")()
@@ -361,6 +368,9 @@ def main():
         rc, out = tool_run("recreate", *targs(image_id="sha256:" + "6" * 64), "--yes")
         ok(rc == 1 and "a passing pre for these arguments" in out and not os.path.exists(os.path.join(W, "wrapper.calls"))
            and git(rel, "rev-parse", "HEAD") == state["pin"], "R3 recreate with arguments other than pre's changes nothing", out)
+        rc, out = tool_run("recreate", *targs(kfp="b9cf3e673752"), "--yes")
+        ok(rc == 1 and "a passing pre for these arguments" in out and not os.path.exists(os.path.join(W, "wrapper.calls")),
+           "R3b recreate with a --key-fp other than pre's changes nothing", out)
 
         reset()
         tool_run("pre", *targs())
@@ -369,7 +379,7 @@ def main():
         calls = [json.loads(l) for l in open(os.path.join(W, "wrapper.calls"))]
         ok(len(calls) == 1 and calls[0]["args"] == ["up", "-d", "--no-build", "--no-deps", "--force-recreate", "web"],
            "R4 the wrapper ran once: up -d --no-build --no-deps --force-recreate web", json.dumps(calls))
-        ok(calls[0]["fp"] == "b9cf3e673752" and calls[0]["envFile"] == os.path.join(W, "env"), "R4 with PARKIO_ENV_FILE and the fingerprint")
+        ok(calls[0]["fp"] == KFP and calls[0]["envFile"] == os.path.join(W, "env"), "R4 with PARKIO_ENV_FILE and the --key-fp fingerprint")
         ok(not set(FORBIDDEN_ENV) & set(calls[0]["env"]), "R4 the wrapper gets the allowlisted environment only (COMPOSE_*, DOCKER_*, "
            "PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY dropped)", json.dumps(calls[0]["env"]))
         ok(git(rel, "rev-parse", "HEAD") == state["r1"], "R4 the checkout is at R1")
@@ -385,6 +395,12 @@ def main():
         mutate_state(lambda s: s.__setitem__("labelDrift", True))
         rc, out = tool_run("recreate", *targs(), "--yes")
         ok(rc == 1 and "FAIL web config hash = the wrapper's model hash" in out, "R5 a container hash other than the model's is a FAIL", out)
+
+        reset()
+        tool_run("pre", *targs())
+        mutate_state(lambda s: s.__setitem__("wrongImage", OLD_ID))
+        rc, out = tool_run("recreate", *targs(), "--yes")
+        ok(rc == 1 and "FAIL web runs the expected image" in out, "R5b a web container started on another image is a FAIL", out)
 
         reset()
         tool_run("pre", *targs())
@@ -439,8 +455,10 @@ def main():
         ok(git(rel, "rev-parse", "HEAD") == state["pin"], "RB1 the checkout is back at the PIN")
         rc, out = tool_run("status")
         ok(rc == 0 and "pre: PASS" in out and "recreate: PASS" in out and "rollback: PASS" in out, "S1 status lists the records", out)
-        rc, out = tool_run("pre", "--r1", "x", "--digest", DIGEST, "--image-id", NEW_CONFIG)
+        rc, out = tool_run("pre", "--r1", "x", "--digest", DIGEST, "--image-id", NEW_CONFIG, "--key-fp", KFP)
         ok(rc != 0 and "usage" in out, "U1 malformed arguments are a usage error", out)
+        rc, out = tool_run("pre", *targs(kfp="NOTHEX"))
+        ok(rc != 0 and "usage" in out, "U2 a malformed --key-fp is a usage error", out)
     finally:
         srv.shutdown()
         shutil.rmtree(W, ignore_errors=True)

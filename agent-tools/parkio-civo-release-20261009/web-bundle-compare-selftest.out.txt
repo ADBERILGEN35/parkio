@@ -1,0 +1,19 @@
+ok   the two real candidate bundles (same source, same key) are identical
+ok   the simulation renamed 2 key-bearing chunk(s)
+ok   a key change (renamed chunks, references, CACHE_VERSION) normalizes to identical
+ok   an unrelated JS change is reported
+ok   an extra file is reported
+ok   a binary change is reported
+ok   a missing file is reported
+ok   a tree without a baked key is invalid input
+ok   colliding normalized asset names are refused
+ok   the real candidate with another key: IDENTICAL through a consistent renaming in the key-bearing chunk
+ok   the real key-bearing chunk with one occurrence of a short local renamed (inconsistent) is DIFFERENT
+ok   the real key-bearing chunk with a long identifier changed is DIFFERENT
+ok   the real key-bearing chunk with a string changed is DIFFERENT
+ok   the real key-bearing chunk with a number changed is DIFFERENT
+ok   the real key-bearing chunk with a token removed (new) is DIFFERENT
+ok   the real key-bearing chunk with a literal in a comparison changed is DIFFERENT
+ok   the real key-bearing chunk with an extra token is DIFFERENT
+ok   the real key-bearing chunk with an unterminated string (lexing doubt) is DIFFERENT
+=== summary: 18 ok, 0 FAIL ===

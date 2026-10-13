@@ -25,6 +25,10 @@ ok   P8 a guard config digest other than --image-id is refused
 ok     (no key value in the output of pre)
 ok   P9 a guard fingerprint mismatch is refused
 ok     (no key value in the output of pre)
+ok   P9b a guard PASS without a requested fingerprint check is refused
+ok     (no key value in the output of pre)
+ok   P9c a guard exit 1 with a matched fingerprint is refused
+ok     (no key value in the output of pre)
 ok   P10 a wrong OCI revision is refused
 ok     (no key value in the output of pre)
 ok   P11 a code change beside the key is refused
@@ -45,11 +49,13 @@ ok   R2 recreate without a pre changes nothing
 ok     (no key value in the output of pre)
 ok     (no key value in the output of recreate)
 ok   R3 recreate with arguments other than pre's changes nothing
+ok     (no key value in the output of recreate)
+ok   R3b recreate with a --key-fp other than pre's changes nothing
 ok     (no key value in the output of pre)
 ok     (no key value in the output of recreate)
 ok   R4 recreate after a passing pre: PASS
 ok   R4 the wrapper ran once: up -d --no-build --no-deps --force-recreate web
-ok   R4 with PARKIO_ENV_FILE and the fingerprint
+ok   R4 with PARKIO_ENV_FILE and the --key-fp fingerprint
 ok   R4 the wrapper gets the allowlisted environment only (COMPOSE_*, DOCKER_*, PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY dropped)
 ok   R4 the checkout is at R1
 ok   R4 post-check: web is healthy
@@ -63,6 +69,9 @@ ok   R4 post-check: /explore answers 200 with the app root
 ok     (no key value in the output of pre)
 ok     (no key value in the output of recreate)
 ok   R5 a container hash other than the model's is a FAIL
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok   R5b a web container started on another image is a FAIL
 ok     (no key value in the output of pre)
 ok     (no key value in the output of recreate)
 ok   R6 a failing wrapper stops before the post-checks
@@ -90,4 +99,6 @@ ok     (no key value in the output of status)
 ok   S1 status lists the records
 ok     (no key value in the output of pre)
 ok   U1 malformed arguments are a usage error
-=== summary: 92 ok, 0 FAIL ===
+ok     (no key value in the output of pre)
+ok   U2 a malformed --key-fp is a usage error
+=== summary: 103 ok, 0 FAIL ===
