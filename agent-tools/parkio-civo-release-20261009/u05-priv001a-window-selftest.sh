@@ -716,8 +716,9 @@ fresh closed False
 python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36p.out" 2>&1
 has r36p.out "release checkout: at the PIN"; has r36p.out "PREFLIGHT PASS"
 mkdir -p "$W/release/docker"
-printf 'services:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n' 1 > "$W/release/docker/docker-compose.web-release-pin.yml"
+printf '# web pin (comment lines are ignored)\nname: parkio\n\nservices:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n' 1 > "$W/release/docker/docker-compose.web-release-pin.yml"
 "${G[@]}" add -A && "${G[@]}" commit -q -m "web pin only"
+WEBPIN_OK=$(git -C "$W/release" rev-parse HEAD)
 fresh closed False
 python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36a.out" 2>&1
 has r36a.out "plus only docker/docker-compose.web-release-pin.yml"; has r36a.out "PREFLIGHT PASS"
@@ -725,6 +726,24 @@ echo "dirty" > "$W/release/untracked.txt"
 python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36d.out" 2>&1
 has r36d.out "the release checkout is not clean at the PIN"; has r36d.out "PREFLIGHT FAIL"
 rm -f "$W/release/untracked.txt"
+echo "# a tracked change" >> "$W/release/docker/docker-compose.web-release-pin.yml"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36g.out" 2>&1
+has r36g.out "the release checkout is not clean at the PIN"; has r36g.out "PREFLIGHT FAIL"
+"${G[@]}" checkout -q -- docker/docker-compose.web-release-pin.yml
+printf 'name: parkio\nservices:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n  auth-service:\n    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:%064d\n' 3 4 \
+  > "$W/release/docker/docker-compose.web-release-pin.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin that also overrides auth-service"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36f.out" 2>&1
+has r36f.out "beyond the web image line"; has r36f.out "PREFLIGHT FAIL"
+printf 'name: other\nservices:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web@sha256:%064d\n' 5 > "$W/release/docker/docker-compose.web-release-pin.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin that renames the project"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36h.out" 2>&1
+has r36h.out "beyond the web image line"; has r36h.out "PREFLIGHT FAIL"
+printf 'name: parkio\nservices:\n  web:\n    image: ghcr.io/adberilgen35/parkio/web:latest\n' > "$W/release/docker/docker-compose.web-release-pin.yml"
+"${G[@]}" add -A && "${G[@]}" commit -q -m "web pin by tag"
+python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36i.out" 2>&1
+has r36i.out "beyond the web image line"; has r36i.out "PREFLIGHT FAIL"
+"${G[@]}" checkout -q --detach "$WEBPIN_OK"
 echo "x" > "$W/release/docker/docker-compose.app-release-pins.yml"
 "${G[@]}" add -A && "${G[@]}" commit -q -m "web pin and app pins"
 python3 -I "$TOOLC" preflight --harness "$W/harness" > "$W/r36b.out" 2>&1

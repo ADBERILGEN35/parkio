@@ -86,6 +86,9 @@ PIN = cfg("U05R_PIN", "f888a81b113c0c486ea0949067779443857e644d")
 # The MapTiler web fix deploys from a release commit R1 whose only change from the PIN is the web pin
 # (MAPTILER-FIX-PLAN v2). Such a descendant renders auth-service and analytics-service exactly as the PIN does.
 WEB_PIN_FILE = "docker/docker-compose.web-release-pin.yml"
+# Its non-comment, non-blank lines must be exactly these, so the file cannot override any other service or the project.
+WEB_PIN_LINES = (re.compile(r"name: parkio"), re.compile(r"services:"), re.compile(r"  web:"),
+                 re.compile(r"    image: ghcr\.io/adberilgen35/parkio/web@sha256:[0-9a-f]{64}"))
 RELEASE_CHECKOUT = {"detail": None}
 ENV_FILE = cfg("U05R_ENV_FILE", "/opt/parkio/docker/.env.azure-hosted-beta")
 PRIVATE = cfg("U05R_PRIVATE", "/root/u05-priv001a-window")
@@ -831,9 +834,14 @@ def release_checkout():
     if head == PIN:
         return True, f"at the PIN {PIN[:12]}"
     rc3, _, _ = run(g + ["merge-base", "--is-ancestor", PIN, head], timeout=60)
-    rc4, names, _ = run(g + ["diff", "--name-only", PIN, head], timeout=60)
-    if rc3 == 0 and rc4 == 0 and names.split() == [WEB_PIN_FILE]:
-        return True, f"{head[:12]}: the PIN {PIN[:12]} plus only {WEB_PIN_FILE}"
+    rc4, names, _ = run(g + ["diff", "--no-renames", "-z", "--name-only", PIN, head], timeout=60)
+    if rc3 == 0 and rc4 == 0 and [n for n in names.split("\0") if n] == [WEB_PIN_FILE]:
+        rc5, text, _ = run(g + ["show", f"{head}:{WEB_PIN_FILE}"], timeout=60)
+        lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+        if rc5 == 0 and len(lines) == len(WEB_PIN_LINES) and all(p.fullmatch(l) for p, l in zip(WEB_PIN_LINES, lines)):
+            return True, f"{head[:12]}: the PIN {PIN[:12]} plus only {WEB_PIN_FILE} (web image only)"
+        return False, (f"the release checkout ({head[:12]}) changes {WEB_PIN_FILE} beyond the web image line: "
+                       "only name, services, web and one digest-pinned web image are accepted")
     return False, (f"the release checkout is not clean at the PIN ({head[:12] or '?'}): only the PIN, or a descendant "
                    f"of it that changes nothing but {WEB_PIN_FILE}, is accepted")
 
