@@ -192,15 +192,17 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     # The password never enters the rendered model or a process's arguments (2026-10-13 incident): the shell reads it
     # from the container's environment ($$ escapes Compose's interpolation) and writes it to a 0600 file on /tmp
-    # (a tmpfs in production), which redis-server reads as its config. scripts/test_compose_secret_interpolation.py
-    # fails if a secret is interpolated outside `environment`.
+    # (the tmpfs above, in every model built on this file), which redis-server reads as its config. If that write
+    # fails, the container exits instead of starting redis without a password. The value goes into a double-quoted
+    # config string, so it must not contain a double quote, a backslash or a newline: generate it as base64 or hex.
+    # scripts/test_compose_secret_interpolation.py fails if a secret is interpolated outside `environment`.
     command:
       - /bin/sh
       - -c
       - |
         if [ -n "$$REDIS_PASSWORD" ]; then
           umask 077
-          printf 'requirepass "%s"\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf
+          printf 'requirepass "%s"\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf || exit 1
           exec redis-server /tmp/redis-auth.conf --appendonly yes
         else
           exec redis-server --appendonly yes
