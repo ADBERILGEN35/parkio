@@ -11,3 +11,17 @@ W-no-esbuild-arg: KILLED (3 failing case(s)): FAIL P1 pre passes on a clean PIN 
 C-collide-hashed-only: SURVIVED in the first run; KILLED after case d8 (a literal normalized name sorting after its hashed twin) was added
 C-js-only: SURVIVED in the first run; KILLED after the key-bearing non-JavaScript whitespace case was added
 # 11 mutants, 11 killed. Equivalent mutant not run: canonical() without the exit-code test (esbuild prints nothing on error).
+# Round-4 mutants (comparator v4 and W1, 2026-10-13), against self-tests 50/0 and 129/0
+C-fix-flags: KILLED (4 failing case(s)): FAIL the real key-bearing chunk with an unused import specifier added (review probe, round 4) is DIFFERENT (rc
+C-no-ignore-annotations: SURVIVED (0 failing case(s))
+C-x-ok: KILLED (1 failing case(s)): FAIL the pinned esbuild without its execute bit is refused (usage) (rc=0)
+C-abspath: KILLED (1 failing case(s)): FAIL a relative --esbuild path runs the checked file (round 4, D2) (rc=1)
+C-mode-cond: KILLED (1 failing case(s)): FAIL a changed mode on the key-bearing chunk is DIFFERENT (rc=0)
+C-nonregular: KILLED (1 failing case(s)): FAIL a symbolic link in the tree is invalid input (rc=0)
+C-dirs: KILLED (1 failing case(s)): FAIL a changed directory mode is DIFFERENT (rc=0)
+W-xok: KILLED (1 failing case(s)): FAIL P15d a staged esbuild without its execute bit is refused, with the reason on the console (round 4, D3)
+W-config: KILLED (1 failing case(s)): FAIL P13e an image config other than the running image's is refused
+W-tree-follow: KILLED (15 failing case(s)): FAIL P1 pre passes on a clean PIN checkout with every check
+W-tree-entries: KILLED (4 failing case(s)): FAIL P12 a changed nginx.conf is refused
+# C-no-ignore-annotations is equivalent: without syntax minification no annotation removes code, so the flag is defence in
+# depth only (kept as the review proposed). Round 4: 11 mutants, 10 killed, 1 equivalent.

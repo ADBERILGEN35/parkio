@@ -24,12 +24,16 @@ pre: nothing is started, stopped or recreated. It pulls one image and writes one
     --expected-map-key-fingerprint <--key-fp>, --evidence-out). It must PASS, establish configDigest = --image-id
     (the accepted image id; on the host's containerd store `.Id` is the manifest digest, not the config digest), and
     match the fingerprint.
+  - It compares the image config of the running and the new image: Entrypoint, Cmd, Env, User, WorkingDir,
+    ExposedPorts, Volumes, Healthcheck, StopSignal, Shell and OnBuild must be equal. Only the field names of a
+    difference are printed.
   - It compares the bundles of the old and the new image. Both images are created and copied, never started; the
     containers are removed. It requires:
     - /usr/share/nginx/html IDENTICAL after normalization (web-bundle-compare.py, SHA-256 pinned). Its key-bearing
       chunk check uses esbuild 0.27.4, staged beside W1 as esbuild-0.27.4-linux-x64 by fetch-esbuild-0.27.4.sh,
       with its SHA-256 pinned here and in the comparator;
-    - the nginx template, the CSP entrypoint and nginx.conf byte-identical, with equal modes;
+    - /etc/nginx, /docker-entrypoint.d and /docker-entrypoint.sh identical: the same entries, with the same types,
+      modes, bytes and link targets (links are compared, not followed);
     - apk packages equal, except libexpat and pcre2 (recorded).
 recreate: the only live change.
   - It requires a `pre` that passed for the same arguments within the last 6 hours, and the web container must still be
@@ -63,6 +67,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import socket
 import subprocess
 import sys
@@ -92,13 +97,14 @@ PROJECT = "parkio"
 OUT = cfg("W1_OUT", os.path.join(os.path.expanduser("~"), "parkio-release-20261009", "w1-maptiler"))
 APP = cfg("W1_APP", "https://app.parkio.dev")
 COMPARE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web-bundle-compare.py")
-COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "1b0de28f089d8373e69f390cf2c2c317a353938e19b15286dcca4a2e71181502")
+COMPARE_SHA256 = cfg("W1_COMPARE_SHA256", "799d07acbf3920fb3a2e18117fcc1b4d9616fe96dc67139d0bc17641a9967e85")
 ESBUILD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "esbuild-0.27.4-linux-x64")
 ESBUILD_SHA256 = "5186a0791db7cff10adf1fef03dc4790db502eaaff86117664679412fedeccae"     # = web-bundle-compare.py
 HEALTH_WAIT = int(cfg("W1_HEALTH_WAIT", "180"))
 PRE_MAX_AGE = 6 * 3600
-NGINX_FILES = ("/etc/nginx/templates/default.conf.template", "/docker-entrypoint.d/15-parkio-web-csp.envsh",
-               "/etc/nginx/nginx.conf")
+RUNTIME_PATHS = ("/etc/nginx", "/docker-entrypoint.d", "/docker-entrypoint.sh")
+CONFIG_FIELDS = ("Entrypoint", "Cmd", "Env", "User", "WorkingDir", "ExposedPorts", "Volumes", "Healthcheck", "StopSignal",
+                 "Shell", "OnBuild")
 APK_ALLOWED = {"libexpat", "pcre2"}
 PIN_LINES = (r"name: parkio", r"services:", r"  web:", r"    image: ghcr\.io/adberilgen35/parkio/web@(sha256:[0-9a-f]{64})")
 STAMP = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -297,31 +303,69 @@ def apk_packages(path):
     return dict(re.findall(r"(?m)^P:(\S+)\nV:(\S+)", text))
 
 
+def tree_entries(root):
+    """{relative path: (type, mode, sha256 or link target)} of a copied file or directory tree, or None when it is
+    missing. Links are recorded, never followed."""
+    if not os.path.lexists(root):
+        return None
+
+    def entry(path):
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            return ("link", 0, os.readlink(path))
+        if stat.S_ISDIR(st.st_mode):
+            return ("dir", st.st_mode & 0o7777, "")
+        if stat.S_ISREG(st.st_mode):
+            with open(path, "rb") as fh:
+                return ("file", st.st_mode & 0o7777, hashlib.sha256(fh.read()).hexdigest())
+        return ("other", st.st_mode & 0o7777, "")
+    out = {".": entry(root)}
+    if out["."][0] == "dir":
+        for dirpath, dirnames, names in os.walk(root):
+            for n in dirnames + names:
+                full = os.path.join(dirpath, n)
+                out[os.path.relpath(full, root)] = entry(full)
+    return out
+
+
+def esbuild_state():
+    digest = sha256_file(ESBUILD)
+    if digest is None:
+        return "missing"
+    if digest != ESBUILD_SHA256:
+        return f"SHA-256 {digest[:12]} is not the pin"
+    if not os.access(ESBUILD, os.X_OK):
+        return "not executable (chmod 755 after copying)"
+    return None
+
+
 def compare_bundles(old, new, rec):
     tmp = tempfile.mkdtemp(prefix="w1-cmp-")
     try:
-        paths = ["/usr/share/nginx/html", "/lib/apk/db/installed"] + list(NGINX_FILES)
+        paths = ["/usr/share/nginx/html", "/lib/apk/db/installed"] + list(RUNTIME_PATHS)
         a, b = os.path.join(tmp, "old"), os.path.join(tmp, "new")
         os.makedirs(a)
         os.makedirs(b)
         if not check("both images copied (created, never started, removed)", extract(old, a, paths) and extract(new, b, paths)):
             return False
         ok = check("web-bundle-compare.py matches its pinned SHA-256", sha256_file(COMPARE) == COMPARE_SHA256)
-        ok &= check("the staged esbuild 0.27.4 matches its pinned SHA-256", sha256_file(ESBUILD) == ESBUILD_SHA256)
+        problem = esbuild_state()
+        ok &= check("the staged esbuild 0.27.4 matches its pinned SHA-256 and is executable", problem is None, problem or "")
         if ok:
             rc, out, err = run([sys.executable, "-I", COMPARE, "--a-dir", os.path.join(a, "usr/share/nginx/html"),
                                 "--b-dir", os.path.join(b, "usr/share/nginx/html"), "--esbuild", ESBUILD], timeout=300)
             rec["bundleCompare"] = out.strip().splitlines() if out.strip() else [err.strip()[:200]]
+            detail = (out.strip().splitlines() or err.strip().splitlines() or ["?"])[-1][:120]
             ok &= check("bundle IDENTICAL after normalizing the key, hashed names and CACHE_VERSION", rc == 0 and "IDENTICAL" in out,
-                        (out.strip().splitlines() or ["?"])[-1][:120])
+                        detail)
             for line in out.splitlines():
                 if line.startswith(("key-bearing ", "  only in ")):
                     say("    " + line[:160])
-        for f in NGINX_FILES:
-            fa, fb = os.path.join(a, f.lstrip("/")), os.path.join(b, f.lstrip("/"))
-            same = os.path.isfile(fa) and os.path.isfile(fb) and open(fa, "rb").read() == open(fb, "rb").read()
-            modes = (oct(os.stat(fa).st_mode & 0o7777), oct(os.stat(fb).st_mode & 0o7777)) if same else ("?", "?")
-            ok &= check(f"{f} byte-identical with equal modes", same and modes[0] == modes[1], modes[0])
+        for f in RUNTIME_PATHS:
+            ea, eb = tree_entries(os.path.join(a, f.lstrip("/"))), tree_entries(os.path.join(b, f.lstrip("/")))
+            differ = sorted(k for k in set(ea or {}) | set(eb or {}) if (ea or {}).get(k) != (eb or {}).get(k))
+            ok &= check(f"{f} identical (entries, types, modes, bytes, link targets)", ea is not None and eb is not None and not differ,
+                        ", ".join(differ[:6]) if differ else f"{len(ea or {})} entries")
         pa = apk_packages(os.path.join(a, "lib/apk/db/installed"))
         pb = apk_packages(os.path.join(b, "lib/apk/db/installed"))
         changed = sorted(k for k in set(pa or {}) | set(pb or {}) if (pa or {}).get(k) != (pb or {}).get(k))
@@ -371,6 +415,11 @@ def cmd_pre(a):
           gline[0][:160])
     check("guard-established config digest = --image-id (the accepted image id)", gdata.get("configDigest") == iid,
           (gdata.get("configDigest") or "?")[:19])
+    rc, old_info, _ = docker("image", "inspect", web["image"])
+    old_cfg = ((json.loads(old_info) or [{}])[0].get("Config") or {}) if rc == 0 else None
+    new_cfg = d.get("Config") or {}
+    differ = sorted(k for k in CONFIG_FIELDS if (old_cfg or {}).get(k) != new_cfg.get(k)) if old_cfg is not None else ["unreadable"]
+    check("image config equal to the running image (" + ", ".join(CONFIG_FIELDS) + ")", not differ, ", ".join(differ))
     if all(c["pass"] for c in CHECKS):
         compare_bundles(web["image"], ref, rec)
     return finish("pre", rec)

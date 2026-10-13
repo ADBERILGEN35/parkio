@@ -1,4 +1,5 @@
 ok   a binary other than the pinned esbuild is refused (usage)
+ok   the pinned esbuild without its execute bit is refused (usage)
 ok   the two real candidate bundles (same source, same key) are identical
 ok   the simulation renamed 2 key-bearing chunk(s)
 ok   a key change (renamed chunks, references, CACHE_VERSION) normalizes to identical
@@ -11,12 +12,19 @@ ok   colliding normalized asset names (two hashed chunks) are refused
 ok   a file literally named like a normalized one is refused
 ok   a literal normalized name that sorts after its hashed twin is refused (order-independent check)
 ok   a key-bearing non-JavaScript file differing only in whitespace is DIFFERENT
+ok   a changed file mode is DIFFERENT
+ok   a changed mode on the key-bearing chunk is DIFFERENT
+ok   a symbolic link in the tree is invalid input
+ok   a changed directory mode is DIFFERENT
 ok   the real candidate with another key: IDENTICAL through esbuild canonical equality of the key-bearing chunk
+ok   a relative --esbuild path runs the checked file (round 4, D2)
 ok   the real key-bearing chunk with two imported names swapped (review probe) is DIFFERENT
 ok   the real key-bearing chunk with the exported name renamed (review probe) is DIFFERENT
 ok   the real key-bearing chunk with a string changed is DIFFERENT
 ok   the real key-bearing chunk with a boolean flipped (DEV:!1 -> DEV:!0) is DIFFERENT
 ok   the real key-bearing chunk with an unterminated string (esbuild rejects it) is DIFFERENT
+ok   the real key-bearing chunk with an appended /*@__PURE__*/ call that reads cookies (review probe, round 4) is DIFFERENT
+ok   the real key-bearing chunk with an unused import specifier added (review probe, round 4) is DIFFERENT
 ok   the real key-bearing chunk with a behaviour-free change (DEV:!1 -> DEV:!2, both false) is IDENTICAL
 ok   a real non-key chunk replaced by its own esbuild-minified form is DIFFERENT (canonical comparison is for key-bearing chunks only)
 ok   snippets: an alpha-renamed pair -> IDENTICAL
@@ -34,4 +42,10 @@ ok   snippets: swapped import names -> DIFFERENT
 ok   snippets: an exported name -> DIFFERENT
 ok   snippets: input esbuild rejects -> DIFFERENT
 ok   snippets: two different inputs esbuild rejects (no match through failure) -> DIFFERENT
-=== summary: 36 ok, 0 FAIL ===
+ok   snippets: an appended /*@__PURE__*/ call (round 4, D1a) -> DIFFERENT
+ok   snippets: an appended /*#__PURE__*/ call -> DIFFERENT
+ok   snippets: a call to a /*@__NO_SIDE_EFFECTS__*/ function -> DIFFERENT
+ok   snippets: a call to a /*@__NO_SIDE_EFFECTS__*/ arrow -> DIFFERENT
+ok   snippets: an unused import name (round 4, D1b) -> DIFFERENT
+ok   snippets: an unused import specifier added -> DIFFERENT
+=== summary: 50 ok, 0 FAIL ===

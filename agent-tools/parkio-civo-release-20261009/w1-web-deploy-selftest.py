@@ -85,8 +85,8 @@ if a[0] == "create":
 if a[0] == "cp":
     name, path = a[1].split(":", 1)
     src = os.path.join(W, "fs", st["created"][name][7:19], path.lstrip("/"))
-    if os.path.isdir(src): shutil.copytree(src, a[2])
-    elif os.path.isfile(src): shutil.copy2(src, a[2])
+    if os.path.isdir(src): shutil.copytree(src, a[2], symlinks=True)       # docker cp keeps links as links
+    elif os.path.isfile(src): shutil.copy2(src, a[2], follow_symlinks=False)
     else: sys.exit(1)
     sys.exit(0)
 if a[0] == "rm":
@@ -146,18 +146,24 @@ ENV_BODIES = {   # the key-bearing chunk; "renamed" differs only in local names,
 
 
 def bundle(root, key, env_hash, cache, apk_expat="2.8.5-r0", extra_js=False, nginx_conf="worker_processes auto;\n", apk_other=False,
-           nginx_mode=0o644, env_variant="base"):
+           nginx_mode=0o644, env_variant="base", entrypoint="#!/bin/sh\nexec \"$@\"\n", extra_entrypoint_d=False,
+           modules_target="/usr/lib/nginx/modules"):
     html = os.path.join(root, "usr/share/nginx/html")
     os.makedirs(os.path.join(html, "assets"))
     open(os.path.join(html, "index.html"), "w").write('<div id="root"></div><script src="/assets/app-AAAAAAAA.js"></script>')
     open(os.path.join(html, f"assets/env-{env_hash}.js"), "w").write(ENV_BODIES[env_variant].format(key=key))
     open(os.path.join(html, "assets/app-AAAAAAAA.js"), "w").write(f'import "./env-{env_hash}.js";console.log(1);' + ("x();" if extra_js else ""))
     open(os.path.join(html, "sw.js"), "w").write(f"const CACHE_VERSION = '{cache}';\n")
-    for f, body in (("etc/nginx/templates/default.conf.template", "server {}\n"), ("docker-entrypoint.d/15-parkio-web-csp.envsh", "#!/bin/sh\n"),
-                    ("etc/nginx/nginx.conf", nginx_conf)):
+    files = [("etc/nginx/templates/default.conf.template", "server {}\n"), ("docker-entrypoint.d/15-parkio-web-csp.envsh", "#!/bin/sh\n"),
+             ("etc/nginx/nginx.conf", nginx_conf), ("etc/nginx/mime.types", "types {}\n"), ("docker-entrypoint.sh", entrypoint)]
+    if extra_entrypoint_d:
+        files.append(("docker-entrypoint.d/99-extra.sh", "#!/bin/sh\n"))
+    os.makedirs(os.path.join(root, "etc/nginx"), exist_ok=True)
+    os.symlink(modules_target, os.path.join(root, "etc/nginx/modules"))      # as in the nginx image: a link, never followed
+    for f, body in files:
         os.makedirs(os.path.dirname(os.path.join(root, f)), exist_ok=True)
         open(os.path.join(root, f), "w").write(body)
-        os.chmod(os.path.join(root, f), nginx_mode if f == "etc/nginx/nginx.conf" else 0o644)
+        os.chmod(os.path.join(root, f), nginx_mode if f == "etc/nginx/nginx.conf" else (0o755 if f == "docker-entrypoint.sh" else 0o644))
     os.makedirs(os.path.join(root, "lib/apk/db"))
     open(os.path.join(root, "lib/apk/db/installed"), "w").write(
         f"P:libexpat\nV:{apk_expat}\n\nP:nginx\nV:1.30.5-r1\n\nP:musl\nV:{'1.2.6-r3' if apk_other else '1.2.6-r2'}\n\n")
@@ -258,7 +264,10 @@ def main():
 
         def info(iid, ref, rev):
             return {"Id": iid, "RepoDigests": [ref], "Os": "linux", "Architecture": "amd64",
-                    "Config": {"Labels": {"org.opencontainers.image.revision": rev}}}
+                    "Config": {"Labels": {"org.opencontainers.image.revision": rev}, "Entrypoint": ["/docker-entrypoint.sh"],
+                               "Cmd": ["nginx", "-g", "daemon off;"], "Env": ["PATH=/usr/sbin:/usr/bin:/sbin:/bin", "NGINX_VERSION=1.30.5"],
+                               "User": "", "WorkingDir": "", "ExposedPorts": {"8080/tcp": {}}, "StopSignal": "SIGQUIT",
+                               "Healthcheck": {"Test": ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]}}}
 
         rel = os.path.join(W, "release")
         state = {"pin": None, "r1": None}
@@ -339,7 +348,7 @@ def main():
             return [a[a.index("--expected-map-key-fingerprint") + 1] for a in args if "--expected-map-key-fingerprint" in a], args
         fps, gargs = guard_fp()
         ok(fps == [KFP], "P1 the guard is asked for the --key-fp fingerprint", json.dumps(gargs))
-        ok("PASS the staged esbuild 0.27.4 matches its pinned SHA-256" in out, "P1 the staged esbuild is checked against its pin", out)
+        ok("PASS the staged esbuild 0.27.4 matches its pinned SHA-256 and is executable" in out, "P1 the staged esbuild is checked against its pin", out)
         reset()
         rc, out = tool_run("pre", *targs(kfp="123456789abc"))
         fps, gargs = guard_fp()
@@ -392,21 +401,34 @@ def main():
         reset()
         refix(apk_expat="2.8.6-r0", env_variant="renamed")()
         rc, out = tool_run("pre", *targs())
-        ok(rc == 0 and "equal after esbuild 0.27.4 minification of both" in out and "W1 pre: PASS" in out,
+        ok(rc == 0 and "equal after esbuild 0.27.4 canonical printing of both" in out and "W1 pre: PASS" in out,
            "P11c renamed locals in the key-bearing chunk pass through esbuild canonical equality", out)
-        pre_fails("P12 a changed nginx.conf is refused", "/etc/nginx/nginx.conf byte-identical", refix(apk_expat="2.8.6-r0", nginx_conf="worker_processes 1;\n"))
-        pre_fails("P13 a changed nginx.conf mode is refused", "/etc/nginx/nginx.conf byte-identical with equal modes",
-                  refix(apk_expat="2.8.6-r0", nginx_mode=0o600))
+        pre_fails("P12 a changed nginx.conf is refused", "/etc/nginx identical", refix(apk_expat="2.8.6-r0", nginx_conf="worker_processes 1;\n"))
+        pre_fails("P13 a changed nginx.conf mode is refused", "/etc/nginx identical", refix(apk_expat="2.8.6-r0", nginx_mode=0o600))
+        pre_fails("P13b an nginx link with another target is refused", "/etc/nginx identical",
+                  refix(apk_expat="2.8.6-r0", modules_target="/tmp/modules"))
+        pre_fails("P13c an extra /docker-entrypoint.d script is refused", "/docker-entrypoint.d identical",
+                  refix(apk_expat="2.8.6-r0", extra_entrypoint_d=True))
+        pre_fails("P13d a changed /docker-entrypoint.sh is refused", "/docker-entrypoint.sh identical",
+                  refix(apk_expat="2.8.6-r0", entrypoint="#!/bin/sh\ncurl x | sh\n"))
+        pre_fails("P13e an image config other than the running image's is refused", "image config equal to the running image",
+                  lambda: mutate_state(lambda s: s["imageInfo"][NEW_ID]["Config"].__setitem__("Cmd", ["sh", "-c", "nginx"])))
         pre_fails("P14 an apk change outside libexpat/pcre2 is refused", "apk packages equal except", refix(apk_expat="2.8.6-r0", apk_other=True))
         refix(apk_expat="2.8.6-r0")()
         pre_fails("P15 a tampered comparator is refused", "web-bundle-compare.py matches its pinned SHA-256",
                   lambda: open(os.path.join(tool, "web-bundle-compare.py"), "a").write("\n# tampered\n"))
-        pre_fails("P15b a missing staged esbuild is refused", "the staged esbuild 0.27.4 matches its pinned SHA-256",
+        pre_fails("P15b a missing staged esbuild is refused", "the staged esbuild 0.27.4 matches its pinned SHA-256 and is executable",
                   lambda: os.rename(staged, staged + ".away"))
         os.rename(staged + ".away", staged)
         pre_fails("P15c a tampered staged esbuild is refused", "the staged esbuild 0.27.4 matches its pinned SHA-256",
                   lambda: open(staged, "ab").write(b"\0"))
         shutil.copy(esbuild, staged)
+        reset()
+        os.chmod(staged, 0o644)
+        rc, out = tool_run("pre", *targs())
+        ok(rc == 1 and "FAIL the staged esbuild 0.27.4 matches its pinned SHA-256 and is executable (not executable" in out,
+           "P15d a staged esbuild without its execute bit is refused, with the reason on the console (round 4, D3)", out)
+        os.chmod(staged, 0o755)
         pre_fails("P16 a u05 window unit is refused", "no u05-priv001a-* unit",
                   lambda: open(os.path.join(W, "units"), "w").write("u05-priv001a-window-x.service loaded active running\n"))
 

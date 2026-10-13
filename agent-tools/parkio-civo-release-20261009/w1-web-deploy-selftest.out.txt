@@ -5,7 +5,7 @@ ok   P1 bundle identical after normalization; the libexpat change is recorded
 ok   P1 identity comes from the guard's config digest (containerd)
 ok   P1 pre never calls the wrapper and leaves the checkout at the PIN
 ok   P1 the guard gets the allowlisted environment only
-ok   P1 docker gets the allowlisted environment only (21 calls)
+ok   P1 docker gets the allowlisted environment only (22 calls)
 ok   P1 git gets the allowlisted environment only (9 calls)
 ok   P1 the guard is asked for the --key-fp fingerprint
 ok   P1 the staged esbuild is checked against its pin
@@ -47,6 +47,14 @@ ok   P12 a changed nginx.conf is refused
 ok     (no key value in the output of pre)
 ok   P13 a changed nginx.conf mode is refused
 ok     (no key value in the output of pre)
+ok   P13b an nginx link with another target is refused
+ok     (no key value in the output of pre)
+ok   P13c an extra /docker-entrypoint.d script is refused
+ok     (no key value in the output of pre)
+ok   P13d a changed /docker-entrypoint.sh is refused
+ok     (no key value in the output of pre)
+ok   P13e an image config other than the running image's is refused
+ok     (no key value in the output of pre)
 ok   P14 an apk change outside libexpat/pcre2 is refused
 ok     (no key value in the output of pre)
 ok   P15 a tampered comparator is refused
@@ -54,6 +62,8 @@ ok     (no key value in the output of pre)
 ok   P15b a missing staged esbuild is refused
 ok     (no key value in the output of pre)
 ok   P15c a tampered staged esbuild is refused
+ok     (no key value in the output of pre)
+ok   P15d a staged esbuild without its execute bit is refused, with the reason on the console (round 4, D3)
 ok     (no key value in the output of pre)
 ok   P16 a u05 window unit is refused
 ok     (no key value in the output of recreate)
@@ -72,7 +82,7 @@ ok   R4 the wrapper ran once: up -d --no-build --no-deps --force-recreate web
 ok   R4 with PARKIO_ENV_FILE and the --key-fp fingerprint
 ok   R4 the wrapper gets the allowlisted environment only (COMPOSE_*, DOCKER_*, PARKIO_SKIP_*, PARKIO_COMPOSE_FILES_LIST, PARKIO_GMP_RECOVERY dropped)
 ok   R4 the checkout is at R1
-ok   R4 docker gets the allowlisted environment only in pre and recreate (30 calls)
+ok   R4 docker gets the allowlisted environment only in pre and recreate (31 calls)
 ok   R4 git gets the allowlisted environment only in pre and recreate (14 calls)
 ok   R4 post-check: web is healthy
 ok   R4 post-check: web is a new container
@@ -117,4 +127,4 @@ ok     (no key value in the output of pre)
 ok   U1 malformed arguments are a usage error
 ok     (no key value in the output of pre)
 ok   U2 a malformed --key-fp is a usage error
-=== summary: 119 ok, 0 FAIL ===
+=== summary: 129 ok, 0 FAIL ===
