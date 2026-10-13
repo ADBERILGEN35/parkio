@@ -6,6 +6,10 @@
 # distinct from backup-restore-drill.yml, which proves the backup scripts with canary rows.
 # Neither restores real production data. No application services, senders, schedulers,
 # relays or external notifications run here. Only secret-free synthetic evidence is uploaded.
+#
+# U14 run B rehearsal: the job then runs the drill host's command chain end to end on the same
+# synthetic stamps: backup-dated-acceptance.sh --pulled into the real restore-drill-01.sh, with
+# the drill host's pinned images. It never touches a real backup.
 
 name: Restore drill 01 procedure
 
@@ -44,6 +48,7 @@ on:
       - "scripts/backup-minio.sh"
       - "scripts/backup-hosted-beta.sh"
       - "scripts/backup-offsite-pull.sh"
+      - "scripts/backup-dated-acceptance.sh"
       - "docker/docker-compose.yml"
       - "services/*/src/main/resources/db/migration/**"
       - ".github/workflows/restore-drill-01-procedure.yml"
@@ -193,13 +198,131 @@ jobs:
       - name: Assert restored state and evidence
         run: python3 scripts/ci/assert-restore-drill-01.py "$RUNNER_TEMP/rd/evidence" "$RUNNER_TEMP/rd/expected.env" rd-postgres
 
+      # U14 run B rehearsal. These steps run the drill host's own chain, as
+      # docs/operations/backup-dated-acceptance.md (B) and the run B drill-host script run it:
+      #   - backup-dated-acceptance.sh --pulled checks the pulled copy against the backup side's seal;
+      #   - it decrypts every artifact;
+      #   - it runs the REAL restore-drill-01.sh in its scrubbed environment, with the drill env file;
+      #   - the target is a fresh rd-postgres, built from the drill host's pinned target and client images.
+      # One difference from the drill host: --probe-default-egress is left out, because this runner
+      # has outbound access. The drill host proves egress denial with its probe step and that flag.
+      - name: "U14 drill-host chain: fresh target from the drill host's pinned images"
+        env:
+          U14_TARGET_IMAGE: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+          U14_PSQL_IMAGE: postgres@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+        run: |
+          set -euo pipefail
+          # The documented procedure is done with its target; the chain needs a fresh one of the same name.
+          docker rm -f rd-postgres >/dev/null
+          docker pull -q "$U14_TARGET_IMAGE" >/dev/null
+          docker pull -q "$U14_PSQL_IMAGE" >/dev/null
+          docker run -d --name rd-postgres --network rd-net --memory 1500m -e POSTGRES_USER=rd_admin \
+            -e POSTGRES_PASSWORD="dummy-$(openssl rand -hex 12)" -e POSTGRES_DB=rd_admin "$U14_TARGET_IMAGE" >/dev/null
+          # Over TCP: the image's init server listens on the socket only, so a socket check can pass
+          # before the final server is up.
+          for _ in $(seq 1 60); do docker exec rd-postgres pg_isready -q -h 127.0.0.1 -U rd_admin -d rd_admin && break; sleep 2; done
+          docker exec rd-postgres pg_isready -q -h 127.0.0.1 -U rd_admin -d rd_admin
+          printf '%s\n' PARKIO_EMAIL_PROVIDER=logging PARKIO_WAITLIST_EMAIL_PROVIDER=logging \
+            PARKIO_PUSH_DELIVERY_PROVIDER=noop > "$RUNNER_TEMP/rd/drill.env"
+          # The backup side's seal of stamp S: its offsite receipt, written before the local copy was dropped.
+          source "$RUNNER_TEMP/rd/expected.env"
+          dest="$(sed -n 's/^destination=//p' "$RUNNER_TEMP/rd/backup-S.log" | head -n 1)"
+          python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sealed"]["sha256sums"])' \
+            "${dest}.offsite-receipt.json" > "$RUNNER_TEMP/rd/seal-S"
+          grep -Eqx '[0-9a-f]{64}' "$RUNNER_TEMP/rd/seal-S"
+
+      - name: "U14 drill-host chain: a copy that is not the sealed stamp stops before any restore"
+        env:
+          PARKIO_RESTORE_PSQL_IMAGE: postgres@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          set +e
+          scripts/backup-dated-acceptance.sh --pulled "$RUNNER_TEMP/rd/stamps/$STAMP_S" \
+            --expected-sha256sums 0000000000000000000000000000000000000000000000000000000000000000 \
+            --evidence "$RUNNER_TEMP/rd/acc-neg" --work "$RUNNER_TEMP/rd/acc-neg-work" --decrypt --isolated-restore \
+            --drill-env-file "$RUNNER_TEMP/rd/drill.env" -- --recovery-cutoff "$STAMP_L" --container rd-postgres \
+            --ledger-stamp "$RUNNER_TEMP/rd/stamps/$STAMP_L"
+          rc=$?
+          set -e
+          python3 - "$RUNNER_TEMP/rd/acc-neg/acceptance.json" "$rc" <<'PY'
+          import json, sys
+          record = json.load(open(sys.argv[1]))
+          got = {o["id"]: o["result"] for o in record["outcomes"]}
+          want = {"complete": "NOT_RUN", "remote-presence": "NOT_RUN", "remote-integrity": "FAIL",
+                  "decrypt": "NOT_RUN", "isolated-restore": "NOT_RUN"}
+          assert (got, record["verdict"], sys.argv[2]) == (want, "FAIL", "1"), (got, record["verdict"], sys.argv[2])
+          print("wrong seal: remote-integrity FAIL, nothing decrypted or restored, exit 1")
+          PY
+          test "$(docker exec rd-postgres psql -At -U rd_admin -d rd_admin -c "select count(*) from pg_database where datname like 'parkio_%'")" = 0
+
+      - name: "U14 drill-host chain: a changed artifact under the real seal stops before any restore"
+        env:
+          PARKIO_RESTORE_PSQL_IMAGE: postgres@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          cp -r "$RUNNER_TEMP/rd/stamps/$STAMP_S" "$RUNNER_TEMP/rd/changed-copy"
+          printf 'x' >> "$RUNNER_TEMP/rd/changed-copy/parking.sql.gz.enc"
+          set +e
+          scripts/backup-dated-acceptance.sh --pulled "$RUNNER_TEMP/rd/changed-copy" \
+            --expected-sha256sums "$(cat "$RUNNER_TEMP/rd/seal-S")" \
+            --evidence "$RUNNER_TEMP/rd/acc-neg2" --work "$RUNNER_TEMP/rd/acc-neg2-work" --decrypt --isolated-restore \
+            --drill-env-file "$RUNNER_TEMP/rd/drill.env" -- --recovery-cutoff "$STAMP_L" --container rd-postgres \
+            --ledger-stamp "$RUNNER_TEMP/rd/stamps/$STAMP_L"
+          rc=$?
+          set -e
+          python3 - "$RUNNER_TEMP/rd/acc-neg2/acceptance.json" "$rc" <<'PY'
+          import json, sys
+          record = json.load(open(sys.argv[1]))
+          got = {o["id"]: o["result"] for o in record["outcomes"]}
+          want = {"complete": "NOT_RUN", "remote-presence": "NOT_RUN", "remote-integrity": "FAIL",
+                  "decrypt": "NOT_RUN", "isolated-restore": "NOT_RUN"}
+          assert (got, record["verdict"], sys.argv[2]) == (want, "FAIL", "1"), (got, record["verdict"], sys.argv[2])
+          print("changed artifact under the real seal: remote-integrity FAIL, nothing decrypted or restored, exit 1")
+          PY
+          test "$(docker exec rd-postgres psql -At -U rd_admin -d rd_admin -c "select count(*) from pg_database where datname like 'parkio_%'")" = 0
+          rm -rf "$RUNNER_TEMP/rd/changed-copy"
+
+      - name: "U14 drill-host chain: dated acceptance --pulled into the real restore drill (outcomes 3-5)"
+        env:
+          PARKIO_RESTORE_PSQL_IMAGE: postgres@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rd/expected.env"
+          set +e
+          scripts/backup-dated-acceptance.sh --pulled "$RUNNER_TEMP/rd/stamps/$STAMP_S" \
+            --expected-sha256sums "$(cat "$RUNNER_TEMP/rd/seal-S")" \
+            --evidence "$RUNNER_TEMP/rd/acc" --work "$RUNNER_TEMP/rd/acc-work" --decrypt --isolated-restore \
+            --drill-env-file "$RUNNER_TEMP/rd/drill.env" -- --recovery-cutoff "$STAMP_L" --container rd-postgres \
+            --ledger-stamp "$RUNNER_TEMP/rd/stamps/$STAMP_L"
+          rc=$?
+          set -e
+          python3 - "$RUNNER_TEMP/rd/acc/acceptance.json" "$rc" <<'PY'
+          import json, sys
+          record = json.load(open(sys.argv[1]))
+          got = {o["id"]: o["result"] for o in record["outcomes"]}
+          want = {"complete": "NOT_RUN", "remote-presence": "NOT_RUN", "remote-integrity": "PASS",
+                  "decrypt": "PASS", "isolated-restore": "PASS"}
+          assert (got, record["verdict"], sys.argv[2]) == (want, "INCOMPLETE", "4"), (got, record["verdict"], sys.argv[2])
+          print("drill-host chain: outcomes 3-5 PASS; 1-2 belong to the backup-host record (INCOMPLETE, exit 4)")
+          PY
+
+      - name: "U14 drill-host chain: assert the restored state and the drill's evidence"
+        env:
+          EXPECT_RESTORE_IMAGE: postgres@sha256:21f6013073bc6b92830a2129570e2f5ec42a6c734b5a985a41e83aa58f54c3c1
+          EXPECT_RESTORE_CLIENT_VERSION: "16.10"
+        run: python3 scripts/ci/assert-restore-drill-01.py "$RUNNER_TEMP/rd/acc/isolated-restore" "$RUNNER_TEMP/rd/expected.env" rd-postgres
+
       # CI data is synthetic, so restore stderr may be printed here. In a real drill it
       # stays in the work dir on the drill host (it can quote data).
       - name: Print synthetic restore errors on failure
         if: failure()
         run: |
-          for f in "$RUNNER_TEMP"/rd/work/*.restore.err; do
-            [ -s "$f" ] && { echo "== $(basename "$f")"; head -c 3000 "$f"; echo; }
+          for f in "$RUNNER_TEMP"/rd/work/*.restore.err "$RUNNER_TEMP"/rd/acc-work/restore-work/*.restore.err \
+                   "$RUNNER_TEMP"/rd/acc-work/restore-drill.log "$RUNNER_TEMP"/rd/acc-neg-work/restore-drill.log \
+                   "$RUNNER_TEMP"/rd/acc-neg2-work/restore-drill.log; do
+            [ -s "$f" ] && { echo "== $f"; head -c 3000 "$f"; echo; }
           done || true
 
       - name: Print secret-free evidence
@@ -215,6 +338,18 @@ jobs:
         with:
           name: restore-drill-01-synthetic-evidence
           path: ${{ runner.temp }}/rd/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload the U14 drill-host chain's synthetic evidence (no stamps, no work dir)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: u14-drill-host-chain-synthetic-evidence
+          path: |
+            ${{ runner.temp }}/rd/acc/
+            ${{ runner.temp }}/rd/acc-neg/
+            ${{ runner.temp }}/rd/acc-neg2/
           if-no-files-found: ignore
           retention-days: 14
 

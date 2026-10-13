@@ -5,9 +5,15 @@ Usage: assert-restore-drill-01.py EVIDENCE_DIR EXPECTED_ENV CONTAINER
 
 Checks the secret-free evidence written by scripts/restore-drill-01.sh and queries
 the restored isolated container directly. Synthetic identifiers only.
+
+EXPECT_RESTORE_IMAGE (default postgres:16.10) is the exact restore_image the drill must
+record, and EXPECT_RESTORE_CLIENT_VERSION (default 16.10) its psql version. The U14
+drill-host chain passes its pinned digest.
 """
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -59,8 +65,14 @@ def main(evidence, expected_env, container):
     tooling = (ev / "client-tooling.txt").read_text()
     check("restore_client=" in tooling and "target_server=" in tooling,
           "client-tooling.txt records restore-client and target-server")
-    check("postgres:16.10" in tooling or "restore_image=postgres:16.10" in tooling,
-          "restore client image is the identified postgres:16.10")
+    recorded = dict(l.split("=", 1) for l in tooling.splitlines() if "=" in l)
+    want_image = os.environ.get("EXPECT_RESTORE_IMAGE") or "postgres:16.10"
+    want_version = os.environ.get("EXPECT_RESTORE_CLIENT_VERSION") or "16.10"
+    check(recorded.get("restore_image") == want_image,
+          f"restore client image is the identified {want_image} (got {recorded.get('restore_image')})")
+    check(re.match(r"psql \(PostgreSQL\) " + re.escape(want_version) + r"(\s|$)",
+                   recorded.get("restore_client", "")) is not None,
+          f"restore client is psql {want_version} (got {recorded.get('restore_client')})")
     erasure = json.loads((ev / "erasure-set.json").read_text())
     check(erasure["verdict"] == "PASS", "erasure set reaches the recovery cutoff")
     check(erasure["erasedAfterDataStamp"] == 1, "exactly one erasure is newer than the data stamp")
