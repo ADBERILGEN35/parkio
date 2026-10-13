@@ -1,25 +1,38 @@
 ok   B1 baseline passes at 10:00 UTC
 ok   B1 evidence directory 700, record 600
-ok   B2 02:00 UTC is refused (the window would reach the 03:30 backup)
-ok   B2b 04:00 UTC is refused
-ok   B2c 04:10 UTC passes
-ok   B2d 01:10 UTC passes (ends 02:50)
+ok   B1 Watchdog is not listed among the active alerts that could reach Slack
+ok   B2 01:30 UTC is refused (125 minutes reach 02:55; review L8)
+ok   B2b 02:00 UTC is refused
+ok   B2c 04:00 UTC is refused
+ok   B2d 04:10 UTC passes
+ok   B2e 00:45 UTC passes (the window ends 02:50)
 ok   B3 a synthetic file present fails the baseline
+ok   B3b a crashed arm's temporary file fails the baseline
 ok   B4 an active heartbeat passes with the NOTE about the slack|webhook sum
-ok   C1 close passes with +2 Slack and everything cleaned up
+ok   B5 a baseline once the test is armed is refused (review M5)
+ok   C1 close passes with Slack +2 while the heartbeat added webhook +4 (Slack only is counted)
+ok   C1 another active alert is named even at exactly +2, and Watchdog is not (review L9)
 ok   C1 a versioned manifest lists every evidence file with its SHA-256
-ok   C2 the synthetic file left behind fails
-ok   C3 the synthetic series still in Prometheus fails
-ok   C4 a new silence fails
-ok   C5 a failed Slack notification fails
-ok   C6 a changed container fails
-ok   C7 a BackupStale alert still in Alertmanager fails
-ok   C8 fewer than two Slack notifications fails
-ok   C9 a missing milestone fails
-ok   C10 +3 Slack passes with the NOTE naming the other active alert
-ok   C11 close without a baseline fails
+ok   M5 two closes keep both records; the second manifest lists the first; the first still verifies
+ok   C2 Slack +1 fails even though webhook rose by 4 (no slack|webhook sum)
+ok   C3 the synthetic file left behind fails
+ok   C3b a crashed arm's temporary file fails
+ok   C4 the synthetic series still in Prometheus fails
+ok   C5 a new silence fails
+ok   C6 a failed Slack notification fails
+ok   C7 a changed container fails
+ok   C8 a BackupStale alert still in Alertmanager fails
+ok   C9 an Alertmanager restart in the window fails, with the reason
+ok   C10 a missing milestone fails
+ok   C11 a bad armed scope fails
+ok   C12 +3 passes with the NOTE naming the other active alert
+ok   C13 a Slack record that is no time or permalink fails
+ok   C14 close without a baseline fails
 ok   U usage refusal: no evidence directory
+ok   U usage refusal: close without the Slack records
+ok   U usage refusal: close with one Slack record
 ok   U usage refusal: a missing directory
+ok   U usage refusal: an extra argument
 ok   U usage refusal: an unknown command
 ok   no URL from the APIs in any output or record
-=== summary: 24 ok, 0 FAIL ===
+=== summary: 37 ok, 0 FAIL ===

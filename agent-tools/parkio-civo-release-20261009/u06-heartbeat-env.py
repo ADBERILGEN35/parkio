@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """U06 heartbeat, part B1: write the external heartbeat ping URL into the live env file on parkio-civo-prod.
-Prepared 2026-10-13. Running it needs the owner's authorization for the activation window.
+Prepared 2026-10-13, revised after the independent review (U06-TOOLS-REVIEW.md, L1, L3, L4, L5, M6). Running it needs
+the owner's authorization for the activation window.
 
 Run as civo (the env file's owner) in an interactive terminal on the host, after the owner created the check and stored
 its ping URL in the DR secrets store:
@@ -14,16 +15,22 @@ What it changes, and nothing else:
   mode, owner and group, then is renamed over the original.
 The URL is read twice through a hidden terminal prompt (getpass), never from arguments, the environment or a pipe. It is
 never printed or logged; preflight and Compose read it from the file. No container is created, started or recreated:
-Alertmanager keeps routing Watchdog to `null` until the separate, authorized recreate (u06-alertmanager-step.py).
+Alertmanager keeps its current routing until the separate, authorized recreate (u06-alertmanager-step.py).
+The entry must be printable ASCII, https, with a host and a path, without spaces, quotes, '#', '$' or a backslash, not
+a placeholder and not the value of another key. These are this tool's own checks: the release preflight under the
+azure-hosted-beta profile does not inspect the heartbeat at all (review L1).
 
+The env file is read again right before the backup; if it changed while the prompt was open, the run stops with
+nothing changed (review L3).
 Checks after the write:
   - only that key differs, and mode, owner and group are unchanged;
   - the live checkout's git status is unchanged;
-  - the release preflight (azure-hosted-beta, --skip-compose) passes. It refuses a placeholder or non-https URL;
+  - the release preflight (azure-hosted-beta, --skip-compose) still passes;
   - the release model gives alertmanager exactly the entered URL, and alertmanager is the only service whose config
     hash changes;
   - the running alertmanager is the same container.
-A structural mismatch restores the backup at once.
+Any failed check restores the original content at once (atomically, same mode and owner), so a FAIL never leaves the URL
+in the env file (review L5); the backup stays as the record.
 
 The release checkout must be clean at the release PIN f888a81b, or at the MapTiler deploy commit R1. R1 is a descendant of
 the PIN whose only change is docker/docker-compose.web-release-pin.yml, and that file must pin the web image alone.
@@ -46,6 +53,11 @@ TEST = os.environ.get("U06H_TEST") == "1"
 def cfg(name, default):
     """Overrides are honoured only by the self-test."""
     return os.environ.get(name, default) if TEST else default
+
+
+def fault(name):
+    """Test-only fault injection (review M6): honoured only by the self-test."""
+    return TEST and name in os.environ.get("U06H_FAULT", "").split(",")
 
 
 PIN = cfg("U06H_PIN", "f888a81b113c0c486ea0949067779443857e644d")
@@ -252,7 +264,7 @@ def write_atomically(data, st):
 def preflight():
     script = os.path.join(REL, "scripts", "preflight-hosted-beta.sh")
     rc, out, err = run(["sh", script, "--env-file", ENV_FILE, "--deployment-profile", "azure-hosted-beta", "--skip-compose"], cwd=REL)
-    summary, heartbeat_problem = "", False
+    summary = ""
     for line in (out + "\n" + err).splitlines():
         s = line.strip()
         m = re.match(r"^\[(.+)\]$", s)
@@ -262,13 +274,11 @@ def preflight():
         m = re.match(r"^(FAIL|WARN)\s+(\S+)", s)
         if m:
             subject = m.group(2).rstrip(":")
-            heartbeat_problem |= "HEARTBEAT" in subject.upper() or subject == "heartbeat"
             say(f"      {m.group(1)} {subject if SUBJECT.match(subject) else '<subject>'}")
             continue
         if s.startswith("=== PREFLIGHT:"):
             summary = re.sub(r"[^\w\s:()=,.-]", "-", s)[:120]
     gate("preflight (azure-hosted-beta, env validation)", rc == 0, f"exit {rc}; {summary or 'no summary line'}")
-    gate("preflight reports nothing about the heartbeat (no empty, placeholder or non-https warning)", not heartbeat_problem)
 
 
 def main():
@@ -330,6 +340,8 @@ def main():
         stop("the two entries differ")
     if not first:
         stop("the entry is empty")
+    if not (first.isascii() and first.isprintable()):
+        stop("the entry has a non-ASCII or non-printable character")
     if not URL_SHAPE.match(first):
         stop("the entry is not an https URL of the expected shape (no spaces, quotes, '#', '$' or backslash; host and path)")
     if PLACEHOLDER.search(first):
@@ -344,6 +356,9 @@ def main():
 
     say("")
     say("C. Backup and write")
+    with open(ENV_FILE, "rb") as fh:
+        if fh.read() != original:
+            stop("the env file changed while the prompt was open; run the tool again")
     backup = f"{ENV_FILE}.bak-{STAMP}"
     if os.path.exists(backup):
         stop("the backup name exists already")
@@ -355,6 +370,9 @@ def main():
         os.fchmod(fh.fileno(), st.st_mode & 0o7777)
         os.fchown(fh.fileno(), st.st_uid, st.st_gid)
     os.utime(backup, ns=(st.st_atime_ns, st.st_mtime_ns))
+    if fault("backup-differs"):
+        with open(backup, "ab") as fh:
+            fh.write(b"#")
     bst = os.stat(backup)
     with open(backup, "rb") as fh:
         same = fh.read() == original
@@ -369,6 +387,9 @@ def main():
         new_lines += [COMMENT + nl, KEY.encode() + b"=" + first.encode("ascii") + nl]
     data = b"".join(new_lines)
     write_atomically(data, st)
+    if fault("after-write"):
+        with open(ENV_FILE, "ab") as fh:
+            fh.write(b"#")
     say(f"  {'rewritten in place' if count else 'appended'}: {KEY}")
 
     say("")
@@ -425,9 +446,17 @@ def main():
     say("")
     say("SUMMARY")
     say(f"gates passed {len(GATES) - len(failed)}/{len(GATES)}" + (f"; failed: {', '.join(failed)}" if failed else ""))
-    say(f"to undo the env change (the backup holds the previous state): cp -p {backup} {ENV_FILE}")
-    say(f"{SERVICE} keeps routing Watchdog to null until the authorized recreate (u06-alertmanager-step.py); nothing was restarted")
-    say("U06 heartbeat env COMPLETE" if not failed else "U06 heartbeat env INCOMPLETE (the env change is in place; see FAIL lines)")
+    if failed:
+        write_atomically(original, st)
+        with open(ENV_FILE, "rb") as fh:
+            undone = fh.read() == original
+        say("the env change was UNDONE: the file holds its previous content again" if undone else
+            f"the env change could NOT be undone automatically; restore it now: cp -p {backup} {ENV_FILE}")
+        say("U06 heartbeat env FAILED (see FAIL lines); nothing was restarted")
+    else:
+        say(f"to undo the env change later (the backup holds the previous state): cp -p {backup} {ENV_FILE}")
+        say(f"{SERVICE} keeps its current routing until the authorized recreate (u06-alertmanager-step.py); nothing was restarted")
+        say("U06 heartbeat env COMPLETE")
     save()
     sys.exit(0 if not failed else 1)
 

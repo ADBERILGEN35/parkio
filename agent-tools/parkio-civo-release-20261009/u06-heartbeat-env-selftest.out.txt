@@ -18,7 +18,6 @@ ok   S5 the normal run passes
 ok   S5 one backup, identical to the original
 ok   S5 the key is appended under its comment; every other byte unchanged
 ok   S5 PASS preflight (azure-hosted-beta, env validation)
-ok   S5 PASS preflight reports nothing about the heartbeat
 ok   S5 PASS release model gives alertmanager the entered URL
 ok   S5 PASS only alertmanager's release config changes
 ok   S5 PASS running alertmanager untouched
@@ -30,5 +29,22 @@ ok   S7 --replace-url rewrites in place with a second backup
 ok     S7: no URL value in the transcript
 ok   S10 a web-pin-only descendant (R1) is accepted
 ok     S10: no URL value in the transcript
+ok   S11 a non-ASCII entry stops before any backup
+ok     S11 a non-ASCII entry stops before any backup: no URL value in the transcript
+ok   S12 a concurrent edit during the prompt stops the run; nothing is written
+ok     S12: no URL value in the transcript
+ok   S13 a backup that differs from the original stops: FAIL, and the env file holds its previous content
+ok     S13 a backup that differs from the original stops: no URL value in the transcript
+ok   S14 a structural mismatch after the write restores at once: FAIL, and the env file holds its previous content
+ok     S14 a structural mismatch after the write restores at once: no URL value in the transcript
+ok   S15 another service's model changing too fails and is undone: FAIL, and the env file holds its previous content
+ok     S15 another service's model changing too fails and is undone: no URL value in the transcript
+ok   S15 the summary says the change was undone (review L5)
+ok   S16 a model without the entered URL fails and is undone: FAIL, and the env file holds its previous content
+ok     S16 a model without the entered URL fails and is undone: no URL value in the transcript
+ok   S17 a running alertmanager that changed fails and is undone: FAIL, and the env file holds its previous content
+ok     S17 a running alertmanager that changed fails and is undone: no URL value in the transcript
+ok   S18 a concurrent change in the live checkout fails and is undone: FAIL, and the env file holds its previous content
+ok     S18 a concurrent change in the live checkout fails and is undone: no URL value in the transcript
 ok   no URL value in any saved report
-=== summary: 33 ok, 0 FAIL ===
+=== summary: 49 ok, 0 FAIL ===

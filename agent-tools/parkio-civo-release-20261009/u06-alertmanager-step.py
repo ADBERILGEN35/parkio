@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """U06 heartbeat, part B2: recreate only Alertmanager so that the heartbeat URL written by u06-heartbeat-env.py takes
-effect, and roll it back. Run on parkio-civo-prod as civo (Python 3.8+). Prepared 2026-10-13; running it needs the owner's
-authorization for the activation window.
+effect, and roll it back. Run on parkio-civo-prod as civo (Python 3.8+). Prepared 2026-10-13, revised after the
+independent review (U06-TOOLS-REVIEW.md, M1, M2, L2, L6, L7); running it needs the owner's authorization for the
+activation window.
 
   python3 -I u06-alertmanager-step.py pre
   python3 -I u06-alertmanager-step.py recreate --yes
-  python3 -I u06-alertmanager-step.py rollback --backup <env backup file name> --yes
+  python3 -I u06-alertmanager-step.py rollback --backup <env backup FILE NAME, not a path> --yes
   python3 -I u06-alertmanager-step.py status
 
 pre (read-only):
@@ -14,12 +15,14 @@ pre (read-only):
     alone);
   - the env file holds an https PARKIO_ALERT_HEARTBEAT_URL (classified only, never printed);
   - the generic operator webhook is empty, so integration="webhook" counts only the heartbeat;
-  - the newest env backup made by u06-heartbeat-env.py differs from the env file only in that key and its comment line;
+  - the newest env backup made by u06-heartbeat-env.py differs from the env file only in that key and its comment line,
+    with another URL value. A backup without a URL is a first activation; a backup with one is a rotation;
   - exactly one running, healthy alertmanager:
+    - it runs the image the model names: the local id of that tag equals the container's image;
     - with the backup env, the wrapper's model hash equals the running container's hash, so the heartbeat URL is the
       only pending change;
     - with the current env, it differs;
-  - Watchdog routes to `null` in the running Alertmanager;
+  - Watchdog routes to `null` in the running Alertmanager for a first activation, or to `heartbeat` for a rotation;
   - a baseline of every parkio container (id, image, config hash) and the env file's SHA-256 (private record only).
 recreate (--yes), the only live change:
   - requires the latest pre, passing, within 2 hours, with the same env file and the same Alertmanager container;
@@ -27,31 +30,41 @@ recreate (--yes), the only live change:
       cd /opt/parkio-release && PARKIO_ENV_FILE=/opt/parkio/docker/.env.azure-hosted-beta \
         ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps alertmanager
   - post-checks:
-    - a new alertmanager is running and healthy, and its config hash equals the wrapper's model hash;
+    - a new alertmanager is running and healthy, on the image pre recorded;
+    - its config hash equals the wrapper's model hash;
     - every other container is unchanged against the baseline;
     - Watchdog routes to `heartbeat`;
     - within HEARTBEAT_WAIT seconds at least two webhook notifications are sent (first delivery and one repeat);
     - no webhook notification failed. The counters restart with the process.
-rollback (--backup NAME --yes):
-  - the named backup must differ from the env file only in the heartbeat key and its comment line;
-  - it is copied over the env file, byte for byte, with the same mode and owner; then the same wrapper command runs;
-  - post-checks:
-    - a new, healthy container whose hash equals the hash recorded in the passing pre's baseline;
-    - Watchdog back to `null`;
-    - the other containers unchanged.
+rollback (--backup NAME --yes). Everything below is checked BEFORE the env file is written:
+  - the named backup is a regular file beside the env file and differs from it only in the heartbeat key and comment;
+  - it is the backup the latest passing pre recorded, or it holds no heartbeat URL (a pre-activation file);
+  - with the backup env, the wrapper's model differs from the running Alertmanager (there is something to roll back);
+  - for a pre-activation backup after a first activation, it equals the Alertmanager hash that pre recorded;
+  - a fresh baseline of the other containers is taken now; a synthetic BackupStale textfile is only a warning here.
+  Then the backup is written over the env file atomically (temp file in the same directory, fsync, original mode and
+  owner, rename) and the same wrapper command runs. Post-checks:
+  - a new, healthy container on the same image;
+  - its hash equals the backup's model hash;
+  - Watchdog routes to `null` (backup without a URL) or `heartbeat` (backup with a URL);
+  - the other containers are unchanged against the fresh baseline.
 Every external command gets an allowlisted environment (PATH, HOME, LANG, USER, LOGNAME; PARKIO_ENV_FILE for the
-wrapper). URLs are never printed and the Alertmanager log is not read. Records go to
-~/parkio-release-20261009/u06/am-<stamp>/ (mode 700, files 600). Exit 0 = PASS, 1 = FAIL, 2 = usage.
+wrapper). URLs are never printed, the rendered model is parsed in memory only (the image reference is the only field
+kept), and the Alertmanager log is not read. Records go to ~/parkio-release-20261009/u06/am-<stamp>/ (mode 700, files
+600). Exit 0 = PASS, 1 = FAIL, 2 = usage.
+
+Before a rollback, or any stop of Alertmanager, Prometheus or the host longer than about 8 minutes, pause the check at
+the heartbeat provider: once armed, it pages when the pings stop (period + grace).
 """
 import calendar
 import hashlib
 import json
 import os
 import re
-import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 TEST = os.environ.get("U06A_TEST") == "1"
@@ -186,6 +199,20 @@ def model_hash(env_file=ENV_FILE):
     return None
 
 
+def model_image():
+    """(image reference the model gives alertmanager, local image id of that reference). The rendered model carries env
+    values (secrets), so it is parsed in memory and only the image field is kept."""
+    rc, out, _ = wrapper("config", "--format", "json", timeout=180)
+    try:
+        ref = json.loads(out)["services"][SERVICE].get("image") if rc == 0 else None
+    except (ValueError, KeyError, TypeError):
+        ref = None
+    if not ref:
+        return None, None
+    rc, iid, _ = run(["docker", "image", "inspect", "--format", "{{.Id}}", ref])
+    return ref, (iid.strip() if rc == 0 and iid.strip() else None)
+
+
 def key_of(line):
     m = re.match(rb"^([A-Za-z_][A-Za-z0-9_]*)=", line)
     return m.group(1).decode("ascii") if m else None
@@ -223,6 +250,30 @@ def backups():
         return sorted(f for f in os.listdir(d) if f.startswith(base) and re.fullmatch(r"\d{8}T\d{6}Z", f[len(base):]))
     except OSError:
         return []
+
+
+def write_atomically(data, st):
+    """The env file holds secrets: write a temp file in its directory (0600 from mkstemp), fsync, give it the original
+    mode and owner, rename it over the file, fsync the directory. Never a world-readable copy, never a fixed name."""
+    directory = os.path.dirname(ENV_FILE)
+    fd, tmp = tempfile.mkstemp(prefix=".u06a-", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+            os.fchmod(fh.fileno(), st.st_mode & 0o7777)
+            os.fchown(fh.fileno(), st.st_uid, st.st_gid)
+        os.replace(tmp, ENV_FILE)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    dfd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def watchdog_receiver(name):
@@ -263,12 +314,16 @@ def release_ok():
     return False, f"at {head[:12]}, neither the PIN nor the PIN plus only the web pin"
 
 
-def basics():
+def basics(rollback=False):
     check(f"host {HOST}", socket.gethostname() == HOST, socket.gethostname())
     rc, out, _ = run(["docker", "info", "--format", "{{.ServerVersion}}"])
     check("docker usable without sudo", rc == 0, out.strip()[:20])
     armed = os.path.exists(os.path.join(TEXTFILE_DIR, SYNTHETIC))
-    check("no synthetic BackupStale textfile armed", not armed, "a BackupStale test is running: finish it first" if armed else "")
+    if rollback:
+        if armed:
+            say("  NOTE a synthetic BackupStale textfile is armed: the BackupStale test's counters will include this restart")
+    else:
+        check("no synthetic BackupStale textfile armed", not armed, "a BackupStale test is running: finish it first" if armed else "")
     ok, detail = release_ok()
     check("the release checkout is clean at the PIN or R1", ok, detail)
 
@@ -300,13 +355,19 @@ def cmd_pre():
     rec["backup"] = names[-1] if names else None
     backup_path = os.path.join(os.path.dirname(ENV_FILE), names[-1]) if names else None
     backup = read_bytes(backup_path) if backup_path else None
-    check("the newest env backup differs from the env file only in the heartbeat key",
+    rotation = bool(backup is not None and env_value(backup, KEY))
+    rec["rotation"] = rotation
+    check("the newest env backup differs from the env file only in the heartbeat key, with another URL value",
           backup is not None and current is not None and without_heartbeat(backup) == without_heartbeat(current) and
-          env_value(backup, KEY) != env_value(current, KEY), rec["backup"] or "no backup")
+          env_value(backup, KEY) != env_value(current, KEY),
+          f"{rec['backup'] or 'no backup'}; {'rotation (the backup already holds a URL)' if rotation else 'first activation'}")
     cs = containers()
     am = one(cs, SERVICE)
     check(f"exactly one {SERVICE}, running and healthy", bool(am) and am["status"] == "running" and am["health"] == "healthy",
           f"{(am or {}).get('status') or '?'}/{(am or {}).get('health') or '?'}")
+    ref, iid = model_image()
+    check(f"{SERVICE} runs the image the model names", bool(am) and iid is not None and am["image"] == iid,
+          f"{ref or '?'} -> {(iid or '?')[:19]}, container {((am or {}).get('image') or '?')[:19]}")
     before = model_hash(backup_path) if backup_path else None
     after = model_hash()
     running = (am or {}).get("hash")
@@ -315,9 +376,10 @@ def cmd_pre():
     check("with the current env the model differs (the recreate applies the heartbeat)", after is not None and after != running,
           f"current model {(after or '?')[:12]}")
     receiver = watchdog_receiver(am["name"]) if am else None
-    check("Watchdog routes to null in the running Alertmanager", receiver == "null", receiver or "?")
+    want = "heartbeat" if rotation else "null"
+    check(f"Watchdog routes to {want} in the running Alertmanager", receiver == want, receiver or "?")
     rec["baseline"] = baseline_of(cs)
-    rec["alertmanager"] = {"id": (am or {}).get("id"), "hash": running}
+    rec["alertmanager"] = {"id": (am or {}).get("id"), "hash": running, "image": (am or {}).get("image")}
     rec["envSha256"] = hashlib.sha256(current).hexdigest() if current is not None else None
     if names:
         say(f"  rollback, if needed later: python3 -I u06-alertmanager-step.py rollback --backup {names[-1]} --yes")
@@ -336,10 +398,10 @@ def wait_new(before_id):
     return am
 
 
-def others_unchanged(baseline):
+def others_unchanged(baseline, label="the baseline"):
     now = baseline_of(containers())
     changed = sorted(s for s in set(baseline) | set(now) if s != SERVICE and baseline.get(s) != now.get(s))
-    return check("every other container unchanged against the baseline", not changed, ", ".join(changed))
+    return check(f"every other container unchanged against {label}", not changed, ", ".join(changed))
 
 
 def heartbeat_deliveries(rec, name):
@@ -383,6 +445,8 @@ def cmd_recreate(yes):
     private_write(os.path.join(record_dir(), "wrapper-recreate.log"), URL.sub("<url>", out + err))
     if check("wrapper exit 0", rc == 0, f"exit {rc}"):
         new = wait_new(am["id"])
+        check(f"{SERVICE} runs the image pre recorded", bool(new) and new["image"] == (pre.get("alertmanager") or {}).get("image"),
+              ((new or {}).get("image") or "?")[:19])
         mh = model_hash()
         check(f"{SERVICE} config hash = the wrapper's model hash", bool(new) and mh is not None and mh == new["hash"],
               f"model {(mh or '?')[:12]}, container {((new or {}).get('hash') or '?')[:12]}")
@@ -392,47 +456,61 @@ def cmd_recreate(yes):
         if new:
             heartbeat_deliveries(rec, new["name"])
         rec["alertmanager"] = {"previous": am["id"], "now": (new or {}).get("id"), "hash": (new or {}).get("hash")}
-    say(f"  rollback, if needed: python3 -I u06-alertmanager-step.py rollback --backup {pre.get('backup')} --yes")
+    say(f"  rollback, if needed: pause the provider check first, then: python3 -I u06-alertmanager-step.py rollback "
+        f"--backup {pre.get('backup')} --yes")
     return finish("recreate", rec)
 
 
 def cmd_rollback(backup, yes):
     base = os.path.basename(ENV_FILE) + ".bak-"
     if not yes or not backup or not backup.startswith(base) or not re.fullmatch(r"\d{8}T\d{6}Z", backup[len(base):]):
-        print(f"usage: rollback --backup {base}<YYYYMMDDTHHMMSSZ> --yes", file=sys.stderr)
+        print(f"usage: rollback --backup {base}<YYYYMMDDTHHMMSSZ> --yes   (the file name only, as pre and recreate print it)",
+              file=sys.stderr)
         return 2
-    say(f"U06 alertmanager rollback | {STAMP} | env backup {backup}, then {SERVICE}")
+    say(f"U06 alertmanager rollback | {STAMP} | env backup {backup}, then {SERVICE} (nothing is written until every check passes)")
     rec = {"tool": "u06-alertmanager-step", "command": "rollback", "stamp": STAMP, "backup": backup}
-    basics()
+    basics(rollback=True)
     path = os.path.join(os.path.dirname(ENV_FILE), backup)
-    restored, current = read_bytes(path), read_bytes(ENV_FILE)
-    check("the backup exists and differs from the env file only in the heartbeat key",
-          not os.path.islink(path) and restored is not None and current is not None and
-          without_heartbeat(restored) == without_heartbeat(current))
+    restored = read_bytes(path) if os.path.isfile(path) and not os.path.islink(path) else None
+    current = read_bytes(ENV_FILE)
+    check("the backup is a regular file and differs from the env file only in the heartbeat key",
+          restored is not None and current is not None and without_heartbeat(restored) == without_heartbeat(current))
+    restored_url = env_value(restored, KEY) if restored is not None else None
     pre = latest_pre(passing_only=True)
-    check("a passing pre with a baseline exists", bool(pre) and bool(pre.get("baseline")))
-    am = one(containers(), SERVICE)
-    check(f"one {SERVICE}", bool(am))
+    check("the backup is the one the latest passing pre recorded, or holds no heartbeat URL (a pre-activation file)",
+          restored is not None and ((bool(pre) and backup == pre.get("backup")) or not restored_url),
+          f"pre recorded {(pre or {}).get('backup') or 'none'}; backup URL {classify(restored_url)}")
+    cs = containers()
+    am = one(cs, SERVICE)
+    check(f"one {SERVICE}, running", bool(am) and am["status"] == "running")
+    target = model_hash(path) if restored is not None else None
+    check("with the backup env the model differs from the running Alertmanager (there is something to roll back)",
+          target is not None and bool(am) and target != am["hash"], f"backup model {(target or '?')[:12]}, running {((am or {}).get('hash') or '?')[:12]}")
+    if restored is not None and not restored_url and pre and not pre.get("rotation") and backup == pre.get("backup"):
+        want_hash = (pre.get("alertmanager") or {}).get("hash")
+        check("with the backup env the model equals the Alertmanager hash pre recorded before the activation",
+              bool(want_hash) and target == want_hash, f"{(target or '?')[:12]} vs {(want_hash or '?')[:12]}")
+    fresh = baseline_of(cs)
+    want_receiver = "heartbeat" if restored_url else "null"
     if not all(c["pass"] for c in CHECKS):
+        say("  nothing was written and nothing was recreated")
         return finish("rollback", rec)
     st = os.stat(ENV_FILE)
-    tmp = ENV_FILE + f".u06-rollback-{STAMP}"
-    shutil.copyfile(path, tmp)
-    os.chmod(tmp, st.st_mode & 0o7777)
-    os.chown(tmp, st.st_uid, st.st_gid)
-    os.replace(tmp, ENV_FILE)
-    if not check("the env file equals the backup byte for byte", read_bytes(ENV_FILE) == restored):
+    write_atomically(restored, st)
+    nst = os.stat(ENV_FILE)
+    if not check("the env file equals the backup byte for byte, with the same mode, owner and group",
+                 read_bytes(ENV_FILE) == restored and (nst.st_mode, nst.st_uid, nst.st_gid) == (st.st_mode, st.st_uid, st.st_gid)):
         return finish("rollback", rec)
     rc, out, err = wrapper("up", "-d", "--no-build", "--no-deps", SERVICE)
     private_write(os.path.join(record_dir(), "wrapper-rollback.log"), URL.sub("<url>", out + err))
     if check("wrapper exit 0", rc == 0, f"exit {rc}"):
         new = wait_new(am["id"])
-        want = (pre.get("alertmanager") or {}).get("hash")
-        check(f"{SERVICE} config hash = the baseline's (before the heartbeat)", bool(new) and bool(want) and new["hash"] == want,
-              f"{((new or {}).get('hash') or '?')[:12]} vs {(want or '?')[:12]}")
-        others_unchanged(pre["baseline"])
+        check(f"{SERVICE} runs the same image as before", bool(new) and new["image"] == am["image"], ((new or {}).get("image") or "?")[:19])
+        check(f"{SERVICE} config hash = the backup's model hash", bool(new) and new["hash"] == target,
+              f"{((new or {}).get('hash') or '?')[:12]} vs {(target or '?')[:12]}")
+        others_unchanged(fresh, "the rollback's fresh baseline")
         receiver = watchdog_receiver(new["name"]) if new else None
-        check("Watchdog routes to null again", receiver == "null", receiver or "?")
+        check(f"Watchdog routes to {want_receiver}", receiver == want_receiver, receiver or "?")
     return finish("rollback", rec)
 
 

@@ -1,0 +1,33 @@
+# U06 mutants (2026-10-13, after review U06-TOOLS-REVIEW.md), each against its tool's own self-test: env 49/0, step 47/0, evidence 37/0
+E-no-restore-structural: KILLED (1): FAIL S14 a structural mismatch after the write restores at once: FAIL, and the env file holds its pr
+E-backup-unverified: KILLED (1): FAIL S13 a backup that differs from the original stops: FAIL, and the env file holds its previous co
+E-only-am-loose: KILLED (2): FAIL S15 another service's model changing too fails and is undone: FAIL, and the env file holds its 
+E-model-url: KILLED (1): FAIL S16 a model without the entered URL fails and is undone: FAIL, and the env file holds its previ
+E-container: KILLED (1): FAIL S17 a running alertmanager that changed fails and is undone: FAIL, and the env file holds its p
+E-live-git: KILLED (1): FAIL S18 a concurrent change in the live checkout fails and is undone: FAIL, and the env file holds 
+E-no-undo: KILLED (5): FAIL S15 another service's model changing too fails and is undone: FAIL, and the env file holds its 
+E-no-reread: KILLED (1): FAIL S12 a concurrent edit during the prompt stops the run; nothing is written
+E-no-ascii: KILLED (1): FAIL S11 a non-ASCII entry stops before any backup
+A-pre-receiver: KILLED (1): FAIL P8 pre fails when Watchdog already routes to heartbeat on a first activation
+A-rotation-want: KILLED (3): FAIL ROT1 pre passes for a rotation (Watchdog expected on heartbeat; review M1)
+A-current-model: KILLED (1): FAIL P9 pre fails when the current model equals the running one
+A-identity: KILLED (1): FAIL R3b another alertmanager container since pre blocks recreate
+A-one-delivery: KILLED (1): FAIL R8 a single delivery is not enough
+A-image: KILLED (1): FAIL P10 pre fails when alertmanager runs another image than the model's
+A-rb-backup-identity: KILLED (1): FAIL B2 a URL backup that no pre recorded is refused before any write (M2)
+A-rb-something: KILLED (1): FAIL B3 a rollback with nothing to roll back is refused before any write
+A-rb-stale-baseline: KILLED (2): FAIL B4 rollback to the rotation backup passes with a fresh baseline
+A-rb-hash: KILLED (1): FAIL B5a a wrong hash after the rollback fails
+A-rb-receiver: KILLED (1): FAIL B5b a receiver still on heartbeat after the rollback fails
+A-docker-env: KILLED (2): FAIL P7 docker gets no variable outside the allowlist
+B-window-60: KILLED (3): FAIL B2 01:30 UTC is refused (125 minutes reach 02:55; review L8)
+B-sum: KILLED (4): FAIL C1 close passes with Slack +2 while the heartbeat added webhook +4 (Slack only is counted)
+B-any-scope: KILLED (1): FAIL C11 a bad armed scope fails
+B-silences: KILLED (1): FAIL C5 a new silence fails
+B-restart: KILLED (1): FAIL C9 an Alertmanager restart in the window fails, with the reason
+B-dotfiles: KILLED (2): FAIL B3b a crashed arm's temporary file fails the baseline
+B-armed-baseline: KILLED (1): FAIL B5 a baseline once the test is armed is refused (review M5)
+B-overwrite: KILLED (1): FAIL M5 two closes keep both records; the second manifest lists the first; the first still verifies
+B-slack-refs: KILLED (1): FAIL C13 a Slack record that is no time or permalink fails
+B-watchdog: KILLED (1): FAIL C1 another active alert is named even at exactly +2, and Watchdog is not (review L9)
+# 31 mutants, 31 killed (the reviewer's 22 that apply, plus the new gates).

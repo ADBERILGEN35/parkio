@@ -3,30 +3,46 @@ ok   U usage refusal: pre --yes
 ok   U usage refusal: recreate without --yes
 ok   U usage refusal: an unknown argument
 ok   U usage refusal: a malformed backup name
+ok   U usage refusal: a path instead of a file name
 ok   U usage refusal: rollback without --yes
 ok   U usage refusal: a repeated --yes
 ok   P1 pre fails without a heartbeat URL
 ok   P2 pre fails when the generic webhook is set
 ok   P3 pre fails when another key changed too
 ok   P4 pre fails when alertmanager has another pending difference
+ok   P8 pre fails when Watchdog already routes to heartbeat on a first activation
+ok   P10 pre fails when alertmanager runs another image than the model's
 ok   P5 pre fails while a BackupStale test is armed
 ok   P6 pre fails on a dirty release checkout
+ok   P9 pre fails when the current model equals the running one
 ok   P7 pre passes, names the backup and changes nothing
-ok   P7 the wrapper gets PARKIO_ENV_FILE and no other variable
+ok   P7 the wrapper gets no variable outside the allowlist
+ok   P7 docker gets no variable outside the allowlist
 ok   R1 recreate refuses an env changed after pre
 ok   R2 a later failing pre blocks recreate
 ok   R3 a pre older than 2 hours blocks recreate
+ok   R3b another alertmanager container since pre blocks recreate
 ok   R4 recreate passes
 ok   R4 the wrapper ran exactly once: up -d --no-build --no-deps alertmanager
 ok   R4 only alertmanager was replaced; its hash is the heartbeat model's
-ok   R4 post-checks: route, two deliveries, no failure, others unchanged, hash
-ok   R4 the wrapper saw no variable outside the allowlist
-ok   B2 rollback restores the backup and Watchdog -> null
-ok   B2 the env file keeps mode 600
-ok   S status lists the records
+ok   R4 post-checks: image, route, two deliveries, no failure, others unchanged, hash
+ok   R4 no child saw a variable outside the allowlist
+ok   ROT1 pre passes for a rotation (Watchdog expected on heartbeat; review M1)
+ok   ROT2 recreate applies the rotated URL
+ok   B2 a URL backup that no pre recorded is refused before any write (M2)
+ok   B4 rollback to the rotation backup passes with a fresh baseline
+ok   B6 an armed BackupStale file is only a NOTE for a rollback (L7)
+ok   B3 a rollback with nothing to roll back is refused before any write
+ok   B7 a full back-out to the pre-activation file passes (Watchdog -> null)
+ok   B7 the env file keeps mode 600 and no temp file is left (atomic write, L2)
 ok   R5 a failing webhook fails the recreate
 ok   R6 a collateral change fails
 ok   R7 a wrapper error stops the post-checks
+ok   R8 a single delivery is not enough
 ok   B1 rollback refuses a backup that differs elsewhere
+ok   B5a a wrong hash after the rollback fails
+ok   B5b a receiver still on heartbeat after the rollback fails
+ok   B5c a collateral change during the rollback fails
+ok   S status lists the records
 ok   no URL value in any output or record
-=== summary: 31 ok, 0 FAIL ===
+=== summary: 47 ok, 0 FAIL ===

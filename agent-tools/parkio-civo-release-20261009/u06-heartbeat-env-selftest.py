@@ -53,10 +53,24 @@ FAKE_DOCKER = r'''#!/usr/bin/env python3
 import hashlib, json, os, re, sys
 a = sys.argv[1:]
 W = os.environ["U06H_W"]
+mark = lambda m: os.path.exists(os.path.join(W, m))
+def env_url():
+    url = None
+    for line in open(os.environ.get("U06H_ENVFILE_FOR_FAKE", os.path.join(W, "live", "docker", ".env.azure-hosted-beta")), encoding="utf-8", errors="replace"):
+        m = re.match(r"^PARKIO_ALERT_HEARTBEAT_URL=(.*)$", line.rstrip("\r\n"))
+        if m:
+            url = m.group(1)
+    return url
 if a[:1] == ["ps"]:
+    if mark("touch-live") and not mark("touched"):       # a concurrent change in the live checkout (phase A, after its status)
+        open(os.path.join(W, "live", "concurrent.txt"), "w").write("x")
+        open(os.path.join(W, "touched"), "w").write("x")
     print("a" * 64); sys.exit(0)
 if a[:1] == ["inspect"]:
-    print("a" * 64 + " " + open(os.path.join(W, "am-start")).read().strip()); sys.exit(0)
+    start = open(os.path.join(W, "am-start")).read().strip()
+    if mark("container-changes") and env_url():            # alertmanager restarted by someone after the write
+        start = "2026-10-13T09:99:99Z"
+    print("a" * 64 + " " + start); sys.exit(0)
 if a[:1] == ["compose"]:
     env_file = a[a.index("--env-file") + 1]
     url = None
@@ -66,12 +80,12 @@ if a[:1] == ["compose"]:
             url = m.group(1)
     if "--hash" in a:
         for svc in ("alertmanager", "prometheus", "caddy", "web", "auth-service"):
-            seed = svc + ("|" + (url or "") if svc == "alertmanager" else "")
+            seed = svc + ("|" + (url or "") if svc == "alertmanager" or (svc == "caddy" and mark("other-hash")) else "")
             print(svc + " " + hashlib.sha256(seed.encode()).hexdigest()[:16])
         sys.exit(0)
     if "--format" in a:
         env = {"PARKIO_ALERT_SLACK_CHANNEL": "#parkio-alert"}
-        if url is not None:
+        if url is not None and not mark("model-no-url"):
             env["PARKIO_ALERT_HEARTBEAT_URL"] = url
         print(json.dumps({"services": {"alertmanager": {"environment": env}}})); sys.exit(0)
 sys.exit(2)
@@ -113,8 +127,9 @@ def build_env(example, dest, extra_lines=()):
         fh.write("\n".join(out))                       # no final newline on purpose
 
 
-def run_pty(args, answers, env, timeout=120):
-    """Run the tool under a pseudo-terminal; answer each hidden prompt with the next entry of `answers`."""
+def run_pty(args, answers, env, timeout=120, on_prompt=None):
+    """Run the tool under a pseudo-terminal; answer each hidden prompt with the next entry of `answers`. `on_prompt` runs
+    once, while the first hidden prompt is open."""
     pid, fd = pty.fork()
     if pid == 0:
         os.execve(sys.executable, [sys.executable, "-I", TOOL] + list(args), env)
@@ -130,6 +145,9 @@ def run_pty(args, answers, env, timeout=120):
                 break
             out += chunk
             if pending and out.rstrip().endswith(b"(hidden):"):
+                if on_prompt:
+                    on_prompt()
+                    on_prompt = None
                 os.write(fd, pending.pop(0).encode() + b"\n")
     _, status = os.waitpid(pid, 0)
     return os.waitstatus_to_exitcode(status), out.decode("utf-8", "replace")
@@ -239,7 +257,7 @@ def main():
         ok(after.startswith(original) and after[len(original):] ==
            b"\n# External heartbeat / dead-man's switch (U06, owner-authorized activation)\nPARKIO_ALERT_HEARTBEAT_URL=" + good.encode() + b"\n",
            "S5 the key is appended under its comment; every other byte unchanged")
-        for g in ("PASS preflight (azure-hosted-beta, env validation)", "PASS preflight reports nothing about the heartbeat",
+        for g in ("PASS preflight (azure-hosted-beta, env validation)",
                   "PASS release model gives alertmanager the entered URL", "PASS only alertmanager's release config changes",
                   "PASS running alertmanager untouched", "PASS live checkout git status unchanged"):
             ok(g in out, f"S5 {g}", out)
@@ -263,6 +281,47 @@ def main():
         ok(rc == 0 and "the PIN plus only the web pin (web image alone)" in out, "S10 a web-pin-only descendant (R1) is accepted", out)
         no_secret(out, "S10")
         git(R, "checkout", "-q", "--detach", pin)
+
+        # review L4: a non-ASCII entry stops before the backup
+        stops("S11 a non-ASCII entry stops before any backup", [], ["https://hc-ping.com/ab\u00e7d-" + "x" * 20] * 2, "non-ASCII")
+        # review L3: the env file changes while the prompt is open
+        original = fresh()
+        rc, out = run_pty([], [good, good], env, on_prompt=lambda: open(ENV, "a").write("\nPARKIO_CONCURRENT=1"))
+        backups = [f for f in os.listdir(os.path.join(L, "docker")) if ".bak-" in f]
+        ok(rc == 1 and "changed while the prompt was open" in out and not backups and b"PARKIO_CONCURRENT=1" in open(ENV, "rb").read()
+           and good.encode() not in open(ENV, "rb").read(), "S12 a concurrent edit during the prompt stops the run; nothing is written", out)
+        no_secret(out, "S12")
+
+        def faulted(label, expect, fault=None, mark_=None):
+            """A run that fails after its backup: the env file must hold its previous content again."""
+            original = fresh()
+            for m in ("touch-live", "touched", "container-changes", "other-hash", "model-no-url"):
+                if os.path.exists(os.path.join(W, m)):
+                    os.remove(os.path.join(W, m))
+            if os.path.exists(os.path.join(L, "concurrent.txt")):
+                os.remove(os.path.join(L, "concurrent.txt"))
+            if mark_:
+                open(os.path.join(W, mark_), "w").write("x")
+            e = dict(env, U06H_FAULT=fault) if fault else env
+            rc, out = run_pty([], [good, good], e)
+            ok(rc == 1 and expect in out and open(ENV, "rb").read() == original and good.encode() not in open(ENV, "rb").read(),
+               label + ": FAIL, and the env file holds its previous content", out)
+            no_secret(out, label)
+            if mark_ and os.path.exists(os.path.join(W, mark_)):
+                os.remove(os.path.join(W, mark_))
+            return out
+        faulted("S13 a backup that differs from the original stops", "the backup does not equal the original", fault="backup-differs")
+        faulted("S14 a structural mismatch after the write restores at once", "structural check failed", fault="after-write")
+        out = faulted("S15 another service's model changing too fails and is undone", "FAIL only alertmanager's release config changes", mark_="other-hash")
+        ok("the env change was UNDONE" in out, "S15 the summary says the change was undone (review L5)", out)
+        faulted("S16 a model without the entered URL fails and is undone", "FAIL release model gives alertmanager the entered URL", mark_="model-no-url")
+        faulted("S17 a running alertmanager that changed fails and is undone", "FAIL running alertmanager untouched", mark_="container-changes")
+        faulted("S18 a concurrent change in the live checkout fails and is undone", "FAIL live checkout git status unchanged", mark_="touch-live")
+        for m in ("touched",):
+            if os.path.exists(os.path.join(W, m)):
+                os.remove(os.path.join(W, m))
+        if os.path.exists(os.path.join(L, "concurrent.txt")):
+            os.remove(os.path.join(L, "concurrent.txt"))
         ok(reports_clean(), "no URL value in any saved report")
     finally:
         shutil.rmtree(W, ignore_errors=True)
