@@ -28,6 +28,7 @@ on:
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
       - "scripts/test-backup-minio-mirror-permissions.sh"
+      - "scripts/test-minio-credentials-not-in-argv.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -61,6 +62,7 @@ on:
       - "scripts/test-backup-production-fail-closed.sh"
       - "scripts/test-backup-complete-gate.sh"
       - "scripts/test-backup-minio-mirror-permissions.sh"
+      - "scripts/test-minio-credentials-not-in-argv.sh"
       - "scripts/lib/restore-drill-services.sh"
       - "scripts/restore-database.sh"
       - "scripts/verify-backup.sh"
@@ -179,6 +181,10 @@ jobs:
 
       - name: Isolated MinIO backup/restore checksum
         run: PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-minio.sh
+
+      # Credential incident 2026-10-13 (MinIO review M1): the MinIO root pair is never a process argument.
+      - name: MinIO credentials never in a process argument
+        run: ./scripts/test-minio-credentials-not-in-argv.sh
 
       # CL-F29.2: the real backup-minio.sh mirror is private to the runner user (synthetic bucket).
       - name: MinIO backup mirror permissions

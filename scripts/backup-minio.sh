@@ -68,20 +68,22 @@ umask 077
 mkdir -p "${MIRROR_DEST}"
 chmod 700 "${DEST_DIR}/minio" "${MIRROR_DEST}"
 
-docker run --rm \
+# The credentials reach mc on stdin: `mc alias set ALIAS URL` reads the access and secret key from it. They are never
+# a process argument: an `-e NAME=value` or a positional key sits in /proc/<pid>/cmdline of the host docker CLI or of
+# mc for the whole mirror, readable by every local account (credential incident 2026-10-13, MinIO review M1).
+# printf is a shell builtin, so the pipe adds no process with the values in its argv.
+printf '%s\n%s\n' "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD}" | docker run --rm -i \
   --user "$(id -u):$(id -g)" \
   --network "${NETWORK}" \
   -v "${MIRROR_DEST}:/backup" \
   -e "MC_CONFIG_DIR=/tmp/.mc" \
-  -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
-  -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}" \
   -e "BUCKET=${BUCKET}" \
   --entrypoint /bin/sh \
   "${MC_IMAGE}" \
   -c '
     set -eu
     umask 077
-    mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    mc alias set local http://minio:9000 >/dev/null
     mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null
     mc ls --recursive "local/${BUCKET}" | wc -l
   '
