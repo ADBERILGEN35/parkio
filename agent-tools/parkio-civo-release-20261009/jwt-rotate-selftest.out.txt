@@ -1,0 +1,55 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre --yes
+ok   U usage refusal: rotate without --yes
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: redact without --yes
+ok   U usage refusal: an extra argument
+ok   P1 pre passes
+ok   P2 a checkout other than R2 fails
+ok   P3 an env PEM other than auth-service's fails
+ok   P4 additional public keys set fails
+ok   P5 another container carrying the PEM fails
+ok   P6 another service of the model carrying the PEM fails
+ok   P7 a moved image tag fails
+ok   P8 a JWKS with another key fails
+ok   P10 auth-service off the model's hash fails
+ok   P9 the backup window is refused
+ok   R1 rotate without a pre changes nothing
+ok   R1b an env change after pre blocks rotate
+ok   R1c a container change after pre blocks rotate
+ok   R1d a pre older than an hour blocks rotate
+ok   R2 the full rotation passes
+ok   R2 the env file holds a new PKCS#8 key in the file form (two backslashes and an n per newline, one line)
+ok   R2 the env file holds a new kid
+ok   R2 auth-service runs with the new key (container form) and kid
+ok   R2 the gateway's cache holds only the new key
+ok   R2 auth-service first, then gateway-service with --force-recreate
+ok   R2 the backup holds the old env, mode 600
+ok   R2b rollback after a passing rotation is refused
+ok   R3 a failing preflight restores the env file; nothing is recreated
+ok   R4 another service's model changing restores the env file
+ok   R5 an unhealthy auth-service stops the rotation
+ok   R5 rollback restores the previous key and kid and recreates auth-service
+ok   R6 a JWKS still serving the old key fails and stops in phase C
+ok   R7 a gateway that still accepts the old key fails and stops in phase E
+ok   R8 a gateway that forwards the new-key probe fails and stops in phase E
+ok   R9 a gateway that rejects the new key fails and stops in phase E
+ok   R10 another container changing at the auth recreate fails and stops in phase C
+ok   R10b another container changing at the gateway recreate fails and stops in phase D
+ok   R12 auth-service recreated without the new key fails and stops in phase C
+ok   R11 an unhealthy gateway fails and stops in phase D
+ok   R11 rollback after the gateway recreate restores the env file and recreates auth-service, then gateway-service
+ok   X1 redact before a rotation is refused
+ok   X2 redact after a passing rotation passes
+ok   X2 every backup, the extra files and the rotation's backup hold the marker; the live env keeps the new key
+ok   X2 modification times kept
+ok   X5 a second redact reports completion
+ok   X3 a stray copy of the old key (real PEM form) fails the scan; the backup is kept
+ok   X4 a listed file holding the current key is left alone
+ok   X6 redact while the JWKS still lists the old kid is refused
+ok   X7 a listed symlink and its target are left alone; the backup is kept
+ok   X8 the live env file is never redacted, even through a link
+ok   no key material in any output or record (18 keys)
+ok   no key material in any docker or wrapper argument
+ok   no child saw a variable outside the allowlist
+=== summary: 54 ok, 0 FAIL ===

@@ -1,0 +1,52 @@
+tool sha256 4e0c7a1ca922b128; self-test sha256 9add89f5e1c4f769
+release-at-r2                      killed: P2 a checkout other than R2 fails
+backup-window                      killed: P9 the backup window is refused
+no-additional-keys-env             killed: P4 additional public keys set fails
+auth-runs-env-key                  killed: P3 an env PEM other than auth-service's fails
+carriers                           killed: P5 another container carrying the PEM fails
+model-holders                      killed: P6 another service of the model carrying the PEM fails
+pre-model-hash                     killed: P10 auth-service off the model's hash fails
+image-identity                     killed: P7 a moved image tag fails
+pre-jwks                           killed: P8 a JWKS with another key fails
+pre-age                            killed: R1d a pre older than an hour blocks rotate
+env-unchanged-since-pre            killed: R1b an env change after pre blocks rotate
+containers-unchanged-since-pre     killed: R1c a container change after pre blocks rotate
+preflight                          killed: R3 a failing preflight restores the env file; nothing is recreated
+hash-set                           killed: R4 another service's model changing restores the env file
+restore-env-on-B-failure           killed: R3 a failing preflight restores the env file; nothing is recreated; R4 another service's model changing restores the env file
+auth-new-healthy                   killed: R5 an unhealthy auth-service stops the rotation; R5 rollback restores the previous key and kid and recreates auth-service
+auth-new-env                       killed: R12 auth-service recreated without the new key fails and stops in phase C
+auth-others                        killed: R10 another container changing at the auth recreate fails and stops in phase C
+jwks-after-auth                    killed: R6 a JWKS still serving the old key fails and stops in phase C
+stop-after-C                       killed: R6 a JWKS still serving the old key fails and stops in phase C; R10 another container changing at the auth recreate fails and stops in phase C
+gateway-force-recreate             killed: R2 the full rotation passes; R2 the gateway's cache holds only the new key
+gateway-new-healthy                killed: R11 an unhealthy gateway fails and stops in phase D; R11 rollback after the gateway recreate restores the env file and recreates auth-service, then ga
+gateway-others                     killed: R10b another container changing at the gateway recreate fails and stops in phase D
+stop-after-D                       killed: R10b another container changing at the gateway recreate fails and stops in phase D; R11 an unhealthy gateway fails and stops in phase D
+old-key-refused                    killed: R7 a gateway that still accepts the old key fails and stops in phase E
+new-key-accepted                   killed: R8 a gateway that forwards the new-key probe fails and stops in phase E; R9 a gateway that rejects the new key fails and stops in phase E
+probe-epoch                        killed: R2 the full rotation passes; R2b rollback after a passing rotation is refused
+probe-audience                     killed: R2 the full rotation passes; R2b rollback after a passing rotation is refused
+rollback-phase-guard               killed: R2b rollback after a passing rotation is refused
+rollback-env-restore               killed: R5 rollback restores the previous key and kid and recreates auth-service; R11 rollback after the gateway recreate restores the env file and recreates 
+rollback-recreate                  killed: R5 rollback restores the previous key and kid and recreates auth-service; R11 rollback after the gateway recreate restores the env file and recreates 
+rollback-gateway-force             killed: R11 rollback after the gateway recreate restores the env file and recreates auth-service, then gateway-service
+redact-needs-passing-rotation      killed: X1 redact before a rotation is refused
+redact-jwks-new-only               killed: X6 redact while the JWKS still lists the old kid is refused
+redact-live-env-guard              killed: X8 the live env file is never redacted, even through a link
+redact-regular-own-file            killed: X7 a listed symlink and its target are left alone; the backup is kept
+redact-holds-current               killed: X4 a listed file holding the current key is left alone
+redact-missing-ok                  killed: X2 redact after a passing rotation passes; X2 every backup, the extra files and the rotation's backup hold the marker; the live env keeps the new key
+redact-keeps-mtime                 killed: X2 redact after a passing rotation passes; X2 every backup, the extra files and the rotation's backup hold the marker; the live env keeps the new key
+redact-scan                        killed: X3 a stray copy of the old key (real PEM form) fails the scan; the backup is kept
+redact-backup-last                 killed: X3 a stray copy of the old key (real PEM form) fails the scan; the backup is kept; X4 a listed file holding the current key is left alone
+redact-already-complete            killed: X5 a second redact reports completion
+child-env-allowlist                killed: no child saw a variable outside the allowlist
+env-pkcs8-kid                      EQUIVALENT (not run): the env PEM's form is also proven by auth-runs-env-key and the JWKS modulus match
+new-key-check                      EQUIVALENT (not run): openssl genpkey always yields a 2048-bit PKCS#8 key; the check documents the expectation
+backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
+only-keys-changed                  EQUIVALENT (not run): with_values() changes only the two lines; the check guards against a future edit of it
+record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing key material; no record path carries any
+scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
+=== 43/43 killed, 0 survived or broken; 6 equivalent listed ===
+exit=0
