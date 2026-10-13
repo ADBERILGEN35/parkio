@@ -24,8 +24,8 @@ ok   h4b.out: stdin does not hold a SAS
 ok   h4c.out: is not run A's seal
 ok   h4.out: U14 DRILL HOST pull: PASS
 ok   h4: ledger stamp pulled too
-ok   h4.out has no: sv=2024-11-04&sr=c&sp=rl&se=2026-10-13T12:00:00Z&sip=10.0.0.4&spr=https&sig=SyntheticSig696ffe5d71eb
-ok   fake.log has no: sv=2024-11-04&sr=c&sp=rl&se=2026-10-13T12:00:00Z&sip=10.0.0.4&spr=https&sig=SyntheticSig696ffe5d71eb
+ok   h4.out holds no SAS value
+ok   fake.log holds no SAS value
 ok   h4: the SAS is in no file
 === H5 probe ===
 ok   h5a.out: outbound still works: dns tcp https-storage

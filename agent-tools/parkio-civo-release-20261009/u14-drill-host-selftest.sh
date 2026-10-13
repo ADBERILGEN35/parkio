@@ -11,7 +11,9 @@ pass=0; fail=0
 ok() { pass=$((pass + 1)); echo "ok   $*"; }
 no() { fail=$((fail + 1)); echo "FAIL $*"; }
 has() { if grep -qF -- "$2" "$W/$1"; then ok "$1: $2"; else no "$1: $2"; sed 's/^/     | /' "$W/$1" | tail -8; fi; }
-hasnt() { if grep -qF -- "$2" "$W/$1"; then no "$1 must not contain: $2"; else ok "$1 has no: $2"; fi; }
+hasnt() {  # the needle may be a (synthetic) secret: it is never printed
+  if grep -qF -- "$2" "$W/$1"; then no "$1 holds a ${3:-secret} value"; else ok "$1 holds no ${3:-secret} value"; fi
+}
 
 mkdir -p "$W/bin" "$W/etc/apt/sources.list.d" "$W/dev/mapper" "$W/repo/scripts/lib" "$W/root"
 export FAKE_PASSPHRASE="synthetic-backup-passphrase-$(head -c 9 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -157,7 +159,7 @@ printf '%s\n' "$FAKE_SAS" | FAKE_SUMS_OVERRIDE="1111  other" T h4c.out pull --ac
 has h4c.out "is not run A's seal"; rm -rf "$W/rd/stamps"
 printf '%s\n' "$FAKE_SAS" | T h4.out pull --account parkiobackups --container backups --ledger-stamp 2026-10-14T03-30-00Z
 has h4.out "U14 DRILL HOST pull: PASS"; grep -q "pull env ok 2026-10-14T03-30-00Z" "$FAKE_LOG" && ok "h4: ledger stamp pulled too" || no "h4 ledger"
-hasnt h4.out "$FAKE_SAS"; hasnt fake.log "$FAKE_SAS"
+hasnt h4.out "$FAKE_SAS" SAS; hasnt fake.log "$FAKE_SAS" SAS
 if grep -rqF "$FAKE_SAS" "$W/root" "$W/rd/work" 2>/dev/null; then no "h4: the SAS reached a file"; else ok "h4: the SAS is in no file"; fi
 
 echo "=== H5 probe ==="
