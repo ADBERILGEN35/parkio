@@ -1,0 +1,65 @@
+ok     (no key value in the output of pre)
+ok   P1 pre passes on a clean PIN checkout with every check
+ok   P1 the rollback tag points to the running web image
+ok   P1 bundle identical after normalization; the libexpat change is recorded
+ok   P1 pre never calls the wrapper
+ok   P1 pre leaves the checkout at the PIN
+ok     (no key value in the output of pre)
+ok   P2 a dirty checkout is refused
+ok     (no key value in the output of pre)
+ok   P3 web on another image is refused
+ok     (no key value in the output of pre)
+ok   P4 an --r1 that is not the release branch tip is refused
+ok     (no key value in the output of pre)
+ok   P5 a pin file digest other than --digest is refused
+ok     (no key value in the output of pre)
+ok   P6 a pulled image id other than --image-id is refused
+ok     (no key value in the output of pre)
+ok   P7 a wrong OCI revision is refused
+ok     (no key value in the output of pre)
+ok   P8 a code change beside the key is refused
+ok     (no key value in the output of pre)
+ok   P9 a changed nginx.conf is refused
+ok     (no key value in the output of pre)
+ok   P10 an apk change outside libexpat/pcre2 is refused
+ok     (no key value in the output of pre)
+ok   P11 a u05 window unit is refused
+ok     (no key value in the output of recreate)
+ok   R1 recreate without --yes is a usage error
+ok     (no key value in the output of recreate)
+ok   R2 recreate without a passing pre changes nothing
+ok   R2 the checkout is still at the PIN
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok   R3 recreate after a passing pre: PASS
+ok   R3 the wrapper ran once: up -d --no-build --no-deps --force-recreate web
+ok   R3 with PARKIO_ENV_FILE and the fingerprint, and every PARKIO_SKIP_* removed
+ok   R3 the checkout is at R1
+ok   R3 post-check: web is healthy
+ok   R3 post-check: web is a new container
+ok   R3 post-check: web runs the expected image
+ok   R3 post-check: web config hash = its recorded
+ok   R3 post-check: every other container unchanged
+ok   R3 post-check: / answers 200 with the app root
+ok   R3 post-check: /login answers 200 with the app root
+ok   R3 post-check: /explore answers 200 with the app root
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok   R4 a failing wrapper stops before the post-checks
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok   R5 another container changed during the step is a FAIL
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok   R6 a pre older than 6 hours changes nothing
+ok     (no key value in the output of pre)
+ok     (no key value in the output of recreate)
+ok     (no key value in the output of rollback)
+ok   RB1 rollback: PASS (web back on the old image, others unchanged)
+ok   RB1 the wrapper ran without the fingerprint variable
+ok   RB1 the checkout is back at the PIN
+ok     (no key value in the output of status)
+ok   S1 status lists the records
+ok     (no key value in the output of pre)
+ok   U1 malformed arguments are a usage error
+=== summary: 64 ok, 0 FAIL ===
