@@ -1,0 +1,5 @@
+supplement to jwt-rotate-mutants.out.txt: the three mutants that survived it, rerun after adding P12, P13 and R5c; tool b4d272d8dd4db6ce, self-test 6355e33aecf57da2
+build-only-implicit-ref            killed: P12 a build-only gateway (no image in the model) passes under its implicit name
+container-runs-model-ref           killed: P13 a container not running the model's image reference fails
+rollback-auth-end-state            killed: R5c a rollback that leaves auth-service on the new key fails its end-state check
+exit=0

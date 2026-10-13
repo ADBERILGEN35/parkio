@@ -1,4 +1,4 @@
-tool sha256 4e0c7a1ca922b128; self-test sha256 9add89f5e1c4f769
+tool sha256 b4d272d8dd4db6ce; self-test sha256 cb3f95f1c4e103f8
 release-at-r2                      killed: P2 a checkout other than R2 fails
 backup-window                      killed: P9 the backup window is refused
 no-additional-keys-env             killed: P4 additional public keys set fails
@@ -6,6 +6,12 @@ auth-runs-env-key                  killed: P3 an env PEM other than auth-service
 carriers                           killed: P5 another container carrying the PEM fails
 model-holders                      killed: P6 another service of the model carrying the PEM fails
 pre-model-hash                     killed: P10 auth-service off the model's hash fails
+build-only-implicit-ref            SURVIVED
+container-runs-model-ref           SURVIVED
+rollback-auth-end-state            SURVIVED
+rollback-marks-rolled-back         killed: R5b a second rollback is refused (the rotation is marked rolled-back)
+redact-oserror-recorded            killed: X9 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old key
+host-guard                         killed: P11 another host fails
 image-identity                     killed: P7 a moved image tag fails
 pre-jwks                           killed: P8 a JWKS with another key fails
 pre-age                            killed: R1d a pre older than an hour blocks rotate
@@ -27,9 +33,9 @@ old-key-refused                    killed: R7 a gateway that still accepts the o
 new-key-accepted                   killed: R8 a gateway that forwards the new-key probe fails and stops in phase E; R9 a gateway that rejects the new key fails and stops in phase E
 probe-epoch                        killed: R2 the full rotation passes; R2b rollback after a passing rotation is refused
 probe-audience                     killed: R2 the full rotation passes; R2b rollback after a passing rotation is refused
-rollback-phase-guard               killed: R2b rollback after a passing rotation is refused
-rollback-env-restore               killed: R5 rollback restores the previous key and kid and recreates auth-service; R11 rollback after the gateway recreate restores the env file and recreates 
-rollback-recreate                  killed: R5 rollback restores the previous key and kid and recreates auth-service; R11 rollback after the gateway recreate restores the env file and recreates 
+rollback-phase-guard               killed: R2b rollback after a passing rotation is refused; R5b a second rollback is refused (the rotation is marked rolled-back)
+rollback-env-restore               killed: R5 rollback restores the previous key and kid and recreates auth-service; R5b a second rollback is refused (the rotation is marked rolled-back)
+rollback-recreate                  killed: R5 rollback restores the previous key and kid and recreates auth-service; R5b a second rollback is refused (the rotation is marked rolled-back)
 rollback-gateway-force             killed: R11 rollback after the gateway recreate restores the env file and recreates auth-service, then gateway-service
 redact-needs-passing-rotation      killed: X1 redact before a rotation is refused
 redact-jwks-new-only               killed: X6 redact while the JWKS still lists the old kid is refused
@@ -41,12 +47,12 @@ redact-keeps-mtime                 killed: X2 redact after a passing rotation pa
 redact-scan                        killed: X3 a stray copy of the old key (real PEM form) fails the scan; the backup is kept
 redact-backup-last                 killed: X3 a stray copy of the old key (real PEM form) fails the scan; the backup is kept; X4 a listed file holding the current key is left alone
 redact-already-complete            killed: X5 a second redact reports completion
-child-env-allowlist                killed: no child saw a variable outside the allowlist
+child-env-allowlist                killed: R4 another service's model changing restores the env file; no child saw a variable outside the allowlist
 env-pkcs8-kid                      EQUIVALENT (not run): the env PEM's form is also proven by auth-runs-env-key and the JWKS modulus match
 new-key-check                      EQUIVALENT (not run): openssl genpkey always yields a 2048-bit PKCS#8 key; the check documents the expectation
 backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
 only-keys-changed                  EQUIVALENT (not run): with_values() changes only the two lines; the check guards against a future edit of it
 record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing key material; no record path carries any
 scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
-=== 43/43 killed, 0 survived or broken; 6 equivalent listed ===
-exit=0
+=== 46/49 killed, 3 survived or broken; 6 equivalent listed ===
+exit=1

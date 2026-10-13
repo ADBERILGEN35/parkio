@@ -61,6 +61,7 @@ if a[0] == "inspect":
         c = cs[i]
         out.append({"Id": i, "Name": "/" + c["name"], "Image": c["image"],
                     "Config": {"Env": [f"{k}={v}" for k, v in c["env"].items()],
+                               "Image": "other:tag" if mark("config-image-differs") and c["service"] == "gateway-service" else c.get("ref"),
                                "Labels": {"com.docker.compose.project": c["project"], "com.docker.compose.service": c["service"],
                                           "com.docker.compose.config-hash": c["hash"]}},
                     "State": {"Status": "running", "Health": {"Status": c["health"]}}})
@@ -87,7 +88,8 @@ def service(svc):
     if svc == "auth-service":
         return {"image": "ghcr.io/x/auth", "environment": {k: env.get(k, "") for k in JWT}}
     if svc == "gateway-service":
-        return {"image": "ghcr.io/x/gateway", "environment": {"PARKIO_AUTH_JWKS_URI": "http://auth-service:8081/jwks"}}
+        e = {"PARKIO_AUTH_JWKS_URI": "http://auth-service:8081/jwks"}
+        return {"environment": e} if mark("gateway-build-only") else {"image": "ghcr.io/x/gateway", "environment": e}
     e = {"Y": "2"}
     if svc == "web" and mark("model-leak"): e["LEAK"] = env.get("PARKIO_JWT_PRIVATE_KEY_PEM", "")
     if svc == "web" and mark("env-affects-web"): e["X"] = hashlib.sha256(env.get("PARKIO_JWT_KEY_ID", "").encode()).hexdigest()[:8]
@@ -270,11 +272,14 @@ def main():
                         dst.write(open(src).read())
                     os.remove(src)
 
-        def reset(checkout=r2, env_pem_file=None, add="", auth_pem=None, extra_carrier=False):
+        def reset(checkout=r2, env_pem_file=None, add="", auth_pem=None, extra_carrier=False, gateway_build_only=False):
             for f in os.listdir(W):
                 if f in ("tag-moved", "model-leak", "env-affects-web", "jwks-stale", "jwks-extra", "gateway-keeps-old", "gateway-rejects-new",
-                         "probe-forwards", "preflight-fail") or f.startswith(("unhealthy-", "collateral-", "stale-env-")):
+                         "probe-forwards", "preflight-fail", "gateway-build-only", "config-image-differs") or\
+                    f.startswith(("unhealthy-", "collateral-", "stale-env-")):
                     os.remove(os.path.join(W, f))
+            if gateway_build_only:
+                open(os.path.join(W, "gateway-build-only"), "w").write("x")
             archive_logs()
             shutil.rmtree(OUT, ignore_errors=True)
             for f in os.listdir(os.path.join(L, "docker")):
@@ -293,12 +298,13 @@ def main():
             for i, svc in enumerate(("auth-service", "gateway-service", "web", "caddy")):
                 e = auth_env if svc == "auth-service" else ({"PARKIO_AUTH_JWKS_URI": "http://auth-service:8081/jwks"} if svc == "gateway-service" else {"Y": "2"})
                 cs[f"{i}" * 64] = {"name": f"parkio-{svc}-1", "project": "parkio", "service": svc, "image": f"sha256:{i}{'0' * 63}",
+                                   "ref": ("parkio-gateway-service" if gateway_build_only and svc == "gateway-service" else
+                                           "ghcr.io/x/" + ("auth" if svc == "auth-service" else "gateway" if svc == "gateway-service" else svc)),
                                    "hash": "", "health": "healthy", "env": dict(e)}
             if extra_carrier:
                 cs["e" * 64] = {"name": "other-app", "project": "other", "service": "app", "image": "x", "hash": "h", "health": "healthy",
                                 "env": {"COPY": OLD.replace("\n", "\\n")}}
-            images = {"ghcr.io/x/" + ("auth" if c["service"] == "auth-service" else "gateway" if c["service"] == "gateway-service" else c["service"]): c["image"]
-                      for c in cs.values() if c["project"] == "parkio"}
+            images = {c["ref"]: c["image"] for c in cs.values() if c["project"] == "parkio"}
             st = {"containers": cs, "images": images, "gateway_keys": {"parkio-auth-rs256-1": OLD.replace("\n", "\\n")},
                   "jwks_stale": dict(auth_env)}
             json.dump(st, open(os.path.join(W, "state.json"), "w"))
@@ -380,6 +386,17 @@ def main():
         rc, out = tool("pre")
         ok(rc == 1 and "FAIL auth-service running, healthy, at the model's hash" in out, "P10 auth-service off the model's hash fails", out)
         reset()
+        rc, out = tool("pre", extra={"JRT_HOST": "some-other-host"})
+        ok(rc == 1 and "FAIL host some-other-host" in out, "P11 another host fails", out)
+        reset(gateway_build_only=True)
+        rc, out = tool("pre")
+        ok(rc == 0, "P12 a build-only gateway (no image in the model) passes under its implicit name", out)
+        reset()
+        mark("config-image-differs")
+        rc, out = tool("pre")
+        ok(rc == 1 and "FAIL gateway-service running, healthy, at the model's hash, its image resolving" in out,
+           "P13 a container not running the model's image reference fails", out)
+        reset()
         rc, out = tool("pre", extra={"JRT_NOW": str(calendar.timegm(time.strptime("2026-10-13 03:40", "%Y-%m-%d %H:%M")))})
         ok(rc == 1 and "FAIL outside 03:00-04:30 UTC" in out, "P9 the backup window is refused", out)
 
@@ -451,6 +468,18 @@ def main():
         rc, out = tool("rollback", "--yes")
         ok(rc == 0 and env_pem_file() == OLD_FILE and auth()["env"]["PARKIO_JWT_KEY_ID"] == "parkio-auth-rs256-1",
            "R5 rollback restores the previous key and kid and recreates auth-service", out)
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "rolled-back" in out, "R5b a second rollback is refused (the rotation is marked rolled-back)", out)
+        reset()
+        tool("pre")
+        mark("unhealthy-auth-service")
+        tool("rotate", "--yes")
+        keys_seen.append(env_pem_file().replace("\\\\n", "\n"))
+        os.remove(os.path.join(W, "unhealthy-auth-service"))
+        mark("stale-env-auth-service")
+        rc, out = tool("rollback", "--yes")
+        ok(rc == 1 and "FAIL auth-service runs with the previous PEM and kid" in out,
+           "R5c a rollback that leaves auth-service on the new key fails its end-state check", out)
         def phase():
             return [json.load(open(os.path.join(OUT, d, "rotate-progress.json"))) for d in sorted(os.listdir(OUT))
                     if os.path.exists(os.path.join(OUT, d, "rotate-progress.json"))][-1]["phase"]
@@ -522,6 +551,14 @@ def main():
         cur = env_pem_file()
         rc, out = tool("redact", "--yes")
         ok(rc == 1 and "the live env file is never redacted" in out and env_pem_file() == cur, "X8 the live env file is never redacted, even through a link", out)
+
+        rotated()
+        rbak = os.path.join(L, "docker", jbak()[0])
+        os.chmod(os.path.join(L, "docker"), 0o555)
+        rc, out = tool("redact", "--yes")
+        os.chmod(os.path.join(L, "docker"), 0o755)
+        ok(rc == 1 and "cannot be rewritten (PermissionError)" in out and OLD_FILE in open(rbak).read(),
+           "X9 an unwritable directory is a recorded FAIL, not a crash; the backup keeps the old key", out)
 
         # ---- no key material anywhere
         archive_logs()

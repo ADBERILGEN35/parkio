@@ -476,10 +476,11 @@ def cmd_pre():
         hashes = model_hashes() or {}
         for d, svc in ((auth, SIGNER), (gw, VERIFIER)):
             lab = ((d or {}).get("Config") or {}).get("Labels") or {}
-            ref = (((m.get("services") or {}).get(svc) or {}).get("image")) or ""
+            # a build-only service has no `image` in the model: Compose names it <project>-<service> (Redis review T1)
+            ref = (((m.get("services") or {}).get(svc) or {}).get("image")) or f"{PROJECT}-{svc}"
             check(f"{svc} running, healthy, at the model's hash, its image resolving to the running one",
                   bool(d) and health(d) == "healthy" and lab.get("com.docker.compose.config-hash") == hashes.get(svc)
-                  and bool(ref) and image_id(ref) == d.get("Image"), health(d) or "?")
+                  and (d.get("Config") or {}).get("Image") == ref and image_id(ref) == d.get("Image"), health(d) or "?")
     keys = jwks_keys()
     n = modulus_b64url(key) if needle else None
     check("the public JWKS lists exactly one key: the current kid with the current key's modulus",
@@ -637,6 +638,17 @@ def cmd_rollback(yes):
     old = env_values(old_data)
     keys = jwks_keys()
     check("the public JWKS lists the previous kid again", bool(keys) and [k for k, _ in keys] == [old.get(KID)])
+    a = env_of(parkio(SIGNER) or {})
+    check("auth-service runs with the previous PEM and kid", a.get(PEM) == container_form(pem_from(old.get(PEM, ""))) and a.get(KID) == old.get(KID))
+    if all(c["pass"] for c in CHECKS):
+        path = os.path.join(OUT, f"jr-{prog['stamp']}", "rotate-progress.json")
+        prog["phase"] = "rolled-back"
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(prog, sort_keys=True))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+        say("  the rotation is marked rolled-back; run pre before another attempt")
     return finish("rollback", rec)
 
 
@@ -651,14 +663,20 @@ def redact_file(path, needle, current):
         return False, "the live env file is never redacted"
     if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
         return False, "not a regular file of this user; left alone"
-    data = open(path, "rb").read()
+    try:
+        data = open(path, "rb").read()
+    except OSError as e:
+        return False, f"cannot be read ({e.__class__.__name__}); left alone"
     if current.encode() in data:
         return False, "holds the current key; left alone"
     n = data.count(needle.encode())
     if n == 0:
         return True, "no occurrence"
     out = data.replace(needle.encode(), MARKER.encode())
-    fd, tmp = tempfile.mkstemp(prefix=".jrt-redact-", dir=os.path.dirname(path))
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".jrt-redact-", dir=os.path.dirname(path))
+    except OSError as e:
+        return False, f"cannot be rewritten ({e.__class__.__name__}); left alone"
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(out)
@@ -668,6 +686,10 @@ def redact_file(path, needle, current):
             os.fchown(fh.fileno(), st.st_uid, st.st_gid)
         os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
         os.replace(tmp, path)
+    except OSError as e:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        return False, f"cannot be rewritten ({e.__class__.__name__}); left alone"
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)
