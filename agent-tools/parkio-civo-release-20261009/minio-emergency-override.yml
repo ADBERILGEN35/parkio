@@ -1,0 +1,12 @@
+# EMERGENCY ONLY - MinIO credential rotation procedure (incident 2026-10-13, priority 3).
+# Use it only through `minio-rotate.py rollback --yes --unhardened`, when minio does not come back healthy under the
+# release model's hardening. It drops exactly the hardening the pre-rotation container did not have: read-only root,
+# cap_drop ALL, no-new-privileges and the /tmp tmpfs. Image, command, environment, volume, network, ports, limits and
+# healthcheck stay as the release model renders them. This is not a reviewed release definition: record its use,
+# report it, and remove it at the next reviewed deploy.
+services:
+  minio:
+    read_only: false
+    cap_drop: !reset []
+    security_opt: !reset []
+    tmpfs: !reset []

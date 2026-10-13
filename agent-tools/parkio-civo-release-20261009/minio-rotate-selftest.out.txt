@@ -1,0 +1,110 @@
+ok   U usage refusal: no command
+ok   U usage refusal: pre --yes
+ok   U usage refusal: rotate without --yes
+ok   U usage refusal: rollback without --yes
+ok   U usage refusal: rollback --unhardened without --yes
+ok   U usage refusal: redact without --yes
+ok   U usage refusal: rotate --unhardened
+ok   U usage refusal: an extra argument
+ok   U usage refusal: a repeated argument
+ok   P1 pre passes
+ok   P2 a checkout other than R2 fails
+ok   P3 a password shorter than 32 characters fails
+ok   P4 another project's container carrying the value fails
+ok   P5 another service of the model carrying the value fails
+ok   P6 a carrier holding the value outside Env fails
+ok   P8 a moved image tag fails
+ok   P9 a minio that accepts any password fails
+ok   P10 a public API that does not answer 200 fails
+ok   P12 dockerd debug logging fails
+ok   P15 a minio that differs from the model by more than the hardening fails
+ok   P18 media-service's aggregate health not 200 fails
+ok   P19 minio on another volume fails
+ok   P7 media-service off the model's hash fails
+ok   P14 an edited emergency override fails
+ok   P16 a backup loader that yields another password fails
+ok   P17 media-service with a pair other than minio's fails
+ok   P21 a minio-setup on another image fails
+ok   P22 a bucket that cannot be listed fails
+ok   P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+ok   P11 another host fails
+ok   P13 the backup window is refused
+ok   R1 rotate without a pre changes nothing
+ok   R1b an env change after pre blocks rotate
+ok   R1c a pre older than an hour blocks rotate
+ok   R1d a container change after pre blocks rotate
+ok   R2 the full rotation passes
+ok   R2 minio, minio-setup and media-service carry the new 44-character password
+ok   R2 minio runs the hardening on the same image and volume
+ok   R2 minio-setup is recreated with the hardening and not started
+ok   R2 no container carries the old value; the objects are all there
+ok   R2 the order is minio, media-service, then minio-setup without starting; the inbox overlay on every call, no emergency override
+ok   R2 the backup holds the old value, mode 600
+ok   R2 every login runs from the mc image on minio's network, read-only
+ok   R2b rollback after a passing rotation is refused
+ok   R3 a failing preflight restores the env file; nothing is recreated
+ok   R3b another service's model changing restores the env file
+ok   R4 a minio that does not come back under the hardening: the rotation stops before media-service, minio-setup
+ok   R4 a plain rollback keeps the hardening, so minio stays down: rollback fails
+ok   R4b rollback --unhardened: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R4b --unhardened recreates minio with the emergency override (no hardening); the objects are all there
+ok   R5 objects missing after minio's recreate: the rotation stops
+ok   R6 an interruption after the env write: the rotation stops
+ok   R6: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R6 rollback after the env write recreates nothing (the carriers still run the original)
+ok   R7 an interruption after minio's recreate: the rotation stops
+ok   R7: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R7 rollback recreates only minio
+ok   R8 an unhealthy media-service: the rotation stops before minio-setup
+ok   R8: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R8 rollback recreates minio, then media-service
+ok   R9 a media-service without the new value: the rotation stops
+ok   R9: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R10 MinIO authentication errors in media-service's log: the rotation stops
+ok   R10: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R11 a second rollback is refused (rolled-back)
+ok   R12 a backup loader that does not pick up the new password stops the rotation
+ok   R12: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R16 a minio recreated without the hardening: the rotation stops
+ok   R16: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R17 a minio recreated on another volume: the rotation stops
+ok   R19 another container changing at minio's recreate: the rotation stops
+ok   R18 a minio that is not ready for a moment after its recreate: the logins wait, the rotation passes
+ok   R20 a bucket that cannot be listed before the cutover stops the rotation; nothing changed
+ok   R21 a minio that still accepts the old password after its recreate: the rotation stops before media-service
+ok   R22 a media-service whose aggregate health is not 200: the rotation stops before minio-setup
+ok   R23 another container changing at media-service's recreate: the rotation stops before minio-setup
+ok   R24 a minio-setup created without the new value: the rotation stops
+ok   R24: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R32 a minio-setup created without the hardening: the rotation stops
+ok   R32: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+ok   R25 a public API that fails at the end: the rotation stops
+ok   R25 a rotation whose end checks failed cannot be redacted
+ok   R26 a stop before an unhardened rollback with an edited override: the rotation stops
+ok   R26 rollback --unhardened with an edited override is refused and changes nothing
+ok   R27 a media-service whose health is not 200 after rollback: the rotation stops
+ok   R27 a rollback that leaves media-service's aggregate health off 200 fails
+ok   R28 objects lost at the rollback's recreate: the rotation stops
+ok   R28 a rollback that loses objects fails
+ok   R29 a backup loader that does not yield the original after rollback: the rotation stops
+ok   R29 a rollback the backup loader does not follow fails
+ok   R30 a public API down after rollback: the rotation stops
+ok   R30 a rollback with the public API down fails
+ok   R31 object content that changes at minio's recreate: the rotation stops before media-service
+ok   R14 a carrier left on the rotation's value: the rotation stops
+ok   R14 a rollback that leaves a carrier on the rotation's value fails its end-state check
+ok   R15 a minio that refuses the original password after rollback: the rotation stops
+ok   R15 a rollback whose original password does not log in fails
+ok   R13 a stop before rollback without a backup: the rotation stops
+ok   R13 rollback without the backup is refused and changes nothing
+ok   X1 redact before a rotation is refused
+ok   X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched
+ok   X5 a second redact reports completion
+ok   X3 an unlisted copy fails the scan; the backup keeps the old value
+ok   X4 a listed file holding the new value is left alone
+ok   X6 the live env file is never redacted, even through a link
+ok   X7 redact while the old value still logs in is refused and changes nothing
+ok   no secret value in any output or record (34 values)
+ok   no secret value in any docker or wrapper argument
+ok   no child saw a variable outside the allowlist
+=== summary: 109 ok, 0 FAIL ===

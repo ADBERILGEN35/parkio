@@ -1,0 +1,91 @@
+minio-rotate mutation run (single full run) | 2026-10-13T17:36:07Z | tool 41d4ad838b16b2e0 | self-test 9c52debfca295505 | mutants 17ad83f4aac651d0 | override 52c73e059409f730
+host-guard                         killed (twice): P11 another host fails
+dockerd-debug-off                  killed (twice): P12 dockerd debug logging fails
+release-at-r2                      killed (twice): P2 a checkout other than R2 fails
+backup-window                      killed (twice): P13 the backup window is refused
+password-length                    killed (twice): P3 a password shorter than 32 characters fails
+model-carriers                     killed (twice): P5 another service of the model carrying the value fails
+live-carriers                      killed (twice): P4 another project's container carrying the value fails; P6 a carrier holding the value outside Env fails
+live-outside-env                   killed (twice): P6 a carrier holding the value outside Env fails
+pre-minio-volume                   killed (twice): P19 minio on another volume fails
+override-reviewed                  killed (twice): P14 an edited emergency override fails; R26 rollback --unhardened with an edited override is refused and changes nothing
+pre-minio-drift                    killed (twice): P15 a minio that differs from the model by more than the hardening fails
+pre-setup-image                    killed (twice): P21 a minio-setup on another image fails
+pre-media-hash                     killed (twice): P7 media-service off the model's hash fails
+pre-media-image                    killed (twice): P8 a moved image tag fails
+pre-media-pair                     killed (twice): P17 media-service with a pair other than minio's fails
+pre-media-health                   killed (twice): P18 media-service's aggregate health not 200 fails
+login-discriminates                killed (twice): P9 a minio that accepts any password fails
+pre-backup-loader                  killed (twice): P16 a backup loader that yields another password fails
+pre-objects-listed                 killed (twice): P22 a bucket that cannot be listed fails
+pre-public                         killed (twice): P10 a public API that does not answer 200 fails
+inbox-overlay-detected             killed (twice): P1 pre passes; R2 the order is minio, media-service, then minio-setup without starting; the inbox overlay on every call, no emergency override
+inbox-overlay-always               killed (twice): P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+pre-age                            killed (twice): R1c a pre older than an hour blocks rotate
+env-unchanged-since-pre            killed (twice): R1b an env change after pre blocks rotate
+containers-unchanged-since-pre     killed (twice): R1d a container change after pre blocks rotate
+objects-before-cutover             killed (twice): R20 a bucket that cannot be listed before the cutover stops the rotation; nothing changed
+preflight                          killed (twice): R3 a failing preflight restores the env file; nothing is recreated
+hash-set                           killed (twice): R3b another service's model changing restores the env file
+restore-env-on-failure             killed (twice): R3 a failing preflight restores the env file; nothing is recreated; R3b another service's model changing restores the env file
+minio-new-healthy                  killed (twice): R4 a minio that does not come back under the hardening: the rotation stops before media-service, minio-setup
+minio-same-image-volume            killed (twice): R17 a minio recreated on another volume: the rotation stops
+minio-hardening-value              killed (twice): R16 a minio recreated without the hardening: the rotation stops
+minio-old-refused                  killed (twice): R21 a minio that still accepts the old password after its recreate: the rotation stops before media-service
+minio-objects-intact               killed (twice): R5 objects missing after minio's recreate: the rotation stops; R31 object content that changes at minio's recreate: the rotation stops before media-se
+minio-content-samples              killed (twice): R31 object content that changes at minio's recreate: the rotation stops before media-service
+minio-others-unchanged             killed (twice): R19 another container changing at minio's recreate: the rotation stops
+stop-after-minio                   killed (twice): R4 a minio that does not come back under the hardening: the rotation stops before media-service, minio-setup; R21 a minio that still accepts the old p
+media-new-healthy                  killed (twice): R8 an unhealthy media-service: the rotation stops before minio-setup; R8: rollback restores the original password in every carrier, verifies it, and s
+media-new-value                    killed (twice): R9 a media-service without the new value: the rotation stops
+media-health                       killed (twice): R22 a media-service whose aggregate health is not 200: the rotation stops before minio-setup
+media-auth-errors                  killed (twice): R10 MinIO authentication errors in media-service's log: the rotation stops; R10: rollback restores the original password in every carrier, verifies it
+media-others-unchanged             killed (twice): R23 another container changing at media-service's recreate: the rotation stops before minio-setup
+stop-after-media                   killed (twice): R8 an unhealthy media-service: the rotation stops before minio-setup; R8 rollback recreates minio, then media-service
+setup-created-hardened-new         SURVIVED
+setup-new-value                    killed (twice): R24 a minio-setup created without the new value: the rotation stops
+rotate-backup-loader               killed (twice): R12 a backup loader that does not pick up the new password stops the rotation; R12: rollback restores the original password in every carrier, verifies
+end-public                         killed (twice): R25 a public API that fails at the end: the rotation stops; R25 a rotation whose end checks failed cannot be redacted
+rollback-phase-guard               killed (twice): R2b rollback after a passing rotation is refused; R11 a second rollback is refused (rolled-back)
+rollback-override-reviewed         killed (twice): R26 rollback --unhardened with an edited override is refused and changes nothing
+rollback-backup-required           killed (twice): R13 rollback without the backup is refused and changes nothing
+rollback-env-restore               killed (twice): R4b rollback --unhardened: rollback restores the original password in every carrier, verifies it, and says the exposed password is back; R6: rollback 
+rollback-minio-live                killed (twice): R4 a plain rollback keeps the hardening, so minio stays down: rollback fails; R7: rollback restores the original password in every carrier, verifies i
+rollback-unhardened-override       killed (twice): R4b rollback --unhardened: rollback restores the original password in every carrier, verifies it, and says the exposed password is back; R4b --unharde
+rollback-media-live                killed (twice): R8: rollback restores the original password in every carrier, verifies it, and says the exposed password is back; R8 rollback recreates minio, then me
+rollback-setup-live                killed (twice): R12: rollback restores the original password in every carrier, verifies it, and says the exposed password is back
+rollback-end-carriers              killed (twice): R14 a rollback that leaves a carrier on the rotation's value fails its end-state check
+rollback-end-health                killed (twice): R27 a rollback that leaves media-service's aggregate health off 200 fails
+rollback-login-original            killed (twice): R15 a rollback whose original password does not log in fails
+rollback-objects                   killed (twice): R28 a rollback that loses objects fails
+rollback-backup-loader             killed (twice): R29 a rollback the backup loader does not follow fails
+rollback-public                    killed (twice): R30 a rollback with the public API down fails
+rollback-marks-rolled-back         killed (twice): R11 a second rollback is refused (rolled-back)
+redact-needs-passing-rotation      killed (twice): R25 a rotation whose end checks failed cannot be redacted; X1 redact before a rotation is refused
+redact-old-refused                 killed (twice): X7 redact while the old value still logs in is refused and changes nothing
+redact-live-env-guard              killed (twice): X6 the live env file is never redacted, even through a link
+redact-holds-new                   killed (twice): X4 a listed file holding the new value is left alone
+redact-missing-ok                  killed (twice): X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
+redact-keeps-mtime                 killed (twice): X2 redact replaces the old value everywhere listed and in the rotation's backup last; mtimes kept; the live env untouched; X5 a second redact reports 
+redact-scan                        killed (twice): X3 an unlisted copy fails the scan; the backup keeps the old value
+redact-backup-last                 killed (twice): X3 an unlisted copy fails the scan; the backup keeps the old value; X4 a listed file holding the new value is left alone
+redact-already-complete            killed (twice): X5 a second redact reports completion
+login-refused-pattern              killed (twice): P1 pre passes; P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+login-settle                       killed (twice): R18 a minio that is not ready for a moment after its recreate: the logins wait, the rotation passes
+mc-credentials-on-stdin            killed (twice): P1 pre passes; P20 a gateway created without the inbox overlay: pre passes, and no Compose call adds it
+child-env-allowlist                killed (twice): no child saw a variable outside the allowlist
+backup-identical                   EQUIVALENT (not run): the backup is written from the bytes just read; a mismatch needs a failing disk
+only-key-changed                   EQUIVALENT (not run): with_value() changes only the password line; the check guards against a future edit of it
+media-own-credentials              EQUIVALENT (not run): media-service's pair is checked equal to minio's user and the new password, which the minio step proved logs in
+stop-after-setup                   EQUIVALENT (not run): only the end checks follow, and they change nothing
+end-no-old-holder                  EQUIVALENT (not run): every carrier's recreate checks its value, and pre limits the carriers to the three
+end-model-hash                     EQUIVALENT (not run): every recreate checks the model's hash
+record-secret-guard                EQUIVALENT (not run): finish() refuses a record containing a value; no record path carries one
+scrub                              EQUIVALENT (not run): say() scrubs known values; nothing the tool prints contains one
+placeholder-redraw                 EQUIVALENT (not run): a random value matches a placeholder pattern about once in 25,000 draws
+=== 74/75 killed, 1 survived or broken; 9 equivalent listed ===
+exit=1
+2026-10-13T18:35:37Z
+
+addendum 2026-10-13T18:38:02Z: the one survivor above got a case (R32, a minio-setup created without the hardening). Self-test 4771bee947101ac6 (tool and mutants unchanged). Adding a case cannot revive a killed mutant, so only the survivor is re-run, with the same two-run rule:
+setup-created-hardened-new         killed (twice): R32 a minio-setup created without the hardening: the rotation stops; R32: rollback restores the original password in every carrier, verifies it, and s
