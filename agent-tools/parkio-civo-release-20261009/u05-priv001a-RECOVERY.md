@@ -70,11 +70,13 @@ Every account and invite the window created is counted from W1:
 
 ```
 W1=$(F w1); echo "$W1"
-Q "select id, status from auth_users where email like 'priv001a-%@priv001a.parkio.invalid' and created_at >= '$W1'::timestamptz"
+Q "select id, status, email from auth_users where email like 'priv001a-%@priv001a.parkio.invalid' and created_at >= '$W1'::timestamptz"
 Q "select count(*), count(*) filter (where consumed_at is null) from registration_invites where created_by = 'priv001a' and created_at >= '$W1'::timestamptz"
 ```
 
 - **No row from the first query:** no synthetic account is left. An erased account keeps only its tombstone email, so it no longer matches.
+- **U04:** a listed account's credentials file is the one holding its (synthetic) email:
+  `sudo grep -l "^email=<email>$" "$S"/u04/creds-*`.
 - **U04:** the second query must show as many created invites as `$S/u04/invites.log` has lines
   (`sudo wc -l < "$S/u04/invites.log"`). A listed account with no credentials file is an ORPHAN (its registration was
   not preceded by `u04-creds`): record it, never change it by SQL.

@@ -22,14 +22,17 @@ The tool calls the window only through its operator commands, each over the exis
 
 1. `u04-invite`: one invite token on stdout, held in the tool's memory only.
 2. `u04-creds --name Rn` (stdin `email=`/`password=`): BEFORE the registration, so the cleanup can always find the account.
-3. The browser registers through `https://app.parkio.dev/register?invite=…`.
+3. The browser opens `https://app.parkio.dev/register` and passes `?invite=…` by in-app navigation (pushState). The
+   page reads the token and removes it from the address at once, so the token is never in a request URL: not in the
+   web container's nginx log (`$request`), Caddy's or Loki. It travels only in the registration request body, is
+   single-use, and is consumed seconds later; an unused one is an ORPHAN and is inert once the mode returns to CLOSED.
 4. `u04-verify --email …`: the harness's allowlisted verification, only for accounts registered since W1.
 5. `u04-done` ends the hold.
 
 ## Accounts and cases
 
-Three registrations, so that the verification emails to the reserved `.invalid` domain stay few. Each is accepted by
-the provider and bounces.
+Three registrations. No verification email is sent: the deployed auth-service (ResendEmailSender, 504b9cb4) skips every
+address of the reserved form `priv001a-<a-z0-9>@priv001a.parkio.invalid` and only logs it.
 
 | Account | Role |
 |---|---|
@@ -75,6 +78,10 @@ Tokens never leave the host. The output is `u03/u03-results.json` in the run's e
 If the command fails or is cut off, its `finally` step removes ADMIN. The window's cleanup also removes ADMIN from every id in `elevated.log` before erasing it, and the accounting refuses to pass while any id there still holds ADMIN.
 
 The criterion "epoch lookup error does not grant access" is not reproduced live, because that would need a production fault. Its evidence is isolated fault injection on the running images: the 22-case auth+gateway acceptance of candidate run 38087836817 (source 504b9cb4). Its fail-closed cases cover a null, malformed, mismatched, empty or missing epoch and a restored proxy, and the deployed auth/gateway config digests equal that run's accepted image ids.
+
+Start the tool promptly once the hold begins: the hold closes at U04_HOLD (or earlier, at RESTORE_BY - 600 s), and
+from then on every operator command is refused. The erasure flag is on for every user during the hold, so keep it
+short; a real user's erasure in that time is counted (`otherErasureRequestsSinceW1`) and must be recorded and explained.
 
 ## Before the window
 

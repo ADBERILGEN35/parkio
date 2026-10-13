@@ -265,8 +265,9 @@ async function newTab(browser, label) {
     }
   });
   if (MOCK) await installMockApi(ctx);
-  const w = { label, api: [], patches: [], maptiler: [], navs: [] };
+  const w = { label, api: [], patches: [], maptiler: [], navs: [], urls: [] };
   ctx.on('request', (req) => {
+    w.urls.push(req.url());
     const u = new URL(req.url());
     if (u.origin === API_ORIGIN) {
       const e = { t: Date.now(), method: req.method(), url: req.url(), body: req.postData() || '' };
@@ -282,7 +283,7 @@ async function newTab(browser, label) {
     const entry = { url: res.url(), status: res.status(), error: null };
     w.maptiler.push(entry);
     if (res.status() >= 400) {
-      res.text().then((t) => { entry.error = t.slice(0, 80).replace(/\s+/g, ' '); }).catch(() => {});
+      entry.pending = res.text().then((t) => { entry.error = t.slice(0, 80).replace(/\s+/g, ' '); }).catch(() => {});
     }
   });
   const page = await ctx.newPage();
@@ -299,10 +300,14 @@ async function spaGoto(page, p) {
 }
 async function register(tab, a, kase) {
   const { page } = tab;
+  opStoreCreds(a); // first: the window's cleanup can always find the account, and no invite is left without it
   const token = opInvite();
-  opStoreCreds(a); // before the registration: the window's cleanup can always find the account
   try {
-    await page.goto(`${APP}/register?invite=${token}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // The token never goes into a request URL (nginx and Caddy log the request line): the page is opened without it,
+    // and the token is handed over by in-app navigation; RegisterPage reads it and removes it from the address.
+    await page.goto(`${APP}/register`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    await spaGoto(page, `/register?invite=${token}`);
     await page.getByLabel('Full name').waitFor({ timeout: 30000 });
   } catch (e) {
     throw new Error(redact(e.message).split('\n')[0]);
@@ -331,6 +336,8 @@ async function register(tab, a, kase) {
   }
   a.id = body?.user?.id ?? null;
   results.accounts[a.tag] = { id: a.id, registeredAt: stamp() };
+  check(kase, `${a.tag}: the invite token is in no request URL (any origin)`, !tab.w.urls.some((u) => u.includes(token)),
+    `${tab.w.urls.length} requests`);
   await page.waitForURL(/\/check-email$/, { timeout: 30000 });
   check(kase, `${a.tag}: registered through the invite (HTTP ${resp.status()}, id returned)`, UUID.test(a.id || ''));
   const stored = await pending(page);
@@ -551,6 +558,7 @@ async function mapCheck(tab, kase) {
   const tiles = () => w.maptiler.filter((r) => /\.pbf|\/tiles\//.test(new URL(r.url).pathname));
   while (Date.now() < until && tiles().filter((r) => r.status === 200).length < 4) await page.waitForTimeout(1000);
   await page.waitForTimeout(3000);
+  await Promise.all(w.maptiler.map((r) => r.pending).filter(Boolean));
   const keys = [...new Set(w.maptiler.map((r) => new URL(r.url).searchParams.get('key')).filter(Boolean))];
   keys.forEach(keep);
   const style = w.maptiler.filter((r) => /style\.json$/.test(new URL(r.url).pathname));
@@ -712,6 +720,17 @@ async function main() {
     await register(t3, R3, 'reload-b');
     await t3.page.goto(`${APP}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 }); // full reload
     await t3.page.getByLabel('Email').waitFor({ timeout: 30000 });
+    const kept = await pending(t3.page);
+    let keptJson = null;
+    try {
+      keptJson = JSON.parse(kept || 'null');
+    } catch {
+      keptJson = null;
+    }
+    check('reload-b', "after the reload R3's pending profile is still R3's, flagged for phone re-entry, without the phone",
+      keptJson && keptJson.ownerUserId === R3.id && keptJson.needsPhoneReentry === true
+        && !phoneNeedles(R3).some((n) => (kept || '').includes(n)),
+      `keys ${keptJson ? Object.keys(keptJson).sort().join(',') : 'none'}`);
     await login(t3.page, R1);
     check('reload-b', 'R1 lands on /map without the preparation screen', !t3.w.navs.some((n) => n.t >= t && n.path === '/preparing'));
     check('reload-b', 'no PATCH /users/me', patchesSince(t3.w, t).length === 0, `${patchesSince(t3.w, t).length} PATCH`);

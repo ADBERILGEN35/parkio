@@ -7,7 +7,7 @@
 # runner and its harness children. Fake harness scripts behave like PR #336's: credentials before the register call,
 # the invite route only with mode=invite and invite creation on, DELETE only with the flag on, a PENDING account verified
 # before --delete, IN_PROGRESS only while analytics is stopped, exit 4 when no account exists.
-# Scenarios (R1-R27) are listed in the summary at the end.
+# Scenarios R1-R33 (the U04 hold R26-R29, U03 R30-R33).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; TOOL="$HERE/u05-priv001a-window.py"; SNAP="$HERE/u05-window-snapshot.py"
 W="$(mktemp -d)"; trap 'kill $(jobs -p) 2>/dev/null; rm -rf "${W:?}"' EXIT
@@ -803,6 +803,8 @@ wait_for "$W/r27.out" "exit=" 90
 unset U05R_U04_HOLD
 has r27.out "STOP: the U04 hold reached its end without u04-done"; has r27.out "restore U04 accounts: ok - no U04 credentials stored"
 has r27.out "ORPHAN: 1 priv001a invite(s) created since W1 are unconsumed"; has r27.out "U05 PRIV-001A WINDOW FAIL"
+python3 -I -c 'import json,sys; assert json.load(open(sys.argv[1]))["phase"] != "U04-HOLD"' "$W/private/$RUN/state.json" \
+  && ok "r27: the hold is closed (no operator command is accepted while the window restores)" || no "r27 phase still U04-HOLD"
 [ "$(envsha)" = "$SHA0" ] && ok "r27: env byte-identical" || no "r27 env"
 
 echo "=== R29 U04: no time left to erase: the account is reported, the restore fails closed, credentials kept ==="

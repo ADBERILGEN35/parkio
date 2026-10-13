@@ -38,7 +38,8 @@ Timing, from W1 (the first change)
 - The runner begins its restore by RESTORE_BY (38 min): every step checks the time left, and every harness or
   compose call is capped by it.
 - The window guard fires at GUARD_WINDOW_AT (42 min). It waits up to GUARD_LOCK_WAIT (3 min) for a restore that the
-  runner is running, then stops the runner and restores. Every restore step has its own bound (about 15 min in all).
+  runner is running, then stops the runner and restores. Every restore step has its own bound (about 25 min in all
+  for U05; about 18 min for a U04 window, whose U04 step is bounded by U04_RESTORE_CAP).
 - The analytics guard starts analytics-service ANALYTICS_GUARD_AT (510 s) after the stop; the approved limit is 600 s.
 
 Safety
@@ -46,8 +47,9 @@ Safety
   and of SSH.
 - The runner unit has KillMode=mixed and TimeoutStopSec=1200: `systemctl stop` sends SIGTERM to the runner only; it
   then restores, and further SIGTERMs are ignored while it does.
-- Every restore step runs on its own and records its result: analytics-service, the synthetic principal, the env file,
-  auth-service, the erasure's completion, the guards. A failed step does not skip the next one.
+- Every restore step runs on its own and records its result: analytics-service, the synthetic principal, the U04
+  accounts (ADMIN removed first from any U03-elevated id), the env file, auth-service, the erasure's completion, the
+  guards. A failed step does not skip the next one.
 - The env file: only the window keys change, by compare-and-swap writes with the same mode and owner. It is restored
   byte for byte from the W1 backup, and only while it is exactly what W1 wrote. Any other change found there, by
   anyone, stops the automatic restore: nothing is written, auth-service is not recreated, and RECOVERY.md applies.
@@ -1033,6 +1035,8 @@ def u04_window(st, budget):
         "u04-creds, u04-done)")
     while not os.path.exists(os.path.join(d, "done")):
         if time.time() >= end:
+            st["phase"] = "U04-CLOSED"      # no u04-* or u03-* command is accepted from here on
+            save_state(st)
             raise Stop("the U04 hold reached its end without u04-done")
         time.sleep(max(1, POLL))
     st["phase"] = "U04-DONE"
@@ -1256,6 +1260,8 @@ def cmd_run(args):
         window_ok = True
     except BaseException as e:      # any failure, exception or signal restores
         st["failure"] = str(e) if isinstance(e, Stop) else f"unexpected {type(e).__name__}"
+        if st.get("phase") == "U04-HOLD":
+            st["phase"] = "U04-CLOSED"  # the operator commands close before the restore begins
         say(f"STOP: {st['failure']}")
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     save_state_quietly(st)
