@@ -20,30 +20,30 @@ while IFS= read -r line || [ -n "$line" ]; do
   [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
   ARGS+=(-f "$ROOT/$line")
 done < "$FILES_LIST"
-# Canonical Civo overlays. Append only when this invocation uses the hosted-beta
-# production file list. A caller-supplied list, including the web-map guard
-# fixtures, must not grow Alertmanager or the Option C non-root user: values.
+# Canonical Civo overlays via shared N-10 helper (scripts/lib/prod-compose-overlays.sh).
+# Policy civo: append only when this invocation uses the hosted-beta production
+# file list. Caller-supplied lists, including web-map guard fixtures, must not
+# grow Alertmanager or Option C non-root user: values.
 #
 # Live activation of the non-root overlay requires every overlay-affected volume
 # to be COMPLIANT (N-05 / #354). Mutating commands (up|create|run) run a read-only
 # plan first; see docs/operations/nonroot-volume-migration.md.
 # Break-glass: PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES (default off).
+# shellcheck source=lib/prod-compose-overlays.sh
+source "$ROOT/scripts/lib/prod-compose-overlays.sh"
+mapfile -t _PARKIO_CIVO_OVERLAY_RELS < <(parkio_select_production_overlays "$ROOT" civo "$FILES_LIST") || exit 1
+# Process substitution runs the helper in a subshell; derive flags from the returned paths.
 PARKIO_CIVO_NONROOT_OVERLAY=0
-if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
-  CIVO_ALERTMANAGER_FILE="$ROOT/docker/docker-compose.civo-alertmanager.yml"
-  if [ ! -f "$CIVO_ALERTMANAGER_FILE" ]; then
-    echo "ERROR: missing canonical Civo Alertmanager overlay $CIVO_ALERTMANAGER_FILE" >&2
-    exit 1
-  fi
-  ARGS+=(-f "$CIVO_ALERTMANAGER_FILE")
-  CIVO_NONROOT_FILE="$ROOT/docker/docker-compose.civo-nonroot.yml"
-  if [ ! -f "$CIVO_NONROOT_FILE" ]; then
-    echo "ERROR: missing canonical Civo non-root overlay $CIVO_NONROOT_FILE" >&2
-    exit 1
-  fi
-  ARGS+=(-f "$CIVO_NONROOT_FILE")
-  PARKIO_CIVO_NONROOT_OVERLAY=1
-fi
+PARKIO_CIVO_ALERTMANAGER_OVERLAY=0
+for _rel in "${_PARKIO_CIVO_OVERLAY_RELS[@]}"; do
+  [ -n "$_rel" ] || continue
+  ARGS+=(-f "$ROOT/$_rel")
+  case "$_rel" in
+    "$PARKIO_CIVO_NONROOT_OVERLAY_REL") PARKIO_CIVO_NONROOT_OVERLAY=1 ;;
+    "$PARKIO_CIVO_ALERTMANAGER_OVERLAY_REL") PARKIO_CIVO_ALERTMANAGER_OVERLAY=1 ;;
+  esac
+done
+unset _rel _PARKIO_CIVO_OVERLAY_RELS
 # Optional recovery: PARKIO_GMP_RECOVERY=1 appends host-local prior-image overlay when present.
 if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
   recovery="$ROOT/docker/docker-compose.gmp-recovery-prior.yml"

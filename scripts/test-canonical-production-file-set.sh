@@ -10,6 +10,8 @@
 #   azure-hosted-beta profile (deprecated; documented exception)
 #     = canonical list, with docker-compose.images.yml right after docker-compose.apps.yml
 #
+# N-10: both entrypoints share scripts/lib/prod-compose-overlays.sh; noncompliant volumes cannot
+# reach up through the Civo wrapper or parkio_compose_up when the non-root overlay is present.
 # Fails when a compose file is added to only one of these paths, when the hosted-beta entry
 # points render different models, when a render disagrees with production on the
 # digest-pinned images or the auth registration settings, and when the production render leaves an
@@ -116,6 +118,125 @@ expected_wrapper=("${canonical[@]}" docker/docker-compose.civo-alertmanager.yml 
   got:      ${wrapper_files[*]}
   expected: ${expected_wrapper[*]}"
 pass "parkio-prod-compose.sh = canonical list + Civo Alertmanager and non-root overlays (${#wrapper_files[@]} files)"
+
+# --- N-10: shared overlay selection + volume gate on both entrypoints ---------------
+# shellcheck source=lib/prod-compose-overlays.sh
+source scripts/lib/prod-compose-overlays.sh
+# shellcheck source=lib/prod-nonroot-volume-gate.sh
+source scripts/lib/prod-nonroot-volume-gate.sh
+
+mapfile -t n10_civo < <(parkio_select_production_overlays "$ROOT" civo "$ROOT/docker/compose.production.files")
+[ "${n10_civo[*]}" = "docker/docker-compose.civo-alertmanager.yml docker/docker-compose.civo-nonroot.yml" ] \
+  || fail "civo policy on production list: got '${n10_civo[*]}'"
+pass "shared helper civo policy appends Alertmanager + non-root on the production list"
+
+mapfile -t n10_hb < <(parkio_select_production_overlays "$ROOT" hosted-beta "$ROOT/docker/compose.production.files")
+[ "${#n10_hb[@]}" -eq 0 ] || fail "hosted-beta policy returned overlays: ${n10_hb[*]}"
+pass "shared helper hosted-beta policy appends no Civo overlays"
+
+custom_list="$work/custom.files"
+printf '%s\n' docker/docker-compose.yml > "$custom_list"
+mapfile -t n10_custom < <(parkio_select_production_overlays "$ROOT" civo "$custom_list")
+[ "${#n10_custom[@]}" -eq 0 ] || fail "civo policy on custom list returned overlays: ${n10_custom[*]}"
+pass "shared helper preserves custom-list isolation (no Civo overlays)"
+
+mapfile -t n10_disabled < <(parkio_hosted_beta_disabled_observability_services)
+[ "${n10_disabled[*]}" = "alertmanager loki promtail tempo" ] \
+  || fail "hosted-beta disabled observability drifted: ${n10_disabled[*]}"
+hb_disabled="$(bash -c 'set -euo pipefail
+  source scripts/lib/deploy-common.sh
+  parkio_configure_deployment_profile docker/.env.hosted-beta.example >/dev/null
+  printf "%s\n" "${PARKIO_DISABLED_SERVICES[@]}"')"
+[ "$(tr '\n' ' ' <<< "$hb_disabled" | sed 's/[[:space:]]*$//')" = "alertmanager loki promtail tempo" ] \
+  || fail "deploy-common hosted-beta DISABLED_SERVICES drifted from shared helper: $(tr '\n' ' ' <<< "$hb_disabled")"
+pass "deploy-common hosted-beta disabled services come from the shared helper"
+
+# Noncompliant volume plan must not reach compose up through the Civo wrapper.
+mkdir -p "$work/n10-bin"
+cat >"$work/n10-plan-absent.sh" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+project=""
+services=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    plan) shift ;;
+    --project) project="$2"; shift 2 ;;
+    --service) services+=("$2"); shift 2 ;;
+    *) exit 2 ;;
+  esac
+done
+for s in "${services[@]}"; do
+  if [ "$s" = redis ]; then
+    echo "service=$s volume=$project/redis-data target=999:1000 readiness=ready status=ABSENT"
+  else
+    echo "service=$s volume=$project/${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
+  fi
+done
+STUB
+chmod +x "$work/n10-plan-absent.sh"
+cat >"$work/n10-bin/docker" <<'SH'
+#!/usr/bin/env bash
+echo "MUTATION $*" >>"${N10_MUTATIONS:?}"
+exit 0
+SH
+chmod +x "$work/n10-bin/docker"
+: >"$work/n10-mutations.log"
+set +e
+N10_MUTATIONS="$work/n10-mutations.log" PATH="$work/n10-bin:$PATH" \
+  PARKIO_ENV_FILE="$ROOT/docker/.env.azure-hosted-beta.example" \
+  PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$work/n10-plan-absent.sh" \
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE \
+  PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D \
+  bash scripts/parkio-prod-compose.sh up -d --no-build --no-deps gateway-service \
+  >"$work/n10-wrapper.out" 2>"$work/n10-wrapper.err"
+n10_rc=$?
+set -e
+[ "$n10_rc" -ne 0 ] || fail "Civo wrapper up succeeded with ABSENT redis volume (exit 0)"
+[ ! -s "$work/n10-mutations.log" ] || fail "Civo wrapper reached docker compose mutation despite noncompliant volumes"
+grep -q 'non-root volume gate' "$work/n10-wrapper.err" || fail "Civo wrapper refusal did not name the volume gate"
+pass "Civo wrapper refuses up when a volume is not COMPLIANT (zero mutations)"
+
+# Same noncompliant plan on parkio_compose_up with non-root forced into the file set.
+# Configure with real docker (hostname refuse needs a real compose config), then only the
+# up path uses the mutation-logging stub + ABSENT plan.
+cat >"$work/n10-bin/docker" <<'SH'
+#!/usr/bin/env bash
+d="${N10_MUTATIONS:?}"
+if [ "${1:-}" = "compose" ]; then
+  args=("$@")
+  sub=""
+  for ((k = 1; k < ${#args[@]}; k++)); do
+    case "${args[k]}" in
+      --env-file|-f|--file|-p|--project-name|--profile|--project-directory) k=$((k + 1)) ;;
+      -*) ;;
+      *) sub="${args[k]}"; break ;;
+    esac
+  done
+  case "$sub" in
+    up|create|run) echo "MUTATION $*" >>"$d"; exit 0 ;;
+  esac
+fi
+exit 0
+SH
+chmod +x "$work/n10-bin/docker"
+# shellcheck source=lib/deploy-common.sh
+source scripts/lib/deploy-common.sh
+parkio_configure_deployment_profile docker/.env.hosted-beta.example >/dev/null
+PARKIO_COMPOSE_FILES="$PARKIO_COMPOSE_FILES -f docker/docker-compose.civo-nonroot.yml"
+: >"$work/n10-mutations.log"
+set +e
+N10_MUTATIONS="$work/n10-mutations.log" PATH="$work/n10-bin:$PATH" \
+  PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$work/n10-plan-absent.sh" \
+  ROOT="$ROOT" \
+  parkio_compose_up docker/.env.hosted-beta.example \
+  >"$work/n10-up.out" 2>"$work/n10-up.err"
+n10_up_rc=$?
+set -e
+[ "$n10_up_rc" -ne 0 ] || fail "parkio_compose_up succeeded with forced non-root overlay and ABSENT redis"
+[ ! -s "$work/n10-mutations.log" ] || fail "parkio_compose_up reached docker mutation despite noncompliant volumes"
+grep -q 'non-root volume gate' "$work/n10-up.err" || fail "parkio_compose_up refusal did not name the volume gate"
+pass "parkio_compose_up refuses when the file set carries non-root and volumes are not COMPLIANT"
 
 # --- hosted-beta entry points, end to end (dry runs) -------------------------------
 real_docker="$(command -v docker)" || fail "docker is required to render the models"
@@ -307,6 +428,28 @@ for label, m in manifests.items():
         problems.append(f"{label} manifest images not named parkio/<service>:{tag}: {', '.join(off)}")
     if pins != app_pins:
         problems.append(f"{label} manifest pins {pins} != production app pins {app_pins}")
+# N-10: policy-aware Alertmanager / user drift between hosted-beta and Civo wrapper.
+hb = renders["hosted-beta"]
+am_w = wrapper.get("alertmanager") or {}
+am_h = hb.get("alertmanager") or {}
+# Wrapper activates Alertmanager via overlay; hosted-beta keeps it disabled/absent from runtime.
+if not am_w:
+    problems.append("wrapper render has no alertmanager service (Civo overlay missing?)")
+redis_w = (wrapper.get("redis") or {}).get("user")
+redis_h = (hb.get("redis") or {}).get("user")
+minio_w = (wrapper.get("minio") or {}).get("user")
+minio_h = (hb.get("minio") or {}).get("user")
+if redis_w != "999:1000":
+    problems.append(f"wrapper redis user {redis_w!r} != 999:1000 (non-root overlay)")
+if minio_w != "10001:10001":
+    problems.append(f"wrapper minio user {minio_w!r} != 10001:10001 (non-root overlay)")
+if redis_h == "999:1000":
+    problems.append("hosted-beta redis already has non-root user; Civo/non-root drift collapsed")
+if minio_h == "10001:10001":
+    problems.append("hosted-beta minio already has non-root user; Civo/non-root drift collapsed")
+if redis_w == redis_h:
+    problems.append(f"redis user identical across policies ({redis_w!r}); expected Civo vs hosted-beta drift")
+
 if problems:
     print("FAIL: a render or manifest disagrees with production:", file=sys.stderr)
     for problem in problems:

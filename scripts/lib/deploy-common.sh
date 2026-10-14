@@ -86,6 +86,8 @@ PARKIO_DISABLED_SERVICES=()
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dark-gateway-url.sh"
 # shellcheck source=invite-edge-mode.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/invite-edge-mode.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prod-compose-overlays.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prod-nonroot-volume-gate.sh"
 
 parkio_env_value() {
   local env_file="$1"
@@ -192,25 +194,36 @@ parkio_configure_deployment_profile() {
       # Deploy, rollback and DR render docker/compose.production.files exactly, so the model keeps
       # the digest pins and the auth registration settings production carries. Deploy builds only
       # the services the list does not pin, and rollback re-points those to their recorded tags
-      # (parkio_hosted_beta_image_plan); a pin is rolled back by reverting its pin file. The Civo
-      # wrapper renders the same list plus its Civo-host-specific Alertmanager overlay, so the two
-      # rendered models differ by that overlay. The Azure overlay in the list puts these four
-      # services in an inactive profile.
+      # (parkio_hosted_beta_image_plan); a pin is rolled back by reverting its pin file.
+      # N-10: overlay policy hosted-beta — shared helper never appends Civo Alertmanager/non-root
+      # (those are policy civo / parkio-prod-compose.sh only). Disabled observability list is shared.
       PARKIO_COMPOSE_FILES="$(parkio_canonical_compose_files)" || return 2
+      mapfile -t _n10_overlays < <(parkio_select_production_overlays "$(parkio_repo_root)" hosted-beta "${PARKIO_COMPOSE_FILES_LIST:-$(parkio_repo_root)/docker/compose.production.files}") || return 2
+      if [ "${#_n10_overlays[@]}" -ne 0 ]; then
+        echo "ERROR: hosted-beta overlay policy returned Civo overlays: ${_n10_overlays[*]}" >&2
+        return 2
+      fi
+      unset _n10_overlays
       parkio_refuse_production_hostnames "$env_file" hosted-beta || return 2
       PARKIO_RUNTIME_SERVICES=()
-      PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
+      mapfile -t PARKIO_DISABLED_SERVICES < <(parkio_hosted_beta_disabled_observability_services)
       ;;
     azure-hosted-beta)
       # The file set comes from docker/compose.production.files, the list
       # scripts/parkio-prod-compose.sh also renders, so deploy and rollback cannot drop a
       # pin or overlay production carries (CL-F12). One delta: docker-compose.images.yml
       # follows docker-compose.apps.yml so deploy builds get immutable sha tags and OCI
-      # labels; every digest pin in the list comes later and still wins. The Civo
-      # Alertmanager activation overlay is appended only by scripts/parkio-prod-compose.sh.
+      # labels; every digest pin in the list comes later and still wins.
+      # N-10: overlay policy hosted-beta — Civo overlays stay on the civo policy path only.
       PARKIO_COMPOSE_FILES="$(parkio_azure_compose_files)" || return 2
+      mapfile -t _n10_overlays < <(parkio_select_production_overlays "$(parkio_repo_root)" hosted-beta "${PARKIO_COMPOSE_FILES_LIST:-$(parkio_repo_root)/docker/compose.production.files}") || return 2
+      if [ "${#_n10_overlays[@]}" -ne 0 ]; then
+        echo "ERROR: azure-hosted-beta overlay policy returned Civo overlays: ${_n10_overlays[*]}" >&2
+        return 2
+      fi
+      unset _n10_overlays
       PARKIO_RUNTIME_SERVICES=("${PARKIO_AZURE_RUNTIME_SERVICES[@]}")
-      PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)
+      mapfile -t PARKIO_DISABLED_SERVICES < <(parkio_hosted_beta_disabled_observability_services)
       PARKIO_REQUIRED_HEALTHY=("${PARKIO_AZURE_REQUIRED_HEALTHY[@]}")
       ;;
     invite-production)
@@ -550,6 +563,16 @@ parkio_web_guard_before_up() {
 
 parkio_compose_up() {
   local env_file="$1" binding_dir rc=0
+  # N-10 / N-05: if this path's file set carries the Civo non-root overlay, refuse
+  # mutating up unless volumes are COMPLIANT (or owner break-glass).
+  local ROOT="${ROOT:-$(parkio_repo_root)}"
+  local -a _n10_files=()
+  # shellcheck disable=SC2206
+  _n10_files=($PARKIO_COMPOSE_FILES)
+  if parkio_compose_files_include_nonroot_overlay "${_n10_files[@]}"; then
+    parkio_nonroot_volume_gate_maybe up -d || return 1
+  fi
+  unset _n10_files
   binding_dir="$(mktemp -d)"
   chmod 700 "$binding_dir"
   if ! parkio_web_guard_before_up "$env_file" "$binding_dir/web-binding.yml"; then
