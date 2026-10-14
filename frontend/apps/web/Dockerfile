@@ -80,7 +80,7 @@ RUN set -e; \
 
 # ---- runtime stage ----
 # linux/amd64 digest of nginx:1.30.5-alpine3.24 (Hub tag still ships libexpat 2.8.4-r0).
-FROM nginx:1.30.5-alpine3.24@sha256:8f84ed99befc3891b8f329c5c202785278a2cfb7c25107d57fb2a134a3117433 AS runtime
+FROM nginx:1.31-alpine3.24@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2 AS runtime
 
 ARG IMAGE_VERSION=0.0.1-SNAPSHOT
 ARG IMAGE_REVISION=unknown
