@@ -19,7 +19,7 @@
 # differs by docker-compose.images.yml.
 #
 # The hosted-beta entry points run as dry runs with a docker shim. The shim renders through the
-# real docker compose and refuses every other docker command, so nothing is built, pulled o
+# real docker compose and refuses every other docker command, so nothing is built, pulled or
 # started.
 set -euo pipefail
 
@@ -229,7 +229,7 @@ as_args() { local f; for f in "$@"; do printf -- '-f\n%s\n' "$f"; done; }
 mapfile -t hb_render < <(as_args "${hb_files[@]}")
 mapfile -t hb_civo_render < <(as_args "${hb_files[@]}" docker/docker-compose.civo-alertmanager.yml docker/docker-compose.civo-nonroot.yml)
 mapfile -t azure_render < <(as_args "${deploy_files[@]}")
-# The first round adds the placeholders every render needs, so the second round renders all fou
+# The first round adds the placeholders every render needs, so the second round renders all four
 # models from one synthetic env.
 for _ in 1 2; do
   render "$work/wrapper.json" "${wrapper_globals[@]}"

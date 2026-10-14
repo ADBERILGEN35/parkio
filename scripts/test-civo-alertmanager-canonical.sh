@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Canonical Civo observability set: Alertmanager is in the production wrappe
+# Canonical Civo observability set: Alertmanager is in the production wrapper
 # and fail-closed. The shared file list and the Azure profile stay unchanged.
 set -euo pipefail
 
