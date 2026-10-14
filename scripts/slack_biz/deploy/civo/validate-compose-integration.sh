@@ -110,6 +110,8 @@ GATEWAY_ALLOWED = {
     "PARKIO_WAITLIST_EXPORT_MAX_ROWS",
     # CL-F18: consent text version required (default true; false only for a marketing deploy window).
     "PARKIO_WAITLIST_CONSENT_REQUIRED",
+    # Dual-accept previous HMAC secret during waitlist hash rotation (#346 / compose wire).
+    "PARKIO_WAITLIST_HASH_SECRET_PREVIOUS",
 }
 # CL-F17 / PRIV-002: location-log retention (fail-closed default off; enabling is a release step).
 PARKING_ALLOWED = {
