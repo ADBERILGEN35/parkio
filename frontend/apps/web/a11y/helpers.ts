@@ -61,7 +61,7 @@ export interface PageMeasurement {
   violations: AxeRuleResult[];
   /** Violations listed in known-issues.ts: measured and documented, not fixed in this change. */
   knownViolations: AxeRuleResult[];
-  /** Results axe could not decide (for example contrast over an image): listed for manual review, not failed. */
+  /** Results axe could not decide. Unresolved color-contrast nodes fail the gate; other incomplete rules are recorded. */
   incomplete: { id: string; nodes: number; targets: string[]; reasons: Record<string, number> }[];
   passedRules: number;
 }
@@ -182,6 +182,16 @@ export async function measurePage(
     violations.map((rule) => `${rule.id} (${rule.impact}): ${rule.nodes.map((n) => n.target.join(' ')).join(', ')}`),
     `${name} (${locale}): axe WCAG A/AA violations`,
   ).toEqual([]);
+  // Marketing a11y: unresolved color-contrast incomplete nodes fail the gate. The web app suite
+  // still records them for review (maps/imagery make contrast incomplete without a product fix here).
+  if (testInfo.project.name === 'a11y-marketing') {
+    expect(
+      measurement.incomplete
+        .filter((rule) => rule.id === 'color-contrast')
+        .map((rule) => `${rule.id}: ${rule.targets.join(', ')}`),
+      `${name} (${locale}): unresolved axe color-contrast findings`,
+    ).toEqual([]);
+  }
   return measurement;
 }
 

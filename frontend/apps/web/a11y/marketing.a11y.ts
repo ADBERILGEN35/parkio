@@ -60,6 +60,19 @@ for (const locale of ['tr', 'en'] as const) {
               links.filter((link) => !(link.getAttribute('aria-label') || link.textContent || '').trim()).length,
             );
           expect(unnamed, `${target.name} (${locale}): footer links without a name`).toBe(0);
+          if (target.name === 'home') {
+            // Former hard-coded English footer labels must follow the selected locale.
+            const expected =
+              locale === 'en'
+                ? ['Business', 'Roadmap', 'Founder', 'Founder LinkedIn', 'Company LinkedIn', 'Contact', 'Privacy', 'Terms']
+                : ['İş modeli', 'Yol haritası', 'Kurucu', 'Kurucu LinkedIn', 'Şirket LinkedIn', 'İletişim', 'Gizlilik', 'Şartlar'];
+            for (const label of expected) {
+              await expect(
+                footer.first().getByRole('link', { name: label, exact: true }),
+                `${target.name} (${locale}): footer link ${label}`,
+              ).toHaveCount(1);
+            }
+          }
         } else {
           testInfo.annotations.push({ type: 'footer', description: 'no contentinfo landmark on this page' });
         }

@@ -146,9 +146,9 @@ test('form uses live consentTimestamp without silent backdating', () => {
 test('hero CTA and nav waitlist copy are present in canonical marketing', () => {
   assert.match(indexHtml, /id="hero-waitlist-cta"/);
   assert.match(indexHtml, /href="#waitlist"[^>]*data-i18n="cta\.waitlist"/);
-  assert.match(indexHtml, /i18n\.js\?v=w01n1/);
-  assert.match(indexHtml, /styles\.css\?v=w01n1/);
-  assert.match(indexHtml, /waitlist\.js\?v=w01n1/);
+  assert.match(indexHtml, /i18n\.js\?v=w01n2/);
+  assert.match(indexHtml, /styles\.css\?v=w01n2/);
+  assert.match(indexHtml, /waitlist\.js\?v=w01n2/);
   assert.match(indexHtml, /id="waitlist-full-name" class="form-field"/);
   assert.match(indexHtml, /id="waitlist-email" class="form-field"/);
   assert.match(i18n, /'cta\.waitlist': 'Bekleme listesine katıl'/);
@@ -157,4 +157,106 @@ test('hero CTA and nav waitlist copy are present in canonical marketing', () => 
   assert.match(i18n, /'nav\.waitlist': 'Waitlist'/);
   assert.match(i18n, /waitlist\.error\.consentTime/);
   assert.match(i18n, /params\.get\('lang'\)/);
+});
+
+
+function loadI18n({ lang = 'tr', storage = null } = {}) {
+  const store = storage || {
+    data: Object.create(null),
+    getItem(key) {
+      return Object.prototype.hasOwnProperty.call(this.data, key) ? this.data[key] : null;
+    },
+    setItem(key, value) {
+      this.data[key] = String(value);
+    },
+  };
+  const sandbox = {
+    window: {},
+    document: {
+      documentElement: { lang, dataset: {} },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      title: '',
+      dispatchEvent: () => {},
+    },
+    localStorage: store,
+    location: { search: '' },
+    URLSearchParams,
+    CustomEvent: class CustomEvent {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    },
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(i18n, sandbox);
+  return sandbox;
+}
+
+test('resolveLocale prefers EN document language when storage is blocked', () => {
+  const blocked = {
+    getItem() {
+      throw new Error('storage blocked');
+    },
+    setItem() {
+      throw new Error('storage blocked');
+    },
+  };
+  const sandbox = loadI18n({ lang: 'en', storage: blocked });
+  assert.equal(sandbox.ParkioI18n.resolveLocale(), 'en');
+});
+
+test('waitlist currentLocale follows EN document language when storage is blocked', () => {
+  const blocked = {
+    getItem() {
+      throw new Error('storage blocked');
+    },
+    setItem() {
+      throw new Error('storage blocked');
+    },
+  };
+  const sandbox = loadI18n({ lang: 'en', storage: blocked });
+  // Load waitlist into the same sandbox so ParkioI18n is available.
+  sandbox.document.querySelector = (sel) => {
+    if (sel === 'meta[name="parkio-waitlist-mode"]') return { content: 'mock' };
+    if (sel === 'meta[name="parkio-waitlist-api"]') return { content: 'https://api.parkio.dev/api/v1' };
+    return null;
+  };
+  sandbox.document.getElementById = () => null;
+  sandbox.document.addEventListener = () => {};
+  sandbox.fetch = async () => {
+    throw new Error('fetch should not be called');
+  };
+  sandbox.setTimeout = setTimeout;
+  vm.runInNewContext(source, sandbox);
+  assert.equal(sandbox.ParkioWaitlist.currentLocale(), 'en');
+  const payload = sandbox.ParkioWaitlist.buildSubmitPayload({
+    fullName: 'Synthetic User',
+    email: 'synthetic@example.com',
+    locale: sandbox.ParkioWaitlist.currentLocale(),
+  });
+  assert.equal(payload.locale, 'en');
+});
+
+test('footer links that were hard-coded English have TR/EN i18n keys', () => {
+  assert.match(indexHtml, /data-i18n="nav\.business"/);
+  assert.match(indexHtml, /data-i18n="nav\.roadmap"/);
+  assert.match(indexHtml, /data-i18n="nav\.founder"/);
+  assert.match(indexHtml, /data-i18n="footer\.linkedin\.founder"/);
+  assert.match(indexHtml, /data-i18n="footer\.linkedin\.company"/);
+  assert.match(indexHtml, /data-i18n="footer\.contact"/);
+  assert.match(indexHtml, /data-i18n="footer\.privacy"/);
+  assert.match(indexHtml, /data-i18n="footer\.terms"/);
+  for (const key of [
+    'footer.linkedin.founder',
+    'footer.linkedin.company',
+    'footer.contact',
+    'footer.privacy',
+    'footer.terms',
+  ]) {
+    assert.ok(i18n.includes("'" + key + "': "), 'missing i18n key ' + key);
+    assert.equal(i18n.split("'" + key + "':").length - 1, 2, 'key ' + key + ' must exist in TR and EN');
+  }
 });

@@ -234,6 +234,11 @@
       'footer.copy':
         'Kurucu liderliğinde park keşfi; canlı anonim Explore. Kayıt kapalıdır. İsterseniz kayıt bildirimi için e-posta bırakabilirsiniz.',
       'footer.nav': 'Alt bilgi navigasyonu',
+      'footer.linkedin.founder': 'Kurucu LinkedIn',
+      'footer.linkedin.company': 'Şirket LinkedIn',
+      'footer.contact': 'İletişim',
+      'footer.privacy': 'Gizlilik',
+      'footer.terms': 'Şartlar',
       'footer.rights': '© 2026 Parkio. Tüm hakları saklıdır.',
     },
     en: {
@@ -465,6 +470,11 @@
       'footer.copy':
         'Founder-led parking discovery with live anonymous Explore. Registration remains closed. You may leave an email for registration updates.',
       'footer.nav': 'Footer navigation',
+      'footer.linkedin.founder': 'Founder LinkedIn',
+      'footer.linkedin.company': 'Company LinkedIn',
+      'footer.contact': 'Contact',
+      'footer.privacy': 'Privacy',
+      'footer.terms': 'Terms',
       'footer.rights': '© 2026 Parkio. All rights reserved.',
     },
   };
@@ -476,6 +486,12 @@
     } catch (_) {
       /* ignore */
     }
+    // With blocked or empty storage, keep the language the document already shows.
+    const docLang =
+      typeof document !== 'undefined' && document.documentElement
+        ? document.documentElement.lang
+        : '';
+    if (docLang === 'en' || docLang === 'tr') return docLang;
     return 'tr';
   }
 
