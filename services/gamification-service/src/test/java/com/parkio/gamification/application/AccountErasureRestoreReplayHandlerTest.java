@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.parkio.gamification.application.event.UserErasureRestoreReplayRequestedEvent;
+import com.parkio.gamification.application.port.GamificationOwnerFence;
 import com.parkio.gamification.application.port.OutboxEventAppender;
 import com.parkio.gamification.domain.event.GamificationEvent;
 import com.parkio.gamification.domain.event.UserErasureRestoreAcknowledgedEvent;
@@ -28,8 +29,9 @@ class AccountErasureRestoreReplayHandlerTest {
     private final ErasedUserTombstoneJpaRepository tombstones = mock(ErasedUserTombstoneJpaRepository.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final OutboxEventAppender outbox = mock(OutboxEventAppender.class);
+    private final GamificationOwnerFence ownerFence = mock(GamificationOwnerFence.class);
     private final AccountErasureHandler handler = new AccountErasureHandler(
-            tombstones, jdbc, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+            tombstones, jdbc, outbox, ownerFence, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void theRestoreAckEchoesTheAttemptAndIsQueuedAfterTheErase() {

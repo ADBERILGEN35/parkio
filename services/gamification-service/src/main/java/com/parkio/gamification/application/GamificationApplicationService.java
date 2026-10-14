@@ -7,6 +7,7 @@ import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
+import com.parkio.gamification.application.port.GamificationOwnerFence;
 import com.parkio.gamification.application.port.InboxEventRepository;
 import com.parkio.gamification.application.port.LevelRuleRepository;
 import com.parkio.gamification.application.port.OutboxEventAppender;
@@ -67,6 +68,7 @@ public class GamificationApplicationService {
     private final ContributionSnapshotRepository contributionSnapshots;
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
+    private final GamificationOwnerFence ownerFence;
     private final LeaderboardSettings leaderboardSettings;
     private final Clock clock;
 
@@ -80,6 +82,7 @@ public class GamificationApplicationService {
                                           ContributionSnapshotRepository contributionSnapshots,
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
+                                          GamificationOwnerFence ownerFence,
                                           LeaderboardSettings leaderboardSettings,
                                           Clock clock) {
         this.progressRepository = progressRepository;
@@ -92,6 +95,7 @@ public class GamificationApplicationService {
         this.contributionSnapshots = contributionSnapshots;
         this.inbox = inbox;
         this.outbox = outbox;
+        this.ownerFence = ownerFence;
         this.leaderboardSettings = leaderboardSettings;
         this.clock = clock;
     }
@@ -257,6 +261,9 @@ public class GamificationApplicationService {
      */
     private void applyPoints(UUID userId, String idempotencyKey, PointSourceType sourceType,
                              PointDirection direction, long magnitude, UUID relatedEventId, UUID relatedSpotId) {
+        if (!ownerFence.admitWrite(userId)) {
+            return;
+        }
         if (pointTransactions.existsByIdempotencyKey(idempotencyKey)) {
             return;
         }
@@ -299,6 +306,9 @@ public class GamificationApplicationService {
      */
     private void applyTrust(UUID userId, String ruleKey, UUID relatedEventId) {
         if (userId == null) {
+            return;
+        }
+        if (!ownerFence.admitWrite(userId)) {
             return;
         }
         TrustRule rule = trustRules.findByRuleKey(ruleKey)

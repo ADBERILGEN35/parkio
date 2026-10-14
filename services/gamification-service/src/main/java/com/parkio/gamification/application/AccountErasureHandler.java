@@ -2,6 +2,7 @@ package com.parkio.gamification.application;
 
 import com.parkio.gamification.application.event.UserErasureRequestedEvent;
 import com.parkio.gamification.application.event.UserErasureRestoreReplayRequestedEvent;
+import com.parkio.gamification.application.port.GamificationOwnerFence;
 import com.parkio.gamification.application.port.OutboxEventAppender;
 import com.parkio.gamification.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.gamification.domain.event.UserErasureRestoreAcknowledgedEvent;
@@ -33,16 +34,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final OutboxEventAppender outbox;
+    private final GamificationOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             OutboxEventAppender outbox,
+            GamificationOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.outbox = outbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -90,6 +94,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         jdbc.update("DELETE FROM user_level_progress WHERE user_id = ?", authUserId);
         jdbc.update("DELETE FROM trust_scores WHERE user_id = ?", authUserId);
