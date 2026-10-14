@@ -3,6 +3,7 @@ package com.parkio.notification.application;
 import com.parkio.notification.application.event.UserErasureRequestedEvent;
 import com.parkio.notification.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.notification.application.port.ErasureAckOutbox;
+import com.parkio.notification.application.port.NotificationOwnerFence;
 import com.parkio.notification.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.notification.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.notification.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
@@ -32,16 +33,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final ErasureAckOutbox ackOutbox;
+    private final NotificationOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             ErasureAckOutbox ackOutbox,
+            NotificationOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.ackOutbox = ackOutbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -89,6 +93,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         jdbc.update("UPDATE notification_delivery_attempts SET device_token_id = NULL WHERE user_id = ?",
                 authUserId);

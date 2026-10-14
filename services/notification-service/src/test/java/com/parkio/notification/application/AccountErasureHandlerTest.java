@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.parkio.notification.application.event.UserErasureRequestedEvent;
 import com.parkio.notification.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.notification.application.port.ErasureAckOutbox;
+import com.parkio.notification.application.port.NotificationOwnerFence;
 import com.parkio.notification.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.notification.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.notification.infrastructure.persistence.jpa.ErasedUserTombstoneJpaRepository;
@@ -43,7 +44,8 @@ class AccountErasureHandlerTest {
         jdbc = mock(JdbcTemplate.class);
         ackOutbox = mock(ErasureAckOutbox.class);
         when(tombstones.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        handler = new AccountErasureHandler(tombstones, jdbc, ackOutbox, Clock.fixed(NOW, ZoneOffset.UTC));
+        NotificationOwnerFence ownerFence = mock(NotificationOwnerFence.class);
+        handler = new AccountErasureHandler(tombstones, jdbc, ackOutbox, ownerFence, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
