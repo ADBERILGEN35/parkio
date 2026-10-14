@@ -41,7 +41,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = {name: ROOT / ".github" / "workflows" / f"{name}.yml"
-             for name in ("invite-production-deploy", "hosted-beta-deploy")}
+             for name in ("invite-production-deploy", "hosted-beta-deploy", "rollback-rehearsal")}
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 SAFE = {"github.sha", "github.run_id", "github.run_attempt", "github.run_number", "github.workspace",
         "github.repository", "runner.temp"}
