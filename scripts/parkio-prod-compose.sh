@@ -20,9 +20,15 @@ while IFS= read -r line || [ -n "$line" ]; do
   [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
   ARGS+=(-f "$ROOT/$line")
 done < "$FILES_LIST"
-# Canonical Civo observability activation. Append only when this invocation
-# uses the hosted-beta production file list. A caller-supplied list, including
-# the web-map guard fixtures, must not grow an Alertmanager service.
+# Canonical Civo overlays. Append only when this invocation uses the hosted-beta
+# production file list. A caller-supplied list, including the web-map guard
+# fixtures, must not grow Alertmanager or the Option C non-root user: values.
+#
+# Live activation of the non-root overlay waits for the U18 migration window:
+# redis-data and minio-data must be chowned under the pre-overlay (root-start)
+# model before a release tip that includes this wiring is checked out on the
+# host. The overlay file may exist on api earlier; do not activate live until
+# then (docs/operations/nonroot-volume-migration.md).
 if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
   CIVO_ALERTMANAGER_FILE="$ROOT/docker/docker-compose.civo-alertmanager.yml"
   if [ ! -f "$CIVO_ALERTMANAGER_FILE" ]; then
@@ -30,6 +36,12 @@ if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
     exit 1
   fi
   ARGS+=(-f "$CIVO_ALERTMANAGER_FILE")
+  CIVO_NONROOT_FILE="$ROOT/docker/docker-compose.civo-nonroot.yml"
+  if [ ! -f "$CIVO_NONROOT_FILE" ]; then
+    echo "ERROR: missing canonical Civo non-root overlay $CIVO_NONROOT_FILE" >&2
+    exit 1
+  fi
+  ARGS+=(-f "$CIVO_NONROOT_FILE")
 fi
 # Optional recovery: PARKIO_GMP_RECOVERY=1 appends host-local prior-image overlay when present.
 if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then

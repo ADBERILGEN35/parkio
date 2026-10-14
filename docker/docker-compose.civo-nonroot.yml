@@ -1,0 +1,51 @@
+# Civo Option C non-root overlay (U18 / CL-F29.3).
+# Appended only by scripts/parkio-prod-compose.sh after the Civo Alertmanager overlay,
+# and only when the invocation uses the hosted-beta production file list.
+#
+# Live activation: the overlay may land on api before the migration window. Do NOT
+# check out a release tip that includes this wrapper wiring onto /opt/parkio-release
+# until redis-data and minio-data have been migrated (stop → apply both → then
+# activate). See docs/operations/nonroot-volume-migration.md and the U18 plan.
+#
+# invite-production and hosted-beta (without this wrapper) stay root-start for
+# these services so fresh volumes remain usable.
+services:
+  postgres-auth:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-gateway:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-user:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-media:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-gamification:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-notification:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-moderation:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-analytics:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-ai-validation:
+    user: "70:70"
+    cap_add: !reset []
+  postgres-parking:
+    user: "999:999"
+    cap_add: !reset []
+  redis:
+    user: "999:1000"
+    cap_add: !reset []
+  minio:
+    user: "10001:10001"
+  minio-setup:
+    user: "10001:10001"
+  blackbox-exporter:
+    user: "65534:65534"
