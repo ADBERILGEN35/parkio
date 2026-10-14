@@ -12,7 +12,8 @@ Production models checked:
 | Model | Files | Started services |
 |---|---|---|
 | invite-production, dark and public edge | `scripts/lib/deploy-common.sh` (`docker-compose.yml`, `apps`, `images`, `hosted-beta`, `managed-db`, `invite-dark` or `invite-public`) | `PARKIO_INVITE_RUNTIME_SERVICES` (+ `caddy` once ACME is authorized); promtail and the PostgreSQL containers are disabled |
-| Civo production | `docker/compose.production.files` + `docker-compose.civo-alertmanager.yml` (`scripts/parkio-prod-compose.sh`) | the model has no promtail, Loki or Tempo; PostgreSQL runs in containers |
+| Civo production | `docker/compose.production.files` + `docker-compose.civo-alertmanager.yml` + `docker-compose.civo-nonroot.yml` (`scripts/parkio-prod-compose.sh`) | the model has no promtail, Loki or Tempo; PostgreSQL runs in containers; Option C sets fixed non-root `user:` on fourteen services (live activation waits for redis/minio volume migration) |
+| hosted-beta (deploy/rollback without the Civo wrapper) | `docker/compose.production.files` exactly | same root-start infra as before Option C; no Alertmanager activation overlay and no non-root overlay |
 
 Not covered: activation-only overlays outside these file sets (New Relic log pilot and its
 continuous-operation overlay, which already set `cap_drop`/`no-new-privileges`/`read_only` in
@@ -21,22 +22,19 @@ stack; the restored-application staging verification stack).
 
 ## Per service
 
-"Runs as" is the image default. Capabilities are added back only where the image starts as
-root and needs them to prepare a data directory or switch to its service user.
+"Runs as" depends on the Compose model. Capabilities are added back only where the image starts
+as root and needs them to prepare a data directory or switch to its service user.
+
+### Shared across models
 
 | Service | Image | Runs as | `cap_add` | Why |
 |---|---|---|---|---|
 | auth, user, parking, media, gamification, notification, moderation, ai-validation, analytics, gateway | Parkio JVM images | 10001 | — | unchanged (`x-app-common`) |
-| postgres-* (10) | `postgres:16-alpine`, `postgis/postgis:16-3.4` | root → postgres | CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID | the entrypoint creates and chowns `PGDATA`, then switches to postgres |
-| redis | `redis:7-alpine` | root | DAC_OVERRIDE | the command is a shell wrapper, so the entrypoint does not switch to redis; redis-server runs as root and writes into `/data`, which the image owns as redis |
 | clamav | `clamav/clamav:1.4` | root → clamav | CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID | the init script prepares the database and run directories, then runs freshclam and clamd as clamav |
 | web | Parkio web (nginx 1.30) | root → nginx | CHOWN, NET_BIND_SERVICE, SETGID, SETUID | the nginx master binds port 80, prepares its cache directories and starts workers as nginx |
 | caddy | `caddy:2.8-alpine` | root | NET_BIND_SERVICE | binds 80/443 |
-| minio | Parkio MinIO (GHCR pin) | root | — | root owns its own data volume |
-| minio-setup | Parkio mc (GHCR pin) | root | — | one-shot client; `MC_CONFIG_DIR=/tmp/.mc` because `/root` in the image is 0550 and root no longer has DAC_OVERRIDE |
 | kafka | `confluentinc/cp-kafka:7.7.1` | appuser | — | |
 | kafka-exporter | `danielqsj/kafka-exporter:v1.8.0` | nobody | — | |
-| blackbox-exporter | `prom/blackbox-exporter:v0.25.0` | root | — | HTTP and TCP probes only (ICMP would need NET_RAW) |
 | prometheus | `prom/prometheus:v2.54.1` | nobody | — | |
 | alertmanager | `prom/alertmanager:v0.27.0` | nobody | — | |
 | loki | `grafana/loki:2.9.8` | 10001 | — | |
@@ -45,15 +43,44 @@ root and needs them to prepare a data directory or switch to its service user.
 | promtail | `grafana/promtail:2.9.8` | root | — | see exception 1 |
 | node-exporter | `prom/node-exporter:v1.8.2` | nobody | — | see exception 2 |
 
+### invite-production and hosted-beta (no Civo non-root overlay)
+
+These models keep today's root-start infra. Fresh MinIO volumes stay root-owned.
+
+| Service | Image | Runs as | `cap_add` | Why |
+|---|---|---|---|---|
+| postgres-* (10) | `postgres:16-alpine`, `postgis/postgis:16-3.4` | root → postgres | CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID | the entrypoint creates and chowns `PGDATA`, then switches to postgres |
+| redis | `redis:7-alpine` | root | DAC_OVERRIDE | the command is a shell wrapper, so the entrypoint does not switch to redis; redis-server runs as root and writes into `/data`, which the image owns as redis |
+| minio | Parkio MinIO (GHCR pin) | root | — | root owns its own data volume |
+| minio-setup | Parkio mc (GHCR pin) | root | — | one-shot client; `MC_CONFIG_DIR=/tmp/.mc` because `/root` in the image is 0550 and root no longer has DAC_OVERRIDE |
+| blackbox-exporter | `prom/blackbox-exporter:v0.25.0` | root | — | HTTP and TCP probes only (ICMP would need NET_RAW) |
+
+### Civo production (with `docker-compose.civo-nonroot.yml`)
+
+Option C fixes the process user and clears postgres/redis `cap_add`. The guard requires these
+exact `user:` values and empty `cap_add` on the Civo model
+(`scripts/lib/assert-compose-hardening.mjs --require-civo-nonroot`).
+
+| Service | Image | Runs as | `cap_add` | Why |
+|---|---|---|---|---|
+| postgres-* except parking (9) | `postgres:16-alpine` | 70:70 | — | volume already owned by postgres; no root entrypoint chown needed |
+| postgres-parking | `postgis/postgis:16-3.4` | 999:999 | — | Debian postgres uid; same as above |
+| redis | `redis:7-alpine` | 999:1000 | — | after `nonroot-volume-migration.sh apply` on redis-data |
+| minio | Parkio MinIO (GHCR pin) | 10001:10001 | — | after apply on minio-data |
+| minio-setup | Parkio mc (GHCR pin) | 10001:10001 | — | one-shot; `MC_CONFIG_DIR=/tmp/.mc` |
+| blackbox-exporter | `prom/blackbox-exporter:v0.25.0` | 65534:65534 | — | config bind is world-readable; no volume |
+
 ## Documented exceptions
 
 1. **promtail mounts `/var/run/docker.sock`.** A read-only bind does not restrict the Docker
    API, so this is root-equivalent access to the host's Docker daemon. promtail is not started
    in either production model (invite-production disables it; the Civo model has none); it runs
-   in the default and hosted-beta stacks and in CI. Replacing it is an owner decision: a socket
-   proxy needs a new pinned image (image publication is outside this change), and file-based
-   collection from `/var/lib/docker/containers` changes the Loki labels that dashboards and
-   alerts use. Until then the guard allows the socket for promtail only.
+   in the default and hosted-beta stacks and in CI. **Owner decision (i), 2026-10-13:** keep
+   production without promtail; do not add it to the Civo model. Replacing the socket for
+   non-production stacks remains open: a socket proxy needs a new pinned image (image
+   publication is outside this change), and file-based collection from
+   `/var/lib/docker/containers` changes the Loki labels that dashboards and alerts use. Until
+   then the guard allows the socket for promtail only.
    - **`Config.Env` exposure (owner decision 5, 2026-10-05).** Through the Docker API, promtail can
      read every container's environment, secrets included. A socket proxy cannot filter that
      (`../architecture/docker-socket-proxy-design.md`, "What remains exposed").
@@ -67,10 +94,15 @@ root and needs them to prepare a data directory or switch to its service user.
    - This records the state. It changes no live configuration and closes no operational criterion.
 2. **node-exporter shares the host PID namespace** and mounts `/`, `/proc` and `/sys` read-only
    for host metrics; it runs as nobody with no capabilities.
-3. **Root-start images stay root-start** (PostgreSQL, Redis, ClamAV, nginx, Caddy, MinIO, mc,
-   blackbox-exporter, promtail). Switching them to a non-root user changes the owner their
-   existing data volumes need, which is a host-side migration outside this change; with
-   `cap_drop: [ALL]` root keeps only the capabilities listed above.
+3. **Root-start images, per model.** Switching a service to a fixed non-root `user:` needs a
+   matching volume owner (`nonroot-volume-migration.md`). With `cap_drop: [ALL]` a root-start
+   process keeps only the capabilities listed above.
+   - **Civo production (after Option C overlay activation):** remaining root-start services are
+     caddy, clamav, web, and promtail (not deployed). postgres (10), redis, minio, minio-setup
+     and blackbox-exporter run under the fixed `user:` values in the Civo table above.
+   - **invite-production and hosted-beta (no Civo non-root overlay):** PostgreSQL, Redis,
+     ClamAV, nginx, Caddy, MinIO, mc, blackbox-exporter and promtail stay root-start as in the
+     invite/hosted-beta table above.
 
 ## Read-only root filesystem (B8)
 
@@ -197,11 +229,15 @@ from `java.library.path` first), not to make `/tmp` executable.
   volumes created without hardening and from fresh volumes, and ran write, topic, scan and
   readiness probes in each.
 
-## Follow-ups prepared under B8 (not applied)
+## Follow-ups prepared under B8
 
-- Non-root images for the root-start services (exception 3): volume ownership tooling and targets
-  in `nonroot-volume-migration.md`.
-- promtail's Docker socket (exception 1): an allowlisting proxy, measured and prototyped, in
+- **Option C Compose overlay (U18 source):** `docker/docker-compose.civo-nonroot.yml`, wired by
+  `scripts/parkio-prod-compose.sh`. Live host activation waits for the redis/minio migration
+  window (`nonroot-volume-migration.md`).
+- Remaining Civo root-start (exception 3): caddy (separate short window + keep
+  `NET_BIND_SERVICE`), clamav (needs a non-root image/init), web (unprivileged nginx base).
+- promtail's Docker socket (exception 1): production stays on decision (i); an allowlisting
+  proxy for non-production stacks is measured and prototyped in
   `../architecture/docker-socket-proxy-design.md`.
 
 ## Tmpfs declarations

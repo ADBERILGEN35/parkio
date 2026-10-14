@@ -96,6 +96,20 @@ to `postgres` before it drops privileges, so plan reports `COMPLIANT` for volume
 - The bind itself needs no capability: Docker sets `net.ipv4.ip_unprivileged_port_start=0` in every
   container network namespace (Docker 29.8.1 here).
 
+## Civo Option C overlay
+
+The reviewed Compose change for Civo production is `docker/docker-compose.civo-nonroot.yml`.
+`scripts/parkio-prod-compose.sh` appends it after the Civo Alertmanager overlay when the
+invocation uses the hosted-beta production file list. invite-production and hosted-beta
+deploy/rollback (canonical list only) do **not** use this overlay, so fresh root-owned volumes
+there keep working.
+
+**Live activation ordering.** The overlay file may exist on `api` before the window. Do not
+check out a release tip that includes the wrapper wiring onto the live host until redis-data
+and minio-data are migrated: stop redis and minio → `apply` both under the pre-overlay
+(root-start) model → activate the overlay / `U18-REL` once → `up` redis, then minio. Never leave
+redis or minio under `user:` non-root while their volume entries are still 0:0.
+
 ## Procedure (when a migration is authorized)
 
 1. `plan` for the service, and keep the output.
@@ -105,13 +119,15 @@ to `postgres` before it drops privileges, so plan reports `COMPLIANT` for volume
    during apply.
 4. `apply` with `--confirm-project` and a new `--evidence-dir`, then keep the directory with the
    change record.
-5. Deploy the reviewed Compose change: `user:`, and the capabilities from the table above.
+5. Deploy the reviewed Compose change: for Civo, activate `docker-compose.civo-nonroot.yml`
+   (wrapper wiring / `U18-REL`) only after redis and minio applies when both volumes are in
+   scope; otherwise `user:` and the capabilities from the table above.
 6. Start the service and check readiness and one write.
 
 **Rollback.**
 1. Stop the service.
 2. Run `restore` from the same evidence directory.
-3. Deploy the previous Compose file.
+3. Deploy the previous Compose file (for Civo: the recorded pre-overlay release tip).
 4. Start the service.
 
 restore gives files created while the service ran non-root to the volume root's original owner,

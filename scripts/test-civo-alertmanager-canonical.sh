@@ -6,18 +6,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FILES="$ROOT/docker/compose.production.files"
 OVERLAY="docker/docker-compose.civo-alertmanager.yml"
+NONROOT_OVERLAY="docker/docker-compose.civo-nonroot.yml"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 listed="$(grep -vE '^[[:space:]]*#' "$FILES" || true)"
 printf '%s\n' "$listed" | grep -q 'waitlist-ops-inbox.yml' && fail "activation overlay is inside compose.production.files"
 printf '%s\n' "$listed" | grep -q 'civo-alertmanager.yml' && fail "Civo overlay is inside the shared production file list"
+printf '%s\n' "$listed" | grep -q 'civo-nonroot.yml' && fail "Civo non-root overlay is inside the shared production file list"
 grep -q "$OVERLAY" "$ROOT/scripts/parkio-prod-compose.sh" || fail "parkio-prod-compose.sh does not append the Civo overlay"
+grep -q "$NONROOT_OVERLAY" "$ROOT/scripts/parkio-prod-compose.sh" || fail "parkio-prod-compose.sh does not append the Civo non-root overlay"
 grep -q "grep -qx 'docker/docker-compose.azure-hosted-beta.yml'" "$ROOT/scripts/parkio-prod-compose.sh" \
   || fail "wrapper appends the Civo overlay for every file list"
 test -f "$ROOT/$OVERLAY" || fail "missing $OVERLAY"
+test -f "$ROOT/$NONROOT_OVERLAY" || fail "missing $NONROOT_OVERLAY"
 
 azure="$(awk '/azure-hosted-beta\)/,/;;/' "$ROOT/scripts/lib/deploy-common.sh")"
 printf '%s\n' "$azure" | grep -q 'civo-alertmanager' && fail "Azure profile list includes the Civo overlay"
+printf '%s\n' "$azure" | grep -q 'civo-nonroot' && fail "Azure profile list includes the Civo non-root overlay"
 printf '%s\n' "$azure" | grep -q 'PARKIO_DISABLED_SERVICES=(alertmanager loki promtail tempo)' \
   || fail "Azure profile no longer disables alertmanager loki promtail tempo"
 
@@ -29,6 +34,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   args+=(-f "$ROOT/$line")
 done < "$FILES"
 args+=(-f "$ROOT/$OVERLAY")
+args+=(-f "$ROOT/$NONROOT_OVERLAY")
 
 out="$(mktemp)"
 synth="$(mktemp)"

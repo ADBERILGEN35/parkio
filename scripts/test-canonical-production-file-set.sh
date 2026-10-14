@@ -5,7 +5,8 @@
 #   runbook starts the stack) and validate-hosted-beta-compose.sh
 #     = canonical list, exactly
 #   scripts/parkio-prod-compose.sh (Civo production wrapper)
-#     = canonical list, then docker-compose.civo-alertmanager.yml, a Civo-host-specific addition
+#     = canonical list, then docker-compose.civo-alertmanager.yml and
+#       docker-compose.civo-nonroot.yml, Civo-host-specific additions
 #   azure-hosted-beta profile (deprecated; documented exception)
 #     = canonical list, with docker-compose.images.yml right after docker-compose.apps.yml
 #
@@ -110,11 +111,11 @@ for ((i = 1; i < ${#argv[@]} - 1; i++)); do
     *) wrapper_globals+=("${argv[i]}") ;;
   esac
 done
-expected_wrapper=("${canonical[@]}" docker/docker-compose.civo-alertmanager.yml)
+expected_wrapper=("${canonical[@]}" docker/docker-compose.civo-alertmanager.yml docker/docker-compose.civo-nonroot.yml)
 [ "${wrapper_files[*]}" = "${expected_wrapper[*]}" ] || fail "parkio-prod-compose.sh files drifted from docker/compose.production.files
   got:      ${wrapper_files[*]}
   expected: ${expected_wrapper[*]}"
-pass "parkio-prod-compose.sh = canonical list + Civo Alertmanager activation overlay (${#wrapper_files[@]} files)"
+pass "parkio-prod-compose.sh = canonical list + Civo Alertmanager and non-root overlays (${#wrapper_files[@]} files)"
 
 # --- hosted-beta entry points, end to end (dry runs) -------------------------------
 real_docker="$(command -v docker)" || fail "docker is required to render the models"
@@ -226,7 +227,7 @@ render() { # out-file, then compose arguments
 }
 as_args() { local f; for f in "$@"; do printf -- '-f\n%s\n' "$f"; done; }
 mapfile -t hb_render < <(as_args "${hb_files[@]}")
-mapfile -t hb_civo_render < <(as_args "${hb_files[@]}" docker/docker-compose.civo-alertmanager.yml)
+mapfile -t hb_civo_render < <(as_args "${hb_files[@]}" docker/docker-compose.civo-alertmanager.yml docker/docker-compose.civo-nonroot.yml)
 mapfile -t azure_render < <(as_args "${deploy_files[@]}")
 # The first round adds the placeholders every render needs, so the second round renders all four
 # models from one synthetic env.
@@ -239,10 +240,10 @@ done
 
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 [ "$(sha "$work/hosted-beta.json")" != "$(sha "$work/wrapper.json")" ] \
-  || fail "the hosted-beta and wrapper models are identical; the Civo overlay has no effect"
+  || fail "the hosted-beta and wrapper models are identical; the Civo overlays have no effect"
 [ "$(sha "$work/hosted-beta-civo.json")" = "$(sha "$work/wrapper.json")" ] \
-  || fail "the wrapper model differs from the hosted-beta model by more than the Civo Alertmanager overlay"
-pass "the wrapper model differs from the hosted-beta model only by the Civo Alertmanager overlay"
+  || fail "the wrapper model differs from the hosted-beta model by more than the Civo Alertmanager and non-root overlays"
+pass "the wrapper model differs from the hosted-beta model only by the Civo Alertmanager and non-root overlays"
 [ "$(sha "$work/azure.json")" != "$(sha "$work/hosted-beta.json")" ] \
   || fail "the azure-hosted-beta and hosted-beta models are identical; images.yml has no effect"
 pass "the azure-hosted-beta model differs from the hosted-beta model (documented exception: images.yml)"

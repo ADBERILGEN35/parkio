@@ -29,6 +29,28 @@ export const DOCKER_SOCKET_EXCEPTIONS = new Set(['promtail']);
 export const HOST_PID_EXCEPTIONS = new Set(['node-exporter']);
 
 /**
+ * Civo Option C non-root `user:` values (U18). Required only for the Civo production model
+ * (`docker-compose.civo-nonroot.yml` via parkio-prod-compose.sh). invite-production and
+ * hosted-beta without that overlay stay root-start for these services.
+ */
+export const CIVO_NONROOT_USERS = {
+  'postgres-auth': '70:70',
+  'postgres-gateway': '70:70',
+  'postgres-user': '70:70',
+  'postgres-media': '70:70',
+  'postgres-gamification': '70:70',
+  'postgres-notification': '70:70',
+  'postgres-moderation': '70:70',
+  'postgres-analytics': '70:70',
+  'postgres-ai-validation': '70:70',
+  'postgres-parking': '999:999',
+  redis: '999:1000',
+  minio: '10001:10001',
+  'minio-setup': '10001:10001',
+  'blackbox-exporter': '65534:65534',
+};
+
+/**
  * Services allowed a writable root filesystem; see the inventory for why (B8). None since B8b: web
  * runs read-only too, with a tmpfs over /etc/nginx/conf.d. That needs an image that renders the
  * directory at start (B9, #198), and scripts/lib/web_conf_d_guard.py refuses an older one at deploy.
@@ -165,12 +187,44 @@ export function evaluateHardening(config) {
   return { services: services.length, failures };
 }
 
+/**
+ * Civo-model assertion (U18 Option C): the fourteen overlay services must run with exactly the
+ * recorded `user:` values and no `cap_add`. Missing services, wrong users, or restored
+ * capabilities fail closed so a later edit cannot silently return to root-start.
+ */
+export function evaluateCivoNonroot(config) {
+  const failures = [];
+  const services = config?.services ?? {};
+  for (const [name, expectedUser] of Object.entries(CIVO_NONROOT_USERS)) {
+    const service = services[name];
+    if (!service) {
+      failures.push(`${name}: missing from the Civo model (Option C user: ${expectedUser})`);
+      continue;
+    }
+    const actualUser = service.user == null || service.user === '' ? '' : String(service.user);
+    if (actualUser !== expectedUser) {
+      failures.push(`${name}: user is ${actualUser || '(unset)'}, expected ${expectedUser}`);
+    }
+    const caps = upper(service.cap_add);
+    if (caps.length > 0) {
+      failures.push(`${name}: cap_add [${caps.join(' ')}] must be empty under Option C`);
+    }
+  }
+  return { services: Object.keys(CIVO_NONROOT_USERS).length, failures };
+}
+
 function main(argv) {
   const labelIndex = argv.indexOf('--label');
   const label = labelIndex >= 0 ? argv[labelIndex + 1] : 'compose';
-  const file = argv.find((arg, index) => !arg.startsWith('--') && argv[index - 1] !== '--label');
+  const requireCivoNonroot = argv.includes('--require-civo-nonroot');
+  const file = argv.find(
+    (arg, index) => !arg.startsWith('--') && argv[index - 1] !== '--label',
+  );
   const config = JSON.parse(readFileSync(file ?? 0, 'utf8'));
   const { services, failures } = evaluateHardening(config);
+  if (requireCivoNonroot) {
+    failures.push(...evaluateCivoNonroot(config).failures);
+  }
   if (failures.length > 0) {
     failures.forEach((failure) => process.stderr.write(`FAIL [${label}] ${failure}\n`));
     process.stderr.write(`compose_hardening_failed[${label}]=${failures.length}\n`);
