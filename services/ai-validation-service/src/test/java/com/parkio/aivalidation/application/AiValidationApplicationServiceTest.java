@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.aivalidation.application.event.MediaUploadedEvent;
 import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
+import com.parkio.aivalidation.application.port.AiValidationOwnerFence;
 import com.parkio.aivalidation.application.port.AiValidationResultRepository;
 import com.parkio.aivalidation.application.port.InboxEventRepository;
 import com.parkio.aivalidation.application.port.OutboxEventAppender;
@@ -55,7 +56,10 @@ class AiValidationApplicationServiceTest {
         outbox = new FakeOutbox();
         transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
         service = new AiValidationApplicationService(results, inbox, outbox,
-                new DeterministicAiValidator(), Clock.fixed(NOW, ZoneOffset.UTC), transactionTemplate);
+                new DeterministicAiValidator(), new AiValidationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, Clock.fixed(NOW, ZoneOffset.UTC), transactionTemplate);
     }
 
     @Test
@@ -151,7 +155,10 @@ class AiValidationApplicationServiceTest {
             return ContentRiskClassifier.Verdict.LIKELY_PARKING;
         };
         service = new AiValidationApplicationService(results, inbox, outbox,
-                new DeterministicAiValidator(classifier), Clock.fixed(NOW, ZoneOffset.UTC),
+                new DeterministicAiValidator(classifier), new AiValidationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, Clock.fixed(NOW, ZoneOffset.UTC),
                 transactionTemplate);
 
         service.handleMediaUploaded(new MediaUploadedEvent(

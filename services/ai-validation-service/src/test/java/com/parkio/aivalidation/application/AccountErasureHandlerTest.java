@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.aivalidation.application.event.UserErasureRequestedEvent;
 import com.parkio.aivalidation.application.event.UserErasureRestoreReplayRequestedEvent;
+import com.parkio.aivalidation.application.port.AiValidationOwnerFence;
 import com.parkio.aivalidation.application.port.ErasureAckOutbox;
 import com.parkio.aivalidation.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.aivalidation.domain.event.UserErasureRestoreAcknowledgedEvent;
@@ -43,7 +44,8 @@ class AccountErasureHandlerTest {
         jdbc = mock(JdbcTemplate.class);
         ackOutbox = mock(ErasureAckOutbox.class);
         when(tombstones.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        handler = new AccountErasureHandler(tombstones, jdbc, ackOutbox, Clock.fixed(NOW, ZoneOffset.UTC));
+        AiValidationOwnerFence ownerFence = mock(AiValidationOwnerFence.class);
+        handler = new AccountErasureHandler(tombstones, jdbc, ackOutbox, ownerFence, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
