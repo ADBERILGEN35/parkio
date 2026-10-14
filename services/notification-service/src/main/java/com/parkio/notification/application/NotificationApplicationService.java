@@ -15,6 +15,7 @@ import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.event.UserRestoredEvent;
 import com.parkio.notification.application.event.UserSuspendedEvent;
 import com.parkio.notification.application.port.DeviceTokenRepository;
+import com.parkio.notification.application.port.NotificationOwnerFence;
 import com.parkio.notification.application.port.InboxEventRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
 import com.parkio.notification.application.port.NotificationRepository;
@@ -66,6 +67,7 @@ public class NotificationApplicationService {
     private final OutboxEventAppender outbox;
     private final NotificationDeliveryService delivery;
     private final UserLocalePort userLocales;
+    private final NotificationOwnerFence ownerFence;
     private final Clock clock;
 
     public NotificationApplicationService(NotificationRepository notifications,
@@ -75,6 +77,7 @@ public class NotificationApplicationService {
                                           OutboxEventAppender outbox,
                                           NotificationDeliveryService delivery,
                                           UserLocalePort userLocales,
+                                          NotificationOwnerFence ownerFence,
                                           Clock clock) {
         this.notifications = notifications;
         this.deviceTokens = deviceTokens;
@@ -83,6 +86,7 @@ public class NotificationApplicationService {
         this.outbox = outbox;
         this.delivery = delivery;
         this.userLocales = userLocales;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -234,6 +238,9 @@ public class NotificationApplicationService {
 
     /** Registers a device token, re-activating an existing (user, token) instead of duplicating. */
     public DeviceToken registerDeviceToken(RegisterDeviceTokenCommand command) {
+        if (!ownerFence.admitWrite(command.userId())) {
+            throw new NotificationException(NotificationErrorCode.DEVICE_TOKEN_NOT_FOUND);
+        }
         Instant now = clock.instant();
         return deviceTokens.findByUserIdAndToken(command.userId(), command.token())
                 .map(existing -> {
@@ -260,6 +267,9 @@ public class NotificationApplicationService {
     }
 
     public NotificationPreference updateMyPreferences(UUID userId, UpdatePreferencesCommand command) {
+        if (!ownerFence.admitWrite(userId)) {
+            throw new NotificationException(NotificationErrorCode.NOTIFICATION_NOT_FOUND);
+        }
         Instant now = clock.instant();
         NotificationPreference preference = preferences.findByUserId(userId)
                 .orElseGet(() -> NotificationPreference.createDefault(userId, now));
@@ -308,6 +318,9 @@ public class NotificationApplicationService {
 
     private Notification createInAppNotification(UUID userId, NotificationType type, Map<String, String> variables,
                                                 Map<String, String> metadata) {
+        if (!ownerFence.admitWrite(userId)) {
+            return null;
+        }
         Instant now = clock.instant();
         Map<String, String> vars = variables == null ? Map.of() : variables;
         String messageKey = resolveMessageKey(type, vars);

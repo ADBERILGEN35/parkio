@@ -1,5 +1,7 @@
 package com.parkio.notification.application;
 
+import com.parkio.notification.application.port.NotificationOwnerFence;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -72,7 +74,10 @@ class NotificationApplicationServiceTest {
         NotificationDeliveryService delivery =
                 new NotificationDeliveryService(preferences, deviceTokens, deliveryAttempts, clock);
         service = new NotificationApplicationService(notifications, deviceTokens, preferences,
-                inbox, outbox, delivery, userLocales, clock);
+                inbox, outbox, delivery, userLocales, new NotificationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, clock);
     }
 
     @Test

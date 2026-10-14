@@ -1,0 +1,55 @@
+package com.parkio.notification.infrastructure.persistence;
+
+import com.parkio.notification.application.port.NotificationOwnerFence;
+import java.util.UUID;
+import org.springframework.jdbc.core.ConnectionCallback;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+@Component
+public class NotificationOwnerFenceAdapter implements NotificationOwnerFence {
+
+    static final int LOCK_CLASS = 0x4E544631; // "NTF1"
+
+    private final JdbcTemplate jdbc;
+    private final boolean postgresql;
+
+    public NotificationOwnerFenceAdapter(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+        this.postgresql = Boolean.TRUE.equals(jdbc.execute((ConnectionCallback<Boolean>)
+                connection -> "PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())));
+    }
+
+    @Override
+    public boolean admitWrite(UUID userId) {
+        requireTransaction();
+        if (postgresql) {
+            jdbc.queryForList("SELECT pg_advisory_xact_lock_shared(?, ?)", LOCK_CLASS, key(userId));
+        }
+        Boolean erased = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM erased_user_tombstones WHERE auth_user_id = ?)",
+                Boolean.class,
+                userId);
+        return !Boolean.TRUE.equals(erased);
+    }
+
+    @Override
+    public void holdForErasure(UUID userId) {
+        requireTransaction();
+        if (postgresql) {
+            jdbc.queryForList("SELECT pg_advisory_xact_lock(?, ?)", LOCK_CLASS, key(userId));
+        }
+    }
+
+    static int key(UUID userId) {
+        return userId.hashCode();
+    }
+
+    private static void requireTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "The notification owner fence is transaction-scoped; call it inside a transaction");
+        }
+    }
+}
