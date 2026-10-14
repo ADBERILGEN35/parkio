@@ -8,6 +8,7 @@ import com.parkio.gamification.application.event.ParkingSpotClaimedEvent;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
 import com.parkio.gamification.application.event.ParkingSpotRejectedByModeratorEvent;
 import com.parkio.gamification.application.event.ParkingSpotVerifiedEvent;
+import com.parkio.gamification.application.port.GamificationOwnerFence;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
 import com.parkio.gamification.application.port.InboxEventRepository;
 import com.parkio.gamification.application.port.LevelRuleRepository;
@@ -79,6 +80,10 @@ class GamificationApplicationServiceTest {
         outbox = new FakeOutbox();
         service = new GamificationApplicationService(progress, transactions, levelRules, rewardRules,
                 penaltyRules, trustScores, trustRules, snapshots, inbox, outbox,
+                new GamificationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                },
                 new LeaderboardSettings(20, 100), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

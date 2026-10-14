@@ -11,6 +11,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkio.gamification.application.GamificationApplicationService;
 import com.parkio.gamification.application.LeaderboardSettings;
 import com.parkio.gamification.application.event.ParkingSpotCreatedEvent;
+import com.parkio.gamification.application.port.GamificationOwnerFence;
 import com.parkio.gamification.application.port.ContributionSnapshotRepository;
 import com.parkio.gamification.application.port.InboxEventRepository;
 import com.parkio.gamification.application.port.LevelRuleRepository;
@@ -110,6 +111,10 @@ class GamificationKafkaIT {
                 progress, transactions, new FakeLevelRuleRepository(), new FakeRewardRuleRepository(),
                 new FakePenaltyRuleRepository(), new FakeTrustScoreRepository(), new FakeTrustRuleRepository(),
                 new FakeContributionSnapshotRepository(), new FakeInboxRepository(), new FakeOutbox(),
+                new GamificationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                },
                 new LeaderboardSettings(20, 100), Clock.fixed(occurredAt, ZoneOffset.UTC));
         ParkingEventsKafkaConsumer consumer = new ParkingEventsKafkaConsumer(gamification, objectMapper);
 
