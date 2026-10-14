@@ -8,6 +8,7 @@ import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
 import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.moderation.application.port.AppealRepository;
 import com.parkio.moderation.application.port.InboxEventRepository;
+import com.parkio.moderation.application.port.ModerationOwnerFence;
 import com.parkio.moderation.application.port.ModerationCaseRepository;
 import com.parkio.moderation.application.port.ModerationDecisionRepository;
 import com.parkio.moderation.application.port.OutboxEventAppender;
@@ -74,6 +75,7 @@ public class ModerationApplicationService {
     private final ModerationDecisionRepository decisions;
     private final OutboxEventAppender outbox;
     private final InboxEventRepository inbox;
+    private final ModerationOwnerFence ownerFence;
     private final Clock clock;
 
     public ModerationApplicationService(ModerationCaseRepository cases,
@@ -83,6 +85,7 @@ public class ModerationApplicationService {
                                         ModerationDecisionRepository decisions,
                                         OutboxEventAppender outbox,
                                         InboxEventRepository inbox,
+                                        ModerationOwnerFence ownerFence,
                                         Clock clock) {
         this.cases = cases;
         this.reports = reports;
@@ -91,6 +94,7 @@ public class ModerationApplicationService {
         this.decisions = decisions;
         this.outbox = outbox;
         this.inbox = inbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -98,6 +102,15 @@ public class ModerationApplicationService {
 
     /** Files a report. Serious reasons open (or feed) a moderation case immediately. */
     public UserReport createReport(CreateReportCommand command) {
+        if (!ownerFence.admitWrite(command.reporterUserId())) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Reporter is erased; report refused.");
+        }
+        if (command.targetType() == ModerationTargetType.USER
+                && !ownerFence.admitWrite(command.targetId())) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Target user is erased; report refused.");
+        }
         if (reports.existsByReporterAndTargetAndReason(command.reporterUserId(), command.targetType(),
                 command.targetId(), command.reason())) {
             throw new ModerationException(ModerationErrorCode.DUPLICATE_REPORT,
@@ -123,6 +136,10 @@ public class ModerationApplicationService {
 
     /** Files an appeal — only for a RESOLVED case that targeted the appealing user. */
     public Appeal createAppeal(UUID appealUserId, UUID caseId, String note) {
+        if (!ownerFence.admitWrite(appealUserId)) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Appellant is erased; appeal refused.");
+        }
         ModerationCase moderationCase = cases.findById(caseId)
                 .filter(c -> c.targetsUser(appealUserId))
                 .orElseThrow(() -> new ModerationException(ModerationErrorCode.CASE_NOT_FOUND));
@@ -151,6 +168,10 @@ public class ModerationApplicationService {
     }
 
     public ModerationCase assignCase(UUID caseId, UUID moderatorId) {
+        if (!ownerFence.admitWrite(moderatorId)) {
+            throw new ModerationException(ModerationErrorCode.FORBIDDEN,
+                    "Moderator is erased; assignment refused.");
+        }
         ModerationCase moderationCase = requireCase(caseId);
         moderationCase.assignTo(moderatorId, clock.instant());
         return cases.save(moderationCase);
@@ -202,8 +223,10 @@ public class ModerationApplicationService {
                         command.moderatorId(), now));
             }
             if (action.isUserPenalty()) {
-                violations.save(UserViolation.record(moderationCase.targetId(), moderationCase.id(),
-                        moderationCase.reason(), moderationCase.severity(), action, now));
+                if (ownerFence.admitWrite(moderationCase.targetId())) {
+                    violations.save(UserViolation.record(moderationCase.targetId(), moderationCase.id(),
+                            moderationCase.reason(), moderationCase.severity(), action, now));
+                }
             }
         }
         return moderationCase;
@@ -251,6 +274,9 @@ public class ModerationApplicationService {
         }
         // The community rejection carries the spot owner — record it so a later
         // moderator rejection can penalise/notify the owner.
+        if (event.ownerUserId() != null && !ownerFence.admitWrite(event.ownerUserId())) {
+            return;
+        }
         openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(), event.ownerUserId(),
                 ModerationReason.ILLEGAL_OR_RISKY);
     }
@@ -261,6 +287,9 @@ public class ModerationApplicationService {
             return;
         }
         if (event.isIllegalOrRisky()) {
+            if (event.ownerUserId() != null && !ownerFence.admitWrite(event.ownerUserId())) {
+                return;
+            }
             openCaseIfAbsent(ModerationTargetType.PARKING_SPOT, event.parkingSpotId(),
                     event.ownerUserId(), ModerationReason.ILLEGAL_OR_RISKY);
         }

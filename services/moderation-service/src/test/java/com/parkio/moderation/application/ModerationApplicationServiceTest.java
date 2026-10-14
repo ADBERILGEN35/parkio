@@ -10,6 +10,7 @@ import com.parkio.moderation.application.event.ParkingSpotRejectedEvent;
 import com.parkio.moderation.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.moderation.application.port.AppealRepository;
 import com.parkio.moderation.application.port.InboxEventRepository;
+import com.parkio.moderation.application.port.ModerationOwnerFence;
 import com.parkio.moderation.application.port.ModerationCaseRepository;
 import com.parkio.moderation.application.port.ModerationDecisionRepository;
 import com.parkio.moderation.application.port.OutboxEventAppender;
@@ -76,7 +77,10 @@ class ModerationApplicationServiceTest {
         inbox = new FakeInbox();
         outbox = new FakeOutbox();
         service = new ModerationApplicationService(cases, reports, appeals, violations, decisions,
-                outbox, inbox, Clock.fixed(NOW, ZoneOffset.UTC));
+                outbox, inbox, new ModerationOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
