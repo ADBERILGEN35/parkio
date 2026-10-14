@@ -4,7 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { evaluateHardening, expectedTmpfs } from './assert-compose-hardening.mjs';
+import {
+  CIVO_NONROOT_USERS,
+  evaluateCivoNonroot,
+  evaluateHardening,
+  expectedTmpfs,
+} from './assert-compose-hardening.mjs';
 
 const helper = path.join(path.dirname(fileURLToPath(import.meta.url)), 'assert-compose-hardening.mjs');
 
@@ -163,4 +168,36 @@ test('the CLI exits non-zero with the failures and passes a hardened model', () 
   });
   assert.equal(good.status, 0, good.stderr);
   assert.match(good.stdout, /compose_hardening\[fixture\]=PASS services=1/);
+});
+
+test('Civo Option C requires the recorded user: values and empty cap_add', () => {
+  const services = Object.fromEntries(
+    Object.entries(CIVO_NONROOT_USERS).map(([name, user]) => [name, hardenedAs(name, { user })[name]]),
+  );
+  const { failures } = evaluateCivoNonroot({ services });
+  assert.deepEqual(failures, []);
+
+  const wrong = evaluateCivoNonroot({
+    services: {
+      ...services,
+      redis: hardenedAs('redis', { user: '0:0', cap_add: ['DAC_OVERRIDE'] }).redis,
+    },
+  });
+  assert.deepEqual(wrong.failures.sort(), [
+    'redis: cap_add [DAC_OVERRIDE] must be empty under Option C',
+    'redis: user is 0:0, expected 999:1000',
+  ]);
+});
+
+test('the CLI --require-civo-nonroot flag fails closed on a missing user:', () => {
+  const services = Object.fromEntries(
+    Object.entries(CIVO_NONROOT_USERS).map(([name, user]) => [name, hardenedAs(name, { user })[name]]),
+  );
+  delete services.redis;
+  const missing = spawnSync(process.execPath, [helper, '--label', 'civo', '--require-civo-nonroot'], {
+    input: JSON.stringify({ services }),
+    encoding: 'utf8',
+  });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /FAIL \[civo\] redis: missing from the Civo model/);
 });

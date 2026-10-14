@@ -6,8 +6,9 @@
 #
 #   invite-production dark     scripts/lib/deploy-common.sh, PARKIO_INVITE_EDGE_MODE=dark
 #   invite-production public   same, edge mode public with ACME authorized (Caddy in the model)
-#   Civo production            docker/compose.production.files plus the Civo Alertmanager
-#                              overlay, as scripts/parkio-prod-compose.sh runs them
+#   Civo production            docker/compose.production.files plus the Civo
+#                              Alertmanager and non-root overlays, as
+#                              scripts/parkio-prod-compose.sh runs them
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NODE_BINARY="${PARKIO_NODE_BINARY:-node}"
@@ -41,6 +42,7 @@ render_civo() {
     args+=(-f "$line")
   done < docker/compose.production.files
   args+=(-f docker/docker-compose.civo-alertmanager.yml)
+  args+=(-f docker/docker-compose.civo-nonroot.yml)
   docker compose --env-file "$CIVO_ENV" "${args[@]}" config --format json
 }
 
@@ -54,7 +56,13 @@ check() {
     failed=1
     return
   fi
-  printf '%s' "$model" | "$NODE_BINARY" "$GUARD" --label "$label" || failed=1
+  # Civo production must keep the Option C user: values and empty cap_add on the
+  # fourteen non-root services (U18). invite-production stays root-start.
+  local extra=()
+  if [ "$label" = "civo-production" ]; then
+    extra+=(--require-civo-nonroot)
+  fi
+  printf '%s' "$model" | "$NODE_BINARY" "$GUARD" --label "$label" "${extra[@]}" || failed=1
 }
 
 check invite-production-dark render_invite dark false
