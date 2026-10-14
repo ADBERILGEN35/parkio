@@ -107,7 +107,8 @@ jobs:
           echo "$hdr" | grep -qiE '^content-security-policy:' \
             || echo "$hdr" | grep -qiE '^content-security-policy-report-only:' \
             || echo "NOTE: CSP header not asserted on this image (synthetic env still set)"
-          docker inspect "$cid" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/running-digest.txt
+          img=$(docker inspect "$cid" --format '{{.Image}}')
+          docker image inspect "$img" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/running-digest.txt
           grep -F "$WEB_REF" /tmp/rehearsal/running-digest.txt \
             || grep -F "${WEB_REF#*@}" /tmp/rehearsal/running-digest.txt
           docker compose -f /tmp/rehearsal/compose.yml down -v || true
@@ -278,7 +279,8 @@ jobs:
           cid=$(docker compose -f /tmp/rehearsal/compose.yml ps -q web)
           status=$(docker inspect "$cid" --format '{{.State.Status}}')
           [ "$status" = "running" ] || { echo "::error::web not running ($status)"; exit 3; }
-          docker inspect "$cid" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/rolled-back-digest.txt
+          img=$(docker inspect "$cid" --format '{{.Image}}')
+          docker image inspect "$img" --format '{{index .RepoDigests 0}}' | tee /tmp/rehearsal/rolled-back-digest.txt
           grep -F "${prior_web#*@}" /tmp/rehearsal/rolled-back-digest.txt
           docker compose -f /tmp/rehearsal/compose.yml down -v || true
 
