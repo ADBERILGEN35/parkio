@@ -24,11 +24,11 @@ done < "$FILES_LIST"
 # production file list. A caller-supplied list, including the web-map guard
 # fixtures, must not grow Alertmanager or the Option C non-root user: values.
 #
-# Live activation of the non-root overlay waits for the U18 migration window:
-# redis-data and minio-data must be chowned under the pre-overlay (root-start)
-# model before a release tip that includes this wiring is checked out on the
-# host. The overlay file may exist on api earlier; do not activate live until
-# then (docs/operations/nonroot-volume-migration.md).
+# Live activation of the non-root overlay requires every overlay-affected volume
+# to be COMPLIANT (N-05 / #354). Mutating commands (up|create|run) run a read-only
+# plan first; see docs/operations/nonroot-volume-migration.md.
+# Break-glass: PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES (default off).
+PARKIO_CIVO_NONROOT_OVERLAY=0
 if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
   CIVO_ALERTMANAGER_FILE="$ROOT/docker/docker-compose.civo-alertmanager.yml"
   if [ ! -f "$CIVO_ALERTMANAGER_FILE" ]; then
@@ -42,6 +42,7 @@ if grep -qx 'docker/docker-compose.azure-hosted-beta.yml' "$FILES_LIST"; then
     exit 1
   fi
   ARGS+=(-f "$CIVO_NONROOT_FILE")
+  PARKIO_CIVO_NONROOT_OVERLAY=1
 fi
 # Optional recovery: PARKIO_GMP_RECOVERY=1 appends host-local prior-image overlay when present.
 if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
@@ -53,6 +54,12 @@ if [ "${PARKIO_GMP_RECOVERY:-0}" = "1" ]; then
   ARGS+=(-f "$recovery")
 fi
 cd "$ROOT"
+# N-05: volume readiness before any mutating command that carries the non-root overlay.
+# shellcheck source=lib/prod-nonroot-volume-gate.sh
+source "$ROOT/scripts/lib/prod-nonroot-volume-gate.sh"
+if [ "$PARKIO_CIVO_NONROOT_OVERLAY" = "1" ]; then
+  parkio_nonroot_volume_gate_maybe "$@" || exit 1
+fi
 # Web map deploy guard (audit F-05). Any invocation that can create the web
 # container renders the merged model once (including operator -f/--profile
 # globals), verifies the web image it selects, and then runs Compose with a

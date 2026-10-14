@@ -84,7 +84,7 @@ volume with `getcap -r` before migrating it if that could change.
 | promtail | promtail-positions | 10001:10001 | blocked | reads the Docker socket as root; see `docs/architecture/docker-socket-proxy-design.md` |
 
 **Services with no volume to migrate.** minio-setup (mc keeps its config in `/tmp/.mc`) and
-blackbox-exporter need only the `user:` change. web needs an unprivileged nginx image or
+blackbox-exporter need only the `user:` change. web needs an unprivileged nginx image o
 configuration, which is outside this tool.
 
 **PostgreSQL volumes are normally compliant already.** The root-start entrypoint chowns `PGDATA`
@@ -104,11 +104,25 @@ invocation uses the hosted-beta production file list. invite-production and host
 deploy/rollback (canonical list only) do **not** use this overlay, so fresh root-owned volumes
 there keep working.
 
+**Volume readiness gate (N-05).** For mutating commands (`up`, `create`, `run`) that carry this
+overlay, the wrapper runs a read-only `nonroot-volume-migration.sh plan` for every overlay
+service that has a `ready` volume row (ten Postgres volumes, redis, minio). Every line must be
+`status=COMPLIANT` or the wrapper exits nonzero **before** any Compose mutation. Non-mutating
+commands (`ps`, `logs`, …) skip the gate. Caller-supplied file lists that omit
+`docker-compose.azure-hosted-beta.yml` never append the overlay and never run the gate.
+
+Break-glass (default off, wrong values refused):
+`PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`. Documented only for an
+owner-authorized exception; it does not migrate volumes.
+
+Regression: `scripts/test-prod-nonroot-readiness.sh` (stub docker + stub plan; real wrapper).
+
 **Live activation ordering.** The overlay file may exist on `api` before the window. Do not
 check out a release tip that includes the wrapper wiring onto the live host until redis-data
 and minio-data are migrated: stop redis and minio → `apply` both under the pre-overlay
 (root-start) model → activate the overlay / `U18-REL` once → `up` redis, then minio. Never leave
-redis or minio under `user:` non-root while their volume entries are still 0:0.
+redis or minio under `user:` non-root while their volume entries are still 0:0. The N-05 gate
+enforces that ordering for mutating wrapper commands once the overlay is on the file list.
 
 ## Procedure (when a migration is authorized)
 
@@ -154,9 +168,9 @@ Local evidence is in `agent-tools/parkio-u18-nonroot-tooling/` (not committed).
   already defaults to `-P` in busybox and coreutils. A variant that traverses symlinks (`-R -L`) is
   killed.
 - **Real images**, on disposable volumes created the way the root-start services create them:
-  - redis: fails to start as non-root before apply ("Permission denied" on its AOF) and runs after
+  - redis: fails to start as non-root before apply ("Permission denied" on its AOF) and runs afte
     it with no capabilities.
-  - MinIO: fails before apply ("file access denied") and serves the old object and a new one after
+  - MinIO: fails before apply ("file access denied") and serves the old object and a new one afte
     it. restore then gives the two new files to root.
   - caddy: logs "permission denied" on `/data/caddy/instance.uuid` before apply and serves without
     errors after it.
