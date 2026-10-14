@@ -20,6 +20,31 @@ TESTS=0
 FAILED=0
 trap 'rm -rf "$TMP"' EXIT
 
+# N-05: parkio-prod-compose.sh mutating paths require a COMPLIANT volume plan when the
+# Civo non-root overlay is on the file list. This suite asserts web-map / conf.d / API
+# endpoint guards, not volume migration — supply a stub plan so the volume gate passes
+# without calling the real Docker-backed migration tool or using break-glass.
+cat >"$TMP/nonroot-volume-migration-compliant.sh" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+project=""
+services=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    plan) shift ;;
+    --project) project="$2"; shift 2 ;;
+    --service) services+=("$2"); shift 2 ;;
+    *) echo "stub: bad arg $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$project" ] || { echo "stub: missing project" >&2; exit 2; }
+for s in "${services[@]}"; do
+  echo "service=$s volume=$project/${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
+done
+STUB
+chmod +x "$TMP/nonroot-volume-migration-compliant.sh"
+export PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$TMP/nonroot-volume-migration-compliant.sh"
+
 GOOD_KEY="nonsynthetic-fixture-4c1d9e"
 BAD_MANIFEST="sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d"
 BAD_CONFIG="sha256:985fd8a7684a63ea21cf10cbb36f8f2fc092b7d3f13ccbc8c18311380945f68c"
