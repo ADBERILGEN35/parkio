@@ -47,6 +47,8 @@
   "geoUnavailable": "Geolocation is not available in this browser. You can search manually.",
   "geoDenied": "Location permission was not granted. You can search manually.",
   "geoFailed": "We could not determine your location. You can search manually.",
+  "mapUnavailableTitle": "The map couldn't load.",
+  "mapUnavailableBody": "Search results stay available in the list.",
   "discovery": {
     "idleTitle": "Search for nearby spots",
     "idleDescription": "Search an address or place, use your location, or tap the map to set the center — then search.",

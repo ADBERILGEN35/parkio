@@ -47,6 +47,8 @@
   "geoUnavailable": "Bu tarayıcıda konum hizmeti yok. Elle arama yapabilirsiniz.",
   "geoDenied": "Konum izni verilmedi. Elle arama yapabilirsiniz.",
   "geoFailed": "Konumunuz belirlenemedi. Elle arama yapabilirsiniz.",
+  "mapUnavailableTitle": "Harita yüklenemedi.",
+  "mapUnavailableBody": "Arama sonuçları listede kullanılabilir durumda kalır.",
   "discovery": {
     "idleTitle": "Yakındaki park yerlerini ara",
     "idleDescription": "Bir adres veya yer arayın, konumunuzu kullanın ya da merkezi belirlemek için haritaya dokunun — sonra arayın.",

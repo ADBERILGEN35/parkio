@@ -77,9 +77,9 @@ export interface NearbySpotsMapProps {
    */
   attributionTarget?: HTMLElement | null;
   /**
-   * Called once when the map style never loads (CL-F20): an error before any style data, from no tile
-   * or source. The map stays empty then, so the page can offer another view. Tile and source errors
-   * after the style loaded are not detected.
+   * Called once when the basemap stays unusable (CL-F20 / N-11): the style never loads, or tile/source
+   * errors keep firing past a short streak. Transient tile blips do not fire it; style data and load
+   * events clear the streak. The map stays empty then, so the page can offer another view.
    */
   onStyleUnavailable?: () => void;
   /**
@@ -96,6 +96,9 @@ export interface NearbySpotsMapProps {
 type PixelOffset = [number, number];
 const NO_OFFSET: PixelOffset = [0, 0];
 const NO_OFFSETS: ReadonlyMap<string, PixelOffset> = new globalThis.Map();
+
+/** Consecutive tile/source map errors before treating the basemap as unavailable. */
+const TILE_SOURCE_ERROR_THRESHOLD = 3;
 
 function sameOffsets(a: ReadonlyMap<string, PixelOffset>, b: ReadonlyMap<string, PixelOffset>): boolean {
   if (a.size !== b.size) return false;
@@ -266,6 +269,7 @@ export function NearbySpotsMap({
   const { t } = useTranslation('map');
   const styleReadyRef = useRef(false);
   const styleFailureReportedRef = useRef(false);
+  const tileSourceErrorStreakRef = useRef(0);
   const descriptionId = useId();
   const selectionId = useId();
   // Stable selection handler: passed by reference to every marker so the memoized
@@ -387,17 +391,34 @@ export function NearbySpotsMap({
         pitchWithRotate={false}
         onLoad={() => {
           styleReadyRef.current = true;
+          tileSourceErrorStreakRef.current = 0;
           trackProductEvent('map_ready');
         }}
         onStyleData={() => {
           styleReadyRef.current = true;
+          tileSourceErrorStreakRef.current = 0;
+        }}
+        onSourceData={() => {
+          // Successful source/tile data clears a transient failure streak (N-11).
+          tileSourceErrorStreakRef.current = 0;
         }}
         onError={(event) => {
           trackProductEvent('map_init_failed', { mapErrorCode: 'load_failed' });
           const fromTileOrSource = 'sourceId' in event || 'tile' in event;
-          if (!styleReadyRef.current && !fromTileOrSource && !styleFailureReportedRef.current) {
+          if (styleFailureReportedRef.current) {
+            return;
+          }
+          if (!styleReadyRef.current && !fromTileOrSource) {
             styleFailureReportedRef.current = true;
             onStyleUnavailable?.();
+            return;
+          }
+          if (fromTileOrSource) {
+            tileSourceErrorStreakRef.current += 1;
+            if (tileSourceErrorStreakRef.current >= TILE_SOURCE_ERROR_THRESHOLD) {
+              styleFailureReportedRef.current = true;
+              onStyleUnavailable?.();
+            }
           }
         }}
         onClick={(event) => {

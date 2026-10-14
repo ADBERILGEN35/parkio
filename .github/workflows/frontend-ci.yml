@@ -257,6 +257,11 @@ jobs:
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
         run: pnpm --filter @parkio/web e2e:muni09:360
 
+      # N-11 on its own dev server: MapTiler key + public explore so style/tile 403s are mockable.
+      - name: Map style/tile unavailable alerts (N-11)
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: pnpm --filter @parkio/web e2e:map-unavailable
+
       # Y04A on its own dev server: municipal discovery on and a test-only analytics sink.
       - name: Product analytics specs
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
