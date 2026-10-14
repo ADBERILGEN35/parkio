@@ -19,9 +19,12 @@ import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
 import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -109,11 +112,9 @@ class WaitlistOpsNotificationOutboxTest {
     @BeforeEach
     void setUp() throws Exception {
         properties.setExportDir(inbox.toString());
-        try (Stream<Path> files = Files.list(inbox)) {
-            for (Path file : files.toList()) {
-                Files.delete(file);
-            }
-        }
+        properties.setExportPaused(false);
+        properties.setExportPauseFile("");
+        deleteInboxContents(inbox);
         when(rateLimiter.check(anyString(), anyString())).thenReturn(Mono.empty());
         doAnswer(invocation -> {
             verificationToken.set(invocation.getArgument(1));
@@ -132,6 +133,82 @@ class WaitlistOpsNotificationOutboxTest {
         properties.setMinFreeBytes(512L * 1024 * 1024);
         properties.setMaxInboxBacklog(5000);
         properties.setBatchSize(20);
+        properties.setExportPaused(false);
+        properties.setExportPauseFile("");
+    }
+
+    @Test
+    void exportPauseFileStopsExportWithoutBlockingAdmission() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(1);
+        assertThat(interestStatus()).isEqualTo("CONFIRMED");
+
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Files.writeString(pauseDir.resolve("request"), "requestId=req-one\nissuedAt=1\n");
+        properties.setExportPauseFile(pauseDir.toString());
+
+        assertThat(exporter.exportDue().exported()).isZero();
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(outboxStatus()).isEqualTo("PENDING");
+        assertThat(inboxFiles()).isEmpty();
+        assertThat(Files.readString(pauseDir.resolve("ack"))).contains("requestId=req-one");
+        assertThat(Files.readString(pauseDir.resolve("ack"))).contains("exporterInstanceId=");
+
+        String firstToken = verificationToken.get();
+        service.submit(new SubmitWaitlistCommand(
+                "second.subscriber@example.test", Instant.now(), "Ada Lovelace", "Izmir", "driver",
+                "parkio.dev-landing", "tr", "198.51.100.24", "synthetic-agent")).block();
+        assertThat(verificationToken.get()).isNotEqualTo(firstToken);
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(2);
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(inboxFiles()).isEmpty();
+
+        Files.deleteIfExists(pauseDir.resolve("request"));
+        Files.deleteIfExists(pauseDir.resolve("ack"));
+        makeDue();
+        assertThat(exporter.exportDue().exported()).isEqualTo(2);
+        assertThat(inboxFiles()).hasSize(2);
+    }
+
+    @Test
+    void exportPauseAckMatchesCurrentRequestAndIgnoresStaleAck() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Files.writeString(pauseDir.resolve("ack"), "requestId=stale\nexporterInstanceId=old\nacknowledgedAt=0\n");
+        Files.writeString(pauseDir.resolve("request"), "requestId=req-two\nissuedAt=2\n");
+        properties.setExportPauseFile(pauseDir.toString());
+
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        String ack = Files.readString(pauseDir.resolve("ack"));
+        assertThat(ack).contains("requestId=req-two");
+        assertThat(ack).doesNotContain("requestId=stale");
+        assertThat(outboxCount()).isEqualTo(1);
+        assertThat(inboxFiles()).isEmpty();
+    }
+
+    @Test
+    void unreadablePauseControlPreventsExportAndDoesNotAcknowledge() throws Exception {
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        Path pauseDir = inbox.resolve(".export-pause");
+        Files.createDirectories(pauseDir);
+        Path request = pauseDir.resolve("request");
+        Files.createDirectory(request);
+        properties.setExportPauseFile(pauseDir.toString());
+
+        assertThat(exporter.exportDue().deferred()).isEqualTo("export_paused");
+        assertThat(Files.exists(pauseDir.resolve("ack"))).isFalse();
+        assertThat(outboxStatus()).isEqualTo("PENDING");
+        service.submit(new SubmitWaitlistCommand(
+                "third.subscriber@example.test", Instant.now(), "Ada Lovelace", "Izmir", "driver",
+                "parkio.dev-landing", "tr", "198.51.100.24", "synthetic-agent")).block();
+        service.confirm(verificationToken.get()).block();
+        assertThat(outboxCount()).isEqualTo(2);
     }
 
     @Test
@@ -438,8 +515,25 @@ class WaitlistOpsNotificationOutboxTest {
     private List<Path> inboxFiles() {
         try (Stream<Path> files = Files.list(inbox)) {
             return files.filter(p -> p.getFileName().toString().endsWith(".json")).toList();
-        } catch (java.io.IOException ex) {
+        } catch (IOException ex) {
             throw new IllegalStateException(ex);
+        }
+    }
+
+    private static void deleteInboxContents(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder())
+                    .filter(path -> !path.equals(dir))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ex) {
+                            throw new UncheckedIOException(ex);
+                        }
+                    });
         }
     }
 }

@@ -26,6 +26,7 @@ SVC_USER=parkio-slackbiz
 INBOX_GROUP=parkio-waitlist-inbox
 STATE_DIR=/var/lib/parkio/slack-biz
 INBOX_DIR=/var/lib/parkio/waitlist-ops-inbox
+PAUSE_DIR=/var/lib/parkio/waitlist-ops-inbox/.export-pause
 ETC=/etc/parkio
 UNITS=(parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service)
 
@@ -70,6 +71,7 @@ run install -d -m 0755 -o root -g root /var/lib/parkio
 run install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$STATE_DIR"
 # setgid: files the gateway writes inherit the inbox group.
 run install -d -m 2770 -o "$SVC_USER" -g "$INBOX_GROUP" "$INBOX_DIR"
+run install -d -m 2770 -o "$SVC_USER" -g "$INBOX_GROUP" "$PAUSE_DIR"
 run install -d -m 0755 -o root -g root "$ETC"
 
 if [ ! -f "$ETC/slack-biz.conf.env" ]; then
