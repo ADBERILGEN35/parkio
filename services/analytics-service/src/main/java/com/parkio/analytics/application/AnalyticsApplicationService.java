@@ -13,6 +13,7 @@ import com.parkio.analytics.application.event.ParkingSpotVerifiedEvent;
 import com.parkio.analytics.application.event.PointsEarnedEvent;
 import com.parkio.analytics.application.event.UserLevelChangedEvent;
 import com.parkio.analytics.application.port.AnalyticsEventRepository;
+import com.parkio.analytics.application.port.AnalyticsOwnerFence;
 import com.parkio.analytics.application.port.DailyAnalyticsSnapshotRepository;
 import com.parkio.analytics.application.port.InboxEventRepository;
 import com.parkio.analytics.application.port.ParkingAnalyticsSnapshotRepository;
@@ -53,6 +54,7 @@ public class AnalyticsApplicationService {
     private final UserAnalyticsSnapshotRepository userSnapshots;
     private final ParkingAnalyticsSnapshotRepository parkingSnapshots;
     private final InboxEventRepository inbox;
+    private final AnalyticsOwnerFence ownerFence;
     private final Clock clock;
 
     public AnalyticsApplicationService(AnalyticsEventRepository analyticsEvents,
@@ -60,12 +62,14 @@ public class AnalyticsApplicationService {
                                        UserAnalyticsSnapshotRepository userSnapshots,
                                        ParkingAnalyticsSnapshotRepository parkingSnapshots,
                                        InboxEventRepository inbox,
+                                       AnalyticsOwnerFence ownerFence,
                                        Clock clock) {
         this.analyticsEvents = analyticsEvents;
         this.dailySnapshots = dailySnapshots;
         this.userSnapshots = userSnapshots;
         this.parkingSnapshots = parkingSnapshots;
         this.inbox = inbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -193,6 +197,9 @@ public class AnalyticsApplicationService {
     private void ingest(UUID sourceEventId, AnalyticsMetricType metricType, UUID userId,
                         UUID relatedEntityId, long value, Instant occurredAt, String eventType) {
         if (!inbox.tryClaim(sourceEventId, eventType, clock.instant())) {
+            return;
+        }
+        if (userId != null && !ownerFence.admitWrite(userId)) {
             return;
         }
         Instant now = clock.instant();

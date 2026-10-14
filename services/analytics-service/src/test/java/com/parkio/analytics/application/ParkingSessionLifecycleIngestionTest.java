@@ -1,5 +1,7 @@
 package com.parkio.analytics.application;
 
+import com.parkio.analytics.application.port.AnalyticsOwnerFence;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.analytics.application.event.ParkingHistoryDeletedEvent;
@@ -49,7 +51,10 @@ class ParkingSessionLifecycleIngestionTest {
         FakeParkingRepository parking = new FakeParkingRepository();
         inbox = new FakeInboxRepository();
         service = new AnalyticsApplicationService(
-                events, daily, users, parking, inbox, Clock.fixed(NOW, ZoneOffset.UTC));
+                events, daily, users, parking, inbox, new AnalyticsOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
