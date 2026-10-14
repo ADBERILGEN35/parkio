@@ -3,6 +3,7 @@ package com.parkio.aivalidation.application;
 import com.parkio.aivalidation.application.event.MediaUploadedEvent;
 import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
 import com.parkio.aivalidation.application.event.ParkingSpotModerationRetryRequestedEvent;
+import com.parkio.aivalidation.application.port.AiValidationOwnerFence;
 import com.parkio.aivalidation.application.port.AiValidationResultRepository;
 import com.parkio.aivalidation.application.port.InboxEventRepository;
 import com.parkio.aivalidation.application.port.OutboxEventAppender;
@@ -39,6 +40,7 @@ public class AiValidationApplicationService {
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
     private final DeterministicAiValidator validator;
+    private final AiValidationOwnerFence ownerFence;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
@@ -46,25 +48,28 @@ public class AiValidationApplicationService {
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
                                           DeterministicAiValidator validator,
+                                          AiValidationOwnerFence ownerFence,
                                           Clock clock,
                                           TransactionTemplate transactionTemplate) {
         this.results = results;
         this.inbox = inbox;
         this.outbox = outbox;
         this.validator = validator;
+        this.ownerFence = ownerFence;
         this.clock = clock;
         this.transactionTemplate = transactionTemplate;
     }
 
     /** A newly uploaded media object is analysed for an advisory result. */
     public void handleMediaUploaded(MediaUploadedEvent event) {
-        processEvent(event.eventId(), "MediaUploaded", event.mediaId(), null, null);
+        // Owner is used only for tombstone admission; requestedBy stays unset for events.
+        processEvent(event.eventId(), "MediaUploaded", event.mediaId(), null, null, event.ownerUserId());
     }
 
     /** A newly created spot's photo is analysed; the result is linked to the spot. */
     public void handleParkingSpotCreated(ParkingSpotCreatedEvent event) {
         processEvent(event.eventId(), "ParkingSpotCreated",
-                event.mediaId(), event.parkingSpotId(), null);
+                event.mediaId(), event.parkingSpotId(), null, event.ownerUserId());
     }
 
     /**
@@ -74,7 +79,7 @@ public class AiValidationApplicationService {
      */
     public void handleModerationRetryRequested(ParkingSpotModerationRetryRequestedEvent event) {
         processEvent(event.eventId(), "ParkingSpotModerationRetryRequested",
-                event.mediaId(), event.parkingSpotId(), null);
+                event.mediaId(), event.parkingSpotId(), null, event.ownerUserId());
     }
 
     /** Runs a manual placeholder validation requested by a moderator/admin. */
@@ -83,6 +88,11 @@ public class AiValidationApplicationService {
         // Provider I/O outside any transaction.
         AiValidationResult result = validator.validate(mediaId, parkingSpotId, requestedByUserId, now);
         return transactionTemplate.execute(status -> {
+            // Recheck at persistence: do not store requested_by for an erased user.
+            if (requestedByUserId != null && !ownerFence.admitWrite(requestedByUserId)) {
+                throw new AiValidationException(AiValidationErrorCode.FORBIDDEN,
+                        "Requester is erased; manual validation refused.");
+            }
             AiValidationResult saved = results.save(result);
             outbox.append(AiValidationCompletedEvent.of(saved, now));
             return saved;
@@ -124,7 +134,7 @@ public class AiValidationApplicationService {
      * Phase C (short TX): claim + save + outbox.
      */
     private void processEvent(UUID eventId, String eventType, UUID mediaId,
-                              UUID parkingSpotId, UUID requestedByUserId) {
+                              UUID parkingSpotId, UUID requestedByUserId, UUID ownerUserId) {
         Boolean alreadyDone = transactionTemplate.execute(status -> inbox.alreadyProcessed(eventId));
         if (Boolean.TRUE.equals(alreadyDone)) {
             return;
@@ -137,6 +147,10 @@ public class AiValidationApplicationService {
         transactionTemplate.executeWithoutResult(status -> {
             if (!inbox.tryClaim(eventId, eventType, now)) {
                 // Another worker claimed concurrently after Phase A — discard our result.
+                return;
+            }
+            // Owner identity is for tombstone admission only; not written as requestedBy.
+            if (ownerUserId != null && !ownerFence.admitWrite(ownerUserId)) {
                 return;
             }
             AiValidationResult saved = results.save(result);

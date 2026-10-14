@@ -2,6 +2,7 @@ package com.parkio.aivalidation.application;
 
 import com.parkio.aivalidation.application.event.UserErasureRequestedEvent;
 import com.parkio.aivalidation.application.event.UserErasureRestoreReplayRequestedEvent;
+import com.parkio.aivalidation.application.port.AiValidationOwnerFence;
 import com.parkio.aivalidation.application.port.ErasureAckOutbox;
 import com.parkio.aivalidation.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.aivalidation.domain.event.UserErasureRestoreAcknowledgedEvent;
@@ -33,16 +34,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final ErasureAckOutbox ackOutbox;
+    private final AiValidationOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             ErasureAckOutbox ackOutbox,
+            AiValidationOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.ackOutbox = ackOutbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -90,6 +94,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         jdbc.update("UPDATE ai_validation_results SET requested_by_user_id = ? WHERE requested_by_user_id = ?",
                 ERASED_USER_SENTINEL, authUserId);
