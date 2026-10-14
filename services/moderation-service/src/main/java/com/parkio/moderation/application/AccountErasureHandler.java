@@ -3,6 +3,7 @@ package com.parkio.moderation.application;
 import com.parkio.moderation.application.event.UserErasureRequestedEvent;
 import com.parkio.moderation.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.moderation.application.port.ErasureAckOutbox;
+import com.parkio.moderation.application.port.ModerationOwnerFence;
 import com.parkio.moderation.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.moderation.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.moderation.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
@@ -33,16 +34,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final ErasureAckOutbox ackOutbox;
+    private final ModerationOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             ErasureAckOutbox ackOutbox,
+            ModerationOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.ackOutbox = ackOutbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -90,6 +94,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         // Unconditional rewrites: V14 exempts sentinel rows from the reporter/appellant uniqueness,
         // so a second erased user whose rows coincide with existing sentinel rows is still fully
