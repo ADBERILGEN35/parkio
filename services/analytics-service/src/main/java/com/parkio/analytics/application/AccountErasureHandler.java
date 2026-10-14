@@ -2,6 +2,7 @@ package com.parkio.analytics.application;
 
 import com.parkio.analytics.application.event.UserErasureRequestedEvent;
 import com.parkio.analytics.application.event.UserErasureRestoreReplayRequestedEvent;
+import com.parkio.analytics.application.port.AnalyticsOwnerFence;
 import com.parkio.analytics.application.port.ErasureAckOutbox;
 import com.parkio.analytics.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.analytics.domain.event.UserErasureRestoreAcknowledgedEvent;
@@ -32,16 +33,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final ErasureAckOutbox ackOutbox;
+    private final AnalyticsOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             ErasureAckOutbox ackOutbox,
+            AnalyticsOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.ackOutbox = ackOutbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -89,6 +93,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         jdbc.update("DELETE FROM analytics_events WHERE user_id = ?", authUserId);
         jdbc.update("DELETE FROM user_analytics_snapshots WHERE user_id = ?", authUserId);
