@@ -3,6 +3,7 @@ package com.parkio.parking.application;
 import com.parkio.parking.application.event.UserErasureRequestedEvent;
 import com.parkio.parking.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.parking.application.port.ErasureAckOutbox;
+import com.parkio.parking.application.port.ParkingOwnerFence;
 import com.parkio.parking.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.parking.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.parking.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
@@ -36,16 +37,19 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final JdbcTemplate jdbc;
     private final ErasureAckOutbox ackOutbox;
+    private final ParkingOwnerFence ownerFence;
     private final Clock clock;
 
     public AccountErasureHandler(
             ErasedUserTombstoneJpaRepository tombstones,
             JdbcTemplate jdbc,
             ErasureAckOutbox ackOutbox,
+            ParkingOwnerFence ownerFence,
             Clock clock) {
         this.tombstones = tombstones;
         this.jdbc = jdbc;
         this.ackOutbox = ackOutbox;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -93,6 +97,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         jdbc.update("DELETE FROM parking_sessions WHERE user_id = ?", authUserId);
         jdbc.update("DELETE FROM parking_spot_search_logs WHERE searcher_user_id = ?", authUserId);

@@ -17,6 +17,8 @@ public enum ParkingErrorCode {
     ACTIVE_PARKING_SESSION_EXISTS,
     INVALID_PARKING_SESSION_CURSOR,
     MISSING_USER_ID,
+    /** Tombstoned / erased account cannot acquire new user-linked parking data (N-07). */
+    FORBIDDEN,
     MEDIA_ACCESS_UNAVAILABLE,
     /** The referenced media is missing or has not passed media-service safety checks (not READY). */
     MEDIA_NOT_READY,

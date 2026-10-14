@@ -59,6 +59,10 @@ class ParkingSessionServiceTest {
         service = new ParkingSessionService(
                 repository,
                 outbox,
+                new com.parkio.parking.application.port.ParkingOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                },
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 ParkingSessionStalePolicy.defaults(),
                 properties,

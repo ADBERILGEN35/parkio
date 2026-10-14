@@ -9,6 +9,7 @@ import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.ModerationMetricsPort;
 import com.parkio.parking.application.port.OutcomeEvaluationTriggerPort;
 import com.parkio.parking.application.port.OutboxEventAppender;
+import com.parkio.parking.application.port.ParkingOwnerFence;
 import com.parkio.parking.application.port.ParkingSpotRepository;
 import com.parkio.parking.application.port.ParkingSpotSearchLogRepository;
 import com.parkio.parking.application.port.ParkingSpotStatusHistoryRepository;
@@ -81,6 +82,7 @@ public class ParkingApplicationService {
     private final ModerationMetricsPort moderationMetrics;
     private final OutcomeEvaluationTriggerPort outcomeTriggers;
     private final ExposureShadowOrchestrator exposureShadow;
+    private final ParkingOwnerFence ownerFence;
     private final Clock clock;
 
     public ParkingApplicationService(ParkingSpotRepository spots,
@@ -97,6 +99,7 @@ public class ParkingApplicationService {
                                      ModerationMetricsPort moderationMetrics,
                                      OutcomeEvaluationTriggerPort outcomeTriggers,
                                      ExposureShadowOrchestrator exposureShadow,
+                                     ParkingOwnerFence ownerFence,
                                      Clock clock) {
         this.spots = spots;
         this.verifications = verifications;
@@ -112,6 +115,7 @@ public class ParkingApplicationService {
         this.moderationMetrics = moderationMetrics;
         this.outcomeTriggers = outcomeTriggers;
         this.exposureShadow = exposureShadow;
+        this.ownerFence = ownerFence;
         this.clock = clock;
     }
 
@@ -122,6 +126,10 @@ public class ParkingApplicationService {
      * Illegal/risky submissions are also rejected without persisting.
      */
     public ParkingSpot createSpot(CreateSpotCommand command) {
+        if (!ownerFence.admitWrite(command.ownerUserId())) {
+            throw new ParkingException(
+                    ParkingErrorCode.FORBIDDEN, "This account cannot create parking spots.");
+        }
         // Reject before any write: don't let a spot reference unscanned/unsafe media.
         mediaReadiness.ensureMediaReady(command.mediaId(), command.ownerUserId());
         Instant now = clock.instant();
@@ -147,7 +155,9 @@ public class ParkingApplicationService {
         if (!spot.isOwnedBy(viewerUserId) && !canModerate && !spot.isVisibleForSearch(now)) {
             throw new ParkingException(ParkingErrorCode.SPOT_NOT_FOUND);
         }
-        viewLogs.save(ParkingSpotViewLog.record(spotId, viewerUserId, clock.instant()));
+        if (viewerUserId != null && ownerFence.admitWrite(viewerUserId)) {
+            viewLogs.save(ParkingSpotViewLog.record(spotId, viewerUserId, clock.instant()));
+        }
         return spot;
     }
 
@@ -191,6 +201,10 @@ public class ParkingApplicationService {
 
     /** Applies a verification/report from a non-owner who has not verified before. */
     public ParkingSpot verifySpot(UUID spotId, UUID verifierUserId, VerificationResult result) {
+        if (!ownerFence.admitWrite(verifierUserId)) {
+            throw new ParkingException(
+                    ParkingErrorCode.FORBIDDEN, "This account cannot verify parking spots.");
+        }
         ParkingSpot spot = requireSpot(spotId);
         Instant now = clock.instant();
         if (expireIfElapsed(spot, now)) {
@@ -225,6 +239,10 @@ public class ParkingApplicationService {
 
     /** A non-owner claims an ACTIVE/VERIFIED spot, marking it filled. */
     public ParkingSpot claimSpot(UUID spotId, UUID claimerUserId) {
+        if (!ownerFence.admitWrite(claimerUserId)) {
+            throw new ParkingException(
+                    ParkingErrorCode.FORBIDDEN, "This account cannot claim parking spots.");
+        }
         ParkingSpot spot = requireSpot(spotId);
         Instant now = clock.instant();
         if (expireIfElapsed(spot, now)) {
@@ -294,6 +312,15 @@ public class ParkingApplicationService {
             UUID moderatorUserId,
             String resolutionNote) {
         long startedNanos = System.nanoTime();
+        // Late moderator events for an erased moderator must not persist rejected_by = U.
+        // Inbox claim happens in the Kafka consumer before this method runs.
+        if (moderatorUserId != null && !ownerFence.admitWrite(moderatorUserId)) {
+            log.info("Ignoring moderator decision from erased moderator spotId={} "
+                            + "moderationRequestId={} moderatorUserId={}",
+                    spotId, moderationRequestId, moderatorUserId);
+            moderationMetrics.recordProcessingDuration(elapsedSince(startedNanos), "ERASED_ACTOR");
+            return;
+        }
         ParkingSpot spot = requireSpot(spotId);
         Instant now = clock.instant();
         ParkingSpotStatus previous = spot.status();
@@ -621,8 +648,11 @@ public class ParkingApplicationService {
                 .limit(limit)
                 .toList();
 
-        searchLogs.save(ParkingSpotSearchLog.record(
-                query.searcherUserId(), query.latitude(), query.longitude(), radius, visible.size(), now));
+        UUID searcher = query.searcherUserId();
+        if (searcher == null || ownerFence.admitWrite(searcher)) {
+            searchLogs.save(ParkingSpotSearchLog.record(
+                    searcher, query.latitude(), query.longitude(), radius, visible.size(), now));
+        }
 
         exposureShadow.maybeEvaluateNearbySearch(
                 visible,

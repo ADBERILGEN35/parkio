@@ -120,7 +120,10 @@ class ParkingApplicationServiceTest {
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
                 outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50),
                 parkingSessions, POLICY, moderationMetrics, OutcomeEvaluationTriggerPort.noop(),
-                disabledExposureShadow(), clock);
+                disabledExposureShadow(), new com.parkio.parking.application.port.ParkingOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                }, clock);
     }
 
     private static ExposureShadowOrchestrator disabledExposureShadow() {
