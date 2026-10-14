@@ -145,21 +145,21 @@ jobs:
 
       - name: Upload stack logs
         if: failure() && inputs.mode == 'local'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-real-e2e-stack-logs
           path: stack-logs.txt
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-real-e2e-report
           path: frontend/apps/web/playwright-report/real-e2e
 
       - name: Upload Playwright test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-real-e2e-results
           path: frontend/apps/web/test-results
