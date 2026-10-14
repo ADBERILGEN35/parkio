@@ -94,6 +94,10 @@ class DecisionAuthorityApplicationServiceTest {
                         new ExposureShadowSettings(false, 0, 25),
                         mock(ExposureShadowApplicationService.class),
                         ExposureShadowObserverPort.NOOP),
+                new com.parkio.parking.application.port.ParkingOwnerFence() {
+                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
+                    @Override public void holdForErasure(java.util.UUID userId) {}
+                },
                 clock);
     }
 

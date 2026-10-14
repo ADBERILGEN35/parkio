@@ -1,6 +1,7 @@
 package com.parkio.parking.application;
 
 import com.parkio.parking.application.port.OutboxEventAppender;
+import com.parkio.parking.application.port.ParkingOwnerFence;
 import com.parkio.parking.application.port.ParkingSessionRepository;
 import com.parkio.parking.domain.ParkingSession;
 import com.parkio.parking.domain.ParkingSessionCompletionReason;
@@ -40,6 +41,7 @@ public class ParkingSessionService {
 
     private final ParkingSessionRepository sessions;
     private final OutboxEventAppender outbox;
+    private final ParkingOwnerFence ownerFence;
     private final Clock clock;
     private final ParkingSessionStalePolicy stalePolicy;
     private final ParkingProperties.Session sessionConfig;
@@ -49,6 +51,7 @@ public class ParkingSessionService {
     public ParkingSessionService(
             ParkingSessionRepository sessions,
             OutboxEventAppender outbox,
+            ParkingOwnerFence ownerFence,
             Clock clock,
             ParkingSessionStalePolicy stalePolicy,
             ParkingProperties parkingProperties,
@@ -56,6 +59,7 @@ public class ParkingSessionService {
             ParkingSessionStaleRowProcessor staleRows) {
         this.sessions = sessions;
         this.outbox = outbox;
+        this.ownerFence = Objects.requireNonNull(ownerFence, "ownerFence");
         this.clock = clock;
         this.stalePolicy = Objects.requireNonNull(stalePolicy, "stalePolicy");
         this.sessionConfig = Objects.requireNonNull(parkingProperties, "parkingProperties").getSession();
@@ -71,6 +75,10 @@ public class ParkingSessionService {
                                        BigDecimal estimatedFee,
                                        Instant reminderAt) {
         UUID ownerId = Objects.requireNonNull(userId, "userId");
+        if (!ownerFence.admitWrite(ownerId)) {
+            throw new ParkingException(
+                    ParkingErrorCode.FORBIDDEN, "This account cannot start a parking session.");
+        }
         if (sessions.findActiveByUserId(ownerId).isPresent()) {
             throw new ParkingException(
                     ParkingErrorCode.ACTIVE_PARKING_SESSION_EXISTS,
