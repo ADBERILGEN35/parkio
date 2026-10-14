@@ -30,6 +30,7 @@ const OWN_SERVER_SPECS = [
   /service-worker-upgrade\.spec\.ts/,
   /y04a-product-analytics\.spec\.ts/,
   /web-muni-09-accessibility\.spec\.ts/,
+  /map-unavailable\.spec\.ts/,
 ];
 const VIEWPORT_IGNORE = [
   WP03_ACCEPTANCE,

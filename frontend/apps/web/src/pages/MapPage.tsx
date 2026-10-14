@@ -17,7 +17,7 @@ import {
   MapSearchSkeleton,
 } from '@parkio/ui';
 import { nearbySearchSchema, type NearbySearchFormValues } from '@parkio/validation';
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -254,6 +254,9 @@ export function MapPage({
   // The sidebar and the sheet cover every corner of the map canvas, so the map's attribution is shown in
   // them instead: in the sidebar's footer, or in the sheet's always-visible peek (Asana 1219145771874977).
   const [attributionTarget, setAttributionTarget] = useState<HTMLElement | null>(null);
+  /** N-11: style/tile/source failures leave the canvas blank — show an alert and keep the list. */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const mapUnavailableTitleId = useId();
   // On phones the expanded sheet stops below the page's own top overlay (search, quick actions, alerts),
   // so the overlay cannot cover the sheet's handle or the attribution in its peek.
   const [phoneTopOverlay, setPhoneTopOverlay] = useState<HTMLElement | null>(null);
@@ -1008,8 +1011,8 @@ export function MapPage({
           <NearbySpotsMap
             center={center}
             zoom={mapZoom}
-            spots={mapCommunitySpots}
-            municipalFacilities={mapMunicipalFacilities}
+            spots={mapUnavailable ? [] : mapCommunitySpots}
+            municipalFacilities={mapUnavailable ? [] : mapMunicipalFacilities}
             onPickCenter={handlePickCenter}
             selectedId={communityLayerVisible ? selectedId : null}
             selectedMunicipalId={
@@ -1067,6 +1070,7 @@ export function MapPage({
             recommendedRefIds={
               assistant.enabled && assistant.destination ? assistant.recommendedRefIds : undefined
             }
+            onStyleUnavailable={() => setMapUnavailable(true)}
           />
         </Suspense>
       </div>
@@ -1112,6 +1116,21 @@ export function MapPage({
             {geoStatus === 'error' && geoError ? (
               <div className="mt-sm">
                 <ErrorMessage message={geoError} />
+              </div>
+            ) : null}
+
+            {mapUnavailable ? (
+              <div
+                role="alert"
+                data-testid="map-page-map-unavailable"
+                className="mt-sm rounded-2xl bg-surface-container px-md py-sm"
+              >
+                <p id={mapUnavailableTitleId} className="m-0 text-label-md font-semibold text-on-surface">
+                  {t('mapUnavailableTitle')}
+                </p>
+                <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">
+                  {t('mapUnavailableBody')}
+                </p>
               </div>
             ) : null}
 
@@ -1270,6 +1289,21 @@ export function MapPage({
           {geoStatus === 'error' && geoError ? (
             <div className="pointer-events-auto mx-auto mt-xs max-w-[430px]">
               <ErrorMessage message={geoError} />
+            </div>
+          ) : null}
+
+          {mapUnavailable ? (
+            <div
+              role="alert"
+              data-testid="map-page-map-unavailable"
+              className="pointer-events-auto mx-auto mt-xs max-w-[430px] rounded-2xl bg-surface/90 px-md py-sm shadow-soft backdrop-blur-xl"
+            >
+              <p id={mapUnavailableTitleId} className="m-0 text-label-md font-semibold text-on-surface">
+                {t('mapUnavailableTitle')}
+              </p>
+              <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">
+                {t('mapUnavailableBody')}
+              </p>
             </div>
           ) : null}
 

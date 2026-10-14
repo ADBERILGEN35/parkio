@@ -212,10 +212,11 @@ describe('NearbySpotsMap', () => {
     expect(onSelectMunicipal).toHaveBeenCalledWith('fac-a');
   });
 
-  describe('style failure (CL-F20)', () => {
+  describe('style failure (CL-F20 / N-11)', () => {
     type Handlers = {
       onError: (event: Record<string, unknown>) => void;
       onStyleData: () => void;
+      onSourceData: () => void;
       onLoad: () => void;
     };
 
@@ -242,17 +243,44 @@ describe('NearbySpotsMap', () => {
       expect(onStyleUnavailable).toHaveBeenCalledOnce();
     });
 
-    it('does not report tile or source errors', () => {
+    it('does not report isolated tile or source errors', () => {
       const onStyleUnavailable = vi.fn();
       const map = renderMap(onStyleUnavailable);
 
+      map.onStyleData();
       map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
       map.onError({ type: 'error', error: new Error('source'), sourceId: 'osm' });
 
       expect(onStyleUnavailable).not.toHaveBeenCalled();
     });
 
-    it('does not report errors after the style loaded', () => {
+    it('reports sustained tile or source errors after the style loaded', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      map.onStyleData();
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+
+      expect(onStyleUnavailable).toHaveBeenCalledOnce();
+    });
+
+    it('resets the tile/source streak when source data recovers', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      map.onStyleData();
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onSourceData();
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+
+      expect(onStyleUnavailable).not.toHaveBeenCalled();
+    });
+
+    it('does not report non-tile errors after the style loaded', () => {
       const onStyleUnavailable = vi.fn();
       const map = renderMap(onStyleUnavailable);
 
