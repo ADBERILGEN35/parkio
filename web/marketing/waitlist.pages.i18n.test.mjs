@@ -54,9 +54,9 @@ test('confirm and withdraw pages wire all visible copy through i18n keys', () =>
   for (const html of [confirmHtml, withdrawHtml]) {
     assert.match(html, /data-i18n="brand\.tagline"/);
     assert.match(html, /data-i18n="waitlist\.page\.kicker"/);
-    assert.match(html, /i18n\.js\?v=w01n1/);
-    assert.match(html, /waitlist\.js\?v=w01n1/);
-    assert.match(html, /styles\.css\?v=w01n1/);
+    assert.match(html, /i18n\.js\?v=w01n2/);
+    assert.match(html, /waitlist\.js\?v=w01n2/);
+    assert.match(html, /styles\.css\?v=w01n2/);
     assert.doesNotMatch(html, /GET istekleri/);
     assert.doesNotMatch(html, /Alternatif silme talepleri/);
   }

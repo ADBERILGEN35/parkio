@@ -51,8 +51,10 @@
   }
 
   function currentLocale() {
+    const docLang = document.documentElement && document.documentElement.lang;
+    if (docLang === 'en' || docLang === 'tr') return docLang;
     if (global.ParkioI18n) return global.ParkioI18n.resolveLocale();
-    return document.documentElement.lang === 'en' ? 'en' : 'tr';
+    return 'tr';
   }
 
   function tr(key) {
@@ -429,6 +431,7 @@
     isValidEmail,
     normalizeEmail,
     detectMode,
+    currentLocale,
     buildSubmitPayload,
     CONSENT_TEXT_VERSION,
     submitApi,
