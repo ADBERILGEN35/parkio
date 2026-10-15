@@ -3,6 +3,7 @@ package com.parkio.gateway.application.waitlist;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 public interface WaitlistInterestRepository {
@@ -22,16 +23,25 @@ public interface WaitlistInterestRepository {
 
     boolean withdrawByTokenHash(String tokenHash, Instant now);
 
-    boolean refreshPendingVerification(
+    /**
+     * Atomically claim a pending resend by CAS on {@code verification_claim_version}.
+     * On win: rotates tokens, increments the claim version, leaves sent_at/resend_count
+     * unchanged so failed delivery stays retryable. Loser returns empty and must not send.
+     *
+     * @return the new claim version when this caller won; empty when the CAS lost
+     */
+    OptionalLong claimPendingVerification(
             String emailHash,
+            long expectedClaimVersion,
             String verificationTokenHash,
             String withdrawTokenHash,
-            Instant expiresAt,
-            Instant sentAt,
-            int resendCount);
+            Instant expiresAt);
 
-    /** Records a successful outbound confirmation attempt (after delivery succeeds). */
-    void markVerificationSent(String emailHash, Instant sentAt, int resendCount);
+    /**
+     * Records a successful outbound confirmation attempt bound to the winning claim.
+     * A stale claim (superseded by a newer claim) updates zero rows and returns false.
+     */
+    boolean markVerificationSent(String emailHash, long claimVersion, Instant sentAt, int resendCount);
 
     /** Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)}. */
     long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo);

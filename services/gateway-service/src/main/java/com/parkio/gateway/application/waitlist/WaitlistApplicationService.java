@@ -120,6 +120,7 @@ public class WaitlistApplicationService {
                 now.plus(properties.getTokenTtl()),
                 null,
                 0,
+                0L,
                 null,
                 null,
                 ipHash,
@@ -129,7 +130,7 @@ public class WaitlistApplicationService {
                 .then(Mono.fromCallable(() -> {
                             boolean inserted = repository.insertPendingIfAbsent(interest);
                             if (inserted) {
-                                deliverConfirmation(email, verificationToken, withdrawToken, locale, emailHash, 0);
+                                deliverConfirmation(email, verificationToken, withdrawToken, locale, emailHash, 0L, 0);
                                 return true;
                             }
                             maybeResendPending(emailHash, email);
@@ -373,16 +374,23 @@ public class WaitlistApplicationService {
         String verificationToken = newToken();
         String withdrawToken = newToken();
         int nextResendCount = row.resendCount() + (row.verificationSentAt() == null ? 0 : 1);
-        // Rotate tokens first; mark sent only after delivery so failures remain retryable.
-        boolean refreshed = repository.refreshPendingVerification(
+        // Atomic claim (CAS on verification_claim_version) before provider I/O; loser does not send.
+        // Mark sent only after delivery so failures remain retryable under the same claim.
+        var claimed = repository.claimPendingVerification(
                 emailHash,
+                row.verificationClaimVersion(),
                 hasher.hash(verificationToken),
                 hasher.hash(withdrawToken),
-                now.plus(properties.getTokenTtl()),
-                row.verificationSentAt(),
-                row.resendCount());
-        if (refreshed) {
-            deliverConfirmation(email, verificationToken, withdrawToken, row.locale(), emailHash, nextResendCount);
+                now.plus(properties.getTokenTtl()));
+        if (claimed.isPresent()) {
+            deliverConfirmation(
+                    email,
+                    verificationToken,
+                    withdrawToken,
+                    row.locale(),
+                    emailHash,
+                    claimed.getAsLong(),
+                    nextResendCount);
         }
     }
 
@@ -392,10 +400,17 @@ public class WaitlistApplicationService {
             String withdrawToken,
             String locale,
             String emailHash,
+            long claimVersion,
             int resendCountAfterSuccess) {
         try {
             emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
-            repository.markVerificationSent(emailHash, clock.instant(), resendCountAfterSuccess);
+            boolean completed = repository.markVerificationSent(
+                    emailHash, claimVersion, clock.instant(), resendCountAfterSuccess);
+            if (!completed) {
+                log.warn(
+                        "Waitlist confirmation delivery succeeded but claim was superseded; emailHash={}",
+                        emailHash);
+            }
         } catch (RuntimeException ex) {
             log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
