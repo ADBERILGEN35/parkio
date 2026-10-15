@@ -24,22 +24,24 @@ public interface WaitlistInterestRepository {
     boolean withdrawByTokenHash(String tokenHash, Instant now);
 
     /**
-     * Atomically claims a pending resend by rotating tokens when {@code expectedVerificationTokenHash}
-     * still matches (token CAS). Does not touch sent_at/resend_count; delivery completion does.
-     * @return true when this caller obtained the claim
+     * Atomically claim a pending resend by CAS on {@code verification_claim_version}.
+     * On win: rotates tokens, increments the claim version, leaves sent_at/resend_count
+     * unchanged so failed delivery stays retryable. Loser returns empty and must not send.
+     *
+     * @return the new claim version when this caller won; empty when the CAS lost
      */
-    boolean refreshPendingVerification(
+    OptionalLong claimPendingVerification(
             String emailHash,
-            String expectedVerificationTokenHash,
+            long expectedClaimVersion,
             String verificationTokenHash,
             String withdrawTokenHash,
             Instant expiresAt);
 
     /**
-     * Records a successful outbound confirmation attempt bound to the winning claim token.
-     * @return true when the claim still owns the row (stale completions return false)
+     * Records a successful outbound confirmation attempt bound to the winning claim.
+     * A stale claim (superseded by a newer claim) updates zero rows and returns false.
      */
-    boolean markVerificationSent(String emailHash, String verificationTokenHash, Instant sentAt, int resendCount);
+    boolean markVerificationSent(String emailHash, long claimVersion, Instant sentAt, int resendCount);
 
     /** Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)}. */
     long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo);

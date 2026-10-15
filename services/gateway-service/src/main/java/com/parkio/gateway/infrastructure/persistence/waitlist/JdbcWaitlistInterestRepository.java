@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,10 +39,10 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                         consent_text_version, full_name,
                         city, role, source, locale,
                         status, verification_token_hash, withdraw_token_hash, verification_expires_at,
-                        verification_sent_at, resend_count, confirmed_at, withdrawn_at,
+                        verification_sent_at, resend_count, verification_claim_version, confirmed_at, withdrawn_at,
                         ip_hash, user_agent_hash, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     interest.id(),
                     interest.email(),
@@ -60,6 +61,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                     toTimestamp(interest.verificationExpiresAt()),
                     toTimestamp(interest.verificationSentAt()),
                     interest.resendCount(),
+                    interest.verificationClaimVersion(),
                     toTimestamp(interest.confirmedAt()),
                     toTimestamp(interest.withdrawnAt()),
                     interest.ipHash(),
@@ -126,44 +128,49 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     }
 
     @Override
-    public boolean refreshPendingVerification(
+    public OptionalLong claimPendingVerification(
             String emailHash,
-            String expectedVerificationTokenHash,
+            long expectedClaimVersion,
             String verificationTokenHash,
             String withdrawTokenHash,
             Instant expiresAt) {
-        // Token CAS: only the contender that still sees the expected hash obtains the send claim.
+        // CAS on claim version: only one contender rotates tokens and may send.
+        // sent_at / resend_count stay untouched until markVerificationSent binds to this claim.
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_token_hash = ?,
                     withdraw_token_hash = ?,
-                    verification_expires_at = ?
+                    verification_expires_at = ?,
+                    verification_claim_version = verification_claim_version + 1
                 WHERE email_hash = ?
                   AND status = 'PENDING'
-                  AND verification_token_hash IS NOT DISTINCT FROM ?
+                  AND verification_claim_version = ?
                 """,
                 verificationTokenHash,
                 withdrawTokenHash,
                 Timestamp.from(expiresAt),
                 emailHash,
-                expectedVerificationTokenHash);
-        return updated > 0;
+                expectedClaimVersion);
+        if (updated == 0) {
+            return OptionalLong.empty();
+        }
+        return OptionalLong.of(expectedClaimVersion + 1);
     }
 
     @Override
-    public boolean markVerificationSent(String emailHash, String verificationTokenHash, Instant sentAt, int resendCount) {
+    public boolean markVerificationSent(String emailHash, long claimVersion, Instant sentAt, int resendCount) {
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_sent_at = ?,
                     resend_count = ?
                 WHERE email_hash = ?
                   AND status = 'PENDING'
-                  AND verification_token_hash IS NOT DISTINCT FROM ?
+                  AND verification_claim_version = ?
                 """,
                 Timestamp.from(sentAt),
                 resendCount,
                 emailHash,
-                verificationTokenHash);
+                claimVersion);
         return updated > 0;
     }
 
@@ -346,6 +353,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 toInstant(rs.getTimestamp("verification_expires_at")),
                 toInstant(rs.getTimestamp("verification_sent_at")),
                 rs.getInt("resend_count"),
+                rs.getLong("verification_claim_version"),
                 toInstant(rs.getTimestamp("confirmed_at")),
                 toInstant(rs.getTimestamp("withdrawn_at")),
                 rs.getString("ip_hash"),

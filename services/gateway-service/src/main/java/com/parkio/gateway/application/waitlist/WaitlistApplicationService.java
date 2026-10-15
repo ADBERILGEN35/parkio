@@ -120,6 +120,7 @@ public class WaitlistApplicationService {
                 now.plus(properties.getTokenTtl()),
                 null,
                 0,
+                0L,
                 null,
                 null,
                 ipHash,
@@ -129,7 +130,7 @@ public class WaitlistApplicationService {
                 .then(Mono.fromCallable(() -> {
                             boolean inserted = repository.insertPendingIfAbsent(interest);
                             if (inserted) {
-                                deliverConfirmation(email, verificationToken, withdrawToken, locale, emailHash, 0);
+                                deliverConfirmation(email, verificationToken, withdrawToken, locale, emailHash, 0L, 0);
                                 return true;
                             }
                             maybeResendPending(emailHash, email);
@@ -373,19 +374,23 @@ public class WaitlistApplicationService {
         String verificationToken = newToken();
         String withdrawToken = newToken();
         int nextResendCount = row.resendCount() + (row.verificationSentAt() == null ? 0 : 1);
-        String verificationTokenHash = hasher.hash(verificationToken);
-        // Claim via token CAS before provider I/O; loser must not send. Sent_at/count stay
-        // unchanged until markVerificationSent so failed delivery remains retryable.
-        boolean claimed = repository.refreshPendingVerification(
+        // Atomic claim (CAS on verification_claim_version) before provider I/O; loser does not send.
+        // Mark sent only after delivery so failures remain retryable under the same claim.
+        var claimed = repository.claimPendingVerification(
                 emailHash,
-                row.verificationTokenHash(),
-                verificationTokenHash,
+                row.verificationClaimVersion(),
+                hasher.hash(verificationToken),
                 hasher.hash(withdrawToken),
                 now.plus(properties.getTokenTtl()));
-        if (claimed) {
+        if (claimed.isPresent()) {
             deliverConfirmation(
-                    email, verificationToken, withdrawToken, row.locale(), emailHash,
-                    verificationTokenHash, nextResendCount);
+                    email,
+                    verificationToken,
+                    withdrawToken,
+                    row.locale(),
+                    emailHash,
+                    claimed.getAsLong(),
+                    nextResendCount);
         }
     }
 
@@ -395,32 +400,15 @@ public class WaitlistApplicationService {
             String withdrawToken,
             String locale,
             String emailHash,
-            int resendCountAfterSuccess) {
-        deliverConfirmation(
-                email,
-                verificationToken,
-                withdrawToken,
-                locale,
-                emailHash,
-                hasher.hash(verificationToken),
-                resendCountAfterSuccess);
-    }
-
-    private void deliverConfirmation(
-            String email,
-            String verificationToken,
-            String withdrawToken,
-            String locale,
-            String emailHash,
-            String verificationTokenHash,
+            long claimVersion,
             int resendCountAfterSuccess) {
         try {
             emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
-            boolean marked = repository.markVerificationSent(
-                    emailHash, verificationTokenHash, clock.instant(), resendCountAfterSuccess);
-            if (!marked) {
+            boolean completed = repository.markVerificationSent(
+                    emailHash, claimVersion, clock.instant(), resendCountAfterSuccess);
+            if (!completed) {
                 log.warn(
-                        "Waitlist confirmation mark skipped; claim superseded after send; emailHash={}",
+                        "Waitlist confirmation delivery succeeded but claim was superseded; emailHash={}",
                         emailHash);
             }
         } catch (RuntimeException ex) {
