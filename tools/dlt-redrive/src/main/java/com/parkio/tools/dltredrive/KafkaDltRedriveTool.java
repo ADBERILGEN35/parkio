@@ -31,6 +31,8 @@ public final class KafkaDltRedriveTool {
     private static final int DEFAULT_MAX_RECORDS = 10;
     private static final int DEFAULT_TIMEOUT_MS = 10_000;
     private static final int DEFAULT_MAX_REDRIVE_ATTEMPTS = 3;
+    /** Spring Kafka {@code DeadLetterPublishingRecoverer} original-topic header. */
+    static final String ORIGINAL_TOPIC_HEADER = "kafka_dlt-original-topic";
 
     private KafkaDltRedriveTool() {
     }
@@ -103,13 +105,7 @@ public final class KafkaDltRedriveTool {
         }
 
         // Check every selected record before producing any, so a batch is never half redriven.
-        for (ConsumerRecord<byte[], byte[]> record : records) {
-            if (redriveAttempts(record.headers()) + 1 > options.maxRedriveAttempts()) {
-                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
-                        + record.offset() + " exceeds max redrive attempts " + options.maxRedriveAttempts()
-                        + "; nothing was redriven");
-            }
-        }
+        requireBatchReadyToRedrive(records, options);
 
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(producerProps)) {
             for (ConsumerRecord<byte[], byte[]> record : records) {
@@ -169,6 +165,66 @@ public final class KafkaDltRedriveTool {
         } catch (NumberFormatException ex) {
             return 0;
         }
+    }
+
+    /**
+     * Fail-closed batch preflight: attempt limits and original-topic headers must all pass
+     * before any producer send. A single bad record refuses the entire selection.
+     */
+    static void requireBatchReadyToRedrive(List<? extends ConsumerRecord<?, ?>> records, Options options) {
+        for (ConsumerRecord<?, ?> record : records) {
+            if (redriveAttempts(record.headers()) + 1 > options.maxRedriveAttempts()) {
+                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                        + record.offset() + " exceeds max redrive attempts " + options.maxRedriveAttempts()
+                        + "; nothing was redriven");
+            }
+            requireOriginalTopicMatchesTarget(record, options.targetTopic());
+        }
+    }
+
+    /**
+     * Fail-closed original-topic check: every selected record must carry one unambiguous
+     * {@value #ORIGINAL_TOPIC_HEADER} value equal to {@code targetTopic}. Missing, blank,
+     * or conflicting duplicate headers refuse the whole batch before any send.
+     */
+    static void requireOriginalTopicMatchesTarget(ConsumerRecord<?, ?> record, String targetTopic) {
+        String original = requireOriginalTopic(record);
+        if (!targetTopic.equals(original)) {
+            throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                    + record.offset() + " " + ORIGINAL_TOPIC_HEADER + "=" + original
+                    + " does not match --target-topic " + targetTopic + "; nothing was redriven");
+        }
+    }
+
+    static String requireOriginalTopic(ConsumerRecord<?, ?> record) {
+        String seen = null;
+        int count = 0;
+        for (Header header : record.headers().headers(ORIGINAL_TOPIC_HEADER)) {
+            if (header.value() == null) {
+                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                        + record.offset() + " has a null " + ORIGINAL_TOPIC_HEADER
+                        + " header; nothing was redriven");
+            }
+            String value = new String(header.value(), StandardCharsets.UTF_8);
+            if (value.isBlank()) {
+                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                        + record.offset() + " has a blank " + ORIGINAL_TOPIC_HEADER
+                        + " header; nothing was redriven");
+            }
+            if (seen != null && !seen.equals(value)) {
+                throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                        + record.offset() + " has conflicting " + ORIGINAL_TOPIC_HEADER
+                        + " headers (" + seen + " vs " + value + "); nothing was redriven");
+            }
+            seen = value;
+            count++;
+        }
+        if (count == 0) {
+            throw new IllegalStateException("record " + record.topic() + "-" + record.partition() + "@"
+                    + record.offset() + " is missing " + ORIGINAL_TOPIC_HEADER
+                    + "; nothing was redriven");
+        }
+        return seen;
     }
 
     private static Header header(String key, String value) {
@@ -444,7 +500,8 @@ public final class KafkaDltRedriveTool {
                       target topic cannot be a DLT topic; batch size is capped at 100.
                       unknown options and out-of-range offsets are refused before any write;
                       only records present when the run starts are read; if any selected record
-                      is over --max-redrive-attempts, nothing is redriven.
+                      is over --max-redrive-attempts, or its kafka_dlt-original-topic is missing,
+                      blank, conflicting, or not equal to --target-topic, nothing is redriven.
                     """);
         }
 

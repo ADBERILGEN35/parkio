@@ -127,6 +127,29 @@ class KafkaDltRedriveToolIT {
     }
 
     @Test
+    void mismatchedOriginalTopicStopsTheBatchBeforeAnyWrite() throws Exception {
+        String wrongTarget = target + "-other";
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            admin.createTopics(List.of(new NewTopic(wrongTarget, 1, (short) 1))).all().get();
+        }
+        try (KafkaProducer<byte[], byte[]> producer = producer()) {
+            ProducerRecord<byte[], byte[]> poison = new ProducerRecord<>(dlt, 1,
+                    "poison".getBytes(StandardCharsets.UTF_8),
+                    "{\"eventId\":\"poison\"}".getBytes(StandardCharsets.UTF_8));
+            poison.headers().add(new RecordHeader("eventId", "poison".getBytes(StandardCharsets.UTF_8)));
+            poison.headers().add(new RecordHeader(
+                    KafkaDltRedriveTool.ORIGINAL_TOPIC_HEADER, wrongTarget.getBytes(StandardCharsets.UTF_8)));
+            producer.send(poison).get();
+        }
+
+        assertThatThrownBy(() -> redrive("--execute", "--partition", "1", "--from-offset", "0", "--to-offset", "3"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("does not match --target-topic")
+                .hasMessageContaining("nothing was redriven");
+        assertThat(targetEventIds()).isEmpty();
+    }
+
+    @Test
     void replayingTheSameSelectionKeepsTheEventIdForDownstreamDeduplication() {
         redrive("--execute", "--partition", "0", "--from-offset", "1", "--to-offset", "1");
         redrive("--execute", "--partition", "0", "--from-offset", "1", "--to-offset", "1");
@@ -161,6 +184,8 @@ class KafkaDltRedriveToolIT {
         ProducerRecord<byte[], byte[]> record = new ProducerRecord<>(dlt, partition,
                 eventId.getBytes(StandardCharsets.UTF_8), ("{\"eventId\":\"" + eventId + "\"}").getBytes(StandardCharsets.UTF_8));
         record.headers().add(new RecordHeader("eventId", eventId.getBytes(StandardCharsets.UTF_8)));
+        record.headers().add(new RecordHeader(
+                KafkaDltRedriveTool.ORIGINAL_TOPIC_HEADER, target.getBytes(StandardCharsets.UTF_8)));
         if (previousRedrives > 0) {
             record.headers().add(new RecordHeader("parkio-redrive-attempt",
                     Integer.toString(previousRedrives).getBytes(StandardCharsets.UTF_8)));
