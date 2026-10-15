@@ -77,9 +77,8 @@ export interface NearbySpotsMapProps {
    */
   attributionTarget?: HTMLElement | null;
   /**
-   * Called once when the basemap stays unusable (CL-F20 / N-11): the style never loads, or tile/source
-   * errors keep firing past a short streak. Transient tile blips do not fire it; style data and load
-   * events clear the streak. The map stays empty then, so the page can offer another view.
+   * Called once when the map style never becomes usable (CL-F20 / N-11). Tile/source errors after the
+   * style has loaded stay on the map as a recoverable notice and do not fire this callback.
    */
   onStyleUnavailable?: () => void;
   /**
@@ -97,8 +96,9 @@ type PixelOffset = [number, number];
 const NO_OFFSET: PixelOffset = [0, 0];
 const NO_OFFSETS: ReadonlyMap<string, PixelOffset> = new globalThis.Map();
 
-/** Consecutive tile/source map errors before treating the basemap as unavailable. */
-const TILE_SOURCE_ERROR_THRESHOLD = 3;
+/** Tile/source errors inside this window surface a recoverable notice (not a fatal style failure). */
+const TILE_ERROR_WINDOW_MS = 10_000;
+const TILE_ERROR_NOTICE_THRESHOLD = 3;
 
 function sameOffsets(a: ReadonlyMap<string, PixelOffset>, b: ReadonlyMap<string, PixelOffset>): boolean {
   if (a.size !== b.size) return false;
@@ -269,9 +269,13 @@ export function NearbySpotsMap({
   const { t } = useTranslation('map');
   const styleReadyRef = useRef(false);
   const styleFailureReportedRef = useRef(false);
-  const tileSourceErrorStreakRef = useRef(0);
+  const mapInitFailedReportedRef = useRef(false);
+  const tileErrorTimestampsRef = useRef<number[]>([]);
+  const [tileDegraded, setTileDegraded] = useState(false);
+  const [mapReloadKey, setMapReloadKey] = useState(0);
   const descriptionId = useId();
   const selectionId = useId();
+  const tileNoticeId = useId();
   // Stable selection handler: passed by reference to every marker so the memoized
   // `SpotMarker` only re-renders when *its own* `selected` flag flips. Selecting a
   // spot therefore re-renders two markers (the old + new selection), not all N.
@@ -281,6 +285,15 @@ export function NearbySpotsMap({
     [onSelectMunicipalFacility],
   );
   const handleSelectParkedCar = useCallback(() => onSelectParkedCar?.(), [onSelectParkedCar]);
+  const clearTileDegradation = useCallback(() => {
+    tileErrorTimestampsRef.current = [];
+    setTileDegraded(false);
+  }, []);
+  const handleRetryTiles = useCallback(() => {
+    clearTileDegradation();
+    styleReadyRef.current = false;
+    setMapReloadKey((key) => key + 1);
+  }, [clearTileDegradation]);
   const [fanOffsets, setFanOffsets] = useState<ReadonlyMap<string, PixelOffset>>(NO_OFFSETS);
   const handleFanOffsets = useCallback(
     (next: ReadonlyMap<string, PixelOffset>) => setFanOffsets((previous) => (sameOffsets(previous, next) ? previous : next)),
@@ -366,9 +379,17 @@ export function NearbySpotsMap({
       role="region"
       aria-label={ariaLabel}
       aria-describedby={
-        ariaDescription || selectionSummary ? [ariaDescription ? descriptionId : null, selectionSummary ? selectionId : null].filter(Boolean).join(' ') : undefined
+        ariaDescription || selectionSummary || tileDegraded
+          ? [
+              ariaDescription ? descriptionId : null,
+              selectionSummary ? selectionId : null,
+              tileDegraded ? tileNoticeId : null,
+            ]
+              .filter(Boolean)
+              .join(' ')
+          : undefined
       }
-      className="h-full w-full"
+      className="relative h-full w-full"
       style={{ height, width: '100%' }}
     >
       {ariaDescription ? (
@@ -381,7 +402,29 @@ export function NearbySpotsMap({
           {selectionSummary}
         </p>
       ) : null}
+      {tileDegraded ? (
+        <div
+          id={tileNoticeId}
+          role="status"
+          aria-live="polite"
+          data-testid="map-tile-degraded-notice"
+          className="pointer-events-auto absolute inset-x-0 top-0 z-30 m-sm flex flex-wrap items-center gap-sm rounded-2xl bg-surface-container px-md py-sm shadow-md"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="m-0 text-label-md font-semibold text-on-surface">{t('mapTileDegradedTitle')}</p>
+            <p className="m-0 mt-0.5 text-label-sm text-on-surface-variant">{t('mapTileDegradedBody')}</p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 rounded-full bg-primary px-md py-xs text-label-sm font-semibold text-on-primary hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={handleRetryTiles}
+          >
+            {t('mapTileDegradedRetry')}
+          </button>
+        </div>
+      ) : null}
       <Map
+        key={mapReloadKey}
         initialViewState={{ longitude: center.lng, latitude: center.lat, zoom }}
         mapStyle={getMapStyle()}
         // Only a map with an attribution target turns its own control off. An explicit
@@ -391,19 +434,22 @@ export function NearbySpotsMap({
         pitchWithRotate={false}
         onLoad={() => {
           styleReadyRef.current = true;
-          tileSourceErrorStreakRef.current = 0;
+          clearTileDegradation();
           trackProductEvent('map_ready');
         }}
         onStyleData={() => {
           styleReadyRef.current = true;
-          tileSourceErrorStreakRef.current = 0;
+          // Style readiness alone is not recovery; successful sourcedata clears the notice.
         }}
         onSourceData={() => {
-          // Successful source/tile data clears a transient failure streak (N-11).
-          tileSourceErrorStreakRef.current = 0;
+          // Successful source/tile data clears a transient tile degradation notice (R-02 / #412).
+          clearTileDegradation();
         }}
         onError={(event) => {
-          trackProductEvent('map_init_failed', { mapErrorCode: 'load_failed' });
+          if (!mapInitFailedReportedRef.current) {
+            mapInitFailedReportedRef.current = true;
+            trackProductEvent('map_init_failed', { mapErrorCode: 'load_failed' });
+          }
           const fromTileOrSource = 'sourceId' in event || 'tile' in event;
           if (styleFailureReportedRef.current) {
             return;
@@ -413,11 +459,14 @@ export function NearbySpotsMap({
             onStyleUnavailable?.();
             return;
           }
-          if (fromTileOrSource) {
-            tileSourceErrorStreakRef.current += 1;
-            if (tileSourceErrorStreakRef.current >= TILE_SOURCE_ERROR_THRESHOLD) {
-              styleFailureReportedRef.current = true;
-              onStyleUnavailable?.();
+          if (fromTileOrSource && styleReadyRef.current) {
+            const now = Date.now();
+            tileErrorTimestampsRef.current = [
+              ...tileErrorTimestampsRef.current.filter((stamp) => now - stamp < TILE_ERROR_WINDOW_MS),
+              now,
+            ];
+            if (tileErrorTimestampsRef.current.length >= TILE_ERROR_NOTICE_THRESHOLD) {
+              setTileDegraded(true);
             }
           }
         }}
