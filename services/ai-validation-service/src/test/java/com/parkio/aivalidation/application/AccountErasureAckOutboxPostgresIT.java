@@ -67,12 +67,40 @@ class AccountErasureAckOutboxPostgresIT {
     private static final List<String> TOPICS = List.of(ERASURE_TOPIC, "parkio.aivalidation.result");
     private static final UUID SENTINEL = UUID.fromString("00000000-0000-4000-8000-000000000001");
 
+    /** Bounded allowance for slow Docker pulls / contended scheduled runners (N-19 / #368). */
+    private static final Duration CONTAINER_STARTUP_TIMEOUT = Duration.ofMinutes(3);
+
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+                    .withStartupTimeout(CONTAINER_STARTUP_TIMEOUT);
 
     @Container
     static final KafkaContainer KAFKA =
-            new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"));
+            new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.7.1"))
+                    .withStartupTimeout(CONTAINER_STARTUP_TIMEOUT);
+
+    private static final long CONTAINERS_MARKED_AT_NANOS = System.nanoTime();
+
+    @BeforeAll
+    static void recordSanitizedContainerLifecycle() {
+        // Sanitized timing only: role, image name, running flag, elapsed ms. No JDBC URL / password / broker.
+        long elapsedMs = (System.nanoTime() - CONTAINERS_MARKED_AT_NANOS) / 1_000_000L;
+        org.slf4j.LoggerFactory.getLogger(AccountErasureAckOutboxPostgresIT.class)
+                .info(
+                        "testcontainers lifecycle role=postgres image={} running={} elapsedMs={} startupTimeoutSec={}",
+                        POSTGRES.getDockerImageName(),
+                        POSTGRES.isRunning(),
+                        elapsedMs,
+                        CONTAINER_STARTUP_TIMEOUT.toSeconds());
+        org.slf4j.LoggerFactory.getLogger(AccountErasureAckOutboxPostgresIT.class)
+                .info(
+                        "testcontainers lifecycle role=kafka image={} running={} elapsedMs={} startupTimeoutSec={}",
+                        KAFKA.getDockerImageName(),
+                        KAFKA.isRunning(),
+                        elapsedMs,
+                        CONTAINER_STARTUP_TIMEOUT.toSeconds());
+    }
 
     /**
      * The topics these tests publish to exist before the first send (#185 review N8). On a fresh

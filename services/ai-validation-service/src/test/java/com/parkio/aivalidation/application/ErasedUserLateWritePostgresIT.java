@@ -8,6 +8,7 @@ import com.parkio.aivalidation.application.event.ParkingSpotCreatedEvent;
 import com.parkio.aivalidation.application.event.UserErasureRequestedEvent;
 import com.parkio.aivalidation.domain.exception.AiValidationErrorCode;
 import com.parkio.aivalidation.domain.exception.AiValidationException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -38,9 +39,13 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers(disabledWithoutDocker = true)
 class ErasedUserLateWritePostgresIT {
 
+    /** Bounded allowance for slow Docker pulls / contended scheduled runners (N-19 / #368). */
+    private static final Duration CONTAINER_STARTUP_TIMEOUT = Duration.ofMinutes(3);
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+                    .withStartupTimeout(CONTAINER_STARTUP_TIMEOUT);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
