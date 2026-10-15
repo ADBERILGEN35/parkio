@@ -122,6 +122,40 @@ test('accepts a realistic map key and does not print it', () => {
   assert.equal(result.output.includes(realistic), false);
 });
 
+test('rejects CHANGE_ME, dummy, placeholder variants without printing them (F-05R)', () => {
+  const forbidden = [
+    'CHANGE_ME',
+    'dummy',
+    'placeholder',
+    '  change_me  ',
+    'DUMMY',
+    'Placeholder',
+  ];
+  for (const value of forbidden) {
+    const result = run({ VITE_APP_ENV: 'invite-production', VITE_MAPTILER_KEY: value });
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+    assert.match(result.output, /VITE_MAPTILER_KEY holds an example-env placeholder/);
+    // Status text contains the word "placeholder"; only assert value-free logs for
+    // forms that cannot collide with that vocabulary.
+    if (value.trim().toLowerCase() !== 'placeholder') {
+      assert.equal(result.output.includes(value.trim()), false, 'the value was printed');
+    }
+    if (value !== value.trim()) {
+      assert.equal(result.output.includes(value), false, 'the padded value was printed');
+    }
+  }
+});
+
+test('still accepts the scoped synthetic CI fixture at pre-build (F-05R)', () => {
+  const result = run({
+    VITE_APP_ENV: 'invite-production',
+    VITE_MAPTILER_KEY: FIXTURE_KEY,
+  });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /VITE_MAPTILER_KEY = PRESENT/);
+});
+
 test('does not check example-env map keys in a non-production build', () => {
   const result = run({ VITE_APP_ENV: 'development', VITE_MAPTILER_KEY: 'your_maptiler_key' });
   assert.equal(result.status, 0, result.output);
