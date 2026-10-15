@@ -79,6 +79,28 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     }
 
     @Override
+    public boolean rehashEmailIdentity(
+            String fromEmailHash, String toEmailHash, String toIpHash, String toUserAgentHash) {
+        if (fromEmailHash == null || toEmailHash == null || fromEmailHash.equals(toEmailHash)) {
+            return false;
+        }
+        int updated = jdbcTemplate.update(
+                """
+                UPDATE waitlist_interest
+                SET email_hash = ?,
+                    ip_hash = COALESCE(?, ip_hash),
+                    user_agent_hash = COALESCE(?, user_agent_hash)
+                WHERE email_hash = ?
+                  AND email_hash NOT LIKE 'withdrawn-%'
+                """,
+                toEmailHash,
+                toIpHash,
+                toUserAgentHash,
+                fromEmailHash);
+        return updated > 0;
+    }
+
+    @Override
     public Optional<WaitlistInterest> findByVerificationTokenHash(String tokenHash) {
         return queryOne("SELECT * FROM waitlist_interest WHERE verification_token_hash = ?", tokenHash);
     }

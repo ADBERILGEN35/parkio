@@ -49,6 +49,15 @@ public class WaitlistProperties {
      */
     private String hashSecretPrevious = "";
 
+    /**
+     * Dedicated HMAC secret for confirm/unsubscribe token digests (CL-N08). When blank, token
+     * digests use {@link #hashSecret}.
+     */
+    private String hashTokenSecret = "";
+
+    /** Optional previous token HMAC secret for dual-accept during token-secret rotation. */
+    private String hashTokenSecretPrevious = "";
+
     @NotBlank
     private String confirmBaseUrl = "https://parkio.dev/waitlist/confirm/";
 
@@ -133,6 +142,22 @@ public class WaitlistProperties {
 
     public void setHashSecretPrevious(String hashSecretPrevious) {
         this.hashSecretPrevious = hashSecretPrevious;
+    }
+
+    public String getHashTokenSecret() {
+        return hashTokenSecret;
+    }
+
+    public void setHashTokenSecret(String hashTokenSecret) {
+        this.hashTokenSecret = hashTokenSecret;
+    }
+
+    public String getHashTokenSecretPrevious() {
+        return hashTokenSecretPrevious;
+    }
+
+    public void setHashTokenSecretPrevious(String hashTokenSecretPrevious) {
+        this.hashTokenSecretPrevious = hashTokenSecretPrevious;
     }
 
     public String getConfirmBaseUrl() {

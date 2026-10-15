@@ -360,6 +360,9 @@ parkio:
     hash-secret: ${PARKIO_WAITLIST_HASH_SECRET:${PARKIO_GATEWAY_INTERNAL_SECRET:}}
     # Optional previous secret for dual-accept lookups during hash rotation. Empty = off.
     hash-secret-previous: ${PARKIO_WAITLIST_HASH_SECRET_PREVIOUS:}
+    # CL-N08: dedicated token HMAC (confirm/unsubscribe). Blank = share hash-secret (compat).
+    hash-token-secret: ${PARKIO_WAITLIST_HASH_TOKEN_SECRET:}
+    hash-token-secret-previous: ${PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS:}
     confirm-base-url: ${PARKIO_WAITLIST_CONFIRM_URL:https://parkio.dev/waitlist/confirm/}
     withdraw-base-url: ${PARKIO_WAITLIST_WITHDRAW_URL:https://parkio.dev/waitlist/unsubscribe/}
     token-ttl: ${PARKIO_WAITLIST_TOKEN_TTL:PT48H}

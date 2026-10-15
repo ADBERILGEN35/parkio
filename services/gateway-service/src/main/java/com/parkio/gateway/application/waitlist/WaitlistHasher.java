@@ -9,51 +9,105 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
+/**
+ * CL-N08: email identity HMAC and bearer-token HMAC may use different secrets so email-key
+ * rotation does not invalidate outstanding confirm/unsubscribe links. When the token secret is
+ * blank, both roles share {@code parkio.waitlist.hash-secret} (backward compatible).
+ */
 @Component
 public class WaitlistHasher {
 
     private static final String HMAC_SHA_256 = "HmacSHA256";
-    private final SecretKeySpec currentKey;
-    private final SecretKeySpec previousKey;
+    private final SecretKeySpec emailCurrentKey;
+    private final SecretKeySpec emailPreviousKey;
+    private final SecretKeySpec tokenCurrentKey;
+    private final SecretKeySpec tokenPreviousKey;
 
     public WaitlistHasher(WaitlistProperties properties) {
-        String secret = properties.getHashSecret();
-        if (secret == null || secret.length() < 32) {
-            throw new IllegalStateException("parkio.waitlist.hash-secret must be at least 32 characters.");
+        this.emailCurrentKey = requireKey(properties.getHashSecret(), "parkio.waitlist.hash-secret");
+        this.emailPreviousKey = optionalPrevious(
+                properties.getHashSecretPrevious(), properties.getHashSecret(), "parkio.waitlist.hash-secret-previous");
+        String tokenSecret = properties.getHashTokenSecret();
+        if (tokenSecret == null || tokenSecret.isBlank()) {
+            tokenSecret = properties.getHashSecret();
         }
-        this.currentKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256);
-        String previous = properties.getHashSecretPrevious();
-        if (previous == null || previous.isBlank()) {
-            this.previousKey = null;
-        } else {
-            if (previous.length() < 32) {
-                throw new IllegalStateException(
-                        "parkio.waitlist.hash-secret-previous must be at least 32 characters when set.");
-            }
-            if (previous.equals(secret)) {
-                this.previousKey = null;
+        this.tokenCurrentKey = requireKey(tokenSecret, "parkio.waitlist.hash-token-secret");
+        String tokenPrevious = properties.getHashTokenSecretPrevious();
+        if (tokenPrevious == null || tokenPrevious.isBlank()) {
+            // Fall back to email previous only when token secret itself falls back to email secret.
+            if (properties.getHashTokenSecret() == null || properties.getHashTokenSecret().isBlank()) {
+                this.tokenPreviousKey = this.emailPreviousKey;
             } else {
-                this.previousKey = new SecretKeySpec(previous.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256);
+                this.tokenPreviousKey = null;
             }
+        } else {
+            this.tokenPreviousKey = optionalPrevious(
+                    tokenPrevious, tokenSecret, "parkio.waitlist.hash-token-secret-previous");
         }
     }
 
-    /** Hash with the current secret only. Use for all durable writes. */
+    /** Hash with the current email secret only. Use for durable identity writes. */
     public String hash(String value) {
-        return hmacHex(currentKey, value);
+        return hmacHex(emailCurrentKey, value);
+    }
+
+    /** Hash with the current token secret only. Use for confirm/unsubscribe token digests. */
+    public String hashToken(String value) {
+        return hmacHex(tokenCurrentKey, value);
     }
 
     /**
-     * Candidate digests for lookups during a secret rotation: current first, then
-     * previous when configured. Writers must keep using {@link #hash(String)}.
+     * Candidate digests for email identity lookups during email-secret rotation: current first,
+     * then previous when configured.
      */
     public List<String> hashCandidates(String value) {
+        return candidates(emailCurrentKey, emailPreviousKey, value);
+    }
+
+    /** Candidate digests for bearer-token lookups during token-secret rotation. */
+    public List<String> hashTokenCandidates(String value) {
+        return candidates(tokenCurrentKey, tokenPreviousKey, value);
+    }
+
+    /** True when the stored email digest already matches the current email secret. */
+    public boolean isCurrentEmailHash(String email, String storedEmailHash) {
+        if (email == null || storedEmailHash == null) {
+            return true;
+        }
+        // Withdrawn placeholders are not HMAC identity digests.
+        if (storedEmailHash.startsWith("withdrawn-")) {
+            return true;
+        }
+        return hash(email).equals(storedEmailHash);
+    }
+
+    private static List<String> candidates(SecretKeySpec current, SecretKeySpec previous, String value) {
         Set<String> out = new LinkedHashSet<>();
-        out.add(hmacHex(currentKey, value));
-        if (previousKey != null) {
-            out.add(hmacHex(previousKey, value));
+        out.add(hmacHex(current, value));
+        if (previous != null) {
+            out.add(hmacHex(previous, value));
         }
         return new ArrayList<>(out);
+    }
+
+    private static SecretKeySpec requireKey(String secret, String name) {
+        if (secret == null || secret.length() < 32) {
+            throw new IllegalStateException(name + " must be at least 32 characters.");
+        }
+        return new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256);
+    }
+
+    private static SecretKeySpec optionalPrevious(String previous, String current, String name) {
+        if (previous == null || previous.isBlank()) {
+            return null;
+        }
+        if (previous.length() < 32) {
+            throw new IllegalStateException(name + " must be at least 32 characters when set.");
+        }
+        if (previous.equals(current)) {
+            return null;
+        }
+        return new SecretKeySpec(previous.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256);
     }
 
     private static String hmacHex(SecretKeySpec key, String value) {

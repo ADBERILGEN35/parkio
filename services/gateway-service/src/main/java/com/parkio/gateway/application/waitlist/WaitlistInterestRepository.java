@@ -15,6 +15,12 @@ public interface WaitlistInterestRepository {
 
     Optional<WaitlistInterest> findByEmailHash(String emailHash);
 
+    /**
+     * Rewrites identity digests for a row matched under a previous email secret (CL-N08).
+     * Returns true when the row was updated from {@code fromEmailHash} to {@code toEmailHash}.
+     */
+    boolean rehashEmailIdentity(String fromEmailHash, String toEmailHash, String toIpHash, String toUserAgentHash);
+
     Optional<WaitlistInterest> findByVerificationTokenHash(String tokenHash);
 
     Optional<WaitlistInterest> findByWithdrawTokenHash(String tokenHash);
