@@ -50,8 +50,10 @@ public class WaitlistProperties {
     private String hashSecretPrevious = "";
 
     /**
-     * Dedicated HMAC secret for confirm/unsubscribe token digests (CL-N08). When blank, token
-     * digests use {@link #hashSecret}.
+     * Dedicated HMAC secret for confirm/unsubscribe token digests (CL-N08 / R-06). When blank,
+     * token digests use {@link #hashSecret}. Blank is incompatible with
+     * {@link #hashSecretPrevious}: {@link WaitlistKeyRetirementGuard} refuses that configuration
+     * so email-key retirement cannot strand outstanding confirm/unsubscribe links.
      */
     private String hashTokenSecret = "";
 

@@ -8,7 +8,6 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Optional;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -25,9 +24,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * CL-N08: old-key email digests must not duplicate under a new email key, and either old
- * unsubscribe tokens keep working (dedicated token secret) or startup refuses when previous
- * is removed while unrehashed identity rows remain.
+ * CL-N08 / R-06: old-key email digests must not duplicate under a new email key; shared-secret
+ * email rotation is refused without a dedicated token secret; with a dedicated token secret,
+ * unsubscribe survives full email rehash and previous-secret removal.
  */
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
@@ -96,7 +95,9 @@ class WaitlistKeyRetirementPostgresIT {
                 (ip, em) -> reactor.core.publisher.Mono.empty(),
                 new NoopEmailSender(),
                 props,
-                new WaitlistOpsNotifier() { public void subscriptionConfirmed(java.util.UUID interestId, Instant confirmedAt) {} },
+                new WaitlistOpsNotifier() {
+                    public void subscriptionConfirmed(java.util.UUID interestId, Instant confirmedAt) {}
+                },
                 new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource())),
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -134,13 +135,52 @@ class WaitlistKeyRetirementPostgresIT {
                 (ip, em) -> reactor.core.publisher.Mono.empty(),
                 new NoopEmailSender(),
                 newOnly,
-                new WaitlistOpsNotifier() { public void subscriptionConfirmed(java.util.UUID interestId, Instant confirmedAt) {} },
+                new WaitlistOpsNotifier() {
+                    public void subscriptionConfirmed(java.util.UUID interestId, Instant confirmedAt) {}
+                },
                 new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource())),
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         service.withdraw(withdrawToken).block();
         assertThat(jdbc.queryForObject("SELECT status FROM waitlist_interest", String.class))
                 .isEqualTo("WITHDRAWN");
+    }
+
+    /**
+     * R-06 / #415: shared-secret default after full email rehash. Before the fix, previous could
+     * stay set (guard early-returned), then be removed after rehash; startup succeeded and the old
+     * unsubscribe token returned WAITLIST_TOKEN_INVALID. Refuse the shared mid-rotation config so
+     * that path cannot complete; dedicated token secret keeps unsubscribe working after previous
+     * removal (see {@link #afterIdentityRehashPreviousMayBeRemovedWhileStableTokenSecretKeepsUnsubscribeWorking}).
+     */
+    @Test
+    void afterIdentityRehash_sharedSecretWithPreviousRequiresDedicatedTokenSecret() {
+        String email = "shared-retire@parkio.dev";
+        String withdrawToken = "withdraw-token-dddddddddddddddddddd";
+        WaitlistHasher sharedOld = hasher(OLD_EMAIL_SECRET, "", "");
+        seedPending(email, sharedOld.hash(email), sharedOld.hashToken(withdrawToken));
+
+        WaitlistProperties rotatingShared = props(NEW_EMAIL_SECRET, OLD_EMAIL_SECRET, "");
+        WaitlistHasher rotatingHasher = new WaitlistHasher(rotatingShared);
+        jdbc.update(
+                "UPDATE waitlist_interest SET email_hash = ? WHERE email = ?",
+                rotatingHasher.hash(email),
+                email);
+
+        assertThatThrownBy(() ->
+                        new WaitlistKeyRetirementGuard(jdbc, rotatingHasher, rotatingShared)
+                                .assertEmailKeyRetirementSafe())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("hash-token-secret");
+
+        // Token secret equal to the new email secret is also refused (still couples retirement).
+        WaitlistProperties tokenEqualsCurrent = props(NEW_EMAIL_SECRET, OLD_EMAIL_SECRET, NEW_EMAIL_SECRET);
+        assertThatThrownBy(() ->
+                        new WaitlistKeyRetirementGuard(
+                                        jdbc, new WaitlistHasher(tokenEqualsCurrent), tokenEqualsCurrent)
+                                .assertEmailKeyRetirementSafe())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must differ");
     }
 
     private static void seedPending(String email, String emailHash, String withdrawHash) {

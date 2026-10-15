@@ -10,9 +10,11 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
 /**
- * CL-N08: email identity HMAC and bearer-token HMAC may use different secrets so email-key
+ * CL-N08 / R-06: email identity HMAC and bearer-token HMAC may use different secrets so email-key
  * rotation does not invalidate outstanding confirm/unsubscribe links. When the token secret is
- * blank, both roles share {@code parkio.waitlist.hash-secret} (backward compatible).
+ * blank, both roles share {@code parkio.waitlist.hash-secret} (backward compatible). That shared
+ * mode must not be combined with {@code hash-secret-previous}; see
+ * {@link WaitlistKeyRetirementGuard}.
  */
 @Component
 public class WaitlistHasher {
