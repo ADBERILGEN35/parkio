@@ -1,38 +1,44 @@
 # F-38R analytics snapshot concurrency — investigation record
 
-Issue: #382 · date: 2026-10-15 · api base: see PR head
+Issue: #382 · date: 2026-10-15 · PR: #409
 
 ## Scope
 
 Reproduce concurrent-first-row and `@Version` conflicts on analytics snapshot
-read/modify/save. Atomic UPDATE/upsert is **not** authorized unless loss is
-demonstrated.
+read/modify/save. Atomic UPDATE/upsert is **not** authorized by this issue until
+an owner decision after demonstrated loss.
 
 ## Method
 
 `AnalyticsSnapshotConcurrencyPostgresIT` (integrationTest, Testcontainers
 Postgres) fires eight concurrent `handlePointsEarned` calls with **distinct**
-event IDs against one user. Counts:
+event IDs against one user.
 
-- successful ingestions
-- `OptimisticLockingFailureException` / `ObjectOptimisticLockingFailureException`
-- other failures
-- `analytics_events` ledger rows vs `user_analytics_snapshots.event_count`
+## Observed evidence (2026-10-15 local IT)
 
-Kafka DLT (FixedBackOff 500ms × 2 then DLT) is the consumer-layer policy; this
-IT exercises the application service directly, so DLT delivery is out of scope
-here and is unchanged.
+```
+F-38R analytics concurrency: success=1 optimistic=0 other=7 ledger=1 snapshot_event_count=1
+```
+
+- `other=7` were `DataIntegrityViolationException` on unique constraint
+  `uq_daily_analytics_snapshots` (concurrent first-row insert race).
+- No `OptimisticLockingFailureException` was observed in this run.
+- For the successful transaction: `ledger == snapshot_event_count` (no silent
+  under-count).
+
+Kafka DLT (FixedBackOff 500ms × 2 then DLT) would see these failures if the
+consumer path raised them after retries; this IT calls the application service
+directly.
 
 ## Disposition
 
-See surefire output line `F-38R analytics concurrency: ...`.
-
-- If `ledger == snapshot_event_count` and failures are only optimistic locks or
-  zero, **silent conflict loss is not reproducible**.
-- Atomic snapshot UPDATE remains **out of scope** until an owner decision
-  authorizes it after a demonstrated loss.
+1. **Silent `@Version` conflict loss: not reproducible** in this run.
+2. **Concurrent first-row unique-constraint races: reproducible** (7/8 workers).
+3. Atomic upsert / `INSERT ... ON CONFLICT` for daily/user/parking snapshots is a
+   **candidate follow-up** requiring an explicit owner design gate — not implemented
+   here per issue scope.
 
 ## Occupancy batch half
 
-`MunicipalOccupancyBatchQueryIT` covers the authorized product fix: facility-list
-occupancy uses `latestForFacilities` (bounded), preserving mixed-source output.
+`MunicipalOccupancyBatchQueryIT`: facility-list uses `latestForFacilities` once
+(batch), zero per-facility occupancy calls; mixed IZUM/OSM publication preserved.
