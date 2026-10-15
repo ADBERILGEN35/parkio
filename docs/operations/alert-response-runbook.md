@@ -132,3 +132,28 @@ auto-complete individually (see stale runbook).
 - Capture alert labels, Grafana screenshots, and `docker compose ps`.
 - If data loss suspected, stop writes and follow the [DR runbook's incident response](./disaster-recovery-runbook.md#incident-response-while-data-recovery-is-blocked) (production restore is BLOCKED).
 - Do not paste webhook URLs, tokens, or DB passwords into tickets or chat.
+
+
+## WaitlistOpsOutboxPending
+
+Waitlist ops outbox pending > 0 for 30m. Check gateway `WaitlistOpsNotificationExporter`, inbox directory free space / backlog, and slack_biz waitlist consumer.
+
+## WaitlistOpsOutboxStale
+
+Oldest PENDING waitlist ops outbox row age > 30m. Same response as WaitlistOpsOutboxPending; confirm the exporter schedule is running.
+
+## WaitlistOpsInboxBacklog
+
+slack_biz waitlist inbox envelope count high. Consume or archive inbox JSON so export can resume.
+
+## SlackBizDeliveryUnknown
+
+`parkio_slack_biz_delivery_unknown > 0` from the textfile bridge (`scripts/slack_biz/export_textfile_metrics.py`). Inspect with `worker.py --list-unknown` and resolve deliberately.
+
+## SlackBizDltGrowth
+
+Slack biz DLT table depth increased. Inspect `--list-dlt`; redrive or archive. Distinct from Kafka DLT growth alerts.
+
+## NrBudgetGateExhausted
+
+Blackbox probe of NR budget-gate `/health` failed (HTTP 507 exhaustion or target down). Check `/stats`. Do not edit `budget_gate.py` without coordinating #104.

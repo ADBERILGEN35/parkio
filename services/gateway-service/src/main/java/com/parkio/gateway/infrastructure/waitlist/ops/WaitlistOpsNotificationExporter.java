@@ -61,6 +61,7 @@ public class WaitlistOpsNotificationExporter {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicLong pendingRows = new AtomicLong();
     private final AtomicLong inboxBacklog = new AtomicLong();
+    private final AtomicLong oldestPendingAgeSeconds = new AtomicLong();
     private volatile String lastDeferral;
 
     public WaitlistOpsNotificationExporter(
@@ -78,6 +79,9 @@ public class WaitlistOpsNotificationExporter {
                 .register(meterRegistry);
         Gauge.builder("parkio.waitlist.ops.inbox.backlog", inboxBacklog, AtomicLong::get)
                 .description("Unconsumed envelopes in the slack_biz waitlist inbox")
+                .register(meterRegistry);
+        Gauge.builder("parkio.waitlist.ops.outbox.oldest_pending_age_seconds", oldestPendingAgeSeconds, AtomicLong::get)
+                .description("Age in seconds of the oldest PENDING waitlist ops outbox row")
                 .register(meterRegistry);
     }
 
@@ -99,6 +103,7 @@ public class WaitlistOpsNotificationExporter {
         Instant now = clock.instant();
         outbox.purgeTerminalBefore(now.minus(properties.getRetention()));
         pendingRows.set(outbox.countPending());
+        oldestPendingAgeSeconds.set(outbox.oldestPendingAgeSeconds(now));
         Path dir = Path.of(properties.getExportDir());
         String deferral = backpressure(dir);
         if (deferral != null) {
@@ -138,6 +143,7 @@ public class WaitlistOpsNotificationExporter {
             }
         }
         pendingRows.set(outbox.countPending());
+        oldestPendingAgeSeconds.set(outbox.oldestPendingAgeSeconds(clock.instant()));
         return new ExportResult(exported, retried, failed, null);
     }
 

@@ -1,0 +1,152 @@
+# promtool unit tests for N-13 waitlist / Slack / budget-gate rules.
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: healthy signals stay quiet
+    interval: 1m
+    input_series:
+      - series: 'parkio_waitlist_ops_outbox_pending'
+        values: "0x40"
+      - series: 'parkio_waitlist_ops_outbox_oldest_pending_age_seconds'
+        values: "0x40"
+      - series: 'parkio_waitlist_ops_inbox_backlog'
+        values: "0x40"
+      - series: 'parkio_slack_biz_delivery_unknown'
+        values: "0x40"
+      - series: 'parkio_slack_biz_dlt_rows'
+        values: "0x40"
+      - series: 'probe_success{component="nr-budget-gate"}'
+        values: "1x40"
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: WaitlistOpsOutboxPending
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: WaitlistOpsOutboxStale
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: WaitlistOpsInboxBacklog
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: SlackBizDeliveryUnknown
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: SlackBizDltGrowth
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: NrBudgetGateExhausted
+        exp_alerts: []
+
+  - name: waitlist pending fires then resolves
+    interval: 1m
+    input_series:
+      - series: 'parkio_waitlist_ops_outbox_pending'
+        values: "3x35 0x10"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: WaitlistOpsOutboxPending
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: WaitlistOpsOutboxPending
+        exp_alerts:
+          - exp_labels:
+              alertname: WaitlistOpsOutboxPending
+              severity: warning
+              service: gateway-service
+            exp_annotations:
+              summary: "Waitlist ops outbox has pending exports"
+              description: "3 waitlist ops notification(s) pending export for >30m. Check gateway WaitlistOpsNotificationExporter and the slack_biz waitlist inbox directory."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsoutboxpending"
+      - eval_time: 50m
+        alertname: WaitlistOpsOutboxPending
+        exp_alerts: []
+
+  - name: waitlist oldest age and inbox backlog fire
+    interval: 1m
+    input_series:
+      - series: 'parkio_waitlist_ops_outbox_oldest_pending_age_seconds'
+        values: "2000x20"
+      - series: 'parkio_waitlist_ops_inbox_backlog'
+        values: "80x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: WaitlistOpsOutboxStale
+        exp_alerts:
+          - exp_labels:
+              alertname: WaitlistOpsOutboxStale
+              severity: warning
+              service: gateway-service
+            exp_annotations:
+              summary: "Oldest waitlist ops outbox row is stale"
+              description: "Oldest PENDING waitlist ops outbox row is 2000s old. Export may be deferred (inbox backlog / disk) or the exporter stopped."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsoutboxstale"
+      - eval_time: 15m
+        alertname: WaitlistOpsInboxBacklog
+        exp_alerts:
+          - exp_labels:
+              alertname: WaitlistOpsInboxBacklog
+              severity: warning
+              service: gateway-service
+            exp_annotations:
+              summary: "Waitlist ops slack_biz inbox backlog high"
+              description: "Waitlist ops inbox backlog is 80 envelopes. Consume or clear the inbox before export resumes."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsinboxbacklog"
+
+  - name: slack delivery_unknown and dlt growth fire
+    interval: 1m
+    input_series:
+      - series: 'parkio_slack_biz_delivery_unknown'
+        values: "2x20"
+      - series: 'parkio_slack_biz_dlt_rows'
+        values: "1x5 4x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SlackBizDeliveryUnknown
+        exp_alerts:
+          - exp_labels:
+              alertname: SlackBizDeliveryUnknown
+              severity: warning
+              service: slack-biz
+            exp_annotations:
+              summary: "Slack biz has delivery_unknown events"
+              description: "2 Slack biz delivery_unknown row(s). Resolve with worker --resolve-unknown or inspect --list-unknown; do not silently drop."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizdeliveryunknown"
+      - eval_time: 20m
+        alertname: SlackBizDltGrowth
+        exp_alerts:
+          - exp_labels:
+              alertname: SlackBizDltGrowth
+              severity: warning
+              service: slack-biz
+            exp_annotations:
+              summary: "Slack biz DLT table is growing"
+              description: "Slack biz DLT table depth increased over the last hour. Inspect --list-dlt and redrive or archive deliberately."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizdltgrowth"
+
+  - name: nr budget gate probe failure fires then recovers
+    interval: 1m
+    input_series:
+      - series: 'probe_success{component="nr-budget-gate"}'
+        values: "0x10 1x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: NrBudgetGateExhausted
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NrBudgetGateExhausted
+        exp_alerts:
+          - exp_labels:
+              alertname: NrBudgetGateExhausted
+              severity: warning
+              service: nr-budget-gate
+              component: nr-budget-gate
+            exp_annotations:
+              summary: "NR budget gate unhealthy or exhausted"
+              description: "Blackbox probe of the NR budget-gate /health endpoint failed for >2m (HTTP 507 exhaustion or probe target down). Check /stats; coordinate any budget_gate.py changes with #104."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#nrbudgetgateexhausted"
+      - eval_time: 20m
+        alertname: NrBudgetGateExhausted
+        exp_alerts: []
