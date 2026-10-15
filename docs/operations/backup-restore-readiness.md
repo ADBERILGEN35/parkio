@@ -185,6 +185,8 @@ is BLOCKED for that window.**
 
 ## 6. Operational state recovery
 
+> **Reconciliation record (F-25 / #376):** see [f25-operational-state-backup-gap-matrix.md](f25-operational-state-backup-gap-matrix.md). Open #101/#104 are not live backup coverage; #104 HOLD preserved.
+
 ### 6.1 Consistent SQLite backups
 
 **Never copy a live SQLite database file.** With WAL, recent commits live in `-wal` until
