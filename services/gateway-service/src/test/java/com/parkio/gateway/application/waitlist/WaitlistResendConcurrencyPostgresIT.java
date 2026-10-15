@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,9 +39,9 @@ import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 /**
- * F-33: two concurrent resend readers of the same pending row must yield exactly one send claim,
- * one mock provider dispatch, durable counter/token state for the winner, and refuse a stale
- * completion after a newer claim.
+ * F-33 / R-08: concurrent and overlapping resend readers of the same pending row must yield
+ * exactly one send claim, one mock provider dispatch, durable monotonic counter/token state for
+ * the winner, and refuse a stale completion after a newer claim.
  */
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
@@ -168,7 +169,9 @@ class WaitlistResendConcurrencyPostgresIT {
                         0L,
                         hasher.hash(claim1Verification),
                         hasher.hash(claim1Withdraw),
-                        FIXED_NOW.plus(Duration.ofHours(48))))
+                        FIXED_NOW.plus(Duration.ofHours(48)),
+                        FIXED_NOW,
+                        FIXED_NOW.plus(Duration.ofDays(3650))))
                 .hasValue(1L);
 
         String claim2Verification = "token-v2-eeeeeeeeeeeeeeee";
@@ -178,7 +181,9 @@ class WaitlistResendConcurrencyPostgresIT {
                         1L,
                         hasher.hash(claim2Verification),
                         hasher.hash(claim2Withdraw),
-                        FIXED_NOW.plus(Duration.ofHours(48))))
+                        FIXED_NOW.plus(Duration.ofHours(48)),
+                        FIXED_NOW.plusSeconds(1),
+                        FIXED_NOW.plus(Duration.ofDays(3650))))
                 .hasValue(2L);
 
         assertThat(realRepository.markVerificationSent(
@@ -198,6 +203,76 @@ class WaitlistResendConcurrencyPostgresIT {
         assertThat(afterWin.verificationSentAt()).isEqualTo(FIXED_NOW);
         assertThat(afterWin.verificationTokenHash()).isEqualTo(hasher.hash(claim2Verification));
         assertThat(afterWin.verificationClaimVersion()).isEqualTo(2L);
+
+        assertThat(realRepository.markVerificationSent(
+                        emailHash, 2L, FIXED_NOW.plusSeconds(5), 0))
+                .isTrue();
+        assertThat(realRepository.findByEmailHash(emailHash).orElseThrow().resendCount())
+                .isEqualTo(1);
+    }
+
+
+    @Test
+    void overlappingResendAfterClaimBeforeDeliveryYieldsOneSend() throws Exception {
+        String initialVerification = "initial-verification-token-cccccccc";
+        String initialWithdraw = "initial-withdraw-token-dddddddd";
+        insertPending(EMAIL, initialVerification, initialWithdraw, FIXED_NOW.minus(Duration.ofHours(1)), 0);
+
+        CountDownLatch aClaimed = new CountDownLatch(1);
+        CountDownLatch releaseASend = new CountDownLatch(1);
+        AtomicInteger claimWins = new AtomicInteger();
+
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.OptionalLong result = (java.util.OptionalLong) invocation.callRealMethod();
+            if (result.isPresent()) {
+                claimWins.incrementAndGet();
+                aClaimed.countDown();
+            }
+            return result;
+        }).when(repository).claimPendingVerification(
+                anyString(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                anyString(),
+                anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+
+        doAnswer(invocation -> {
+            sendCount.incrementAndGet();
+            sentVerificationToken.set(invocation.getArgument(1));
+            sentWithdrawToken.set(invocation.getArgument(2));
+            if (!releaseASend.await(15, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out waiting to release blocked send");
+            }
+            return null;
+        }).when(emailSender).sendConfirmation(anyString(), anyString(), anyString(), anyString());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            SubmitWaitlistCommand command = command(EMAIL);
+            Future<?> a = pool.submit(() -> service.submit(command).block());
+            assertThat(aClaimed.await(15, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> b = pool.submit(() -> service.submit(command).block());
+            b.get(30, TimeUnit.SECONDS);
+            releaseASend.countDown();
+            a.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(claimWins.get()).isEqualTo(1);
+        assertThat(sendCount.get()).isEqualTo(1);
+
+        WaitlistInterest row = realRepository.findByEmailHash(hasher.hash(EMAIL)).orElseThrow();
+        assertThat(row.resendCount()).isEqualTo(1);
+        assertThat(row.verificationClaimVersion()).isEqualTo(1L);
+        assertThat(row.verificationClaimedAt()).isEqualTo(FIXED_NOW);
+        assertThat(row.verificationSentAt()).isEqualTo(FIXED_NOW);
+        assertThat(row.verificationTokenHash()).isEqualTo(hasher.hash(sentVerificationToken.get()));
+        assertThat(row.withdrawTokenHash()).isEqualTo(hasher.hash(sentWithdrawToken.get()));
     }
 
     private static void insertPending(

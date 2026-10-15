@@ -155,24 +155,33 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
             long expectedClaimVersion,
             String verificationTokenHash,
             String withdrawTokenHash,
-            Instant expiresAt) {
-        // CAS on claim version: only one contender rotates tokens and may send.
+            Instant expiresAt,
+            Instant claimedAt,
+            Instant cooldownElapsedBefore) {
+        // CAS on claim version + cooldown vs sent_at/claimed_at: overlapping resends lose
+        // while a claim is in flight (claimed_at set before provider I/O).
         // sent_at / resend_count stay untouched until markVerificationSent binds to this claim.
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_token_hash = ?,
                     withdraw_token_hash = ?,
                     verification_expires_at = ?,
-                    verification_claim_version = verification_claim_version + 1
+                    verification_claim_version = verification_claim_version + 1,
+                    verification_claimed_at = ?
                 WHERE email_hash = ?
                   AND status = 'PENDING'
                   AND verification_claim_version = ?
+                  AND (verification_claimed_at IS NULL OR verification_claimed_at <= ?)
+                  AND (verification_sent_at IS NULL OR verification_sent_at <= ?)
                 """,
                 verificationTokenHash,
                 withdrawTokenHash,
                 Timestamp.from(expiresAt),
+                Timestamp.from(claimedAt),
                 emailHash,
-                expectedClaimVersion);
+                expectedClaimVersion,
+                Timestamp.from(cooldownElapsedBefore),
+                Timestamp.from(cooldownElapsedBefore));
         if (updated == 0) {
             return OptionalLong.empty();
         }
@@ -184,7 +193,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_sent_at = ?,
-                    resend_count = ?
+                    resend_count = GREATEST(resend_count, ?)
                 WHERE email_hash = ?
                   AND status = 'PENDING'
                   AND verification_claim_version = ?
@@ -374,6 +383,7 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
                 rs.getString("withdraw_token_hash"),
                 toInstant(rs.getTimestamp("verification_expires_at")),
                 toInstant(rs.getTimestamp("verification_sent_at")),
+                toInstant(rs.getTimestamp("verification_claimed_at")),
                 rs.getInt("resend_count"),
                 rs.getLong("verification_claim_version"),
                 toInstant(rs.getTimestamp("confirmed_at")),

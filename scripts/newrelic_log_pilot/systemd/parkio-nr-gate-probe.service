@@ -1,0 +1,29 @@
+# Probe NR budget-gate /health into the node-exporter textfile collector.
+# Quiet when the pilot/gate is absent; writes probe_success 0 on HTTP 507.
+# Does not edit budget_gate.py (#104 / #413).
+[Unit]
+Description=Parkio NR budget-gate health textfile probe
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+Environment=PARKIO_NR_GATE_TEXTFILE=/opt/parkio/docker/prometheus/textfile/parkio_nr_budget_gate.prom
+Environment=PARKIO_NR_GATE_COMPOSE_PROJECT=parkio-nr-log-continuous
+# Optional override when a host port is published (local pilot). Leave unset in production.
+# Environment=PARKIO_NR_GATE_PROBE_URL=http://127.0.0.1:18090/health
+ExecStart=/usr/bin/python3 /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/export_gate_probe_textfile.py --output ${PARKIO_NR_GATE_TEXTFILE} --compose-project ${PARKIO_NR_GATE_COMPOSE_PROJECT}
+Nice=10
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/opt/parkio/docker/prometheus/textfile
+ReadOnlyPaths=/opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot
+MemoryMax=64M
+TasksMax=32

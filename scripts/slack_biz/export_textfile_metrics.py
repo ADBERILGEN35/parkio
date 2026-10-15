@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Export slack_biz JSON metrics to a Prometheus textfile for node-exporter.
 
-Writes parkio_slack_biz_delivery_unknown and parkio_slack_biz_dlt_rows so alerts
-can scrape real series. Does not invent counters from absent data.
+Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows, and
+parkio_slack_biz_textfile_last_success_unixtime so alerts can scrape real
+series and detect a missing/stale exporter. Does not invent counters from
+absent data.
 """
 from __future__ import annotations
 
@@ -10,6 +12,7 @@ import argparse
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Allow `python3 scripts/slack_biz/export_textfile_metrics.py` from repo root.
@@ -21,11 +24,12 @@ from slack_biz.config import load_config  # noqa: E402
 from slack_biz.store import DeliveryStore  # noqa: E402
 
 
-def render(store: DeliveryStore) -> str:
+def render(store: DeliveryStore, when: int | None = None) -> str:
     unknown = store.count_by_status("delivery_unknown")
     with store._lock:  # noqa: SLF001 — intentional for a bounded COUNT
         row = store._conn.execute("SELECT COUNT(*) AS c FROM dlt").fetchone()
         dlt_rows = int(row["c"])
+    stamp = int(time.time() if when is None else when)
     lines = [
         "# HELP parkio_slack_biz_delivery_unknown Slack biz deliveries in delivery_unknown",
         "# TYPE parkio_slack_biz_delivery_unknown gauge",
@@ -33,12 +37,32 @@ def render(store: DeliveryStore) -> str:
         "# HELP parkio_slack_biz_dlt_rows Slack biz dead-letter table depth",
         "# TYPE parkio_slack_biz_dlt_rows gauge",
         f"parkio_slack_biz_dlt_rows {dlt_rows}",
+        "# HELP parkio_slack_biz_textfile_last_success_unixtime Unix time of last successful textfile export",
+        "# TYPE parkio_slack_biz_textfile_last_success_unixtime gauge",
+        f"parkio_slack_biz_textfile_last_success_unixtime {stamp}",
         "",
     ]
     return "\n".join(lines)
 
 
-def main() -> int:
+def atomic_write(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        dir=str(path.parent),
+        delete=False,
+        prefix=".parkio_slack_biz.",
+        suffix=".tmp",
+        encoding="utf-8",
+    ) as tmp:
+        tmp.write(body)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+    tmp_path.replace(path)
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output",
@@ -48,7 +72,7 @@ def main() -> int:
         ),
         help="Destination .prom path (atomic replace)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     cfg = load_config()
     store = DeliveryStore(
         cfg.db_path,
@@ -57,14 +81,8 @@ def main() -> int:
         worker_stale_seconds=cfg.worker_stale_seconds,
     )
     out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
     body = render(store)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=str(out.parent), delete=False, prefix=".parkio_slack_biz.", suffix=".tmp"
-    ) as tmp:
-        tmp.write(body)
-        tmp_path = Path(tmp.name)
-    tmp_path.replace(out)
+    atomic_write(out, body)
     print(f"wrote {out}")
     return 0
 

@@ -97,6 +97,9 @@ for s in "\${services[@]}"; do
         echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
       fi
       ;;
+    all_absent)
+      echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=ABSENT"
+      ;;
     *)
       echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
       ;;
@@ -154,7 +157,8 @@ grep -q 'not COMPLIANT' "$TMP/err" && pass "NEEDS_CHOWN error names the gate" ||
 grep -q 'STUB_PLAN' "$TMP/plan-calls.log" && pass "plan stub was invoked for refusal" || bad "plan stub was invoked for refusal"
 
 write_plan_stub absent
-wrap 1 no "refuse up when a volume is ABSENT" up -d --no-build --no-deps redis
+wrap 0 yes "allow up when a volume is ABSENT (fresh/DR)" up -d --no-build --no-deps redis
+grep -q 'COMPLIANT or ABSENT' "$TMP/err" && pass "ABSENT pass message names the gate" || bad "ABSENT pass message names the gate"
 
 write_plan_stub omit_redis
 wrap 1 no "refuse up when plan omits a required service" up -d --no-build --no-deps gateway-service
@@ -245,6 +249,33 @@ wrap 1 no "refuse run when not COMPLIANT" run --rm redis true
 
 write_plan_stub compliant
 wrap 0 yes "compliant create proceeds" create redis
+
+
+# --- R-05 / #414: fresh host all ABSENT, value-taking flags, private stderr ---
+write_plan_stub all_absent
+wrap 0 yes "fresh host all ABSENT allows up" up -d --no-build --no-deps redis
+
+write_plan_stub needs_chown
+wrap 1 no "refuse --parallel 2 up when NEEDS_CHOWN" --parallel 2 up -d --no-build --no-deps redis
+grep -q 'not COMPLIANT/ABSENT\|not COMPLIANT' "$TMP/err" && pass "--parallel 2 NEEDS_CHOWN error names the gate" || bad "--parallel 2 NEEDS_CHOWN error names the gate"
+
+# Private mktemp stderr: force plan failure and ensure no world-readable fixed /tmp path is required
+write_plan_stub fail
+reset_logs
+rm -f /tmp/parkio-nonroot-volume-gate.err
+set +e
+PARKIO_ENV_FILE="$ENV_FILE" \
+  PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$TMP/nonroot-volume-migration.sh" \
+  PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE \
+  PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D \
+  bash scripts/parkio-prod-compose.sh up -d --no-build --no-deps redis >"$TMP/out" 2>"$TMP/err"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] && ! grep -q '^MUTATION ' "$TMP/mutations.log" \
+  && ! test -e /tmp/parkio-nonroot-volume-gate.err \
+  && grep -q 'stub plan boom' "$TMP/err" \
+  && pass "plan failure uses private mktemp stderr (no fixed /tmp file)" \
+  || bad "plan failure uses private mktemp stderr (no fixed /tmp file)"
 
 echo
 echo "=== summary: $TESTS tests, $FAILED failed ==="

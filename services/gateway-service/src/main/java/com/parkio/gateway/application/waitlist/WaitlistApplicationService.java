@@ -119,6 +119,7 @@ public class WaitlistApplicationService {
                 hasher.hashToken(withdrawToken),
                 now.plus(properties.getTokenTtl()),
                 null,
+                null,
                 0,
                 0L,
                 null,
@@ -376,21 +377,25 @@ public class WaitlistApplicationService {
         if (row.resendCount() >= properties.getMaxResends()) {
             return;
         }
-        if (row.verificationSentAt() != null
-                && row.verificationSentAt().plus(properties.getResendCooldown()).isAfter(now)) {
+        Instant lastActivity = laterInstant(row.verificationSentAt(), row.verificationClaimedAt());
+        if (lastActivity != null
+                && lastActivity.plus(properties.getResendCooldown()).isAfter(now)) {
             return;
         }
         String verificationToken = newToken();
         String withdrawToken = newToken();
         int nextResendCount = row.resendCount() + (row.verificationSentAt() == null ? 0 : 1);
-        // Atomic claim (CAS on verification_claim_version) before provider I/O; loser does not send.
-        // Mark sent only after delivery so failures remain retryable under the same claim.
+        // Atomic claim (CAS on verification_claim_version + cooldown vs claimed_at/sent_at)
+        // before provider I/O; loser does not send. Mark sent only after delivery so failures
+        // remain retryable under the same claim.
         var claimed = repository.claimPendingVerification(
                 emailHash,
                 row.verificationClaimVersion(),
                 hasher.hashToken(verificationToken),
                 hasher.hashToken(withdrawToken),
-                now.plus(properties.getTokenTtl()));
+                now.plus(properties.getTokenTtl()),
+                now,
+                now.minus(properties.getResendCooldown()));
         if (claimed.isPresent()) {
             deliverConfirmation(
                     email,
@@ -424,6 +429,17 @@ public class WaitlistApplicationService {
             log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
         }
+    }
+
+
+    private static Instant laterInstant(Instant a, Instant b) {
+        if (a == null) {
+            return b;
+        }
+        if (b == null) {
+            return a;
+        }
+        return a.isAfter(b) ? a : b;
     }
 
     private static String requireToken(String rawToken) {
