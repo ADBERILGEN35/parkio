@@ -271,6 +271,7 @@ Safety controls:
 - `--max-records` is capped at 100.
 - Existing headers are preserved; `parkio-redrive-source-topic`, `parkio-redrive-source-partition`, `parkio-redrive-source-offset`, `parkio-redrive-attempt`, `parkio-redrive-operator`, and `parkio-redrive-reason` are added.
 - `--max-redrive-attempts` defaults to 3 and prevents endless replay loops. Every selected record is checked before the first one is produced: if any is over the limit, nothing is redriven.
+- Every selected record must carry an unambiguous `kafka_dlt-original-topic` equal to `--target-topic`. Missing, blank, conflicting, or mismatched headers refuse the whole batch before any send.
 - A replay keeps the `eventId` header; consumers deduplicate by it, so replaying the same selection twice is absorbed downstream.
 - Selection and replay are covered by `KafkaDltRedriveToolIT` on a disposable Kafka broker (`./gradlew :tools:dlt-redrive:integrationTest`).
 
