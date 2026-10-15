@@ -25,18 +25,24 @@ name: parkio
 services:
   user-service:
     image: ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
+    pull_policy: never
 
   gamification-service:
     image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
+    pull_policy: never
 
   notification-service:
     image: ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942
+    pull_policy: never
 
   moderation-service:
     image: ghcr.io/adberilgen35/parkio/moderation-service@sha256:e2b0ff6471f0098aab3f70495e53bd84459980bcc08c8bfc344098c2531d2e38
+    pull_policy: never
 
   ai-validation-service:
     image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640
+    pull_policy: never
 
   analytics-service:
     image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:ec01d727c0a06c6f4c7af3644ead17a1b79df022241e7c55be992e272a714d3a
+    pull_policy: never

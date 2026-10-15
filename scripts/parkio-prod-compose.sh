@@ -83,36 +83,56 @@ source "$ROOT/scripts/lib/web-conf-d-guard.sh"
 # has no break-glass, so it runs even when both checks above are skipped.
 # shellcheck source=lib/web-api-endpoint-guard.sh
 source "$ROOT/scripts/lib/web-api-endpoint-guard.sh"
+# shellcheck source=lib/deploy-image-provenance.sh
+source "$ROOT/scripts/lib/deploy-image-provenance.sh"
 parkio_web_guard_split_args "$@"
 parkio_web_guard_decide
-if [ "$PWG_DECISION" = "refuse" ]; then
-  echo "ERROR: web map deploy guard: $PWG_REASON" >&2
-  exit 1
+
+# N-17: mutating invocations render the model and fail closed on unpinned /
+# missing / wrong-identity / invalid-attestation images before any up/create/run.
+_parkio_mutating=0
+case "${PWG_SUBCMD:-}" in
+  up|create|run) _parkio_mutating=1 ;;
+esac
+if [ -n "${PWG_AMBIGUOUS:-}" ]; then
+  for _a in "$@"; do
+    case "$_a" in up|create|run) _parkio_mutating=1 ;; esac
+  done
 fi
-if [ "$PWG_DECISION" = "run" ]; then
-  map_rc=0
-  parkio_web_guard_skip_requested || map_rc=$?
-  conf_d_rc=0
-  parkio_web_conf_d_skip_requested || conf_d_rc=$?
-  if [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; then
+
+if [ "$_parkio_mutating" = "1" ]; then
+  if [ "$PWG_DECISION" = "refuse" ]; then
+    echo "ERROR: web map deploy guard: $PWG_REASON" >&2
     exit 1
+  fi
+  map_rc=0
+  conf_d_rc=0
+  if [ "$PWG_DECISION" = "run" ]; then
+    parkio_web_guard_skip_requested || map_rc=$?
+    parkio_web_conf_d_skip_requested || conf_d_rc=$?
+    if [ "$map_rc" -eq 2 ] || [ "$conf_d_rc" -eq 2 ]; then
+      exit 1
+    fi
   fi
   guard_dir="$(mktemp -d)"
   chmod 700 "$guard_dir"
   trap 'rm -rf "$guard_dir"' EXIT
-  # The rendered model contains interpolated env values: private dir, removed on exit.
   docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" config --format json >"$guard_dir/model.json" \
-    || { echo "ERROR: web map deploy guard: cannot render the compose model" >&2; exit 1; }
-  if [ "$map_rc" -ne 0 ]; then
+    || { echo "ERROR: deploy image provenance: cannot render the compose model" >&2; exit 1; }
+  if [ "$PWG_DECISION" = "run" ] && [ "$map_rc" -ne 0 ]; then
     parkio_web_guard_bind "$guard_dir/model.json" "$guard_dir/web-binding.yml" --env-file "$ENV_FILE" \
       || { echo "ERROR: web map deploy guard failed; nothing was started" >&2; exit 1; }
   fi
-  if [ "$conf_d_rc" -ne 0 ]; then
+  if [ "$PWG_DECISION" = "run" ] && [ "$conf_d_rc" -ne 0 ]; then
     parkio_web_conf_d_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
       || { echo "ERROR: web conf.d check failed; nothing was started" >&2; exit 1; }
   fi
-  parkio_web_api_endpoint_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
-    || { echo "ERROR: web API endpoint check failed; nothing was started" >&2; exit 1; }
+  if [ "$PWG_DECISION" = "run" ]; then
+    parkio_web_api_endpoint_check "$guard_dir/model.json" "$guard_dir/web-binding.yml" \
+      || { echo "ERROR: web API endpoint check failed; nothing was started" >&2; exit 1; }
+  fi
+  parkio_deploy_image_provenance_check "$guard_dir/model.json" \
+    || { echo "ERROR: image provenance check failed; nothing was started" >&2; exit 1; }
   rm -f "$guard_dir/model.json"
   if [ -f "$guard_dir/web-binding.yml" ]; then
     rc=0
@@ -120,5 +140,12 @@ if [ "$PWG_DECISION" = "run" ]; then
       "$PWG_SUBCMD" "${PWG_SUBARGS[@]}" || rc=$?
     exit "$rc"
   fi
+  exec docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "${PWG_GLOBAL[@]}" \
+    "$PWG_SUBCMD" "${PWG_SUBARGS[@]}"
+fi
+
+if [ "$PWG_DECISION" = "refuse" ]; then
+  echo "ERROR: web map deploy guard: $PWG_REASON" >&2
+  exit 1
 fi
 exec docker compose --env-file "$ENV_FILE" "${ARGS[@]}" "$@"

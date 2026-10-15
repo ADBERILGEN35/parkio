@@ -17,3 +17,4 @@ name: parkio
 services:
   web:
     image: ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
+    pull_policy: never

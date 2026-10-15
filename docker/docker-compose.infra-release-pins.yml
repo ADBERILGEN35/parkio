@@ -1,0 +1,86 @@
+# Parkio infrastructure release pins (N-17 / #378).
+# Digests resolved 2026-10-15 via `docker buildx imagetools inspect` for the previously
+# mutable tags in docker/docker-compose.yml and the hosted-beta Caddy default.
+# Third-party images are digest-only (no Parkio signer attestation). Parkio MinIO/mc
+# pins in the base compose file are already immutable; pull_policy is set here so a
+# tag move cannot substitute after the provenance gate accepts them.
+# Web stays under the stronger map guard (pull_policy: never binding) — do not weaken it.
+name: parkio
+
+x-infra-pin: &infra-pin
+  pull_policy: never
+
+services:
+  postgres-auth:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-gateway:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-user:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-parking:
+    <<: *infra-pin
+    image: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+  postgres-media:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-gamification:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-notification:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-moderation:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-analytics:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  postgres-ai-validation:
+    <<: *infra-pin
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  redis:
+    <<: *infra-pin
+    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+  kafka:
+    <<: *infra-pin
+    image: confluentinc/cp-kafka@sha256:653f49c51cfebcf8301938d01044efead6afbd8dd60acd2bcf1605d7c6494d3b
+  kafka-exporter:
+    <<: *infra-pin
+    image: danielqsj/kafka-exporter@sha256:9b67b273d1e54052e7ce77c46ecd1c6619fdee7e2ed26717e6272806fbc94150
+  blackbox-exporter:
+    <<: *infra-pin
+    image: prom/blackbox-exporter@sha256:b04a9fef4fa086a02fc7fcd8dcdbc4b7b35cc30cdee860fdc6a19dd8b208d63e
+  clamav:
+    <<: *infra-pin
+    image: clamav/clamav@sha256:b5b910ce43d595bf8a2fe401e34db56434602b2c755b7c2b07f00c917d04d469
+  prometheus:
+    <<: *infra-pin
+    image: prom/prometheus@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94
+  alertmanager:
+    <<: *infra-pin
+    image: prom/alertmanager@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
+  loki:
+    <<: *infra-pin
+    image: grafana/loki@sha256:8b5bd7748d0e4da66cd741ac276e485517514af0bea32167e27c0e1a95bcf8aa
+  promtail:
+    <<: *infra-pin
+    image: grafana/promtail@sha256:45d54f0ebd7a19acbcd4693a3227d84d27d98abe1dc7ea3068d31d5d02dbe696
+  node-exporter:
+    <<: *infra-pin
+    image: prom/node-exporter@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706
+  tempo:
+    <<: *infra-pin
+    image: grafana/tempo@sha256:ef4384fce6e8ad22b95b243d8fc165628cda655376fd50e7850536ad89d71d50
+  grafana:
+    <<: *infra-pin
+    image: grafana/grafana@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
+  caddy:
+    <<: *infra-pin
+    image: caddy@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
+  minio:
+    <<: *infra-pin
+  minio-setup:
+    <<: *infra-pin

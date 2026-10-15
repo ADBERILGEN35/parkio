@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4714783dd62eb AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
 RUN ./gradlew :services:analytics-service:bootJar --no-daemon
 
 # ---- runtime stage ----
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef AS runtime
 WORKDIR /app
 
 # curl is the ONLY added runtime package: the HEALTHCHECK below (and the compose apps

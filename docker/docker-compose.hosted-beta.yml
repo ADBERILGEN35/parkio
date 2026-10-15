@@ -103,7 +103,7 @@ services:
   # Automatic HTTPS (ACME), HTTP->HTTPS redirect, forwarded headers, HTTP/3.   #
   # ------------------------------------------------------------------------- #
   caddy:
-    image: ${CADDY_IMAGE:-caddy:2.8-alpine}
+    image: ${CADDY_IMAGE:-caddy@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17}
     container_name: parkio-caddy
     restart: unless-stopped
     mem_limit: 256m

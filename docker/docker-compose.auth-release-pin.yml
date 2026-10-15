@@ -20,3 +20,4 @@ name: parkio
 services:
   auth-service:
     image: ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
+    pull_policy: never
