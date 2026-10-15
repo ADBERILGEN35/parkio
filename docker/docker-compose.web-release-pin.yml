@@ -1,4 +1,5 @@
 # Parkio hosted-beta web release pin - MapTiler fix 2026-10-13
+# #419 pin update web: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:8e267d781562d4977d33607a2a1aa2f5113d500b81c63ec1f29c69d2ff66a58d; rollback ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
 # Source / OCI revision: f888a81b113c0c486ea0949067779443857e644d (the release PIN). Candidate images run 38359910354
 # (accepted-candidate), published by candidate-publish run 38375423320; registry config digest = accepted image id
 # sha256:47c6f07d4f83270f484c66400429c17645c863628bfeb6b0f121ad1fc2ab90b2 (linux/amd64).
@@ -16,5 +17,5 @@ name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
+    image: ghcr.io/adberilgen35/parkio/web@sha256:d154fbd5df9c5b1185701b99c4e61b32d1a64b7a8101112e0d74504c07c271b7
     pull_policy: never
