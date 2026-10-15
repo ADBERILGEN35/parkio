@@ -96,6 +96,8 @@ tasks.named<Test>("test") {
 //    and it always executes: it neither restores a result from the build cache nor skips as up to
 //    date, because either would bypass that check and report tests that never ran.
 tasks.register<Test>("integrationTest") {
+    // N-19: one fork under Docker contention so parallel Testcontainers do not OOM/kill peers.
+    maxParallelForks = 1
     description = "Runs @Tag(\"integration\") Testcontainers integration tests (requires Docker)."
     group = "verification"
     useJUnitPlatform {

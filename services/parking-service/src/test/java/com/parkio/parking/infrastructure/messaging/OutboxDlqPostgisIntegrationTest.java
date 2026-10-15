@@ -10,6 +10,7 @@ import com.parkio.parking.infrastructure.persistence.entity.OutboxEventEntity;
 import com.parkio.parking.infrastructure.persistence.jpa.OutboxEventJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -58,7 +59,8 @@ class OutboxDlqPostgisIntegrationTest {
     static final PostgreSQLContainer<?> POSTGIS = new PostgreSQLContainer<>(POSTGIS_IMAGE)
             .withDatabaseName("parkio_parking_dlq_it")
             .withUsername("parkio")
-            .withPassword("parkio");
+            .withPassword("parkio")
+            .withStartupTimeout(Duration.ofMinutes(3));
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry) {
