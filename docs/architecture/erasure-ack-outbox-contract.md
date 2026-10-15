@@ -141,20 +141,29 @@ participant: missing, `FAILED`, unknown status, duplicate and replayed ACKs.
   - `AccountErasureStuck` fires;
   - `parkio.media.erasure.jobs.pending` stays above zero; for unknown-outcome
     writes, `parkio.media.object_writes.outcome_unknown` does too.
-- **ACK row cannot be published:** asynchronous broker failures count toward
-  `parkio.kafka.relay.max-attempts`; the row is then dead-lettered
-  (`parkio.outbox.deadlettered`) and can be redriven. The request stays
-  `IN_PROGRESS` until then, so the failure is safe: no false `COMPLETE`.
+- **ACK row cannot be published:** deterministic poison counts toward
+  `parkio.kafka.relay.max-attempts` and is dead-lettered
+  (`parkio.outbox.deadlettered`) for redrive. Transient broker/transport
+  failures do **not** consume that budget (CL-N12 / B11); the row stays queued.
+  The request stays `IN_PROGRESS` until a successful publish, so the failure is
+  safe: no false `COMPLETE`.
 
-### Known limitation (tracked under U18)
+### Broker outage vs poison (CL-N12 / B11)
 
-When the broker is unreachable, `KafkaTemplate.send()` can fail synchronously
-(`max.block.ms`). The relay does not catch that during dispatch, so the whole
-poll transaction rolls back without recording `failure_count`. The ACK row
-stays committed and queued and is retried on the next poll, so it is never
-lost. It just never dead-letters or shows up in the failure counter during a
-broker outage. The relay code is shared by every service, so this is fixed
-under U18 (outbox poison/retry/DLT), not in this pilot.
+Relay send failures are classified:
+
+- **Transient broker/transport failures** (sync `send()` throw such as
+  `max.block.ms` metadata wait, failed/timed-out producer futures with Kafka /
+  timeout / network signatures): the row stays unpublished, last-failure
+  metadata is recorded, and the **dead-letter attempt budget is not consumed**.
+  The next poll retries. No false `COMPLETE`.
+- **Deterministic poison** (unroutable aggregate type, unreadable payload):
+  counts toward `parkio.kafka.relay.max-attempts` and dead-letters when
+  exhausted; retained for redrive.
+
+Participant inventory (nine copy-pasted relays): auth, user, parking, media,
+moderation, notification, gamification, analytics, ai-validation. All share this
+classification after CL-N12.
 
 ## Rolling out to another participant
 

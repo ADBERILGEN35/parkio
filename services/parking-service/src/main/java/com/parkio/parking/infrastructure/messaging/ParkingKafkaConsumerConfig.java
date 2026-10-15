@@ -89,7 +89,8 @@ public class ParkingKafkaConsumerConfig {
             }
         };
         factory.setCommonErrorHandler(
-                new DefaultErrorHandler(recoverer, new FixedBackOff(500L, 2L)));
+                // CL-N12: longer backoff/retries for transient erasure/handler blips; poison still DLT-bounded.
+                new DefaultErrorHandler(recoverer, new FixedBackOff(2000L, 5L)));
         return factory;
     }
 }

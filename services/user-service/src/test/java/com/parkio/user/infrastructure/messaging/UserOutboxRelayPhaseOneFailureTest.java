@@ -87,7 +87,7 @@ class UserOutboxRelayPhaseOneFailureTest {
 
         assertThat(first.isPublished()).as("dispatched before the failure").isTrue();
         assertThat(failing.isPublished()).isFalse();
-        assertThat(failing.getFailureCount()).isEqualTo(1);
+        assertThat(failing.getFailureCount()).as("transient broker failures do not consume DLQ budget").isZero();
         assertThat(notDispatched.isPublished()).isFalse();
         assertThat(notDispatched.getFailureCount()).as("not attempted in this poll").isZero();
         verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));

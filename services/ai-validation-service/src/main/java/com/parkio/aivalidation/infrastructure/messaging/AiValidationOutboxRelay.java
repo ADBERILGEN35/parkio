@@ -130,13 +130,10 @@ public class AiValidationOutboxRelay {
             try (Scope ignored = publishContext.makeCurrent()) {
                 inFlight.add(new InFlight(row, System.nanoTime(), kafkaTemplate.send(record)));
             } catch (RuntimeException e) {
-                // CL-F32: send() can throw instead of returning a failed future (for example the
-                // producer's metadata wait timing out while the broker is unreachable). Count the
-                // failure for this row and stop dispatching this batch: the cause usually affects
-                // every row, and each further send could block for max.block.ms while the batch's
-                // rows stay locked. Rows already dispatched are still awaited below; the rest stay
-                // pending, uncounted, for the next poll.
-                recordFailure(row, reasonOf(e));
+                // CL-F32 + CL-N12/B11: send() can throw while the broker is unreachable. Stop
+                // dispatching this batch (remaining rows stay pending). Transport failures do not
+                // consume the dead-letter budget; poison still does via recordFailure.
+                recordFailureOrDefer(row, e);
                 break;
             }
         }
@@ -158,7 +155,7 @@ public class AiValidationOutboxRelay {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Interrupted publishing outbox row " + f.row().getId(), e);
             } catch (Exception e) {
-                recordFailure(f.row(), reasonOf(e));
+                recordFailureOrDefer(f.row(), e);
             }
         }
     }
@@ -179,6 +176,51 @@ public class AiValidationOutboxRelay {
             log.warn("Outbox row {} publish attempt {} failed (eventId={}, type={}): {}",
                     row.getId(), row.getFailureCount(), row.getEventId(), row.getEventType(), reason);
         }
+    }
+
+
+    private void recordFailureOrDefer(OutboxEventEntity row, Exception e) {
+        String reason = reasonOf(e);
+        if (isTransientBrokerFailure(e)) {
+            row.recordTransientBrokerFailure(reason, Instant.now());
+            publishFailedCounter.increment();
+            log.warn("Outbox row {} deferred after transient broker failure (eventId={}, type={}): {}",
+                    row.getId(), row.getEventId(), row.getEventType(), reason);
+            return;
+        }
+        recordFailure(row, reason);
+    }
+
+    /**
+     * Transport / broker unavailability (including sync max.block.ms failures and timed-out
+     * futures). Deterministic poison is handled before send and still uses {@link #recordFailure}.
+     */
+    static boolean isTransientBrokerFailure(Throwable error) {
+        Throwable cur = error;
+        while (cur != null) {
+            String name = cur.getClass().getName();
+            if (name.contains("TimeoutException")
+                    || name.contains("KafkaException")
+                    || name.contains("RetriableException")
+                    || name.contains("NetworkException")
+                    || name.contains("DisconnectException")
+                    || name.contains("TimeoutException")) {
+                return true;
+            }
+            String message = cur.getMessage();
+            if (message != null) {
+                String m = message.toLowerCase();
+                if (m.contains("timed out")
+                        || m.contains("timeout")
+                        || m.contains("broker")
+                        || m.contains("not present in metadata")
+                        || m.contains("network")) {
+                    return true;
+                }
+            }
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     private static String reasonOf(Exception e) {

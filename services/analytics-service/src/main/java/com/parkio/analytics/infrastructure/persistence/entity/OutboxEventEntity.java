@@ -160,6 +160,16 @@ public class OutboxEventEntity {
         return false;
     }
 
+    /**
+     * CL-N12 / B11: broker/transport outages must not consume the dead-letter budget.
+     * The row stays unpublished and is retried on the next poll; last failure metadata is
+     * retained for operators. Poison rows still use {@link #recordPublishFailure}.
+     */
+    public void recordTransientBrokerFailure(String reason, Instant failedAt) {
+        this.lastFailureReason = truncate(reason);
+        this.lastFailedAt = failedAt;
+    }
+
     private static String truncate(String reason) {
         if (reason == null) {
             return null;
