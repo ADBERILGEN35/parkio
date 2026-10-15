@@ -127,6 +127,36 @@ expect_pass "a pull request whose head carries a valid file is not failed by the
 grep -q '1 fingerprint exception(s) from' "$TMP/out" && ok "  the base's exception is the one applied" || { bad "base exception count not reported"; cat "$TMP/out"; }
 R=$R0
 
+# Synthetic history after an approved historical fingerprint (N-09b / #364): the exception is
+# identity-narrow (one commit:file:rule:line). The same seeded fixture in a later commit, a new
+# path, or a new line still fails; a pull request cannot exempt itself by editing the allowlist.
+H="$TMP/history"; new_repo "$H"; R=$H
+echo "clean" > "$R/a.txt";                                       H1=$(commit "h1 clean")
+HIST=$(token)
+echo "TOKEN=$HIST" > "$R/hist.env";                              H2=$(commit "h2 historical seeded token")
+printf '# N-09b synthetic historical exception\n%s:hist.env:github-pat:1\n' "$H2" > "$R/.gitleaksignore"
+                                                                 H3=$(commit "h3 approve historical fingerprint")
+expect_pass "an approved historical fingerprint passes a full-history audit" --full "$H3"
+grep -q '1 fingerprint exception(s) from' "$TMP/out" && ok "  the historical exception count is reported" || { bad "historical exception count"; cat "$TMP/out"; }
+# Tip still carries only the H2 exception. Remove then reintroduce the same fixture so gitleaks
+# records a new introducing commit (an in-place rewrite of the same line stays attributed to H2).
+echo "clean" > "$R/hist.env";                                    H4A=$(commit "h4a clear historical fixture")
+echo "TOKEN=$HIST" > "$R/hist.env";                              H4=$(commit "h4b reintroduce same fixture new commit")
+expect_fail "the same fixture in a new commit still fails" 'leaks found: 1' --full "$H4"
+mkdir -p "$R/other"; echo "TOKEN=$HIST" > "$R/other/copy.env";   H5=$(commit "h5 same fixture new path")
+expect_fail "the same fixture in a new path still fails" 'leaks found: [12]' --full "$H5"
+printf 'TOKEN=%s\nTOKEN2=%s\n' "$HIST" "$HIST" > "$R/hist.env";  H6=$(commit "h6 same fixture new line")
+expect_fail "the same fixture on a new line still fails" 'leaks found: [123]' --full "$H6"
+# Head adds fingerprint exceptions for the post-baseline findings; the PR scan uses the base
+# config (H3), so those edits cannot exempt the range.
+printf '# N-09b synthetic historical exception\n%s:hist.env:github-pat:1\n%s:hist.env:github-pat:1\n%s:other/copy.env:github-pat:1\n%s:hist.env:github-pat:2\n' \
+  "$H2" "$H4" "$H5" "$H6" > "$R/.gitleaksignore"
+                                                                 H7=$(commit "h7 pr head tries to exempt its own findings")
+expect_fail "a pull request cannot exempt its own finding via allowlist edits" 'leaks found: [123]' \
+  --event pull_request --base "$H3" --head "$H7"
+expect_fail "seeded secrets remain red under the historical-exception tip" 'leaks found: [123]' --full "$H6"
+R=$R0
+
 # Log assessment: the exact output of the broken step, and other malformed outputs.
 check() { bash "$SCAN" --check-log "$1" --min "$2" --max "$3" ${4:+--expect-opts "$4"} > "$TMP/out" 2>&1; }
 printf '%s\n' "11:12PM ERR [git] fatal: detected dubious ownership in repository at '/github/workspace'" "11:12PM INF 0 commits scanned." "11:12PM INF no leaks found" > "$TMP/broken.log"

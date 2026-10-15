@@ -110,3 +110,45 @@ fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:gen
 # code and the csrf-lab harness across the whole history); the branch's later commit replaced it, but the
 # pull-request range still scans the earlier commit.
 a845371e504c22aa8c682627631be8e1c279c0ef:services/auth-service/src/test/java/com/parkio/auth/presentation/LoginThrottleClientKeyHttpTest.java:generic-api-key:47
+
+# I. N-09b / #364 (owner rotation confirmed 2026-10-15): individually reviewed historical findings from
+# full-history Security CI run 38537972982 (35 generic-api-key). Each entry is one commit:file:rule:line.
+# Rationale classes: (1) shared disposable e2e/k6/docs password StrongParkio123 and local real-e2e seed
+# examples; (2) invite-operator startup-check fixture for a real-looking token (test-only, never production);
+# (3) Pencil design-file fileToken in untitled.pen (local design artifact, not a product credential).
+# Never paste values here. New or out-of-baseline findings and the seeded-secret self-test still fail.
+9775b4ca988499f0fdc548305ff542c1894a49b7:services/auth-service/src/test/java/com/parkio/auth/infrastructure/config/InviteOperatorTokenStartupCheckTest.java:generic-api-key:13
+06f4a6fc2fe74ebbfe1efc07dc65cc37b0e64edd:frontend/apps/web/acceptance/support.ts:generic-api-key:31
+d2e8924eaecb64dfd0ef7cb41addbad847a98ffe:frontend/apps/web/e2e/pending-profile-ownership.spec.ts:generic-api-key:8
+3bc71183c1a97e33bab2b80431efb0cb4799bfa0:frontend/apps/web/e2e/y04a-product-analytics.spec.ts:generic-api-key:9
+48ba58aae0fca5fd1646f7732a32a9f65800267a:frontend/apps/web/e2e/web-muni-08-auth-redirect.spec.ts:generic-api-key:3
+c7b9678936b487664df8ef328ed42bacbaaacfdd:frontend/apps/web/e2e/web-muni-09-accessibility.spec.ts:generic-api-key:21
+2b94b20b2f731cf774d6bd469ee3e5a61b595e79:benchmarks/k6/README.md:generic-api-key:17
+51e499121807a5beecb18a18fc5768a81663a448:frontend/apps/web/e2e/wp03-routing.spec.ts:generic-api-key:3
+00c18815edd7b0e898fcf677acfe3d642898d952:frontend/apps/web/e2e/unsaved-changes.spec.ts:generic-api-key:3
+2d0346fa14e8cc8ce7f5db96fbfaac8ad87ecbdc:frontend/apps/web/e2e/mobile-layout.spec.ts:generic-api-key:3
+7c7a551858f607d797cf598516092698ca32ccb3:frontend/apps/web/e2e/locale.spec.ts:generic-api-key:3
+9029d33114cf8ba190e6f1c78ac85be6c628ebe2:benchmarks/reports/p23/REPORT.md:generic-api-key:276
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/k6/http-load-multiuser.js:generic-api-key:13
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/k6/README.md:generic-api-key:14
+0f2eaecc7ca08295ded0fedf4369015546345a73:.github/workflows/performance-smoke.yml:generic-api-key:137
+0f2eaecc7ca08295ded0fedf4369015546345a73:.github/workflows/performance-smoke.yml:generic-api-key:144
+0f2eaecc7ca08295ded0fedf4369015546345a73:benchmarks/reports/p221/REPORT.md:generic-api-key:182
+0f2eaecc7ca08295ded0fedf4369015546345a73:docs/operations/performance-capacity.md:generic-api-key:59
+259632ad4e0633a689bddae7c77d6e03498e259b:untitled.pen:generic-api-key:45309
+fe49c8c76fed3bbb3a331403718952074349f367:docker/BETA_RUNBOOK.md:generic-api-key:137
+fe49c8c76fed3bbb3a331403718952074349f367:docker/BETA_RUNBOOK.md:generic-api-key:138
+fe49c8c76fed3bbb3a331403718952074349f367:docker/BETA_RUNBOOK.md:generic-api-key:139
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:210
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:212
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:214
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:240
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:242
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:244
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:268
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:270
+fe49c8c76fed3bbb3a331403718952074349f367:frontend/README.md:generic-api-key:272
+fe49c8c76fed3bbb3a331403718952074349f367:scripts/seed-real-e2e.sh:generic-api-key:28
+fe49c8c76fed3bbb3a331403718952074349f367:scripts/seed-real-e2e.sh:generic-api-key:31
+fe49c8c76fed3bbb3a331403718952074349f367:scripts/seed-real-e2e.sh:generic-api-key:33
+fbe053fac6be68de398181da1b9ee7bf6c9864dd:frontend/apps/web/e2e/smoke.spec.ts:generic-api-key:7
