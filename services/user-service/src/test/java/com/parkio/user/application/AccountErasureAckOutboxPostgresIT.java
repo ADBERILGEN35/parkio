@@ -166,7 +166,8 @@ class AccountErasureAckOutboxPostgresIT {
         // The poll stops dispatching at the first throwing send() and counts that one row, which is
         // this ACK unless an earlier queued row comes first in the batch.
         assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(failure_count), 0) FROM outbox_events", Long.class))
-                .as("exactly one synchronous send failure is counted").isEqualTo(failuresBefore + 1);
+                .as("transient broker outage must not count toward dead-letter budget")
+                .isEqualTo(failuresBefore);
 
         // "Restart": a new relay instance over the same committed row.
         relay(brokerTemplate(KAFKA.getBootstrapServers(), 30_000)).run();
