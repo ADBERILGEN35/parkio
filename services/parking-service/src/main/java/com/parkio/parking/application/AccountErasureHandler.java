@@ -103,8 +103,9 @@ public class AccountErasureHandler {
         jdbc.update("DELETE FROM parking_spot_search_logs WHERE searcher_user_id = ?", authUserId);
         jdbc.update("DELETE FROM parking_spot_view_logs WHERE viewer_user_id = ?", authUserId);
         jdbc.update("DELETE FROM parking_spot_verifications WHERE verifier_user_id = ?", authUserId);
+        // CL-N12 / F-10R: clear owner-authored free text so description/address do not survive erasure.
         jdbc.update(
-                "UPDATE parking_spots SET owner_user_id = ?, media_id = NULL WHERE owner_user_id = ?",
+                "UPDATE parking_spots SET owner_user_id = ?, media_id = NULL, description = NULL, address_text = NULL WHERE owner_user_id = ?",
                 ERASED_USER_SENTINEL, authUserId);
         jdbc.update("DELETE FROM idempotency_records WHERE user_id = ?", authUserId);
         // The shadow ledgers also serialize the subject into their JSON columns (evidence,

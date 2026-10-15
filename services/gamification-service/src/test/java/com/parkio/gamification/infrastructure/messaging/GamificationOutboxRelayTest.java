@@ -122,7 +122,7 @@ class GamificationOutboxRelayTest {
         relay.publishPending();
 
         assertThat(row.isPublished()).isFalse();
-        assertThat(row.getFailureCount()).isEqualTo(1);
+        assertThat(row.getFailureCount()).as("transient broker failures do not consume DLQ budget").isZero();
         assertThat(row.isDeadLettered()).isFalse();
         assertThat(row.getLastFailureReason()).contains("broker down");
     }
@@ -150,7 +150,7 @@ class GamificationOutboxRelayTest {
         OutboxEventEntity row = pointsEarnedRow(UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("producer rejected payload")));
 
         relay.publishPending();
         relay.publishPending();
