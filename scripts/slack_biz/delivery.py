@@ -6,7 +6,9 @@ as confirmed delivery. After exhaustion → delivery_unknown (operator-visible).
 
 Attempts are counted durably when a row is claimed, immediately before its
 own send, so the max_attempts budget holds across unexpected exceptions,
-process crashes and expired-lease reclaim, and unsent rows are never charged.
+process crashes and expired-lease reclaim. Later rows in the same batch stay
+unclaimed and uncharged until their turn; a crash after that committed claim
+still spends the attempt even if the HTTP send never completed.
 """
 
 from __future__ import annotations

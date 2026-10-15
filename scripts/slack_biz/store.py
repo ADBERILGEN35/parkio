@@ -444,7 +444,8 @@ class DeliveryStore:
 
         Every returned item has spent an attempt, so only use this when each
         item is sent right away; DeliveryWorker claims one row per send via
-        due_ids() + claim_one() so unsent rows are never charged.
+        due_ids() + claim_one() so later batch rows stay unclaimed until their
+        turn (a crash after claim still charges that one attempt).
         """
         items: list[QueueItem] = []
         for row_id in self.due_ids(limit=limit, max_attempts=max_attempts):
