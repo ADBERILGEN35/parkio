@@ -1,4 +1,5 @@
 # Parkio hosted-beta auth release pin — hosted-beta release 2026-10-11
+# #419 pin update auth-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:661f0b9e4946b7d4e8879d511ab0f0563bc8a91c5c88e0b79bce79609ea9da5b; rollback ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
 # Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the base layer's
 # /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer).
 # Candidate images run 38087836817 (accepted), published by
@@ -19,5 +20,5 @@ name: parkio
 
 services:
   auth-service:
-    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
+    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:a349d8106865187ec08f14367235bc8a71a908246c289affe61f9b96f7a3d509
     pull_policy: never
