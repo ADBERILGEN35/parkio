@@ -83,7 +83,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Testcontainers integration tests
-        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true --max-workers=2
+        run: ./gradlew --no-daemon integrationTest -Pparkio.integrationTest.requireDocker=true --max-workers=1
 
       # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green run that ran no tests fails there.
       - name: Integration test evidence
