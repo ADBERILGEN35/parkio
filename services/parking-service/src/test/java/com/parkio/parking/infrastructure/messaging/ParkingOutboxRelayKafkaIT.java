@@ -81,7 +81,7 @@ class ParkingOutboxRelayKafkaIT {
             consumer.poll(Duration.ofMillis(500));
 
             new ParkingOutboxRelay(repo, new KafkaTemplate<>(producerFactory), objectMapper,
-                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 100, 10_000L, 10)
+                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 100, 10_000L, 10, 900_000L)
                     .publishPending();
 
             ConsumerRecord<String, String> record = pollOne(consumer);

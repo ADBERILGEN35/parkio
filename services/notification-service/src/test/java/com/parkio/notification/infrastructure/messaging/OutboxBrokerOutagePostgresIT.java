@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.KafkaException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -76,7 +75,7 @@ class OutboxBrokerOutagePostgresIT {
         UUID aggregateId = queueAck("{\"n\":1}");
         KafkaTemplate<String, Object> kafka = mock(KafkaTemplate.class);
         CompletableFuture<SendResult<String, Object>> failed = new CompletableFuture<>();
-        failed.completeExceptionally(new KafkaException("Broker not available"));
+        failed.completeExceptionally(new org.apache.kafka.common.errors.NetworkException("Broker not available"));
         CompletableFuture<SendResult<String, Object>> ok = CompletableFuture.completedFuture(null);
         when(kafka.send(any(ProducerRecord.class))).thenReturn(failed, failed, ok);
 
@@ -120,7 +119,7 @@ class OutboxBrokerOutagePostgresIT {
 
     private Runnable relay(KafkaTemplate<String, Object> kafka) {
         NotificationOutboxRelay relay = new NotificationOutboxRelay(
-                outbox, kafka, objectMapper, new SimpleMeterRegistry(), 100, 5_000L, MAX_ATTEMPTS);
+                outbox, kafka, objectMapper, new SimpleMeterRegistry(), 100, 5_000L, MAX_ATTEMPTS, 900_000L);
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return () -> tx.executeWithoutResult(status -> relay.publishPending());
     }

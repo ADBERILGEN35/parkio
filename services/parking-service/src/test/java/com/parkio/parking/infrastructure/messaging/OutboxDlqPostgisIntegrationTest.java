@@ -126,7 +126,7 @@ class OutboxDlqPostgisIntegrationTest {
         // maxAttempts = 1: the first failure dead-letters the poison row immediately, so the
         // assertion is deterministic with a single poll (no retry loops, no sleeps).
         ParkingOutboxRelay relay = new ParkingOutboxRelay(
-                outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5_000L, 1);
+                outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5_000L, 1, 900_000L);
 
         // publishPending() is @Transactional in production; this manually-constructed instance
         // has no Spring proxy, so we supply the transaction the FOR UPDATE SKIP LOCKED claim needs.

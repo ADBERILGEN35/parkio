@@ -60,7 +60,7 @@ class FraudShadowMigrationPostgresIT {
         full.migrate();
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("42");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("43");
             assertThat(tableExists(connection, "fraud_evaluation_ledger")).isTrue();
             assertThat(foreignKeyExists(connection, "fraud_evaluation_ledger", "fk_fraud_evaluation_ledger_outcome")).isTrue();
         }

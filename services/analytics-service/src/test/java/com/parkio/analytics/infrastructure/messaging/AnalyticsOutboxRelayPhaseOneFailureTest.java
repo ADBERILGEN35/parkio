@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.KafkaException;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -38,7 +37,7 @@ class AnalyticsOutboxRelayPhaseOneFailureTest {
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final AnalyticsOutboxRelay relay = new AnalyticsOutboxRelay(outbox, kafkaTemplate,
-            new ObjectMapper().registerModule(new JavaTimeModule()), new SimpleMeterRegistry(), 100, 5000L, MAX_ATTEMPTS);
+            new ObjectMapper().registerModule(new JavaTimeModule()), new SimpleMeterRegistry(), 100, 5000L, MAX_ATTEMPTS, 900_000L);
 
     private static OutboxEventEntity row(String payload) {
         return new OutboxEventEntity(UUID.randomUUID(), UUID.randomUUID(), UserErasureAcknowledgedEvent.AGGREGATE_TYPE, UUID.randomUUID(),
@@ -81,7 +80,7 @@ class AnalyticsOutboxRelayPhaseOneFailureTest {
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(first, failing, notDispatched));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null))
-                .thenThrow(new KafkaException("Topic not present in metadata after 5000 ms"));
+                .thenThrow(new org.apache.kafka.common.errors.NetworkException("Topic not present in metadata after 5000 ms"));
 
         assertThatCode(relay::publishPending).doesNotThrowAnyException();
 
@@ -91,5 +90,55 @@ class AnalyticsOutboxRelayPhaseOneFailureTest {
         assertThat(notDispatched.isPublished()).isFalse();
         assertThat(notDispatched.getFailureCount()).as("not attempted in this poll").isZero();
         verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void retriableBrokerErrorsDeferWithoutConsumingDeadLetterBudget() {
+        OutboxEventEntity failing = row("{\"n\":2}");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(failing));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenThrow(new org.apache.kafka.common.errors.NetworkException("Broker not available"));
+
+        assertThatCode(relay::publishPending).doesNotThrowAnyException();
+
+        assertThat(failing.isPublished()).isFalse();
+        assertThat(failing.getFailureCount()).isZero();
+        assertThat(failing.isDeadLettered()).isFalse();
+        assertThat(failing.getFirstTransientFailureAt()).isNotNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonRetriableErrorsWithTimeoutWordingConsumeDeadLetterBudget() {
+        OutboxEventEntity failing = row("{\"n\":2}");
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(failing), List.of(failing), List.of(failing));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenThrow(new IllegalStateException("schema registry timeout for subject X"));
+
+        relay.publishPending();
+        relay.publishPending();
+        relay.publishPending();
+
+        assertThat(failing.getFailureCount()).isEqualTo(MAX_ATTEMPTS);
+        assertThat(failing.isDeadLettered()).isTrue();
+        assertThat(failing.getFirstTransientFailureAt()).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void transientDeferralOlderThanCeilingDeadLetters() {
+        OutboxEventEntity failing = row("{\"n\":2}");
+        failing.setFirstTransientFailureAtForTest(Instant.parse("2020-01-01T00:00:00Z"));
+        when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(failing), List.of(failing), List.of(failing));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenThrow(new org.apache.kafka.common.errors.TimeoutException("Expiring 1 record(s)"));
+
+        relay.publishPending();
+        relay.publishPending();
+        relay.publishPending();
+
+        assertThat(failing.getFailureCount()).isEqualTo(MAX_ATTEMPTS);
+        assertThat(failing.isDeadLettered()).isTrue();
     }
 }

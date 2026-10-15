@@ -123,7 +123,7 @@ class NotificationOutboxRelayPoisonRowPostgresKafkaIT {
                 JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
         NotificationOutboxRelay relay = new NotificationOutboxRelay(outbox,
                 new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props)), objectMapper, new SimpleMeterRegistry(),
-                100, 30_000L, MAX_ATTEMPTS);
+                100, 30_000L, MAX_ATTEMPTS, 900_000L);
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return () -> tx.executeWithoutResult(status -> relay.publishPending());
     }

@@ -345,7 +345,7 @@ class MediaErasureCompletenessIT {
 
     private Runnable relay() {
         MediaOutboxRelay relay = new MediaOutboxRelay(outbox, liveBroker(), objectMapper, new SimpleMeterRegistry(),
-                100, 5000L, 10);
+                100, 5000L, 10, 900_000L);
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return () -> tx.executeWithoutResult(status -> relay.publishPending());
     }

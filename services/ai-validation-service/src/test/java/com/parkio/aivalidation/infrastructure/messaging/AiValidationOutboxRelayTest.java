@@ -36,7 +36,7 @@ class AiValidationOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final AiValidationOutboxRelay relay =
-            new AiValidationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new AiValidationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity resultRow(UUID eventId, UUID mediaId) {
         String payload = "{\"eventId\":\"" + eventId + "\",\"mediaId\":\"" + mediaId
@@ -85,7 +85,7 @@ class AiValidationOutboxRelayTest {
         OutboxEventEntity row = resultRow(UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")));
 
         relay.publishPending();
 
@@ -102,7 +102,7 @@ class AiValidationOutboxRelayTest {
         OutboxEventEntity healthy = resultRow(UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(poison, healthy));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")))
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")))
                 .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
 
         relay.publishPending();

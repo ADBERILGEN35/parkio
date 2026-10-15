@@ -217,7 +217,7 @@ class AccountErasureRestoreReplayPostgresIT {
     /** A relay instance whose poll runs inside a transaction, as the scheduled bean's does. */
     private Runnable relay() {
         GamificationOutboxRelay relay = new GamificationOutboxRelay(
-                outbox, brokerTemplate(), objectMapper, new SimpleMeterRegistry(), 100, 5000L, 10);
+                outbox, brokerTemplate(), objectMapper, new SimpleMeterRegistry(), 100, 5000L, 10, 900_000L);
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return () -> tx.executeWithoutResult(status -> relay.publishPending());
     }

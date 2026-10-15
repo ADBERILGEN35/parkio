@@ -34,7 +34,7 @@ class ModerationOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final ModerationOutboxRelay relay =
-            new ModerationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new ModerationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity row(String aggregateType, UUID aggregateId, String eventType) {
         String payload = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"occurredAt\":\"2026-06-08T12:00:00Z\"}";
@@ -123,7 +123,7 @@ class ModerationOutboxRelayTest {
         OutboxEventEntity r = row("ParkingSpot", UUID.randomUUID(), "ParkingSpotRejectedByModerator");
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")));
 
         relay.publishPending();
 
@@ -140,7 +140,7 @@ class ModerationOutboxRelayTest {
         OutboxEventEntity healthy = row("ModerationCase", UUID.randomUUID(), "ModerationCaseResolved");
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(poison, healthy));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")))
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")))
                 .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
 
         relay.publishPending();

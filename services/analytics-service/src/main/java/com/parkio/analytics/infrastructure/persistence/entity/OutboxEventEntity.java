@@ -54,6 +54,13 @@ public class OutboxEventEntity {
     private Instant lastFailedAt;
 
     /**
+     * First time a transient broker failure was recorded for this unpublished row.
+     * Cleared on successful publish. Used with the relay deferral ceiling (R-07).
+     */
+    @Column(name = "first_transient_failure_at")
+    private Instant firstTransientFailureAt;
+
+    /**
      * True once the row has failed {@code max-attempts} times: the relay skips it (so it
      * never blocks later events) but the row is retained for inspection / manual redrive.
      */
@@ -133,6 +140,10 @@ public class OutboxEventEntity {
         return lastFailedAt;
     }
 
+    public Instant getFirstTransientFailureAt() {
+        return firstTransientFailureAt;
+    }
+
     public boolean isDeadLettered() {
         return deadLettered;
     }
@@ -140,6 +151,7 @@ public class OutboxEventEntity {
     /** Marks this row as published after a successful Kafka send (the outbox relay). */
     public void markPublished() {
         this.published = true;
+        this.firstTransientFailureAt = null;
     }
 
     /**
@@ -161,13 +173,31 @@ public class OutboxEventEntity {
     }
 
     /**
-     * CL-N12 / B11: broker/transport outages must not consume the dead-letter budget.
-     * The row stays unpublished and is retried on the next poll; last failure metadata is
-     * retained for operators. Poison rows still use {@link #recordPublishFailure}.
+     * CL-N12 / B11 / R-07: broker/transport outages must not consume the dead-letter budget
+     * until the deferral ceiling elapses. The row stays unpublished and is retried on the
+     * next poll; last failure metadata is retained for operators. Poison rows still use
+     * {@link #recordPublishFailure}.
      */
     public void recordTransientBrokerFailure(String reason, Instant failedAt) {
+        if (this.firstTransientFailureAt == null) {
+            this.firstTransientFailureAt = failedAt;
+        }
         this.lastFailureReason = truncate(reason);
         this.lastFailedAt = failedAt;
+    }
+
+    /**
+     * {@code true} when a prior transient failure was recorded and {@code now} is at or
+     * past {@code firstTransientFailureAt + maxDeferral}.
+     */
+    public boolean hasExceededTransientDeferral(Instant now, java.time.Duration maxDeferral) {
+        return firstTransientFailureAt != null
+                && !firstTransientFailureAt.plus(maxDeferral).isAfter(now);
+    }
+
+    /** Visible for unit tests that need a backdated deferral window. */
+    public void setFirstTransientFailureAtForTest(Instant firstTransientFailureAt) {
+        this.firstTransientFailureAt = firstTransientFailureAt;
     }
 
     private static String truncate(String reason) {
