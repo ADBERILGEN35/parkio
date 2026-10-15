@@ -147,6 +147,7 @@ class WaitlistResendConcurrencyPostgresIT {
         assertThat(row.verificationTokenHash()).isEqualTo(hasher.hash(winningVerification));
         assertThat(row.withdrawTokenHash()).isEqualTo(hasher.hash(winningWithdraw));
         assertThat(row.resendCount()).isEqualTo(1);
+        assertThat(row.verificationClaimVersion()).isEqualTo(1L);
         assertThat(row.verificationSentAt()).isEqualTo(FIXED_NOW);
 
         assertThat(realRepository.confirmByTokenHash(hasher.hash(winningVerification), FIXED_NOW.plusSeconds(1)))
@@ -162,39 +163,41 @@ class WaitlistResendConcurrencyPostgresIT {
 
         String claim1Verification = "token-v1-cccccccccccccccc";
         String claim1Withdraw = "withdraw-v1-dddddddddddd";
-        assertThat(realRepository.refreshPendingVerification(
+        assertThat(realRepository.claimPendingVerification(
                         emailHash,
-                        hasher.hash("token-v0-aaaaaaaaaaaaaaaa"),
+                        0L,
                         hasher.hash(claim1Verification),
                         hasher.hash(claim1Withdraw),
                         FIXED_NOW.plus(Duration.ofHours(48))))
-                .isTrue();
+                .hasValue(1L);
 
         String claim2Verification = "token-v2-eeeeeeeeeeeeeeee";
         String claim2Withdraw = "withdraw-v2-ffffffffffff";
-        assertThat(realRepository.refreshPendingVerification(
+        assertThat(realRepository.claimPendingVerification(
                         emailHash,
-                        hasher.hash(claim1Verification),
+                        1L,
                         hasher.hash(claim2Verification),
                         hasher.hash(claim2Withdraw),
                         FIXED_NOW.plus(Duration.ofHours(48))))
-                .isTrue();
+                .hasValue(2L);
 
         assertThat(realRepository.markVerificationSent(
-                        emailHash, hasher.hash(claim1Verification), FIXED_NOW.minusSeconds(30), 9))
+                        emailHash, 1L, FIXED_NOW.minusSeconds(30), 9))
                 .isFalse();
         WaitlistInterest afterStale = realRepository.findByEmailHash(emailHash).orElseThrow();
         assertThat(afterStale.verificationTokenHash()).isEqualTo(hasher.hash(claim2Verification));
+        assertThat(afterStale.verificationClaimVersion()).isEqualTo(2L);
         assertThat(afterStale.resendCount()).isZero();
         assertThat(afterStale.verificationSentAt()).isNull();
 
         assertThat(realRepository.markVerificationSent(
-                        emailHash, hasher.hash(claim2Verification), FIXED_NOW, 1))
+                        emailHash, 2L, FIXED_NOW, 1))
                 .isTrue();
         WaitlistInterest afterWin = realRepository.findByEmailHash(emailHash).orElseThrow();
         assertThat(afterWin.resendCount()).isEqualTo(1);
         assertThat(afterWin.verificationSentAt()).isEqualTo(FIXED_NOW);
         assertThat(afterWin.verificationTokenHash()).isEqualTo(hasher.hash(claim2Verification));
+        assertThat(afterWin.verificationClaimVersion()).isEqualTo(2L);
     }
 
     private static void insertPending(
