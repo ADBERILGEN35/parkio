@@ -214,6 +214,9 @@ real value.
 | Variable | Req | Default / example | Secret |
 |----------|-----|-------------------|--------|
 | `PARKIO_WAITLIST_HASH_SECRET` | Yes | 32+ char random value | Yes |
+| `PARKIO_WAITLIST_HASH_SECRET_PREVIOUS` | Optional | blank (rotation overlap only) | Yes |
+| `PARKIO_WAITLIST_HASH_TOKEN_SECRET` | Required before email-secret rotation | blank shares hash secret until then | Yes |
+| `PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS` | Optional | blank (token-secret rotation overlap) | Yes |
 | `POSTGRES_AUTH_DB` | Optional | `parkio_auth` | No |
 | `POSTGRES_AUTH_USER` | Optional | `parkio_auth` | No |
 | `POSTGRES_AUTH_PASSWORD` | Yes | random 16+ chars | Yes |
@@ -245,6 +248,8 @@ real value.
 | `POSTGRES_AIVALIDATION_USER` | Optional | `parkio_aivalidation` | No |
 | `POSTGRES_AIVALIDATION_PASSWORD` | Yes | random 16+ chars | Yes |
 | `POSTGRES_*_PORT` | Optional | local parity only; not public in hosted overlay | No |
+
+**Waitlist HMAC rotation (R-06):** Before setting `PARKIO_WAITLIST_HASH_SECRET_PREVIOUS`, set `PARKIO_WAITLIST_HASH_TOKEN_SECRET` to the pre-rotation waitlist hash secret (or another stable ≥32-char value distinct from the new `PARKIO_WAITLIST_HASH_SECRET`). Preflight and gateway startup refuse email-secret previous without that dedicated token secret so confirm/unsubscribe links survive email rehash and previous removal. Host env must carry the token secret before the gateway image that enforces this check is rolled out.
 
 ### Redis, Kafka, MinIO, Scanning
 

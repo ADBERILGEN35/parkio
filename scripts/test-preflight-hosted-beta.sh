@@ -120,6 +120,47 @@ run_case "missing throttle key exits 1" "$THROTTLE_MISSING" 1
 expect "missing throttle key reported" "PARKIO_LOGIN_THROTTLE_HMAC_KEY: required secret is empty or unset"
 rm -f "$THROTTLE_SAME" "$THROTTLE_PREV" "$THROTTLE_MISSING"
 
+# ---- waitlist token HMAC / email previous rules (R-06 / #415) ---------------
+WAITLIST_PREV_NO_TOKEN="${TMPDIR:-/tmp}/preflight-test-$$-waitlist-prev-no-token.env"
+python3 - "$FIXTURES/valid.env" "$WAITLIST_PREV_NO_TOKEN" <<'PYS'
+import re, sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+current = re.search(r"^PARKIO_WAITLIST_HASH_SECRET=(.*)$", src, re.M).group(1)
+prev = "previous-waitlist-hash-secret-fixture-32chars!!"
+src = re.sub(r"^PARKIO_WAITLIST_HASH_SECRET_PREVIOUS=.*$", "PARKIO_WAITLIST_HASH_SECRET_PREVIOUS=" + prev, src, flags=re.M)
+src = re.sub(r"^PARKIO_WAITLIST_HASH_TOKEN_SECRET=.*$", "PARKIO_WAITLIST_HASH_TOKEN_SECRET=", src, flags=re.M)
+Path(sys.argv[2]).write_text(src)
+PYS
+run_case "email previous without token secret exits 1" "$WAITLIST_PREV_NO_TOKEN" 1
+expect "token secret required during email rotation" "PARKIO_WAITLIST_HASH_TOKEN_SECRET: required secret is empty or unset"
+WAITLIST_TOKEN_EQ_CURRENT="${TMPDIR:-/tmp}/preflight-test-$$-waitlist-token-eq.env"
+python3 - "$FIXTURES/valid.env" "$WAITLIST_TOKEN_EQ_CURRENT" <<'PYS'
+import re, sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+current = re.search(r"^PARKIO_WAITLIST_HASH_SECRET=(.*)$", src, re.M).group(1)
+prev = "previous-waitlist-hash-secret-fixture-32chars!!"
+src = re.sub(r"^PARKIO_WAITLIST_HASH_SECRET_PREVIOUS=.*$", "PARKIO_WAITLIST_HASH_SECRET_PREVIOUS=" + prev, src, flags=re.M)
+src = re.sub(r"^PARKIO_WAITLIST_HASH_TOKEN_SECRET=.*$", "PARKIO_WAITLIST_HASH_TOKEN_SECRET=" + current, src, flags=re.M)
+Path(sys.argv[2]).write_text(src)
+PYS
+run_case "token secret equal to current email secret during rotation exits 1" "$WAITLIST_TOKEN_EQ_CURRENT" 1
+expect "token secret distinctness during rotation" "PARKIO_WAITLIST_HASH_TOKEN_SECRET: must differ from PARKIO_WAITLIST_HASH_SECRET while HASH_SECRET_PREVIOUS is set"
+WAITLIST_TOKEN_PREV_EQ="${TMPDIR:-/tmp}/preflight-test-$$-waitlist-token-prev-eq.env"
+python3 - "$FIXTURES/valid.env" "$WAITLIST_TOKEN_PREV_EQ" <<'PYS'
+import re, sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+token = "dedicated-waitlist-token-secret-fixture-32c!"
+src = re.sub(r"^PARKIO_WAITLIST_HASH_TOKEN_SECRET=.*$", "PARKIO_WAITLIST_HASH_TOKEN_SECRET=" + token, src, flags=re.M)
+src = re.sub(r"^PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS=.*$", "PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS=" + token, src, flags=re.M)
+Path(sys.argv[2]).write_text(src)
+PYS
+run_case "token previous equal to current token secret exits 1" "$WAITLIST_TOKEN_PREV_EQ" 1
+expect "token previous-equals-current reported" "PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS: equals PARKIO_WAITLIST_HASH_TOKEN_SECRET"
+rm -f "$WAITLIST_PREV_NO_TOKEN" "$WAITLIST_TOKEN_EQ_CURRENT" "$WAITLIST_TOKEN_PREV_EQ"
+
 # ---- CHANGE_ME placeholders fail -------------------------------------------
 run_case "change-me.env exits 1" change-me.env 1
 expect "whole-file CHANGE_ME sweep"     "CHANGE_ME placeholder(s) remain"
