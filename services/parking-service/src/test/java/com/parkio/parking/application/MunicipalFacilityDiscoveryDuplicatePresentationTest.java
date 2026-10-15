@@ -1,7 +1,10 @@
 package com.parkio.parking.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -20,7 +23,10 @@ import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +43,7 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
         UUID osmId = UUID.fromString("00000000-0000-0000-0000-000000000102");
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        wireBatchDelegation(snapshots);
         var izum = facility(
                 izumId, "Konak Otoparki", "IZELMAN", MunicipalSourceIdentity.IZUM,
                 38.42000, 27.14000, 100);
@@ -65,6 +72,7 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
         UUID osmId = UUID.fromString("00000000-0000-0000-0000-000000000112");
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        wireBatchDelegation(snapshots);
         var izum = facility(
                 izumId, "Konak Otoparki", "IZELMAN", MunicipalSourceIdentity.IZUM,
                 38.42000, 27.14000, 100);
@@ -99,6 +107,7 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
         UUID osmId = UUID.fromString("00000000-0000-0000-0000-000000000122");
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        wireBatchDelegation(snapshots);
         var izum = facility(
                 izumId, "Konak Otoparki", "IZELMAN", MunicipalSourceIdentity.IZUM,
                 38.42000, 27.14000, 100);
@@ -128,6 +137,7 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
         UUID osmId = UUID.fromString("00000000-0000-0000-0000-000000000131");
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        wireBatchDelegation(snapshots);
         var osm = facility(
                 osmId, "OSM Only", null, MunicipalSourceIdentity.OSM,
                 38.42000, 27.14000, 40);
@@ -149,6 +159,7 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
     void overfetchUsesBoundedLimitThenAppliesRequestedPageSize() {
         var facilities = mock(MunicipalFacilityRepository.class);
         var snapshots = mock(MunicipalOccupancySnapshotRepository.class);
+        wireBatchDelegation(snapshots);
         when(facilities.nearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
 
         MunicipalSourceProperties props = props(true);
@@ -198,5 +209,31 @@ class MunicipalFacilityDiscoveryDuplicatePresentationTest {
             MunicipalSourceProperties municipal) {
         return new MunicipalFacilityQueryService(
                 facilities, snapshots, municipal, new IzelmanProperties(), CLOCK);
+    }
+
+    private static void wireBatchDelegation(MunicipalOccupancySnapshotRepository snapshots) {
+        lenient().when(snapshots.latestForFacilities(any())).thenAnswer(inv -> {
+            Collection<UUID> ids = inv.getArgument(0);
+            if (ids == null || ids.isEmpty()) {
+                return Map.of();
+            }
+            Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> out = new HashMap<>();
+            for (UUID id : ids) {
+                Optional.ofNullable(snapshots.latestForFacility(id)).orElseGet(Optional::empty).ifPresent(s -> out.put(id, s));
+            }
+            return out;
+        });
+        lenient().when(snapshots.latestForFacilitiesAndSourceKey(any(), anyString())).thenAnswer(inv -> {
+            Collection<UUID> ids = inv.getArgument(0);
+            String key = inv.getArgument(1);
+            if (ids == null || ids.isEmpty()) {
+                return Map.of();
+            }
+            Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> out = new HashMap<>();
+            for (UUID id : ids) {
+                Optional.ofNullable(snapshots.latestForFacilityAndSourceKey(id, key)).orElseGet(Optional::empty).ifPresent(s -> out.put(id, s));
+            }
+            return out;
+        });
     }
 }

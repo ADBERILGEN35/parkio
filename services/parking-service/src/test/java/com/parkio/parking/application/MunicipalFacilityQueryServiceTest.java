@@ -1,6 +1,9 @@
 package com.parkio.parking.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,7 +19,10 @@ import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -450,8 +456,36 @@ class MunicipalFacilityQueryServiceTest {
             IzelmanProperties izelman) {
         // Isolate non-discovery tests from DATA-WP-12 Java field default-on.
         municipal.getDiscovery().setDuplicatePresentationEnabled(false);
+        wireBatchDelegation(snapshots);
         return new MunicipalFacilityQueryService(
                 facilities, snapshots, municipal, izelman,
                 Clock.fixed(Instant.parse("2026-07-30T06:00:00Z"), ZoneOffset.UTC));
+    }
+
+    /** Route F-38R batch APIs through the existing per-facility stubs. */
+    private static void wireBatchDelegation(MunicipalOccupancySnapshotRepository snapshots) {
+        lenient().when(snapshots.latestForFacilities(any())).thenAnswer(inv -> {
+            Collection<UUID> ids = inv.getArgument(0);
+            if (ids == null || ids.isEmpty()) {
+                return Map.of();
+            }
+            Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> out = new HashMap<>();
+            for (UUID id : ids) {
+                Optional.ofNullable(snapshots.latestForFacility(id)).orElseGet(Optional::empty).ifPresent(s -> out.put(id, s));
+            }
+            return out;
+        });
+        lenient().when(snapshots.latestForFacilitiesAndSourceKey(any(), anyString())).thenAnswer(inv -> {
+            Collection<UUID> ids = inv.getArgument(0);
+            String key = inv.getArgument(1);
+            if (ids == null || ids.isEmpty()) {
+                return Map.of();
+            }
+            Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> out = new HashMap<>();
+            for (UUID id : ids) {
+                Optional.ofNullable(snapshots.latestForFacilityAndSourceKey(id, key)).orElseGet(Optional::empty).ifPresent(s -> out.put(id, s));
+            }
+            return out;
+        });
     }
 }
