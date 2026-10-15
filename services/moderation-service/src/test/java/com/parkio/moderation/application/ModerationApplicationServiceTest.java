@@ -126,6 +126,34 @@ class ModerationApplicationServiceTest {
                 .isEqualTo(ModerationErrorCode.DUPLICATE_REPORT);
     }
 
+
+    /** F-31: duplicate appeal for the same resolved case is rejected. */
+    @Test
+    void f31DuplicateAppealIsRejected() {
+        UUID targetUser = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
+        service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", true));
+        service.createAppeal(targetUser, caseId, "please reconsider");
+        assertThatThrownBy(() -> service.createAppeal(targetUser, caseId, "again"))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.DUPLICATE_APPEAL);
+    }
+
+    /** F-31: admin-only sanctions refuse a non-admin caller. */
+    @Test
+    void f31NonAdminCannotSuspend() {
+        UUID targetUser = UUID.randomUUID();
+        UUID caseId = openSeriousCase(ModerationTargetType.USER, targetUser);
+        assertThatThrownBy(() -> service.resolveCase(new ResolveCaseCommand(
+                caseId, UUID.randomUUID(), ModerationAction.SUSPEND_USER, "x", false)))
+                .isInstanceOf(ModerationException.class)
+                .extracting(e -> ((ModerationException) e).errorCode())
+                .isEqualTo(ModerationErrorCode.FORBIDDEN);
+    }
+
+
     @Test
     void secondSeriousReportForSameTargetFeedsTheSameCase() {
         UUID spot = UUID.randomUUID();

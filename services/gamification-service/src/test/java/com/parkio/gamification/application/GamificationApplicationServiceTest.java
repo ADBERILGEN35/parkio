@@ -157,6 +157,25 @@ class GamificationApplicationServiceTest {
         assertThat(transactions.all).hasSize(1);
     }
 
+
+    /**
+     * F-31: semantically repeated actions with distinct fabricated event IDs still
+     * award. Inbox idempotency is per eventId — this is the current contract, not a
+     * demonstrated invariant violation.
+     */
+    @Test
+    void f31DistinctEventIdsStillAwardSeparately() {
+        UUID owner = UUID.randomUUID();
+        UUID spot = UUID.randomUUID();
+        service.handleParkingSpotCreated(new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), spot, owner, "ACTIVE", NOW));
+        service.handleParkingSpotCreated(new ParkingSpotCreatedEvent(
+                UUID.randomUUID(), spot, owner, "ACTIVE", NOW));
+        assertThat(progress.byUser.get(owner).totalPoints()).isEqualTo(10);
+        assertThat(transactions.all).hasSize(2);
+    }
+
+
     @Test
     void availableVerificationAwardsOwnerTwentyAndVerifierFive() {
         UUID owner = UUID.randomUUID();
