@@ -116,6 +116,7 @@ GATEWAY_ALLOWED = {
 # CL-F17 / PRIV-002: location-log retention (fail-closed default off; enabling is a release step).
 PARKING_ALLOWED = {
     "PARKIO_LOCATION_LOG_RETENTION_ENABLED",
+    "PARKIO_LOCATION_LOG_RETENTION_MAX_BATCHES",
     "PARKIO_LOCATION_LOG_RETENTION",
 }
 AUTH_ALLOWED = {

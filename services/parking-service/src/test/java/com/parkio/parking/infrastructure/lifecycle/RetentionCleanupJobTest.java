@@ -146,9 +146,9 @@ class RetentionCleanupJobTest {
         assertThat(job.cleanupSearchLogs()).isEqualTo(1);
         assertThat(job.cleanupViewLogs()).isEqualTo(1);
         assertThat(ids("parking_spot_search_logs")).containsExactly(recentSearch);
-        assertThat(ids("parking_spot_search_logs")).doesNotContain(oldSearch);
+        assertThat(ids("parking_spot_search_logs")).doesNotContainAnyElementsOf(java.util.Arrays.asList(oldSearch));
         assertThat(ids("parking_spot_view_logs")).containsExactly(recentView);
-        assertThat(ids("parking_spot_view_logs")).doesNotContain(oldView);
+        assertThat(ids("parking_spot_view_logs")).doesNotContainAnyElementsOf(java.util.Arrays.asList(oldView));
     }
 
     @Test
@@ -245,6 +245,46 @@ class RetentionCleanupJobTest {
         jdbc.update("INSERT INTO inbox_events (id, processed_at) VALUES (?, ?)",
                 id, Timestamp.from(processedAt));
         return id;
+    }
+
+
+    @Test
+    void locationLogBoundedCleanupDrainsAboveOneBatchWithoutTouchingNewerRows() {
+        // Synthetic load: 5 old rows + 1 recent, batch-size=2, max-batches=3 => one tick deletes all 5 old.
+        UUID recentSearch = insertSearchLog(NOW.minus(Duration.ofDays(10)));
+        UUID[] oldSearch = new UUID[5];
+        for (int i = 0; i < 5; i++) {
+            oldSearch[i] = insertSearchLog(NOW.minus(Duration.ofDays(40 - i)));
+        }
+        UUID recentView = insertViewLog(NOW.minus(Duration.ofDays(10)));
+        UUID[] oldView = new UUID[5];
+        for (int i = 0; i < 5; i++) {
+            oldView[i] = insertViewLog(NOW.minus(Duration.ofDays(40 - i)));
+        }
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, true, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 2, 3);
+
+        assertThat(job.cleanupSearchLogsBounded()).isEqualTo(5);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(recentSearch);
+        assertThat(job.cleanupViewLogsBounded()).isEqualTo(5);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(recentView);
+        assertThat(ids("parking_spot_search_logs")).doesNotContainAnyElementsOf(java.util.Arrays.asList(oldSearch));
+        assertThat(ids("parking_spot_view_logs")).doesNotContainAnyElementsOf(java.util.Arrays.asList(oldView));
+    }
+
+    @Test
+    void locationLogDisabledBoundedCleanupRemainsNoOp() {
+        UUID oldSearch = insertSearchLog(NOW.minus(Duration.ofDays(40)));
+        UUID oldView = insertViewLog(NOW.minus(Duration.ofDays(40)));
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, fixedClock(), true, true, false, Duration.ofDays(7), Duration.ofDays(30),
+                Duration.ofDays(30), 2, 20);
+
+        assertThat(job.cleanupSearchLogsBounded()).isZero();
+        assertThat(job.cleanupViewLogsBounded()).isZero();
+        assertThat(ids("parking_spot_search_logs")).containsExactly(oldSearch);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(oldView);
     }
 
     private UUID insertSearchLog(Instant createdAt) {

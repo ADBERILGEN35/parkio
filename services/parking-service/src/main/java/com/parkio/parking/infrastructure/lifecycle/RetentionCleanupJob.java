@@ -17,8 +17,10 @@ import org.springframework.stereotype.Component;
  * for the per-user location logs ({@code parking_spot_search_logs}, {@code parking_spot_view_logs};
  * CL-F17 / PRIV-002). Location-log cleanup is off by default: enabling it is a release decision,
  * because from the first enabled run on, production rows older than the retention period are
- * deleted, {@code batch-size} rows per table per run. The retention duration is validated at
- * startup even while the cleanup is disabled, so a bad value fails closed and loud.
+ * deleted. When enabled, each hourly tick drains up to
+ * {@code location-log-max-batches-per-run} bounded batches of {@code batch-size} rows per
+ * location-log table (CL-F17 sizing). The retention duration is validated at startup even
+ * while the cleanup is disabled, so a bad value fails closed and loud. Default remains off.
  */
 @Component
 @EnableScheduling
@@ -35,7 +37,9 @@ public class RetentionCleanupJob {
     private final Duration inboxRetention;
     private final Duration locationLogRetention;
     private final int batchSize;
+    private final int locationLogMaxBatchesPerRun;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public RetentionCleanupJob(
             JdbcTemplate jdbc,
             Clock clock,
@@ -45,10 +49,15 @@ public class RetentionCleanupJob {
             @Value("${parkio.lifecycle.retention.outbox-retention:P7D}") Duration outboxRetention,
             @Value("${parkio.lifecycle.retention.inbox-retention:P30D}") Duration inboxRetention,
             @Value("${parkio.lifecycle.retention.location-log-retention:P30D}") Duration locationLogRetention,
-            @Value("${parkio.lifecycle.retention.batch-size:1000}") int batchSize) {
+            @Value("${parkio.lifecycle.retention.batch-size:5000}") int batchSize,
+            @Value("${parkio.lifecycle.retention.location-log-max-batches-per-run:20}") int locationLogMaxBatchesPerRun) {
         if (locationLogRetention == null || locationLogRetention.isZero() || locationLogRetention.isNegative()) {
             throw new IllegalArgumentException(
                     "parkio.lifecycle.retention.location-log-retention must be a positive duration");
+        }
+        if (locationLogMaxBatchesPerRun < 1) {
+            throw new IllegalArgumentException(
+                    "parkio.lifecycle.retention.location-log-max-batches-per-run must be >= 1");
         }
         this.jdbc = jdbc;
         this.clock = clock;
@@ -59,19 +68,71 @@ public class RetentionCleanupJob {
         this.inboxRetention = inboxRetention;
         this.locationLogRetention = locationLogRetention;
         this.batchSize = batchSize;
+        this.locationLogMaxBatchesPerRun = locationLogMaxBatchesPerRun;
+    }
+
+    /** Test/support constructor that keeps a single location-log batch per run (legacy callers). */
+    public RetentionCleanupJob(
+            JdbcTemplate jdbc,
+            Clock clock,
+            boolean outboxEnabled,
+            boolean inboxEnabled,
+            boolean locationLogsEnabled,
+            Duration outboxRetention,
+            Duration inboxRetention,
+            Duration locationLogRetention,
+            int batchSize) {
+        this(
+                jdbc,
+                clock,
+                outboxEnabled,
+                inboxEnabled,
+                locationLogsEnabled,
+                outboxRetention,
+                inboxRetention,
+                locationLogRetention,
+                batchSize,
+                1);
     }
 
     @Scheduled(fixedDelayString = "${parkio.lifecycle.retention.fixed-delay-ms:3600000}")
     public void cleanup() {
         int outbox = cleanupOutbox();
         int inbox = cleanupInbox();
-        int searchLogs = cleanupSearchLogs();
-        int viewLogs = cleanupViewLogs();
+        int searchLogs = cleanupSearchLogsBounded();
+        int viewLogs = cleanupViewLogsBounded();
         if (outbox + inbox + searchLogs + viewLogs > 0) {
             // Counts only: the operator can see that the cleanup is active and how fast a backlog drains.
-            log.info("Retention cleanup deleted rows; outbox={}, inbox={}, searchLogs={}, viewLogs={}, batchSize={}",
-                    outbox, inbox, searchLogs, viewLogs, batchSize);
+            log.info(
+                    "Retention cleanup deleted rows; outbox={}, inbox={}, searchLogs={}, viewLogs={}, batchSize={}, locationLogMaxBatches={}",
+                    outbox, inbox, searchLogs, viewLogs, batchSize, locationLogMaxBatchesPerRun);
         }
+    }
+
+    /** Deletes up to {@link #locationLogMaxBatchesPerRun} search-log batches in one scheduled tick. */
+    public int cleanupSearchLogsBounded() {
+        int total = 0;
+        for (int i = 0; i < locationLogMaxBatchesPerRun; i++) {
+            int deleted = cleanupSearchLogs();
+            total += deleted;
+            if (deleted < batchSize) {
+                break;
+            }
+        }
+        return total;
+    }
+
+    /** Deletes up to {@link #locationLogMaxBatchesPerRun} view-log batches in one scheduled tick. */
+    public int cleanupViewLogsBounded() {
+        int total = 0;
+        for (int i = 0; i < locationLogMaxBatchesPerRun; i++) {
+            int deleted = cleanupViewLogs();
+            total += deleted;
+            if (deleted < batchSize) {
+                break;
+            }
+        }
+        return total;
     }
 
     public int cleanupOutbox() {
