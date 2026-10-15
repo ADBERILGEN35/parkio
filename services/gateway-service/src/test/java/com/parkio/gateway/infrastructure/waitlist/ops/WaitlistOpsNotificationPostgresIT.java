@@ -46,7 +46,7 @@ import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 /**
- * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V6,
+ * Real-PostgreSQL proof (production image family postgres:16-alpine, Flyway V1..V7,
  * Spring Boot's auto-configured JDBC transaction manager) of the confirmation /
  * ops-outbox coupling. H2 cannot prove savepoint recovery: PostgreSQL aborts the
  * whole transaction on any error unless it is rolled back to a savepoint.
@@ -139,12 +139,12 @@ class WaitlistOpsNotificationPostgresIT {
     }
 
     @Test
-    void runsOnRealPostgresWithFlywayV6AndJdbcTransactionManager() {
+    void runsOnRealPostgresWithFlywayV7AndJdbcTransactionManager() {
         String version = jdbcTemplate.queryForObject("SHOW server_version", String.class);
         assertThat(version).startsWith("16.");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("6");
+                String.class)).isEqualTo("7");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(transactionManager).isInstanceOf(JdbcTransactionManager.class);

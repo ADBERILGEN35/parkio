@@ -21,6 +21,7 @@ public record WaitlistInterest(
         Instant verificationExpiresAt,
         Instant verificationSentAt,
         int resendCount,
+        long verificationClaimVersion,
         Instant confirmedAt,
         Instant withdrawnAt,
         String ipHash,
