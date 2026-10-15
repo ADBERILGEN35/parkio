@@ -49,6 +49,9 @@
   "geoFailed": "We could not determine your location. You can search manually.",
   "mapUnavailableTitle": "The map couldn't load.",
   "mapUnavailableBody": "Search results stay available in the list.",
+  "mapTileDegradedTitle": "Map tiles are having trouble loading.",
+  "mapTileDegradedBody": "Markers stay available. You can retry the basemap.",
+  "mapTileDegradedRetry": "Retry",
   "discovery": {
     "idleTitle": "Search for nearby spots",
     "idleDescription": "Search an address or place, use your location, or tap the map to set the center — then search.",

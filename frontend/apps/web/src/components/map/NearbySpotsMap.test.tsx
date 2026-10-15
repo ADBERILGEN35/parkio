@@ -1,5 +1,5 @@
 import type { PublicSpot } from '@parkio/types';
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { axe } from 'jest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMunicipalFacility } from '@/test/municipalFixtures';
@@ -8,6 +8,7 @@ import { NearbySpotsMap } from './NearbySpotsMap';
 
 // The props each render passed to the stubbed map, for the attribution checks.
 const mapProps = vi.hoisted(() => [] as Record<string, unknown>[]);
+const trackProductEvent = vi.hoisted(() => vi.fn());
 
 // MapLibre/WebGL cannot run in jsdom. Stub react-map-gl with lightweight DOM so
 // the React-driven markers can be asserted without a real GL canvas.
@@ -31,6 +32,10 @@ vi.mock('react-map-gl/maplibre', () => ({
     </div>
   ),
   useMap: () => ({ current: null }),
+}));
+
+vi.mock('@/services/productAnalytics', () => ({
+  trackProductEvent,
 }));
 
 function makeSpot(
@@ -254,30 +259,51 @@ describe('NearbySpotsMap', () => {
       expect(onStyleUnavailable).not.toHaveBeenCalled();
     });
 
-    it('reports sustained tile or source errors after the style loaded', () => {
+    it('keeps markers and shows a recoverable notice for sustained tile errors after style load', () => {
       const onStyleUnavailable = vi.fn();
-      const map = renderMap(onStyleUnavailable);
+      mapProps.length = 0;
+      renderWithProviders(
+        <NearbySpotsMap
+          center={{ lat: 41, lng: 29 }}
+          spots={spots}
+          onPickCenter={() => undefined}
+          onStyleUnavailable={onStyleUnavailable}
+        />,
+      );
+      const map = mapProps.at(-1) as unknown as Handlers;
 
-      map.onStyleData();
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-
-      expect(onStyleUnavailable).toHaveBeenCalledOnce();
-    });
-
-    it('resets the tile/source streak when source data recovers', () => {
-      const onStyleUnavailable = vi.fn();
-      const map = renderMap(onStyleUnavailable);
-
-      map.onStyleData();
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-      map.onSourceData();
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
-      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      act(() => {
+        map.onStyleData();
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      });
 
       expect(onStyleUnavailable).not.toHaveBeenCalled();
+      expect(screen.getByTestId('map-tile-degraded-notice')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /retry|tekrar dene/i })).toBeInTheDocument();
+      // 2 spots + 1 center indicator remain while tiles are degraded.
+      expect(screen.getAllByTestId('marker')).toHaveLength(3);
+    });
+
+    it('clears the tile degradation notice when source data recovers', () => {
+      const onStyleUnavailable = vi.fn();
+      const map = renderMap(onStyleUnavailable);
+
+      act(() => {
+        map.onStyleData();
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+        map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+      });
+      expect(screen.getByTestId('map-tile-degraded-notice')).toBeInTheDocument();
+
+      act(() => {
+        map.onSourceData();
+      });
+
+      expect(onStyleUnavailable).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('map-tile-degraded-notice')).not.toBeInTheDocument();
     });
 
     it('does not report non-tile errors after the style loaded', () => {
@@ -288,6 +314,19 @@ describe('NearbySpotsMap', () => {
       map.onError({ type: 'error', error: new Error('later') });
 
       expect(onStyleUnavailable).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('map-tile-degraded-notice')).not.toBeInTheDocument();
+    });
+
+    it('emits map_init_failed at most once per page view', () => {
+      trackProductEvent.mockClear();
+      const map = renderMap(vi.fn());
+
+      map.onError({ type: 'error', error: new Error('Failed to fetch') });
+      map.onError({ type: 'error', error: new Error('Failed to fetch') });
+      map.onStyleData();
+      map.onError({ type: 'error', error: new Error('tile'), sourceId: 'osm', tile: {} });
+
+      expect(trackProductEvent.mock.calls.filter(([name]) => name === 'map_init_failed')).toHaveLength(1);
     });
   });
 });
