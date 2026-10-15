@@ -1,4 +1,5 @@
 # Parkio GMP release pins — hosted-beta release 2026-10-11
+# #419 pin update media-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:ceded817ca3f555935c620a4498f86ce8c95592381fba8e3ea6cc5f69b2fa306; rollback ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
 # Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the unused base-layer
 # /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer;
 # Java sources identical to a658edcb). Candidate images run
@@ -31,7 +32,7 @@ services:
     pull_policy: never
 
   media-service:
-    image: ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
+    image: ghcr.io/adberilgen35/parkio/media-service@sha256:def9ab1089d80e5f634f09fbdc9fa9cbb6d25d56adeb8ff1cff8fa90b51573eb
     pull_policy: never
 
   parking-service:
