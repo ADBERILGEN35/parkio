@@ -36,7 +36,7 @@ class ParkingOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final ParkingOutboxRelay relay =
-            new ParkingOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new ParkingOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity spotCreatedRow(UUID eventId, UUID spotId, UUID ownerId) {
         String payload = "{\"eventId\":\"" + eventId + "\",\"parkingSpotId\":\"" + spotId
@@ -128,7 +128,7 @@ class ParkingOutboxRelayTest {
         OutboxEventEntity row = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")));
 
         relay.publishPending();
 
@@ -145,7 +145,7 @@ class ParkingOutboxRelayTest {
         OutboxEventEntity healthy = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(poison, healthy));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")))
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")))
                 .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
 
         relay.publishPending();
@@ -248,7 +248,7 @@ class ParkingOutboxRelayTest {
     void recordsSuccessDurationAndBatchSizeMetrics() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ParkingOutboxRelay metered =
-                new ParkingOutboxRelay(outbox, kafkaTemplate, objectMapper, registry, 100, 5000L, 3);
+                new ParkingOutboxRelay(outbox, kafkaTemplate, objectMapper, registry, 100, 5000L, 3, 900_000L);
         OutboxEventEntity a = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         OutboxEventEntity b = spotCreatedRow(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(a, b));

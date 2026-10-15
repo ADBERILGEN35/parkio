@@ -16,18 +16,22 @@ import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.kafka.core.KafkaProducerException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import com.parkio.platform.tracing.KafkaTraceContextSupport;
@@ -58,6 +62,7 @@ public class MediaOutboxRelay {
     private final int batchSize;
     private final long sendTimeoutMs;
     private final int maxAttempts;
+    private final Duration maxTransientDeferral;
     private final Counter publishFailedCounter;
     private final Counter deadLetteredCounter;
     private final Counter publishSuccessCounter;
@@ -70,13 +75,15 @@ public class MediaOutboxRelay {
                             MeterRegistry registry,
                             @Value("${parkio.kafka.relay.batch-size:100}") int batchSize,
                             @Value("${parkio.kafka.relay.send-timeout-ms:10000}") long sendTimeoutMs,
-                            @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts) {
+                            @Value("${parkio.kafka.relay.max-attempts:10}") int maxAttempts,
+                            @Value("${parkio.kafka.relay.max-transient-deferral-ms:900000}") long maxTransientDeferralMs) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         this.batchSize = batchSize;
         this.sendTimeoutMs = sendTimeoutMs;
         this.maxAttempts = maxAttempts;
+        this.maxTransientDeferral = Duration.ofMillis(maxTransientDeferralMs);
         this.publishFailedCounter = Counter.builder("parkio.outbox.publish.failed")
                 .description("Outbox publish attempts that failed (per-row, all causes)")
                 .register(registry);
@@ -181,7 +188,12 @@ public class MediaOutboxRelay {
     private void recordFailureOrDefer(OutboxEventEntity row, Exception e) {
         String reason = reasonOf(e);
         if (isTransientBrokerFailure(e)) {
-            row.recordTransientBrokerFailure(reason, Instant.now());
+            Instant now = Instant.now();
+            if (row.hasExceededTransientDeferral(now, maxTransientDeferral)) {
+                recordFailure(row, reason + " (transient deferral ceiling exceeded)");
+                return;
+            }
+            row.recordTransientBrokerFailure(reason, now);
             publishFailedCounter.increment();
             log.warn("Outbox row {} deferred after transient broker failure (eventId={}, type={}): {}",
                     row.getId(), row.getEventId(), row.getEventType(), reason);
@@ -191,31 +203,19 @@ public class MediaOutboxRelay {
     }
 
     /**
-     * Transport / broker unavailability (including sync max.block.ms failures and timed-out
-     * futures). Deterministic poison is handled before send and still uses {@link #recordFailure}.
+     * Known-retriable Kafka transport failures only: {@link RetriableException},
+     * {@link java.util.concurrent.TimeoutException} (future.get deadline), or
+     * {@link KafkaProducerException} whose cause chain is itself retriable.
+     * Message / class-name substrings are intentionally not consulted.
      */
     static boolean isTransientBrokerFailure(Throwable error) {
         Throwable cur = error;
         while (cur != null) {
-            String name = cur.getClass().getName();
-            if (name.contains("TimeoutException")
-                    || name.contains("KafkaException")
-                    || name.contains("RetriableException")
-                    || name.contains("NetworkException")
-                    || name.contains("DisconnectException")
-                    || name.contains("TimeoutException")) {
+            if (cur instanceof RetriableException || cur instanceof TimeoutException) {
                 return true;
             }
-            String message = cur.getMessage();
-            if (message != null) {
-                String m = message.toLowerCase();
-                if (m.contains("timed out")
-                        || m.contains("timeout")
-                        || m.contains("broker")
-                        || m.contains("not present in metadata")
-                        || m.contains("network")) {
-                    return true;
-                }
+            if (cur instanceof KafkaProducerException) {
+                return isTransientBrokerFailure(cur.getCause());
             }
             cur = cur.getCause();
         }

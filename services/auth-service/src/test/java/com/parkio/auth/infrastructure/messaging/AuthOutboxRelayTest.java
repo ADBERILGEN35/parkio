@@ -39,7 +39,7 @@ class AuthOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final AuthOutboxRelay relay =
-            new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity userRegisteredRow(java.util.UUID eventId, java.util.UUID userId) {
         String payload = "{\"eventId\":\"" + eventId + "\",\"userId\":\"" + userId
@@ -95,7 +95,7 @@ class AuthOutboxRelayTest {
         OutboxEventEntity row = userRegisteredRow(java.util.UUID.randomUUID(), java.util.UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")));
 
         // A single poison/transient failure must not abort the poll (no exception escapes).
         relay.publishPending();
@@ -114,7 +114,7 @@ class AuthOutboxRelayTest {
         OutboxEventEntity healthy = userRegisteredRow(java.util.UUID.randomUUID(), java.util.UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(poison, healthy));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")))
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")))
                 .thenReturn(CompletableFuture.<SendResult<String, Object>>completedFuture(null));
 
         relay.publishPending();
@@ -188,7 +188,7 @@ class AuthOutboxRelayTest {
     @Test
     void underTheRecoveryProfileNothingIsPublishedBeforeTheAttemptIsNamed() {
         AuthOutboxRelay recovery = new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(),
-                new RecoveryReplayOutboxScope(), 100, 5000L, 3);
+                new RecoveryReplayOutboxScope(), 100, 5000L, 3, 900_000L);
 
         recovery.publishPending();
 
@@ -204,7 +204,7 @@ class AuthOutboxRelayTest {
         java.util.UUID attempt = java.util.UUID.randomUUID();
         scope.limitTo(attempt);
         AuthOutboxRelay recovery = new AuthOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(),
-                scope, 100, 5000L, 3);
+                scope, 100, 5000L, 3, 900_000L);
         when(outbox.findUnpublishedAttemptBatchForUpdate("UserErasureRestoreReplayRequested", attempt.toString(), 100))
                 .thenReturn(List.of());
 

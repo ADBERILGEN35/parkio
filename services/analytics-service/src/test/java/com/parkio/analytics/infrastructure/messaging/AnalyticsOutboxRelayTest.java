@@ -35,7 +35,7 @@ class AnalyticsOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final AnalyticsOutboxRelay relay =
-            new AnalyticsOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new AnalyticsOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity ackRow(UUID eventId, UUID requestId) {
         String payload = "{\"eventId\":\"" + eventId + "\",\"erasureRequestId\":\"" + requestId
@@ -79,7 +79,7 @@ class AnalyticsOutboxRelayTest {
         OutboxEventEntity row = ackRow(UUID.randomUUID(), UUID.randomUUID());
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(row));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new org.apache.kafka.common.errors.NetworkException("broker down")));
 
         relay.publishPending();
 

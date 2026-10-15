@@ -32,7 +32,7 @@ class NotificationOutboxRelayTest {
     private final KafkaTemplate<String, Object> kafkaTemplate = mock(KafkaTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final NotificationOutboxRelay relay =
-            new NotificationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3);
+            new NotificationOutboxRelay(outbox, kafkaTemplate, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 3, 900_000L);
 
     private OutboxEventEntity notificationCreatedRow(UUID eventId, UUID notificationId) {
         String payload = "{\"eventId\":\"" + eventId + "\",\"notificationId\":\"" + notificationId

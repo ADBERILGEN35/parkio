@@ -295,7 +295,7 @@ class AccountErasureAckOutboxPostgresIT {
     /** A relay instance whose poll runs inside a transaction, as the scheduled bean's does. */
     private Runnable relay(KafkaTemplate<String, Object> template) {
         GamificationOutboxRelay relay = new GamificationOutboxRelay(
-                outbox, template, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 10);
+                outbox, template, objectMapper, new SimpleMeterRegistry(), 100, 5000L, 10, 900_000L);
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return () -> tx.executeWithoutResult(status -> relay.publishPending());
     }

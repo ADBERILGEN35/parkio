@@ -41,10 +41,10 @@ class RankingEvaluationMigrationPostgresIT {
             assertThat(tableExists(connection, "ranking_evaluation_rollup_watermark")).isFalse();
         }
 
-        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(8);
 
         try (Connection connection = openConnection()) {
-            assertThat(currentFlywayVersion(connection)).isEqualTo("42");
+            assertThat(currentFlywayVersion(connection)).isEqualTo("43");
             assertThat(tableExists(connection, "ranking_evaluations")).isTrue();
             assertThat(tableExists(connection, "ranking_evaluation_outcomes")).isTrue();
             assertThat(tableExists(connection, "ranking_evaluation_daily_rollups")).isTrue();
