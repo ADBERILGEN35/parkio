@@ -263,6 +263,31 @@ if [ -n "$(env_get PARKIO_WAITLIST_HASH_SECRET)" ] \
 else
   ok
 fi
+# R-06 / #415: waitlist email previous + token HMAC secrets (optional until rotation).
+# Blank PARKIO_WAITLIST_HASH_TOKEN_SECRET shares the email secret — incompatible with
+# PARKIO_WAITLIST_HASH_SECRET_PREVIOUS (gateway startup refuses that combination).
+if [ -n "$(env_get PARKIO_WAITLIST_HASH_SECRET_PREVIOUS)" ]; then
+  require_secret PARKIO_WAITLIST_HASH_SECRET_PREVIOUS 32 "the waitlist hash secret in use before rotation, or leave it empty"
+  if [ "$(env_get PARKIO_WAITLIST_HASH_SECRET_PREVIOUS)" = "$(env_get PARKIO_WAITLIST_HASH_SECRET)" ]; then
+    fail "PARKIO_WAITLIST_HASH_SECRET_PREVIOUS" "equals PARKIO_WAITLIST_HASH_SECRET" "leave it empty when no rotation is in progress"
+  fi
+  require_secret PARKIO_WAITLIST_HASH_TOKEN_SECRET 32 "copy the pre-rotation PARKIO_WAITLIST_HASH_SECRET (or openssl rand -base64 48) before email-secret rotation"
+  if [ "$(env_get PARKIO_WAITLIST_HASH_TOKEN_SECRET)" = "$(env_get PARKIO_WAITLIST_HASH_SECRET)" ]; then
+    fail "PARKIO_WAITLIST_HASH_TOKEN_SECRET" "must differ from PARKIO_WAITLIST_HASH_SECRET while HASH_SECRET_PREVIOUS is set" "use the pre-rotation email hash secret (or another dedicated ≥32-char value)"
+  fi
+else
+  ok
+fi
+if [ -n "$(env_get PARKIO_WAITLIST_HASH_TOKEN_SECRET)" ]; then
+  require_secret PARKIO_WAITLIST_HASH_TOKEN_SECRET 32 "openssl rand -base64 48"
+fi
+if [ -n "$(env_get PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS)" ]; then
+  require_secret PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS 32 "the token HMAC secret in use before rotation, or leave it empty"
+  require_secret PARKIO_WAITLIST_HASH_TOKEN_SECRET 32 "set the current token HMAC secret before keeping a previous one"
+  if [ "$(env_get PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS)" = "$(env_get PARKIO_WAITLIST_HASH_TOKEN_SECRET)" ]; then
+    fail "PARKIO_WAITLIST_HASH_TOKEN_SECRET_PREVIOUS" "equals PARKIO_WAITLIST_HASH_TOKEN_SECRET" "leave it empty when no token-secret rotation is in progress"
+  fi
+fi
 # CL-F15 v3: the login throttle's keyed-hashing secret is managed separately from every other secret.
 require_secret PARKIO_LOGIN_THROTTLE_HMAC_KEY 32 "openssl rand -base64 48"
 for other in PARKIO_GATEWAY_INTERNAL_SECRET PARKIO_WAITLIST_HASH_SECRET; do
