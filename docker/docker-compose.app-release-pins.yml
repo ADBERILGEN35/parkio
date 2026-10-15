@@ -33,7 +33,7 @@ services:
     pull_policy: never
 
   notification-service:
-    image: ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942
+    image: ghcr.io/adberilgen35/parkio/notification-service@sha256:4e784f81b19168efa1c5bdbe9cafe48ff45bc3f0c95fff9cab1977877e43e339
     pull_policy: never
 
   moderation-service:
