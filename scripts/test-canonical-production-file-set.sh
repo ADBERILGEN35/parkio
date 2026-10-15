@@ -168,7 +168,7 @@ while [ "$#" -gt 0 ]; do
 done
 for s in "${services[@]}"; do
   if [ "$s" = redis ]; then
-    echo "service=$s volume=$project/redis-data target=999:1000 readiness=ready status=ABSENT"
+    echo "service=$s volume=$project/redis-data target=999:1000 readiness=ready status=NEEDS_CHOWN owners=\"0:0\""
   else
     echo "service=$s volume=$project/${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
   fi
@@ -192,14 +192,14 @@ N10_MUTATIONS="$work/n10-mutations.log" PATH="$work/n10-bin:$PATH" \
   >"$work/n10-wrapper.out" 2>"$work/n10-wrapper.err"
 n10_rc=$?
 set -e
-[ "$n10_rc" -ne 0 ] || fail "Civo wrapper up succeeded with ABSENT redis volume (exit 0)"
+[ "$n10_rc" -ne 0 ] || fail "Civo wrapper up succeeded with NEEDS_CHOWN redis volume (exit 0)"
 [ ! -s "$work/n10-mutations.log" ] || fail "Civo wrapper reached docker compose mutation despite noncompliant volumes"
 grep -q 'non-root volume gate' "$work/n10-wrapper.err" || fail "Civo wrapper refusal did not name the volume gate"
-pass "Civo wrapper refuses up when a volume is not COMPLIANT (zero mutations)"
+pass "Civo wrapper refuses up when a volume is NEEDS_CHOWN (zero mutations)"
 
 # Same noncompliant plan on parkio_compose_up with non-root forced into the file set.
 # Configure with real docker (hostname refuse needs a real compose config), then only the
-# up path uses the mutation-logging stub + ABSENT plan.
+# up path uses the mutation-logging stub + NEEDS_CHOWN plan.
 cat >"$work/n10-bin/docker" <<'SH'
 #!/usr/bin/env bash
 d="${N10_MUTATIONS:?}"
@@ -233,10 +233,10 @@ N10_MUTATIONS="$work/n10-mutations.log" PATH="$work/n10-bin:$PATH" \
   >"$work/n10-up.out" 2>"$work/n10-up.err"
 n10_up_rc=$?
 set -e
-[ "$n10_up_rc" -ne 0 ] || fail "parkio_compose_up succeeded with forced non-root overlay and ABSENT redis"
+[ "$n10_up_rc" -ne 0 ] || fail "parkio_compose_up succeeded with forced non-root overlay and NEEDS_CHOWN redis"
 [ ! -s "$work/n10-mutations.log" ] || fail "parkio_compose_up reached docker mutation despite noncompliant volumes"
 grep -q 'non-root volume gate' "$work/n10-up.err" || fail "parkio_compose_up refusal did not name the volume gate"
-pass "parkio_compose_up refuses when the file set carries non-root and volumes are not COMPLIANT"
+pass "parkio_compose_up refuses when the file set carries non-root and volumes are NEEDS_CHOWN"
 
 # --- hosted-beta entry points, end to end (dry runs) -------------------------------
 real_docker="$(command -v docker)" || fail "docker is required to render the models"
