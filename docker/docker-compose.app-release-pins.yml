@@ -1,4 +1,5 @@
 # Parkio app release pins (U13, CL-F11): the six app services the hosted-beta deploy built on the host.
+# #419 pin update user-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:f48913b9a5c38e451167d2fae0575d0cdb45427a774062dfdacf46682539c136; rollback ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
 # Source / OCI revision: f888a81b113c0c486ea0949067779443857e644d (api; the release PIN running on
 # parkio-civo-prod since 2026-10-12, where D7 built these six on the host from the same revision).
 # Candidate images run 38263294393 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical +
@@ -24,7 +25,7 @@ name: parkio
 
 services:
   user-service:
-    image: ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
+    image: ghcr.io/adberilgen35/parkio/user-service@sha256:85e9507644a8da4110bfb1bc8e2453a6f5fdeb4f3b4566544feb94a58177fe59
     pull_policy: never
 
   gamification-service:
