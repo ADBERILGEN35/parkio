@@ -121,6 +121,18 @@ public class JdbcWaitlistOpsNotificationOutbox implements WaitlistOpsNotifier {
         return count == null ? 0 : count;
     }
 
+    /** Seconds since the oldest PENDING row's created_at; 0 when the outbox is empty. */
+    long oldestPendingAgeSeconds(Instant now) {
+        java.sql.Timestamp oldest = jdbcTemplate.query(
+                "SELECT MIN(created_at) FROM waitlist_ops_notification_outbox WHERE status = 'PENDING'",
+                rs -> rs.next() ? rs.getTimestamp(1) : null);
+        if (oldest == null) {
+            return 0L;
+        }
+        long age = now.getEpochSecond() - oldest.toInstant().getEpochSecond();
+        return Math.max(0L, age);
+    }
+
     void markExported(UUID id, Instant now) {
         jdbcTemplate.update("""
                 UPDATE waitlist_ops_notification_outbox

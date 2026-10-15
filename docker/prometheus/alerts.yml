@@ -774,6 +774,79 @@ groups:
           description: "Prometheus has been failing to send alerts to {{ $labels.alertmanager }} for about five minutes. Alerts are not reaching Alertmanager or the operator channel. Check that Alertmanager is running and reachable from Prometheus."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/architecture/observability-metrics.md#runbook--prometheusnotificationsfailing"
 
+  # Waitlist ops / Slack biz / NR budget-gate (N-13). Dedicated rules; generic Kafka DLT
+  # growth and backend outbox-age alerts above stay unchanged. NR budget_gate.py itself is
+  # owned by #104 — this path only probes /health (no edits to that file).
+  - name: parkio-waitlist-slack-budget
+    rules:
+      - alert: WaitlistOpsOutboxPending
+        expr: parkio_waitlist_ops_outbox_pending > 0
+        for: 30m
+        labels:
+          severity: warning
+          service: gateway-service
+        annotations:
+          summary: "Waitlist ops outbox has pending exports"
+          description: "{{ $value }} waitlist ops notification(s) pending export for >30m. Check gateway WaitlistOpsNotificationExporter and the slack_biz waitlist inbox directory."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsoutboxpending"
+
+      - alert: WaitlistOpsOutboxStale
+        expr: parkio_waitlist_ops_outbox_oldest_pending_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+          service: gateway-service
+        annotations:
+          summary: "Oldest waitlist ops outbox row is stale"
+          description: "Oldest PENDING waitlist ops outbox row is {{ $value }}s old. Export may be deferred (inbox backlog / disk) or the exporter stopped."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsoutboxstale"
+
+      - alert: WaitlistOpsInboxBacklog
+        expr: parkio_waitlist_ops_inbox_backlog >= 50
+        for: 10m
+        labels:
+          severity: warning
+          service: gateway-service
+        annotations:
+          summary: "Waitlist ops slack_biz inbox backlog high"
+          description: "Waitlist ops inbox backlog is {{ $value }} envelopes. Consume or clear the inbox before export resumes."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#waitlistopsinboxbacklog"
+
+      - alert: SlackBizDeliveryUnknown
+        expr: parkio_slack_biz_delivery_unknown > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: slack-biz
+        annotations:
+          summary: "Slack biz has delivery_unknown events"
+          description: "{{ $value }} Slack biz delivery_unknown row(s). Resolve with worker --resolve-unknown or inspect --list-unknown; do not silently drop."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizdeliveryunknown"
+
+      - alert: SlackBizDltGrowth
+        expr: increase(parkio_slack_biz_dlt_rows[1h]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: slack-biz
+        annotations:
+          summary: "Slack biz DLT table is growing"
+          description: "Slack biz DLT table depth increased over the last hour. Inspect --list-dlt and redrive or archive deliberately."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizdltgrowth"
+
+      - alert: NrBudgetGateExhausted
+        # Blackbox http_2xx treats HTTP 507 as probe failure. Series comes from the
+        # nr-budget-gate probe job; budget_gate.py itself is not modified here (#104).
+        expr: probe_success{component="nr-budget-gate"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: nr-budget-gate
+        annotations:
+          summary: "NR budget gate unhealthy or exhausted"
+          description: "Blackbox probe of the NR budget-gate /health endpoint failed for >2m (HTTP 507 exhaustion or probe target down). Check /stats; coordinate any budget_gate.py changes with #104."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#nrbudgetgateexhausted"
+
   # ===================================================================== #
   # HEARTBEAT — always firing; its absence is the signal (U06, CL-F04).    #
   # ===================================================================== #

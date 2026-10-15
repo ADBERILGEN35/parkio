@@ -104,6 +104,11 @@ scrape_configs:
           - http://minio:9000/minio/health/live
         labels:
           component: minio
+      # NR budget gate /health (507 when exhausted). Do not edit budget_gate.py here (#104).
+      - targets:
+          - http://nr-budget-gate:8099/health
+        labels:
+          component: nr-budget-gate
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
