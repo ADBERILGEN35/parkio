@@ -154,6 +154,14 @@ slack_biz waitlist inbox envelope count high. Consume or archive inbox JSON so e
 
 Slack biz DLT table depth increased. Inspect `--list-dlt`; redrive or archive. Distinct from Kafka DLT growth alerts.
 
+## SlackBizTextfileStale
+
+`parkio_slack_biz_textfile_last_success_unixtime` is more than 10 minutes behind wall clock. Check `parkio-slack-biz-textfile-export.timer` and the node-exporter textfile mount (`/opt/parkio/docker/prometheus/textfile`).
+
+## SlackBizTextfileAbsent
+
+No `parkio_slack_biz_textfile_last_success_unixtime` series. Install/enable the textfile-export timer; without it SlackBizDeliveryUnknown / SlackBizDltGrowth stay blind.
+
 ## NrBudgetGateExhausted
 
-Blackbox probe of NR budget-gate `/health` failed (HTTP 507 exhaustion or target down). Check `/stats`. Do not edit `budget_gate.py` without coordinating #104.
+Textfile probe of NR budget-gate `/health` reported failure (HTTP 507 exhaustion or probe error while the gate container is running). Silent when the NR pilot/gate is absent. Check `/stats`. Do not edit `budget_gate.py` without coordinating #104. Host timer: `parkio-nr-gate-probe.timer`.

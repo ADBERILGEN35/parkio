@@ -1,0 +1,48 @@
+# Parkio slack_biz — Prometheus textfile export (Civo host).
+# Refreshes parkio_slack_biz_* gauges for node-exporter. No webhook access.
+[Unit]
+Description=Parkio slack_biz Prometheus textfile export
+Documentation=file:///opt/parkio/docs/operations/waitlist-slack-notifications.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=parkio-slackbiz
+Group=parkio-slackbiz
+UMask=0022
+EnvironmentFile=/etc/parkio/slack-biz.conf.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+Environment=PARKIO_SLACK_BIZ_TEXTFILE=/opt/parkio/docker/prometheus/textfile/parkio_slack_biz.prom
+ExecStart=/usr/bin/python3 /opt/parkio/scripts/slack_biz/export_textfile_metrics.py --output ${PARKIO_SLACK_BIZ_TEXTFILE}
+
+# Least privilege (read delivery DB; write textfile leaf only)
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/opt/parkio/docker/prometheus/textfile
+ReadOnlyPaths=/opt/parkio/scripts/slack_biz /var/lib/parkio/slack-biz
+InaccessiblePaths=/var/lib/parkio/waitlist-ops-inbox
+MemoryMax=64M
+TasksMax=8
