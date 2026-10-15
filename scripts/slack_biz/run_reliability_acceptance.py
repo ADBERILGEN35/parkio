@@ -273,6 +273,11 @@ def run_suite() -> SuiteReport:
                 items = store.claim_batch(worker_id="crash-claim", limit=10)
                 assert len(items) == 1 and items[0].event.event_id == ev.event_id
                 assert items[0].status == STATUS_IN_FLIGHT
+                # Committed claim charges the attempt even though no HTTP send ran.
+                assert items[0].attempts == 1
+                assert len(mock.state.requests) == 0
+                st_claimed = store.get_status(ev.event_id)
+                assert st_claimed and st_claimed["attempts"] == 1
                 with store._lock:
                     store._conn.execute(
                         "UPDATE delivery_queue SET lease_until=0 WHERE event_id=?",

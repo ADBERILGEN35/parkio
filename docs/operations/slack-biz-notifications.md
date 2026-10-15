@@ -25,8 +25,8 @@
   is used up
 - Attempts are counted when a row is **claimed**, one row at a time right
   before its own HTTP send (committed first). Rows later in the same batch stay
-  `queued`/`retry`, unleased and uncharged, until their turn, so a crash
-  mid-batch charges only the message on the wire. The
+  `queued`/`retry`, unleased and uncharged, until their turn; a crash after
+  that claim still spends the attempt even if the HTTP send never completed. The
   `PARKIO_SLACK_BIZ_MAX_ATTEMPTS` send budget holds across
   exceptions, restarts and lease reclaim. A message is POSTed at most that many
   times before an operator decision (`--resolve-unknown ... --resolution requeue`

@@ -36,6 +36,7 @@ mkdir -p "$tree/scripts/lib" "$tree/docker" "$work/bin" "$state/images"
 cp "$ROOT/scripts/deploy-hosted-beta.sh" "$ROOT/scripts/rollback-hosted-beta.sh" "$tree/scripts/"
 cp "$ROOT/scripts/lib/deploy-common.sh" "$ROOT/scripts/lib/dark-gateway-url.sh" "$ROOT/scripts/lib/invite-edge-mode.sh" \
   "$ROOT/scripts/lib/disk-space.sh" "$ROOT/scripts/lib/runtime-release.sh" "$ROOT/scripts/lib/rollback_schema_gate.py" \
+  "$ROOT/scripts/lib/prod-compose-overlays.sh" "$ROOT/scripts/lib/prod-nonroot-volume-gate.sh" \
   "$tree/scripts/lib/"
 cp "$ROOT/docker/compose.production.files" "$tree/docker/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tree/scripts/preflight-hosted-beta.sh"

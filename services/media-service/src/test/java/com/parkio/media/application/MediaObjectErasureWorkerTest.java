@@ -21,7 +21,6 @@ import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
-import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
@@ -318,15 +317,16 @@ class MediaObjectErasureWorkerTest {
     }
 
     @Test
-    void scheduledPollProcessesEveryClaimedJobWithItsToken() {
-        when(jobs.claimDue(20, NOW, LEASE_END)).thenReturn(List.of(new Claim(jobId, token)));
+    void scheduledPollClaimsEachDueJobImmediatelyBeforeItsAttempt() {
+        when(jobs.dueIds(20, NOW)).thenReturn(List.of(jobId));
         when(jobs.remainingMedia(owner)).thenReturn(List.of());
         when(storage.versionsUnder(namespace)).thenReturn(List.of());
         when(jobs.countMedia(owner)).thenReturn(0L);
 
         worker.processDue();
 
-        verify(jobs, never()).claim(any(), any(), any());
+        verify(jobs).dueIds(20, NOW);
+        verify(jobs).claim(jobId, NOW, LEASE_END);
         verify(jobs).lockClaim(jobId, token, NOW);
         verify(ackOutbox).append(any());
         verify(jobs).delete(jobId);

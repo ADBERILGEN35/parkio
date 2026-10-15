@@ -6,7 +6,6 @@ import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
-import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;
@@ -175,15 +174,18 @@ public class MediaObjectErasureWorker {
                 .register(registry);
     }
 
-    /** Claims due jobs, and jobs whose claim expired, and attempts each (crash recovery, outages, backoff). */
+    /**
+     * Lists due jobs (and jobs whose claim expired), then claims each immediately before its
+     * attempt so later jobs keep a fresh lease while earlier ones run (crash recovery, outages,
+     * backoff).
+     */
     @Scheduled(fixedDelayString = "${parkio.media.erasure-worker.poll-interval-ms:30000}")
     public void processDue() {
         if (!schedulingEnabled) {
             return;
         }
-        Instant now = clock.instant();
-        for (Claim claim : jobs.claimDue(batchSize, now, now.plus(lease))) {
-            process(claim.ackEventId(), claim.token());
+        for (UUID jobId : jobs.dueIds(batchSize, clock.instant())) {
+            process(jobId);
         }
     }
 

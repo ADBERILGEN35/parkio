@@ -146,6 +146,20 @@ public class MediaErasureJobStore {
     }
 
     /**
+     * Lists up to {@code limit} due job ids (unclaimed and due, or with an expired claim) without
+     * leasing them. The scheduled poll claims each id immediately before its own attempt so a slow
+     * earlier job cannot burn later jobs' leases while they wait in the same batch.
+     */
+    public List<UUID> dueIds(int limit, Instant now) {
+        return jdbc.queryForList("""
+                SELECT ack_event_id FROM media_erasure_jobs
+                WHERE next_attempt_at <= ?
+                ORDER BY next_attempt_at, ack_event_id
+                LIMIT ?
+                """, UUID.class, Timestamp.from(now), limit);
+    }
+
+    /**
      * Claims up to {@code limit} due jobs (unclaimed and due, or with an expired claim) by giving
      * them a fresh token and pushing their next attempt to {@code leaseUntil}, so concurrent
      * instances skip them; the claim itself is one atomic statement.
