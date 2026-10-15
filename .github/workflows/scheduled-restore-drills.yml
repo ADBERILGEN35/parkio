@@ -12,7 +12,8 @@ on:
   schedule:
     - cron: "23 4 * * 1"
     - cron: "17 3 * * *"
-    - cron: "23 3 * * 1"
+    # Live master dispatcher cadence is daily for security-ci (23 3 * * *); keep this api copy aligned.
+    - cron: "23 3 * * *"
     - cron: "41 4 * * 1"
     - cron: "41 5 * * 1"
     - cron: "47 5 * * 3"
@@ -86,8 +87,9 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "17 3 * * *" ]; then
             dispatch_one backend-integration.yml
           fi
-          # Weekly security / supply-chain / runtime / staging / chaos / k6.
-          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * 1" ]; then
+          # Daily security (matches the live master dispatcher cron 23 3 * * *).
+          # Weekly supply-chain / runtime / staging / chaos / k6 remain on their weekly crons.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "23 3 * * *" ]; then
             dispatch_one security-ci.yml
           fi
           if [ "$EVENT" = "workflow_dispatch" ] || [ "$CRON" = "41 4 * * 1" ]; then
