@@ -29,7 +29,7 @@ services:
     pull_policy: never
 
   gamification-service:
-    image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
+    image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:cfb33e0e34db279a021ae63e45d1699b957d8d4968dd83b14438671c64bb7bf7
     pull_policy: never
 
   notification-service:
