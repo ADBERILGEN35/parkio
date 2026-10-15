@@ -168,13 +168,13 @@ class MediaBatchLeasePostgresIT {
         String ns1 = MediaApplicationService.objectKeyPrefix(owner1);
 
         AtomicBoolean firstTouch = new AtomicBoolean(true);
-        AtomicReference<UUID> job2TokenDuringJob1 = new AtomicReference<>();
+        AtomicReference<UUID> peerTokenDuringFirst = new AtomicReference<>();
         doAnswer(invocation -> {
-            String namespace = invocation.getArgument(0);
-            if (namespace.equals(ns1) && firstTouch.getAndSet(false)) {
-                job2TokenDuringJob1.set(claimToken(job2));
+            if (firstTouch.getAndSet(false)) {
+                String namespace = invocation.getArgument(0);
+                UUID peer = namespace.equals(ns1) ? job2 : job1;
+                peerTokenDuringFirst.set(claimToken(peer));
                 clock.advance(FIRST_JOB_WORK);
-                return List.of();
             }
             return List.of();
         }).when(storage).versionsUnder(anyString());
@@ -182,8 +182,8 @@ class MediaBatchLeasePostgresIT {
         worker.processDue();
 
         SoftAssertions softly = new SoftAssertions();
-        softly.assertThat(job2TokenDuringJob1.get())
-                .as("later due job must still be unclaimed while the earlier attempt runs")
+        softly.assertThat(peerTokenDuringFirst.get())
+                .as("peer due job must still be unclaimed while the earlier attempt runs")
                 .isNull();
         softly.assertThat(ackRows(job1)).as("first job SUCCESS").isEqualTo(1);
         softly.assertThat(ackRows(job2)).as("second job SUCCESS with a fresh per-attempt lease").isEqualTo(1);

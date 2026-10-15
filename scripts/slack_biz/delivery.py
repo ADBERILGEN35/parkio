@@ -84,7 +84,7 @@ class DeliveryWorker:
 
         # Pick the batch, then lease + charge one row at a time right before
         # its send (short committed transaction; network I/O outside it), so a
-        # crash mid-batch never charges rows that were not sent.
+        # crash mid-batch never charges later rows that were never claimed.
         for row_id in self.store.due_ids(
             limit=limit, max_attempts=self.config.max_attempts
         ):

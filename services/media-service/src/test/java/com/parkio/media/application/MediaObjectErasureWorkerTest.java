@@ -21,7 +21,6 @@ import com.parkio.media.application.port.MediaStoragePort.StoredVersion;
 import com.parkio.media.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.media.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore;
-import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Claim;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.Job;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.ObjectWrite;
 import com.parkio.media.infrastructure.persistence.MediaErasureJobStore.RestoreBinding;

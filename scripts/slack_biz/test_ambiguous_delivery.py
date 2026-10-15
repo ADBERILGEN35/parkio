@@ -418,6 +418,19 @@ class CrashRestartTests(RelayCase):
         self.assertEqual(self.slack.request_count, MAX_ATTEMPTS + 1)
 
 
+
+    def test_crash_after_claim_before_send_charges_attempt_without_http(self) -> None:
+        """Committed claim spends the attempt even when no transport runs (N-20 wording)."""
+        eid = self.enqueue()
+        claimed = self.store.claim_batch(worker_id="crash-claim", limit=10)
+        self.assertEqual([i.event.event_id for i in claimed], [eid])
+        self.assertEqual(claimed[0].attempts, 1)
+        self.assertEqual(self.slack.request_count, 0)
+        row = self.status(eid)
+        self.assertEqual(row["status"], STATUS_IN_FLIGHT)
+        self.assertEqual(row["attempts"], 1)
+
+
 class LeaseTests(RelayCase):
     def test_duplicate_claim_within_lease_is_refused(self) -> None:
         eid = self.enqueue()

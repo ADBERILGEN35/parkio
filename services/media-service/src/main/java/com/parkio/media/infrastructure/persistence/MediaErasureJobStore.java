@@ -154,7 +154,7 @@ public class MediaErasureJobStore {
         return jdbc.queryForList("""
                 SELECT ack_event_id FROM media_erasure_jobs
                 WHERE next_attempt_at <= ?
-                ORDER BY next_attempt_at
+                ORDER BY next_attempt_at, ack_event_id
                 LIMIT ?
                 """, UUID.class, Timestamp.from(now), limit);
     }
