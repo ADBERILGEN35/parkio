@@ -250,6 +250,31 @@ test('refuses a production-like bundle that bakes an example-env map key (U17 CL
   }
 });
 
+test('refuses CHANGE_ME, dummy, placeholder variants in a production-like bundle (F-05R)', () => {
+  const base = {
+    VITE_APP_ENV: 'hosted-beta',
+    VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1',
+  };
+  for (const value of ['CHANGE_ME', 'dummy', 'placeholder', '  change_me  ', 'DUMMY', 'Placeholder']) {
+    const result = runVerifier({ ...base, VITE_MAPTILER_KEY: value });
+    const output = `${result.stdout}${result.stderr}`;
+    assert.notEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /VITE_MAPTILER_KEY = PLACEHOLDER/);
+    assert.match(result.stderr, /VITE_MAPTILER_KEY holds an example-env placeholder in the bundle/);
+    // Status text contains the word "placeholder"; only assert value-free logs for
+    // forms that cannot collide with that vocabulary.
+    if (value.trim().toLowerCase() !== 'placeholder') {
+      assert.equal(output.includes(value.trim()), false, 'the value was printed');
+    }
+    if (value !== value.trim()) {
+      assert.equal(output.includes(value), false, 'the padded value was printed');
+    }
+  }
+  const synthetic = runVerifier({ ...base, VITE_MAPTILER_KEY: placeholder });
+  assert.equal(synthetic.status, 0, synthetic.stderr);
+  assert.match(synthetic.stdout, /VITE_MAPTILER_KEY = PRESENT/);
+});
+
 test('refuses a REPLACE_ME_ map key in a production-like bundle and accepts a realistic one', () => {
   const base = { VITE_APP_ENV: 'hosted-beta', VITE_API_BASE_URL: 'https://api.fixture.invalid/api/v1' };
   const refused = runVerifier({ ...base, VITE_MAPTILER_KEY: 'REPLACE_ME_other_key' });
