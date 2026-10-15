@@ -128,7 +128,7 @@ class ModerationOutboxRelayTest {
         relay.publishPending();
 
         assertThat(r.isPublished()).isFalse();
-        assertThat(r.getFailureCount()).isEqualTo(1);
+        assertThat(r.getFailureCount()).as("transient broker failures do not consume DLQ budget").isZero();
         assertThat(r.isDeadLettered()).isFalse();
         assertThat(r.getLastFailureReason()).contains("broker down");
     }
@@ -156,7 +156,7 @@ class ModerationOutboxRelayTest {
         OutboxEventEntity r = row("User", UUID.randomUUID(), "UserSuspended");
         when(outbox.findUnpublishedBatchForUpdate(100)).thenReturn(List.of(r));
         when(kafkaTemplate.send(any(ProducerRecord.class)))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker down")));
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("producer rejected payload")));
 
         relay.publishPending();
         relay.publishPending();
