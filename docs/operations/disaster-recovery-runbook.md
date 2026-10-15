@@ -45,6 +45,36 @@ ticket) and the separately authorized isolated drill in
 [restore-drill-01-isolated-database.md](restore-drill-01-isolated-database.md), which does not
 start any application.
 
+## Per-service acceptable rollback (N-16)
+
+Pinned application images on the hosted-beta production file set
+([docker/compose.production.files](../../docker/compose.production.files)).
+Current and prior digests below are copied from the pin files; they are not invented.
+**Acceptable rollback** means an immutable prior digest that operations may treat as a recovery
+target without a separate schema-compatibility proof. When no prior registry digest exists, or
+the pin file labels the prior image unusable, the cell is **none / forward fix**.
+
+Committed Flyway migrations are forward-fix only for every service that owns a database.
+scripts/rollback-hosted-beta.sh refuses while every app service is digest-pinned (U13, exit 3).
+Re-pointing any service to an earlier image remains **not an accepted rollback** unless schema
+compatibility with the live databases is proven first (F-INV-3 above).
+
+| Service | Pin file | Current digest | Prior digest recorded in pin comments | Acceptable rollback | Schema / notes |
+|---------|----------|----------------|---------------------------------------|---------------------|----------------|
+| gateway-service | [gmp-release-pins](../../docker/docker-compose.gmp-release-pins.yml) | ghcr.io/adberilgen35/parkio/gateway-service@sha256:ff21f4a6dbcd6baba9b2a69527a2d6006016c4d00e5390e1bce01b94e86cf026 | ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48 | **none / forward fix** | Prior live digest exists; not an accepted automatic rollback without schema proof. Release order: gateway before web/auth. |
+| media-service | same | ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72 | ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec | **none / forward fix** | Same. After auth in release order. |
+| parking-service | same | ghcr.io/adberilgen35/parkio/parking-service@sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9 | ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2 | **none / forward fix** | Same. After auth in release order. |
+| user-service | [app-release-pins](../../docker/docker-compose.app-release-pins.yml) | ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21 | none (host builds never published) | **none / forward fix** | Six-app pins replaced unpublished host builds. |
+| gamification-service | same | ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753 | none | **none / forward fix** | Same. |
+| notification-service | same | ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942 | none | **none / forward fix** | Same. |
+| moderation-service | same | ghcr.io/adberilgen35/parkio/moderation-service@sha256:e2b0ff6471f0098aab3f70495e53bd84459980bcc08c8bfc344098c2531d2e38 | none | **none / forward fix** | Same. |
+| ai-validation-service | same | ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640 | none | **none / forward fix** | Same. |
+| analytics-service | same | ghcr.io/adberilgen35/parkio/analytics-service@sha256:ec01d727c0a06c6f4c7af3644ead17a1b79df022241e7c55be992e272a714d3a | none | **none / forward fix** | Same. |
+| auth-service | [auth-release-pin](../../docker/docker-compose.auth-release-pin.yml) | ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616 | ghcr.io/adberilgen35/parkio/auth-service@sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e | **none / forward fix** | Prior live digest exists; not accepted without schema proof. Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY. |
+| web | [web-release-pin](../../docker/docker-compose.web-release-pin.yml) | ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6 | ghcr.io/adberilgen35/parkio/web@sha256:4625a72e5dd3afd4cc6b2d2a62d8cdb999725942ed6471591d33b96cbd42b6a6 (blank map) | **none / forward fix** (prior **unusable**) | Previous live pin is explicitly a blank-map image. Do not pin 8d9bfca4 (CI synthetic MapTiler key) or pre-#324 digests named in the pin file. |
+
+When pin digests change, update this table to match the pin files. Keep **Acceptable rollback** as **none / forward fix** unless an owner-approved, schema-proven immutable target is recorded.
+
 ## RPO / RTO
 
 **No production RPO or RTO is offered.** Backups run nightly, but while production restore is
