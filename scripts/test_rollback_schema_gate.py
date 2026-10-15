@@ -50,14 +50,21 @@ def file_pins(entry: str) -> dict:
 
 
 def checkout_pins() -> dict:
-    """{service: image} for every digest pin in the files docker/compose.production.files lists."""
+    """{service: image} for every app-service digest pin in docker/compose.production.files.
+
+    Infra digest pins (N-17 docker/docker-compose.infra-release-pins.yml) are intentionally
+    excluded: parkio_hosted_beta_image_plan / pinnedImages only cover PARKIO_APP_SERVICES, and
+    the F-INV-3 gate compares those pins. Scraping infra here would inflate PLAN_PINS beyond
+    the image plan and break every hosted-beta pin check.
+    """
     pins = {}
     for entry in (ROOT / "docker" / "compose.production.files").read_text(encoding="utf-8").splitlines():
         entry = entry.strip()
         if not entry or entry.startswith("#"):
             continue
         pins.update(file_pins(entry))
-    return pins
+    app = set(checkout_app_services())
+    return {s: image for s, image in pins.items() if s in app}
 
 
 MIGRATIONS = checkout_migrations()

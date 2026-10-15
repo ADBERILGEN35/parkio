@@ -151,6 +151,64 @@ else
   bad "U13 app pin moves"
 fi
 
+echo "=== N-17 infra pin moves (infra_pin_moves.py) ==="
+if python3 -B - "$HERE" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from infra_pin_moves import accepted_moves
+
+def pin(repo, n=1):
+    return f"{repo}@sha256:{n:064x}"
+
+def pin_file(images):
+    # Mirror the real overlay: merge key may sit between the service key and image.
+    return "name: parkio\n\nservices:\n" + "\n".join(
+        f"  {s}:\n    <<: *infra-pin\n    image: {i}\n" for s, i in images.items())
+
+base = {
+    "postgres-auth": {"image": "postgres:16-alpine"},
+    "redis": {"image": "redis:7-alpine"},
+    "caddy": {"image": "caddy:2.8-alpine"},
+    "minio": {"image": "ghcr.io/adberilgen35/parkio/minio@sha256:" + "a" * 64},
+}
+good = {
+    "postgres-auth": pin("postgres"),
+    "redis": pin("redis"),
+    "caddy": pin("caddy"),
+}
+head = {
+    "postgres-auth": {"image": good["postgres-auth"], "pull_policy": "never"},
+    "redis": {"image": good["redis"], "pull_policy": "never"},
+    "caddy": {"image": good["caddy"], "pull_policy": "never"},
+    "minio": dict(base["minio"], pull_policy="never"),
+}
+results = []
+def case(name, got, want):
+    results.append(got == want)
+    print(("PASS " if got == want else "FAIL ") + name + ("" if got == want else f": got {got}"))
+
+case("mutable tags move to exactly the infra pin file digests",
+     accepted_moves(base, head, pin_file(good)), good)
+other = dict(head, **{"redis": {"image": pin("redis", 2)}})
+case("a head image that is not the pin file's is not accepted",
+     "redis" in accepted_moves(base, other, pin_file(good)), False)
+pinned_base = dict(base, **{"redis": {"image": pin("redis", 3)}})
+case("a base that already names a digest (later pin change) is not accepted",
+     "redis" in accepted_moves(pinned_base, head, pin_file(good)), False)
+case("minio is not an infra image move (already digest-pinned)",
+     "minio" in accepted_moves(base, head, pin_file(good)), False)
+twice = pin_file(good) + "  redis:\n    image: " + good["redis"] + "\n"
+case("a pin file naming a service twice is not accepted",
+     "redis" in accepted_moves(base, head, twice), False)
+case("no pin file accepts nothing", accepted_moves(base, head, ""), {})
+sys.exit(0 if all(results) else 1)
+PY
+then
+  pass "N-17 infra pin moves: accepted only for mutable-tag -> pin-file digest"
+else
+  bad "N-17 infra pin moves"
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "compose check tests: $fails FAILED"
   exit 1
