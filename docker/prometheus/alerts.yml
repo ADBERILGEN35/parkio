@@ -834,17 +834,42 @@ groups:
           description: "Slack biz DLT table depth increased over the last hour. Inspect --list-dlt and redrive or archive deliberately."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizdltgrowth"
 
+      - alert: SlackBizTextfileStale
+        # Timer should refresh every minute; >10m means export stopped or textfile mount broken.
+        expr: (time() - parkio_slack_biz_textfile_last_success_unixtime) > 600
+        for: 5m
+        labels:
+          severity: warning
+          service: slack-biz
+        annotations:
+          summary: "Slack biz textfile metrics are stale"
+          description: "parkio_slack_biz_textfile_last_success_unixtime is {{ $value }}s behind wall clock. Check parkio-slack-biz-textfile-export.timer and the node-exporter textfile mount."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbiztextfilestale"
+
+      - alert: SlackBizTextfileAbsent
+        # Without the export timer, SlackBizDeliveryUnknown / SlackBizDltGrowth stay blind.
+        expr: absent(parkio_slack_biz_textfile_last_success_unixtime) == 1
+        for: 15m
+        labels:
+          severity: warning
+          service: slack-biz
+        annotations:
+          summary: "Slack biz textfile metrics are absent"
+          description: "No parkio_slack_biz_textfile_last_success_unixtime series for >15m. Install/enable parkio-slack-biz-textfile-export.timer or repair the textfile collector path."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbiztextfileabsent"
+
       - alert: NrBudgetGateExhausted
-        # Blackbox http_2xx treats HTTP 507 as probe failure. Series comes from the
-        # nr-budget-gate probe job; budget_gate.py itself is not modified here (#104).
-        expr: probe_success{component="nr-budget-gate"} == 0
+        # Textfile probe from export_gate_probe_textfile.py (not blackbox). Series is absent
+        # when the NR pilot/gate is not running, so this alert stays quiet then. HTTP 507
+        # writes probe_success 0. Do not edit budget_gate.py (#104 / #413).
+        expr: parkio_nr_budget_gate_probe_success == 0
         for: 2m
         labels:
           severity: warning
           service: nr-budget-gate
         annotations:
           summary: "NR budget gate unhealthy or exhausted"
-          description: "Blackbox probe of the NR budget-gate /health endpoint failed for >2m (HTTP 507 exhaustion or probe target down). Check /stats; coordinate any budget_gate.py changes with #104."
+          description: "NR budget-gate /health probe reported failure for >2m (HTTP 507 exhaustion or probe error while the gate container is running). Check /stats; coordinate any budget_gate.py changes with #104."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#nrbudgetgateexhausted"
 
   # ===================================================================== #

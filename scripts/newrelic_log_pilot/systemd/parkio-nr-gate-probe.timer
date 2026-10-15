@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Parkio NR budget-gate health probe every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+Unit=parkio-nr-gate-probe.service
+
+[Install]
+WantedBy=timers.target
