@@ -81,6 +81,25 @@ services:
 FIX
 if "$SCRIPT" list --root "$TMP/mutable" >/dev/null 2>"$TMP/mutable.err"; then bad "list: a mutable tag in a pin file was accepted"; else
   rc=$?; if [ "$rc" -eq 3 ] && grep -q 'pins an image without a digest' "$TMP/mutable.err"; then ok "list: a pin file with a mutable tag is refused with exit 3"; else bad "list: mutable pin refused with rc=$rc and message: $(cat "$TMP/mutable.err")"; fi
+
+# N-17: third-party digest pins in *release-pins* are digest-locked but not private inventory.
+mkdir -p "$TMP/infra/docker"
+printf 'docker/docker-compose.infra-release-pins.yml\n' >"$TMP/infra/docker/compose.production.files"
+cat >"$TMP/infra/docker/docker-compose.infra-release-pins.yml" <<'YML'
+name: parkio
+services:
+  postgres-auth:
+    image: postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  gateway-service:
+    image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+YML
+printf 'MINIO_IMAGE=ghcr.io/adberilgen35/parkio/minio@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nMINIO_MC_IMAGE=ghcr.io/adberilgen35/parkio/mc@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n' >"$TMP/infra/docker/.env.example"
+if out="$("$SCRIPT" list --root "$TMP/infra")" && printf '%s\n' "$out" | grep -qx 'ghcr.io/adberilgen35/parkio/gateway-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  && ! printf '%s\n' "$out" | grep -q 'postgres@'; then
+  ok "list: third-party digest pins are accepted but not inventoried (N-17)"
+else
+  bad "list: third-party digest pins accepted but not inventoried: $out"
+fi
 fi
 
 make_fixture "$TMP/nominio"

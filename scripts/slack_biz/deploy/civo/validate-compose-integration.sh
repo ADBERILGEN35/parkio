@@ -11,9 +11,13 @@
 #      and non-allowlisted env must match BASE_REF. Allowlisted keys are the
 #      documented production compose mappings (waitlist ops + auth
 #      registration). A surprise pin, mount, or extra env key still fails.
-#      One authorized move is accepted (U13, app_pin_moves.py): a service of
-#      the six the deploy built on the host goes from build-only to exactly
-#      its digest pin in docker/docker-compose.app-release-pins.yml.
+#      Two authorized moves are accepted:
+#        - U13 (app_pin_moves.py): a service of the six the deploy built on the
+#          host goes from build-only to exactly its digest pin in
+#          docker/docker-compose.app-release-pins.yml.
+#        - N-17 (infra_pin_moves.py): an infra service goes from a mutable tag
+#          to exactly its digest pin in docker/docker-compose.infra-release-pins.yml.
+#      Also accepted once (N-17): adding pull_policy: never when the base had none.
 #   2. activation overlay: gateway gains exactly group_add + one bind mount
 #      (create_host_path=false) + EXPORT_DIR; nothing else changes;
 #   3. overlay without PARKIO_WAITLIST_OPS_INBOX_GID fails to render.
@@ -199,16 +203,28 @@ def strip_allowlisted_env(model, from_base=False):
 # U13 (CL-F11): the authorized one-way move of the six host-built app services to the digest pins of
 # docker/docker-compose.app-release-pins.yml (app_pin_moves.py). Only that exact move is compared without
 # the image; any other image change, and any later change of these pins, still fails.
+# N-17 (#378): the authorized one-way move of infra services from mutable tags to the digest pins of
+# docker/docker-compose.infra-release-pins.yml (infra_pin_moves.py). Base and head images are both
+# dropped for an accepted move (base still names a tag). Later digest retargets still fail.
+# N-17 also accepts adding pull_policy: never when the base had none (provenance lock).
 sys.dont_write_bytecode = True
 sys.path.insert(0, f"{root}/scripts/slack_biz/deploy/civo")
 from app_pin_moves import APP_PIN_FILE, accepted_moves
+from infra_pin_moves import INFRA_PIN_FILE, accepted_moves as accepted_infra_moves
 try:
     app_pin_text = open(f"{root}/{APP_PIN_FILE}", encoding="utf-8").read()
 except OSError:
     app_pin_text = ""
+try:
+    infra_pin_text = open(f"{root}/{INFRA_PIN_FILE}", encoding="utf-8").read()
+except OSError:
+    infra_pin_text = ""
 moves = accepted_moves(base["services"], dis["services"], app_pin_text)
 for svc, pin in sorted(moves.items()):
     print(f"      accepted U13 move: {svc} build -> {pin}")
+infra_moves = accepted_infra_moves(base["services"], dis["services"], infra_pin_text)
+for svc, pin in sorted(infra_moves.items()):
+    print(f"      accepted N-17 infra pin: {svc} -> {pin}")
 
 # 1. disabled default vs base
 check("same service set", set(base["services"]) == set(dis["services"]),
@@ -216,6 +232,15 @@ check("same service set", set(base["services"]) == set(dis["services"]),
 base_cmp, dis_cmp = strip_allowlisted_env(base, from_base=True), strip_allowlisted_env(dis)
 for svc in moves:
     dis_cmp["services"][svc].pop("image", None)
+for svc in infra_moves:
+    base_cmp["services"][svc].pop("image", None)
+    dis_cmp["services"][svc].pop("image", None)
+for svc in base["services"]:
+    if (base["services"][svc].get("pull_policy") in (None, "")
+            and dis["services"][svc].get("pull_policy") == "never"):
+        base_cmp["services"][svc].pop("pull_policy", None)
+        dis_cmp["services"][svc].pop("pull_policy", None)
+        print(f"      accepted N-17 pull_policy lock: {svc}")
 diff_services = [s for s in base["services"] if base_cmp["services"][s] != dis_cmp["services"][s]]
 check("only allowlisted env keys differ from " + base_ref, diff_services == [], ",".join(diff_services) or "none")
 for top in ("volumes", "networks", "secrets", "configs"):
@@ -223,6 +248,8 @@ for top in ("volumes", "networks", "secrets", "configs"):
 images = {s: dis["services"][s].get("image") for s in dis["services"] if s not in MINIO_IMAGE_SERVICES}
 base_images = {s: base["services"][s].get("image") for s in base["services"] if s not in MINIO_IMAGE_SERVICES}
 for svc in moves:
+    images[svc] = base_images.get(svc)
+for svc in infra_moves:
     images[svc] = base_images.get(svc)
 check("all images/pins identical to base", images == base_images)
 for svc in ("gateway-service", "auth-service", "web"):

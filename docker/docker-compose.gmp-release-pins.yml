@@ -28,9 +28,12 @@ name: parkio
 services:
   gateway-service:
     image: ghcr.io/adberilgen35/parkio/gateway-service@sha256:ff21f4a6dbcd6baba9b2a69527a2d6006016c4d00e5390e1bce01b94e86cf026
+    pull_policy: never
 
   media-service:
     image: ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
+    pull_policy: never
 
   parking-service:
     image: ghcr.io/adberilgen35/parkio/parking-service@sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9
+    pull_policy: never

@@ -394,8 +394,13 @@ auth_wrapper = env(wrapper.get("auth-service", {}))
 registration = sorted(k for k in auth_wrapper if k.startswith("PARKIO_REGISTRATION_"))
 if not registration:
     problems.append("production render sets no PARKIO_REGISTRATION_* on auth-service")
+# N-10 / N-17: hosted-beta and azure keep these profile-disabled; the Civo wrapper
+# re-enables alertmanager only. Digest pins still apply when the service is present.
+_disabled_obs = {"alertmanager", "loki", "promtail", "tempo"}
 for label, services in renders.items():
     for name in pinned:
+        if name in _disabled_obs and name not in services:
+            continue
         got = (services.get(name) or {}).get("image")
         if got != wrapper[name]["image"]:
             problems.append(f"{label}: {name} image {got!r} != production pin")

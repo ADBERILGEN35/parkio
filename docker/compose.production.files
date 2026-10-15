@@ -10,6 +10,7 @@
 # Order: GMP service pins, then the six app service pins (U13), then auth registration env,
 # then auth/web pins. Every app service is digest-pinned; none is built on the host.
 docker/docker-compose.yml
+docker/docker-compose.infra-release-pins.yml
 docker/docker-compose.apps.yml
 docker/docker-compose.hosted-beta.yml
 docker/docker-compose.azure-hosted-beta.yml

@@ -44,6 +44,10 @@ done
 STUB
 chmod +x "$TMP/nonroot-volume-migration-compliant.sh"
 export PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$TMP/nonroot-volume-migration-compliant.sh"
+# N-17: this suite isolates the web map / conf.d / API guards with synthetic mutable
+# fixture images. Provenance has its own regression (test-deploy-image-provenance.sh);
+# skip it here so those fixtures are not double-gated.
+export PARKIO_SKIP_IMAGE_PROVENANCE="I_ACCEPT_UNVERIFIED_IMAGE_PROVENANCE"
 
 GOOD_KEY="nonsynthetic-fixture-4c1d9e"
 BAD_MANIFEST="sha256:8d9bfca43d577afd62d20f7ffe3fcb2566fbf3bce9dbd758368562aec641487d"
@@ -501,7 +505,13 @@ wrapper() { # wrapper EXPECTED_RC EXPECT_MUTATION(yes|no) NAME ARGS...
 
 fake_reset; compose_model "$REPO:synthetic"
 wrapper 0 yes "gateway-only --no-deps up is not gated (no web)" up -d --no-build --no-deps gateway-service
-if [ -f "$FAKE/config.log" ] || grep -q '^image inspect' "$FAKE/calls.log"; then bad "gateway-only op never inspects web"; else pass "gateway-only op never inspects web"; fi
+# N-17: mutating gateway-only paths now render compose config for image provenance.
+# That is not a web inspection. Still require that the web image itself is never inspected.
+if grep -E '^image inspect .*web' "$FAKE/calls.log" >/dev/null 2>&1; then
+  bad "gateway-only op never inspects web"
+else
+  pass "gateway-only op never inspects web"
+fi
 fake_reset; compose_model "$REPO:synthetic"
 wrapper 0 yes "non-creating subcommand (ps) is not gated" ps
 fake_reset; compose_model "$REPO:synthetic"

@@ -29,56 +29,67 @@ x-image-build-args: &image-build-args
 services:
   gateway-service:
     image: parkio/gateway-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   auth-service:
     image: parkio/auth-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   user-service:
     image: parkio/user-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   parking-service:
     image: parkio/parking-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   media-service:
     image: parkio/media-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   gamification-service:
     image: parkio/gamification-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   notification-service:
     image: parkio/notification-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   moderation-service:
     image: parkio/moderation-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   ai-validation-service:
     image: parkio/ai-validation-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   analytics-service:
     image: parkio/analytics-service:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       args: *image-build-args
 
   web:
     image: parkio/web:${PARKIO_IMAGE_TAG:?PARKIO_IMAGE_TAG is required}
+    pull_policy: build
     build:
       context: ..
       dockerfile: frontend/apps/web/Dockerfile

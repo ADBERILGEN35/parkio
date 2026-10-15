@@ -50,7 +50,7 @@ x-postgres-common: &postgres-common
   # Read-only root (B8): the socket and lock files live in /var/run/postgresql.
   read_only: true
   tmpfs: ["/var/run/postgresql:size=1m", "/tmp:size=16m"]
-  image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+  image: ${POSTGRES_IMAGE:-postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
   restart: unless-stopped
   logging: *default-logging
   networks: [parkio-backend]
@@ -103,7 +103,7 @@ services:
   # parking-service needs PostGIS for geospatial spot search (ai-context/05).
   postgres-parking:
     <<: *postgres-common
-    image: ${POSTGIS_IMAGE:-postgis/postgis:16-3.4}
+    image: ${POSTGIS_IMAGE:-postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5}
     container_name: parkio-postgres-parking
     environment:
       POSTGRES_DB: ${POSTGRES_PARKING_DB:-parkio_parking}
@@ -184,7 +184,7 @@ services:
     # Runs redis-server as root (the command is not "redis-server", so the entrypoint
     # does not switch users) and writes into /data, which the image owns as redis.
     cap_add: [DAC_OVERRIDE]
-    image: ${REDIS_IMAGE:-redis:7-alpine}
+    image: ${REDIS_IMAGE:-redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499}
     container_name: parkio-redis
     restart: unless-stopped
     logging: *default-logging
@@ -231,7 +231,7 @@ services:
     # The cp-kafka entrypoint renders /etc/kafka from its templates and writes GC logs to
     # /var/log/kafka at every start. KAFKA_GC_LOG_OPTS below keeps those logs within that tmpfs.
     tmpfs: ["/tmp:size=16m", "/etc/kafka:size=8m,mode=1777", "/var/log/kafka:size=32m,mode=1777"]
-    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.7.1}
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka@sha256:653f49c51cfebcf8301938d01044efead6afbd8dd60acd2bcf1605d7c6494d3b}
     container_name: parkio-kafka
     restart: unless-stopped
     logging: *default-logging
@@ -269,7 +269,7 @@ services:
   kafka-exporter:
     <<: *hardening
     read_only: true
-    image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter:v1.8.0}
+    image: ${KAFKA_EXPORTER_IMAGE:-danielqsj/kafka-exporter@sha256:9b67b273d1e54052e7ce77c46ecd1c6619fdee7e2ed26717e6272806fbc94150}
     container_name: parkio-kafka-exporter
     restart: unless-stopped
     logging: *default-logging
@@ -289,7 +289,7 @@ services:
   blackbox-exporter:
     <<: *hardening
     read_only: true
-    image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
+    image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter@sha256:b04a9fef4fa086a02fc7fcd8dcdbc4b7b35cc30cdee860fdc6a19dd8b208d63e}
     container_name: parkio-blackbox-exporter
     restart: unless-stopped
     logging: *default-logging
@@ -373,7 +373,7 @@ services:
     # 12 MB) and its size-capped logs in /var/log/clamav.
     read_only: true
     tmpfs: ["/tmp:size=128m", "/run/clamav:size=1m", "/run/lock:size=1m", "/var/log/clamav:size=16m"]
-    image: ${CLAMAV_IMAGE:-clamav/clamav:1.4}
+    image: ${CLAMAV_IMAGE:-clamav/clamav@sha256:b5b910ce43d595bf8a2fe401e34db56434602b2c755b7c2b07f00c917d04d469}
     container_name: parkio-clamav
     restart: unless-stopped
     logging: *default-logging
@@ -399,7 +399,7 @@ services:
   prometheus:
     <<: *hardening
     read_only: true
-    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94}
     container_name: parkio-prometheus
     restart: unless-stopped
     logging: *default-logging
@@ -442,7 +442,7 @@ services:
     read_only: true
     # render-config.sh writes the runtime config to /tmp.
     tmpfs: ["/tmp:size=8m"]
-    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
+    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5}
     container_name: parkio-alertmanager
     restart: unless-stopped
     logging: *default-logging
@@ -475,7 +475,7 @@ services:
     <<: *hardening
     read_only: true
     tmpfs: ["/tmp:size=16m"]
-    image: ${LOKI_IMAGE:-grafana/loki:2.9.8}
+    image: ${LOKI_IMAGE:-grafana/loki@sha256:8b5bd7748d0e4da66cd741ac276e485517514af0bea32167e27c0e1a95bcf8aa}
     container_name: parkio-loki
     restart: unless-stopped
     logging: *default-logging
@@ -499,7 +499,7 @@ services:
   promtail:
     <<: *hardening
     read_only: true
-    image: ${PROMTAIL_IMAGE:-grafana/promtail:2.9.8}
+    image: ${PROMTAIL_IMAGE:-grafana/promtail@sha256:45d54f0ebd7a19acbcd4693a3227d84d27d98abe1dc7ea3068d31d5d02dbe696}
     container_name: parkio-promtail
     restart: unless-stopped
     logging: *default-logging
@@ -541,7 +541,7 @@ services:
   node-exporter:
     <<: *hardening
     read_only: true
-    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
+    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706}
     container_name: parkio-node-exporter
     restart: unless-stopped
     logging: *default-logging
@@ -575,7 +575,7 @@ services:
     <<: *hardening
     read_only: true
     tmpfs: ["/tmp:size=16m"]
-    image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
+    image: ${TEMPO_IMAGE:-grafana/tempo@sha256:ef4384fce6e8ad22b95b243d8fc165628cda655376fd50e7850536ad89d71d50}
     container_name: parkio-tempo
     restart: unless-stopped
     logging: *default-logging
@@ -596,7 +596,7 @@ services:
     <<: *hardening
     read_only: true
     tmpfs: ["/tmp:size=32m"]
-    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    image: ${GRAFANA_IMAGE:-grafana/grafana@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f}
     container_name: parkio-grafana
     restart: unless-stopped
     logging: *default-logging
