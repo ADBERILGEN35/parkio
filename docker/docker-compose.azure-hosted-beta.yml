@@ -158,6 +158,7 @@ services:
       PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_CRON: "${PARKIO_MUNICIPAL_OCCUPANCY_RETENTION_CRON:-0 0 4 * * *}"
       # CL-F17 / PRIV-002 location-log retention. Fail-closed default (off); enabling is a release step.
       PARKIO_LOCATION_LOG_RETENTION_ENABLED: ${PARKIO_LOCATION_LOG_RETENTION_ENABLED:-false}
+      PARKIO_LOCATION_LOG_RETENTION_MAX_BATCHES: ${PARKIO_LOCATION_LOG_RETENTION_MAX_BATCHES:-20}
       PARKIO_LOCATION_LOG_RETENTION: ${PARKIO_LOCATION_LOG_RETENTION:-P30D}
     volumes:
       # Read-only ops interchange for OSM GeoJSON (outside Git). Created by operators.
