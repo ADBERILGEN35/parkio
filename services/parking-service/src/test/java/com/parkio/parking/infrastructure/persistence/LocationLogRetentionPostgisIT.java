@@ -132,6 +132,27 @@ class LocationLogRetentionPostgisIT {
         assertThat(ids("parking_spot_view_logs")).isEmpty();
     }
 
+
+    @Test
+    void enabledBoundedCleanupDrainsSustainedSyntheticBacklogAboveOneBatch() {
+        UUID recentSearch = insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(5)));
+        for (int i = 0; i < 7; i++) {
+            insertSearchLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(40 - i)));
+        }
+        UUID recentView = insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(5)));
+        for (int i = 0; i < 7; i++) {
+            insertViewLog(UUID.randomUUID(), NOW.minus(Duration.ofDays(40 - i)));
+        }
+        RetentionCleanupJob job = new RetentionCleanupJob(
+                jdbc, Clock.fixed(NOW, ZoneOffset.UTC), false, false, true,
+                Duration.ofDays(7), Duration.ofDays(30), Duration.ofDays(30), 3, 4);
+
+        assertThat(job.cleanupSearchLogsBounded()).isEqualTo(7);
+        assertThat(ids("parking_spot_search_logs")).containsExactly(recentSearch);
+        assertThat(job.cleanupViewLogsBounded()).isEqualTo(7);
+        assertThat(ids("parking_spot_view_logs")).containsExactly(recentView);
+    }
+
     private UUID insertSearchLog(UUID userId, Instant createdAt) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
