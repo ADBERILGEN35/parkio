@@ -18,6 +18,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -77,10 +80,12 @@ public class MunicipalFacilityQueryService {
     public List<FacilityView> nearby(double lat, double lng, int radiusMeters, int limit) {
         validate(lat, lng, radiusMeters, limit);
         if (!discovery.isDuplicatePresentationEnabled()) {
-            return facilities.nearby(lat, lng, radiusMeters, limit).stream()
-                    .filter(this::isDiscoverable)
-                    .map(this::project)
-                    .toList();
+            List<MunicipalFacilityRepository.Facility> rows =
+                    facilities.nearby(lat, lng, radiusMeters, limit).stream()
+                            .filter(this::isDiscoverable)
+                            .toList();
+            OccupancyLookup occupancy = prefetchOccupancy(rows);
+            return rows.stream().map(f -> project(f, occupancy)).toList();
         }
 
         int fetchLimit = DiscoveryDuplicatePresentationPolicy.boundedFetchLimit(
@@ -88,12 +93,16 @@ public class MunicipalFacilityQueryService {
         List<MunicipalFacilityRepository.Facility> rows =
                 facilities.nearby(lat, lng, radiusMeters, fetchLimit);
 
-        List<DiscoveryDuplicatePresentationPolicy.Candidate> candidates = new ArrayList<>();
+        List<MunicipalFacilityRepository.Facility> discoverable = new ArrayList<>();
         for (MunicipalFacilityRepository.Facility facility : rows) {
-            if (!isDiscoverable(facility)) {
-                continue;
+            if (isDiscoverable(facility)) {
+                discoverable.add(facility);
             }
-            FacilityView view = project(facility);
+        }
+        OccupancyLookup occupancy = prefetchOccupancy(discoverable);
+        List<DiscoveryDuplicatePresentationPolicy.Candidate> candidates = new ArrayList<>();
+        for (MunicipalFacilityRepository.Facility facility : discoverable) {
+            FacilityView view = project(facility, occupancy);
             DiscoveryDuplicatePresentationPolicy.Family family =
                     DiscoveryDuplicatePresentationPolicy.familyOf(
                             linkedKeys(facility), facility.primarySourceKey());
@@ -125,7 +134,7 @@ public class MunicipalFacilityQueryService {
     }
 
     public Optional<FacilityView> findById(UUID id) {
-        return facilities.findById(id).filter(this::isDiscoverable).map(this::project);
+        return facilities.findById(id).filter(this::isDiscoverable).map(f -> project(f, prefetchOccupancy(List.of(f))));
     }
 
     private Set<String> supportedPairs() {
@@ -143,9 +152,9 @@ public class MunicipalFacilityQueryService {
         return pairs;
     }
 
-    private FacilityView project(MunicipalFacilityRepository.Facility facility) {
+    private FacilityView project(MunicipalFacilityRepository.Facility facility, OccupancyLookup occupancy) {
         Set<String> linked = linkedKeys(facility);
-        var snapshot = occupancySnapshot(facility, linked);
+        var snapshot = occupancySnapshot(facility, linked, occupancy);
         MunicipalOccupancyFreshness freshness = MunicipalOccupancyFreshness.UNAVAILABLE;
         Integer available = null;
         Integer occupied = null;
@@ -192,7 +201,7 @@ public class MunicipalFacilityQueryService {
         if (snapshot.isEmpty()
                 && IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
                         linked, facility.isparkSourceMetadataJson())) {
-            var inventory = snapshots.latestForFacility(facility.id());
+            var inventory = occupancy.latestForFacility(facility.id());
             if (inventory.isPresent() && inventory.get().capacityTotal() != null) {
                 capacity = inventory.get().capacityTotal();
             }
@@ -234,18 +243,81 @@ public class MunicipalFacilityQueryService {
      * authority's snapshot, if one exists.
      */
     private java.util.Optional<MunicipalOccupancySnapshotRepository.Snapshot> occupancySnapshot(
-            MunicipalFacilityRepository.Facility facility, Set<String> linked) {
+            MunicipalFacilityRepository.Facility facility, Set<String> linked, OccupancyLookup occupancy) {
         if (!IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
                 linked, facility.isparkSourceMetadataJson())) {
-            return snapshots.latestForFacility(facility.id());
+            return occupancy.latestForFacility(facility.id());
         }
         return linked.stream()
                 .filter(key -> !MunicipalSourceIdentity.isIspark(key))
                 .filter(ParkingProviderCatalog::supportsLiveOccupancy)
                 .sorted()
-                .map(key -> snapshots.latestForFacilityAndSourceKey(facility.id(), key))
+                .map(key -> occupancy.latestForFacilityAndSourceKey(facility.id(), key))
                 .flatMap(java.util.Optional::stream)
                 .findFirst();
+    }
+
+    /**
+     * Prefetch occupancy for a facility list in a bounded number of queries
+     * (one latest-per-facility query plus at most one per alternate live-occupancy
+     * source key needed for İSPARK withhold cases).
+     */
+    private OccupancyLookup prefetchOccupancy(List<MunicipalFacilityRepository.Facility> facilities) {
+        if (facilities.isEmpty()) {
+            return OccupancyLookup.empty();
+        }
+        List<UUID> ids = facilities.stream().map(MunicipalFacilityRepository.Facility::id).toList();
+        Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> byFacility =
+                new HashMap<>(snapshots.latestForFacilities(ids));
+        Map<String, Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot>> bySource = new HashMap<>();
+        for (MunicipalFacilityRepository.Facility facility : facilities) {
+            Set<String> linked = linkedKeys(facility);
+            if (!IsparkOccupancyPublicationPolicy.mustWithholdIsparkOccupancy(
+                    linked, facility.isparkSourceMetadataJson())) {
+                continue;
+            }
+            for (String key : linked) {
+                if (MunicipalSourceIdentity.isIspark(key)) {
+                    continue;
+                }
+                if (!ParkingProviderCatalog.supportsLiveOccupancy(key)) {
+                    continue;
+                }
+                bySource.computeIfAbsent(key, k -> new HashMap<>(
+                        snapshots.latestForFacilitiesAndSourceKey(ids, k)));
+            }
+        }
+        return new OccupancyLookup(byFacility, bySource);
+    }
+
+    /** Request-scoped occupancy cache backed by bounded batch queries. */
+    private static final class OccupancyLookup {
+        private final Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> byFacility;
+        private final Map<String, Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot>> bySource;
+
+        private OccupancyLookup(
+                Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> byFacility,
+                Map<String, Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot>> bySource) {
+            this.byFacility = byFacility;
+            this.bySource = bySource;
+        }
+
+        static OccupancyLookup empty() {
+            return new OccupancyLookup(Map.of(), Map.of());
+        }
+
+        java.util.Optional<MunicipalOccupancySnapshotRepository.Snapshot> latestForFacility(UUID facilityId) {
+            return java.util.Optional.ofNullable(byFacility.get(facilityId));
+        }
+
+        java.util.Optional<MunicipalOccupancySnapshotRepository.Snapshot> latestForFacilityAndSourceKey(
+                UUID facilityId, String sourceKey) {
+            Map<UUID, MunicipalOccupancySnapshotRepository.Snapshot> map = bySource.get(sourceKey);
+            if (map == null) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.ofNullable(map.get(facilityId));
+        }
     }
 
     private DisplayProvenance displayProvenance(

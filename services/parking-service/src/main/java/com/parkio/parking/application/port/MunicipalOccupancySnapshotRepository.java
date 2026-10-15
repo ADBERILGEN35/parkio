@@ -32,6 +32,21 @@ public interface MunicipalOccupancySnapshotRepository {
     Optional<Snapshot> latestForFacility(UUID facilityId);
     Optional<Snapshot> latestForFacilityAndSourceKey(UUID facilityId, String sourceKey);
 
+    /**
+     * Latest snapshot per facility for a bounded facility set (one query).
+     * Facilities without a snapshot are absent from the result map.
+     */
+    Map<UUID, Snapshot> latestForFacilities(java.util.Collection<UUID> facilityIds);
+
+    /**
+     * Latest snapshot per facility for a specific source key (one query).
+     * Used when İSPARK occupancy must be withheld and another live-occupancy
+     * authority's snapshot is selected instead.
+     */
+    Map<UUID, Snapshot> latestForFacilitiesAndSourceKey(
+            java.util.Collection<UUID> facilityIds, String sourceKey);
+
+
     /** Latest occupancy observation for a municipal source (by {@code fetched_at}). */
     Optional<Snapshot> latestForSource(UUID sourceId);
 
