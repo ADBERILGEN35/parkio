@@ -30,10 +30,14 @@ public interface WaitlistInterestRepository {
     boolean withdrawByTokenHash(String tokenHash, Instant now);
 
     /**
-     * Atomically claim a pending resend by CAS on {@code verification_claim_version}.
-     * On win: rotates tokens, increments the claim version, leaves sent_at/resend_count
-     * unchanged so failed delivery stays retryable. Loser returns empty and must not send.
+     * Atomically claim a pending resend by CAS on {@code verification_claim_version}
+     * and the resend cooldown. On win: rotates tokens, increments the claim version,
+     * records {@code verification_claimed_at}, leaves sent_at/resend_count unchanged so
+     * failed delivery stays retryable. Loser returns empty and must not send.
      *
+     * @param claimedAt timestamp written on a winning claim
+     * @param cooldownElapsedBefore claim succeeds only when both {@code verification_sent_at}
+     *     and {@code verification_claimed_at} are null or {@code <=} this instant
      * @return the new claim version when this caller won; empty when the CAS lost
      */
     OptionalLong claimPendingVerification(
@@ -41,11 +45,15 @@ public interface WaitlistInterestRepository {
             long expectedClaimVersion,
             String verificationTokenHash,
             String withdrawTokenHash,
-            Instant expiresAt);
+            Instant expiresAt,
+            Instant claimedAt,
+            Instant cooldownElapsedBefore);
 
     /**
      * Records a successful outbound confirmation attempt bound to the winning claim.
      * A stale claim (superseded by a newer claim) updates zero rows and returns false.
+     * {@code resend_count} is advanced with {@code GREATEST} so overlapping completions
+     * cannot hold the counter back.
      */
     boolean markVerificationSent(String emailHash, long claimVersion, Instant sentAt, int resendCount);
 

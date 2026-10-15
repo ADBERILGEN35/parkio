@@ -139,12 +139,12 @@ class WaitlistOpsNotificationPostgresIT {
     }
 
     @Test
-    void runsOnRealPostgresWithFlywayV7AndJdbcTransactionManager() {
+    void runsOnRealPostgresWithFlywayV8AndJdbcTransactionManager() {
         String version = jdbcTemplate.queryForObject("SHOW server_version", String.class);
         assertThat(version).startsWith("16.");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("7");
+                String.class)).isEqualTo("8");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(transactionManager).isInstanceOf(JdbcTransactionManager.class);

@@ -20,6 +20,7 @@ public record WaitlistInterest(
         String withdrawTokenHash,
         Instant verificationExpiresAt,
         Instant verificationSentAt,
+        Instant verificationClaimedAt,
         int resendCount,
         long verificationClaimVersion,
         Instant confirmedAt,
