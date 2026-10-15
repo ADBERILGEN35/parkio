@@ -27,7 +27,7 @@ INBOX_GROUP=parkio-waitlist-inbox
 STATE_DIR=/var/lib/parkio/slack-biz
 INBOX_DIR=/var/lib/parkio/waitlist-ops-inbox
 ETC=/etc/parkio
-UNITS=(parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service)
+UNITS=(parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service parkio-slack-biz-textfile-export.service parkio-slack-biz-textfile-export.timer)
 
 run() { echo "+ $*"; if [ $APPLY = 1 ]; then "$@"; fi; }
 
@@ -54,8 +54,8 @@ if [ -r "$ETC/slack-biz.conf.env" ] && grep -Eq '^PARKIO_SLACK_BIZ_TRUSTED_PRODU
   echo "refusing: PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS must be exactly gateway-waitlist-outbox" >&2
   exit 1
 fi
-if ls /etc/systemd/system/parkio-slack-biz-*.service 2>/dev/null | grep -v -E '/(parkio-slack-biz-waitlist-consumer|parkio-slack-biz-worker)\.service$' | grep -q .; then
-  echo "refusing: unexpected parkio-slack-biz unit present (only waitlist consumer + worker are allowed)" >&2
+if ls /etc/systemd/system/parkio-slack-biz-* 2>/dev/null | grep -v -E '/(parkio-slack-biz-waitlist-consumer|parkio-slack-biz-worker)\.service$' | grep -v -E '/parkio-slack-biz-textfile-export\.(service|timer)$' | grep -q .; then
+  echo "refusing: unexpected parkio-slack-biz unit present (only waitlist consumer, worker, and textfile export are allowed)" >&2
   exit 1
 fi
 
@@ -68,6 +68,10 @@ run usermod -a -G "$INBOX_GROUP" "$SVC_USER"
 
 run install -d -m 0755 -o root -g root /var/lib/parkio
 run install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$STATE_DIR"
+TEXTFILE_DIR=/opt/parkio/docker/prometheus/textfile
+run install -d -m 0755 -o root -g root /opt/parkio/docker/prometheus
+run install -d -m 0775 -o "$SVC_USER" -g "$SVC_USER" "$TEXTFILE_DIR"
+
 # setgid: files the gateway writes inherit the inbox group.
 run install -d -m 2770 -o "$SVC_USER" -g "$INBOX_GROUP" "$INBOX_DIR"
 run install -d -m 0755 -o root -g root "$ETC"
@@ -90,7 +94,7 @@ for u in "${UNITS[@]}"; do
 done
 if [ $SYSTEMD = 1 ]; then
   run systemctl daemon-reload
-  run systemctl enable "${UNITS[@]}"
+  run systemctl enable parkio-slack-biz-waitlist-consumer.service parkio-slack-biz-worker.service parkio-slack-biz-textfile-export.timer
 fi
 
 echo

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Parkio slack_biz textfile export every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+Unit=parkio-slack-biz-textfile-export.service
+
+[Install]
+WantedBy=timers.target
