@@ -147,7 +147,7 @@ test.describe('map unavailable alerts (N-11)', () => {
       await expect(alert).toContainText(/couldn't load/i);
     });
 
-    test(`/explore tile 403 shows a visible alert at ${size}`, async ({ page }) => {
+    test(`/explore tile 403 shows a recoverable notice and keeps markers at ${size}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await blockExternal(page);
       await mockApi(page, { signedIn: false });
@@ -155,10 +155,13 @@ test.describe('map unavailable alerts (N-11)', () => {
       await fulfillTiles(page, 403);
       await page.goto('/explore');
       await expect(page).toHaveURL(/\/explore$/);
-      const alert = page.getByTestId('public-explore-map-unavailable');
-      await expect(alert).toBeVisible({ timeout: 10_000 });
-      await expect(alert).toHaveAttribute('role', 'alert');
-      await expect(page.getByTestId('public-explore-list-fallback')).toBeVisible();
+      const notice = page.getByTestId('map-tile-degraded-notice');
+      await expect(notice).toBeVisible({ timeout: 10_000 });
+      await expect(notice).toHaveAttribute('role', 'status');
+      await expect(page.getByRole('button', { name: /retry/i })).toBeVisible();
+      await expect(page.getByTestId('municipal-facility-marker')).toBeVisible();
+      await expect(page.getByTestId('public-explore-map-unavailable')).toHaveCount(0);
+      await expect(page.getByTestId('public-explore-list-fallback')).toHaveCount(0);
     });
 
     test(`successful map style load does not false-alert at ${size}`, async ({ page }) => {

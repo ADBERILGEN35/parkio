@@ -71,6 +71,21 @@ attributes. `chown` removes a file capability (`security.capability`), and resto
 it back. None of the data volumes in the map holds executables with file capabilities. Check a
 volume with `getcap -r` before migrating it if that could change.
 
+## Production wrapper gate (R-05 / #414)
+
+`scripts/parkio-prod-compose.sh` sources `scripts/lib/prod-nonroot-volume-gate.sh` whenever the
+Civo non-root overlay is on the file list. Before `up` / `create` / `run` (and when the Compose
+subcommand cannot be identified — fail closed), every overlay volume service must plan as
+`COMPLIANT` or `ABSENT`.
+
+- `ABSENT` is allowed so a **fresh host / DR** can bring the stack up; non-root images initialise
+  named-volume ownership on first start.
+- `NEEDS_CHOWN` and any other non-ok status still refuse the mutation. Owner break-glass remains
+  `PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`.
+- Plan stderr is written to a private `mktemp` file (not a fixed world-readable `/tmp` path).
+- Unknown long Compose globals that take a value (for example `--parallel N`) are skipped as
+  flag+value so the real subcommand is still found; unidentified subcommands run the gate.
+
 ## Targets (`scripts/lib/nonroot-volume-map.tsv`)
 
 | Service | Volumes | Target | Readiness | Compose change once migrated |
