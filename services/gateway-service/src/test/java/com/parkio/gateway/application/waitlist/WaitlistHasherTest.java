@@ -12,6 +12,7 @@ class WaitlistHasherTest {
 
     private static final String CURRENT = "current-waitlist-hash-secret-32chars-min!!";
     private static final String PREVIOUS = "previous-waitlist-hash-secret-32chars-min!";
+    private static final String TOKEN = "token-waitlist-hash-secret-32chars-min!!!!";
 
     @Test
     void hashUsesCurrentSecretOnly() {
@@ -40,6 +41,23 @@ class WaitlistHasherTest {
     }
 
     @Test
+    void dedicatedTokenSecretDoesNotFollowEmailRotation() {
+        WaitlistProperties props = props(CURRENT, PREVIOUS);
+        props.setHashTokenSecret(TOKEN);
+        WaitlistHasher hasher = new WaitlistHasher(props);
+        assertNotEquals(hasher.hash("raw-token"), hasher.hashToken("raw-token"));
+        assertEquals(new WaitlistHasher(tokenOnly(TOKEN)).hashToken("raw-token"), hasher.hashToken("raw-token"));
+        assertEquals(1, hasher.hashTokenCandidates("raw-token").size());
+    }
+
+    @Test
+    void blankTokenSecretFallsBackToEmailSecrets() {
+        WaitlistHasher hasher = new WaitlistHasher(props(CURRENT, PREVIOUS));
+        assertEquals(hasher.hash("raw-token"), hasher.hashToken("raw-token"));
+        assertEquals(hasher.hashCandidates("raw-token"), hasher.hashTokenCandidates("raw-token"));
+    }
+
+    @Test
     void previousSecretMustBeLongEnoughWhenSet() {
         assertThrows(IllegalStateException.class, () -> new WaitlistHasher(props(CURRENT, "too-short")));
     }
@@ -60,6 +78,13 @@ class WaitlistHasherTest {
         WaitlistProperties properties = new WaitlistProperties();
         properties.setHashSecret(current);
         properties.setHashSecretPrevious(previous);
+        return properties;
+    }
+
+    private static WaitlistProperties tokenOnly(String tokenSecret) {
+        WaitlistProperties properties = new WaitlistProperties();
+        properties.setHashSecret(CURRENT);
+        properties.setHashTokenSecret(tokenSecret);
         return properties;
     }
 }

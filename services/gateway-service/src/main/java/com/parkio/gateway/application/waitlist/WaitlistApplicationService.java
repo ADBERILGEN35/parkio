@@ -115,8 +115,8 @@ public class WaitlistApplicationService {
                 command.source(),
                 locale,
                 WaitlistStatus.PENDING,
-                hasher.hash(verificationToken),
-                hasher.hash(withdrawToken),
+                hasher.hashToken(verificationToken),
+                hasher.hashToken(withdrawToken),
                 now.plus(properties.getTokenTtl()),
                 null,
                 0,
@@ -194,7 +194,7 @@ public class WaitlistApplicationService {
         return Mono.fromCallable(() -> {
                     String raw = requireToken(rawToken);
                     Instant now = clock.instant();
-                    for (String tokenHash : hasher.hashCandidates(raw)) {
+                    for (String tokenHash : hasher.hashTokenCandidates(raw)) {
                         // The ops notification row commits atomically with the PENDING -> CONFIRMED
                         // transition, so rolled-back or idempotent repeat confirms emit nothing.
                         Boolean transitioned = transactions.execute(tx -> {
@@ -229,7 +229,7 @@ public class WaitlistApplicationService {
         return Mono.fromCallable(() -> {
                     String raw = requireToken(rawToken);
                     Instant now = clock.instant();
-                    for (String tokenHash : hasher.hashCandidates(raw)) {
+                    for (String tokenHash : hasher.hashTokenCandidates(raw)) {
                         Optional<WaitlistInterest> before = repository.findByWithdrawTokenHash(tokenHash);
                         boolean withdrawn = repository.withdrawByTokenHash(tokenHash, now);
                         if (withdrawn && before.isPresent()) {
@@ -348,9 +348,18 @@ public class WaitlistApplicationService {
 
     /** Resolve a row under the current or previous hash secret (rotation dual-accept). */
     private Optional<WaitlistInterest> findByAnyEmailHash(String email) {
+        String currentHash = hasher.hash(email);
         for (String candidate : hasher.hashCandidates(email)) {
             Optional<WaitlistInterest> found = repository.findByEmailHash(candidate);
             if (found.isPresent()) {
+                WaitlistInterest row = found.get();
+                if (!currentHash.equals(row.emailHash()) && !row.emailHash().startsWith("withdrawn-")) {
+                    // CL-N08: migrate identity digests to the current email secret on contact.
+                    String ipHash = row.ipHash();
+                    String uaHash = row.userAgentHash();
+                    repository.rehashEmailIdentity(row.emailHash(), currentHash, ipHash, uaHash);
+                    return repository.findByEmailHash(currentHash).or(() -> Optional.of(row));
+                }
                 return found;
             }
         }
@@ -379,8 +388,8 @@ public class WaitlistApplicationService {
         var claimed = repository.claimPendingVerification(
                 emailHash,
                 row.verificationClaimVersion(),
-                hasher.hash(verificationToken),
-                hasher.hash(withdrawToken),
+                hasher.hashToken(verificationToken),
+                hasher.hashToken(withdrawToken),
                 now.plus(properties.getTokenTtl()));
         if (claimed.isPresent()) {
             deliverConfirmation(
