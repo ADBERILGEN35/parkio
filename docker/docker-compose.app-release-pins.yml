@@ -41,7 +41,7 @@ services:
     pull_policy: never
 
   ai-validation-service:
-    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640
+    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b
     pull_policy: never
 
   analytics-service:
