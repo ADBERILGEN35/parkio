@@ -373,16 +373,19 @@ public class WaitlistApplicationService {
         String verificationToken = newToken();
         String withdrawToken = newToken();
         int nextResendCount = row.resendCount() + (row.verificationSentAt() == null ? 0 : 1);
-        // Rotate tokens first; mark sent only after delivery so failures remain retryable.
-        boolean refreshed = repository.refreshPendingVerification(
+        String verificationTokenHash = hasher.hash(verificationToken);
+        // Claim via token CAS before provider I/O; loser must not send. Sent_at/count stay
+        // unchanged until markVerificationSent so failed delivery remains retryable.
+        boolean claimed = repository.refreshPendingVerification(
                 emailHash,
-                hasher.hash(verificationToken),
+                row.verificationTokenHash(),
+                verificationTokenHash,
                 hasher.hash(withdrawToken),
-                now.plus(properties.getTokenTtl()),
-                row.verificationSentAt(),
-                row.resendCount());
-        if (refreshed) {
-            deliverConfirmation(email, verificationToken, withdrawToken, row.locale(), emailHash, nextResendCount);
+                now.plus(properties.getTokenTtl()));
+        if (claimed) {
+            deliverConfirmation(
+                    email, verificationToken, withdrawToken, row.locale(), emailHash,
+                    verificationTokenHash, nextResendCount);
         }
     }
 
@@ -393,9 +396,33 @@ public class WaitlistApplicationService {
             String locale,
             String emailHash,
             int resendCountAfterSuccess) {
+        deliverConfirmation(
+                email,
+                verificationToken,
+                withdrawToken,
+                locale,
+                emailHash,
+                hasher.hash(verificationToken),
+                resendCountAfterSuccess);
+    }
+
+    private void deliverConfirmation(
+            String email,
+            String verificationToken,
+            String withdrawToken,
+            String locale,
+            String emailHash,
+            String verificationTokenHash,
+            int resendCountAfterSuccess) {
         try {
             emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
-            repository.markVerificationSent(emailHash, clock.instant(), resendCountAfterSuccess);
+            boolean marked = repository.markVerificationSent(
+                    emailHash, verificationTokenHash, clock.instant(), resendCountAfterSuccess);
+            if (!marked) {
+                log.warn(
+                        "Waitlist confirmation mark skipped; claim superseded after send; emailHash={}",
+                        emailHash);
+            }
         } catch (RuntimeException ex) {
             log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);

@@ -3,6 +3,7 @@ package com.parkio.gateway.application.waitlist;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 public interface WaitlistInterestRepository {
@@ -22,16 +23,23 @@ public interface WaitlistInterestRepository {
 
     boolean withdrawByTokenHash(String tokenHash, Instant now);
 
+    /**
+     * Atomically claims a pending resend by rotating tokens when {@code expectedVerificationTokenHash}
+     * still matches (token CAS). Does not touch sent_at/resend_count; delivery completion does.
+     * @return true when this caller obtained the claim
+     */
     boolean refreshPendingVerification(
             String emailHash,
+            String expectedVerificationTokenHash,
             String verificationTokenHash,
             String withdrawTokenHash,
-            Instant expiresAt,
-            Instant sentAt,
-            int resendCount);
+            Instant expiresAt);
 
-    /** Records a successful outbound confirmation attempt (after delivery succeeds). */
-    void markVerificationSent(String emailHash, Instant sentAt, int resendCount);
+    /**
+     * Records a successful outbound confirmation attempt bound to the winning claim token.
+     * @return true when the claim still owns the row (stale completions return false)
+     */
+    boolean markVerificationSent(String emailHash, String verificationTokenHash, Instant sentAt, int resendCount);
 
     /** Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)}. */
     long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo);

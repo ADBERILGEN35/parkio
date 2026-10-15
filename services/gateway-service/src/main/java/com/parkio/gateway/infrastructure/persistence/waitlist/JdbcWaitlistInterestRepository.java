@@ -128,42 +128,43 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     @Override
     public boolean refreshPendingVerification(
             String emailHash,
+            String expectedVerificationTokenHash,
             String verificationTokenHash,
             String withdrawTokenHash,
-            Instant expiresAt,
-            Instant sentAt,
-            int resendCount) {
+            Instant expiresAt) {
+        // Token CAS: only the contender that still sees the expected hash obtains the send claim.
         int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_token_hash = ?,
                     withdraw_token_hash = ?,
-                    verification_expires_at = ?,
-                    verification_sent_at = ?,
-                    resend_count = ?
+                    verification_expires_at = ?
                 WHERE email_hash = ?
                   AND status = 'PENDING'
+                  AND verification_token_hash IS NOT DISTINCT FROM ?
                 """,
                 verificationTokenHash,
                 withdrawTokenHash,
                 Timestamp.from(expiresAt),
-                toTimestamp(sentAt),
-                resendCount,
-                emailHash);
+                emailHash,
+                expectedVerificationTokenHash);
         return updated > 0;
     }
 
     @Override
-    public void markVerificationSent(String emailHash, Instant sentAt, int resendCount) {
-        jdbcTemplate.update("""
+    public boolean markVerificationSent(String emailHash, String verificationTokenHash, Instant sentAt, int resendCount) {
+        int updated = jdbcTemplate.update("""
                 UPDATE waitlist_interest
                 SET verification_sent_at = ?,
                     resend_count = ?
                 WHERE email_hash = ?
                   AND status = 'PENDING'
+                  AND verification_token_hash IS NOT DISTINCT FROM ?
                 """,
                 Timestamp.from(sentAt),
                 resendCount,
-                emailHash);
+                emailHash,
+                verificationTokenHash);
+        return updated > 0;
     }
 
     @Override
