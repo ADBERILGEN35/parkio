@@ -11,6 +11,8 @@
 #       defaults included), plus MINIO_IMAGE and MINIO_MC_IMAGE from docker/.env.example.
 #       Refuses with exit 3 when a pin file (*release-pin*.yml, *release-pins*.yml) has an
 #       `image:` line without a digest, so a mutable tag cannot slip into the recovery inventory.
+#       Third-party digest pins (e.g. postgres@sha256:… in docker/docker-compose.infra-release-pins.yml,
+#       N-17) are accepted as digest-locked but are not listed: recovery only pulls private GHCR images.
 #   registry-recovery-images.sh pull [--root DIR] [--expect-denied]
 #       `docker pull` every listed reference with the current docker login, then verify that the
 #       pulled image carries exactly that digest and is linux/amd64. With --expect-denied every
@@ -80,8 +82,15 @@ list_images() {
       if [ -n "$ref" ]; then
         refs+=("$ref")
       elif [ "$is_pin" -eq 1 ]; then
-        echo "ERROR: $entry pins an image without a digest: $(printf '%s' "$code" | sed -E 's/^[[:space:]]+//')" >&2
-        status=3
+        # N-17: infra pin overlay digests third-party images (postgres@sha256:…, caddy@sha256:…).
+        # Those are digest-locked and public/pullable without the recovery credential, so they are
+        # not inventory rows — but they must still prove a digest is present (not a mutable tag).
+        if printf '%s\n' "$code" | grep -qE '@sha256:[0-9a-f]{64}'; then
+          :
+        else
+          echo "ERROR: $entry pins an image without a digest: $(printf '%s' "$code" | sed -E 's/^[[:space:]]+//')" >&2
+          status=3
+        fi
       fi
     done < "$file"
   done < "$FILE_SET"
