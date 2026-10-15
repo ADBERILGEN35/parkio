@@ -84,7 +84,8 @@ class ObjectLockCheckpointStoreIT {
                     .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
                     .withCommand("server", "/data")
                     .withExposedPorts(9000)
-                    .waitingFor(Wait.forHttp("/minio/health/ready").forPort(9000));
+                    .waitingFor(Wait.forHttp("/minio/health/ready").forPort(9000).withStartupTimeout(Duration.ofMinutes(3)))
+                    .withStartupTimeout(Duration.ofMinutes(3));
 
     private final Clock clock = Clock.systemUTC();
     private MinioClient client;
