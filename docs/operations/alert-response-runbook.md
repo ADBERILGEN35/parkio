@@ -165,3 +165,10 @@ No `parkio_slack_biz_textfile_last_success_unixtime` series. Install/enable the 
 ## NrBudgetGateExhausted
 
 Textfile probe of NR budget-gate `/health` reported failure (HTTP 507 exhaustion or probe error while the gate container is running). Silent when the NR pilot/gate is absent. Check `/stats`. Do not edit `budget_gate.py` without coordinating #104. Host timer: `parkio-nr-gate-probe.timer`.
+
+Install or re-install the probe timer from the NR continuous release tree (review the dry run, then apply):
+
+```bash
+sudo /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/deploy/civo/install-gate-probe.sh
+sudo /opt/parkio-nr-log-continuous/current/scripts/newrelic_log_pilot/deploy/civo/install-gate-probe.sh --apply
+```

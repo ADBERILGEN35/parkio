@@ -1,21 +1,12 @@
-# Parkio hosted-beta auth release pin — hosted-beta release 2026-10-11
-# #419 pin update auth-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:661f0b9e4946b7d4e8879d511ab0f0563bc8a91c5c88e0b79bce79609ea9da5b; rollback ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
-# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the base layer's
-# /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer).
-# Candidate images run 38087836817 (accepted), published by
-# candidate-publish run 38125100729; registry config digest = accepted image id
-# sha256:6b881a91bbfe9ecaacf73cee59b1c10bce073b5bd7c953d36302de1ec0d26eb7 (linux/amd64).
-# Superseded before deployment (never live; carries /usr/bin/pebble go1.26.7): the a658edcb pin acc36698.
-# Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY in the host env (preflight refuses without it). Deploy after the
-# gateway and the web pins (CL-F15, route-specific CSRF #324); roll back before them.
-# Rollback (the previous live pin, source b10c1f7c):
-#   ghcr.io/adberilgen35/parkio/auth-service@sha256:a4410a45634b73246e13c3054dc3b1d0c8069baa7c0738258ecf9774ca72514e
+# Parkio hosted-beta auth release pin.
+# #419 current pin: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
+# Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY in the host env (preflight refuses without it).
 # Applied via docker/compose.production.files (after GMP pins, with web pin).
-# Recreate with:
-#   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
-#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate auth-service
 #
 # Practical digest update: change ONLY the services.auth-service.image line below.
+# #419 pin record auth-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:a349d8106865187ec08f14367235bc8a71a908246c289affe61f9b96f7a3d509; image id=config digest sha256:661f0b9e4946b7d4e8879d511ab0f0563bc8a91c5c88e0b79bce79609ea9da5b); rollback ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
+
 name: parkio
 
 services:
