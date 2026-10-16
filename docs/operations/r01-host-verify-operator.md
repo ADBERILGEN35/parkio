@@ -11,10 +11,10 @@
 | **Target** `scripts/ops/verify-real-e2e-accounts.sh` (enforced inside helper) | `4d3db3f28acd223f22f461b9b3f0df112a4472ba123caf2bf98bf7588fe53c8a` |
 
 ## Complete command
-Replace `HELPER_COMMIT` with the git commit that added these files (recorded in the PR / handoff after push). The command verifies the **helper** before `bash`, stops on mismatch, does not touch dirty trees, and prints no secrets.
+Committed helper revision (git): `ecd824039ccaf4a4f13b6b59b9864a0d1f77562b` (branch `ops/r01-checksum-verify-helper`). The command verifies the **helper** before `bash`, stops on mismatch, does not touch dirty trees, and prints no secrets.
 
 ```bash
-HELPER_COMMIT='HELPER_COMMIT_PLACEHOLDER'
+HELPER_COMMIT='ecd824039ccaf4a4f13b6b59b9864a0d1f77562b'
 HELPER_PATH='scripts/ops/r01-verify-real-e2e-accounts-checksum-enforced.sh'
 HELPER_SHA256='ebdf28c55b82540488efbded0b4ee31cd21c12ad9e58ade7b39721455d1aa7c0'
 RAW="https://raw.githubusercontent.com/ADBERILGEN35/parkio/${HELPER_COMMIT}/${HELPER_PATH}"
