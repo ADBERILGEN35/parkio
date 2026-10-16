@@ -1,26 +1,19 @@
-# Parkio app release pins (U13, CL-F11): the six app services the hosted-beta deploy built on the host.
-# #419 pin update user-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:f48913b9a5c38e451167d2fae0575d0cdb45427a774062dfdacf46682539c136; rollback ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
-# Source / OCI revision: f888a81b113c0c486ea0949067779443857e644d (api; the release PIN running on
-# parkio-civo-prod since 2026-10-12, where D7 built these six on the host from the same revision).
-# Candidate images run 38263294393 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical +
-# library gates pass, fixed CRITICAL 0 / HIGH 0; final runtime filesystem without /usr/bin/pebble),
-# published by candidate-publish run 38268494840: single linux/amd64 manifests, registry config digest =
-# accepted image id.
-#   user-service          image id sha256:de2ea73b009d0a49aa77a63b7760fbeb5e31eec0d42d3b219fe96b4a3b98eaaa
-#   gamification-service  image id sha256:423104cdcc1c09a02ffa66e464ff4a19ef73ab773d35bcd955d9225c4729b5c2
-#   notification-service  image id sha256:b8a1f00eb53e054fd4bb95ffc16be55fcad311be7cf18edebbbefb2865d8ca6b
-#   moderation-service    image id sha256:da421fc2c279b90200f8c047496b32539f05d3b239012bfcfb10fe242bf8deb9
-#   ai-validation-service image id sha256:d1c38a1b8fdda58b241de42cf6901418003dc71702256fc150e6af391271d115
-#   analytics-service     image id sha256:66fc4d591e9e3f47df5bc4c0380a225ad6b0b5ffa3ee1eccfeadf3287f9c09f7
-# Rollback: none in this file. These pins replace host builds, not earlier pins: the host-built images running
-# when this file was added (parkio/<service>:sha-f888a81b113c0c486ea0949067779443857e644d on parkio-civo-prod)
-# were never published and have no registry digest. Changing these pins is a forward deploy. Committed
-# migrations are forward-fix only: deploying earlier images is not an accepted rollback unless their schema
-# compatibility with the live databases is proven first.
+# Parkio app release pins (U13, CL-F11): the six app services.
+# #419 current pins: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Digest kind for each pin: platform manifest linux/amd64 (compose pin uses registry
+# manifest digest @sha256; image id below is the config digest from publish).
+# Rollback targets are the previous live registry pins (see per-service #419 records).
 # ONLY the six app services' image references. Do not broaden.
 # Applied via docker/compose.production.files (after the GMP pins, before the auth/web pins).
 #
 # Practical digest update: change ONLY the services.<service>.image lines below.
+# #419 pin record user-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:85e9507644a8da4110bfb1bc8e2453a6f5fdeb4f3b4566544feb94a58177fe59; image id=config digest sha256:f48913b9a5c38e451167d2fae0575d0cdb45427a774062dfdacf46682539c136); rollback ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
+# #419 pin record gamification-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:cfb33e0e34db279a021ae63e45d1699b957d8d4968dd83b14438671c64bb7bf7; image id=config digest sha256:dc21efb0ea0bde0cdde26228c9989974163d6b82b4408986289f1c8336893f7f); rollback ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
+# #419 pin record notification-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:4e784f81b19168efa1c5bdbe9cafe48ff45bc3f0c95fff9cab1977877e43e339; image id=config digest sha256:685bb0601bf02a03012ad1af9a6c616f864d2e98cf2b7ad641b35ee5598fe0bb); rollback ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942
+# #419 pin record moderation-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:46e6b2c49fcf3ac6ef09c5a329cdfef359f7451a0930405960dae88f0e466b4c; image id=config digest sha256:a853998442d541267acab4af7ab2a6b4868c2a9a9f74d372db7bc41f0c76e428); rollback ghcr.io/adberilgen35/parkio/moderation-service@sha256:e2b0ff6471f0098aab3f70495e53bd84459980bcc08c8bfc344098c2531d2e38
+# #419 pin record ai-validation-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b; image id=config digest sha256:7295afb110d22da4e6add17a1cf52edc86b8099ca21d28b5a81e42e901b9a0e6); rollback ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640
+# #419 pin record analytics-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:a9fc0a2bb8e99c1ddf816038568a43889f8927d86ec62b13b5dee39a411bb611; image id=config digest sha256:61e2cc1b029e8d03ceb8b782acfb32d37b9239301b38bcff1d2912d1bfaaf9ba); rollback ghcr.io/adberilgen35/parkio/analytics-service@sha256:ec01d727c0a06c6f4c7af3644ead17a1b79df022241e7c55be992e272a714d3a
+
 name: parkio
 
 services:

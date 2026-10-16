@@ -1,29 +1,15 @@
-# Parkio GMP release pins — hosted-beta release 2026-10-11
-# #419 pin update media-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:ceded817ca3f555935c620a4498f86ce8c95592381fba8e3ea6cc5f69b2fa306; rollback ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
-# Source / OCI revision: 504b9cb453aca31954800cb4f73a074f3b8f5ef6 (api after #332: the unused base-layer
-# /usr/bin/pebble is removed from the runtime filesystem by a whiteout; its bytes stay in the base layer;
-# Java sources identical to a658edcb). Candidate images run
-# 38087836817 (accepted: full stack, auth+gateway 22/22, web suites; Trivy critical + library gates pass),
-# published by candidate-publish run 38125100729: single linux/amd64 manifests, registry config digest =
-# accepted image id.
-#   gateway-service image id sha256:5fe2150ac77085c8c152fd5212286770744ffd7ab96a855d958a096c1a0addc4
-#   media-service   image id sha256:1996c62a4da0f1452cc27d9718dad74dfb87c7faaf7916407981369211ad2007
-#   parking-service image id sha256:1cefaabd02ed5377fcc00189022f6ac4dff0663c6ccc9cdb6446af69d410f1e3
-# Superseded before deployment (never live; they carry /usr/bin/pebble built with go1.26.7): the a658edcb
-# pins of candidate run 37847459860 / publish run 37850081305 (gateway e061d7ed, media 7a758cd6,
-# parking 5c629fff).
-# Rollback (the previous live pins):
-#   ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
-#   ghcr.io/adberilgen35/parkio/media-service@sha256:62f49d04087fb7aa475db0a42c7f8d1e7d1511f84e6b496a58c5beda58f864ec
-#   ghcr.io/adberilgen35/parkio/parking-service@sha256:85da26542fe6729b72183a3593df42f4f51482ffeb7a0e930a48b64e3b027fb2 (OCI revision 1dd2d5bc)
+# Parkio GMP release pins — hosted-beta (gateway / media / parking).
+# #419 current pins (media + parking): source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
+# gateway-service: HELD (private owner fix) — not republished in #419; pin unchanged.
+# Rollback targets for media/parking: previous live registry pins (per-service records).
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
-# Release order: gateway, then web, then auth; media and parking after auth. Roll back in reverse.
-# Recreate one service with:
-#   PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
-#     ./scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate <service>
 #
 # Practical digest update: change ONLY the services.<service>.image lines below.
+# #419 pin record media-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:def9ab1089d80e5f634f09fbdc9fa9cbb6d25d56adeb8ff1cff8fa90b51573eb; image id=config digest sha256:ceded817ca3f555935c620a4498f86ce8c95592381fba8e3ea6cc5f69b2fa306); rollback ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
+# #419 pin record parking-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:bad978c53cd962963d8f54b0e779aab207cc96ab2809bb22d0d88e3f671b13b9; image id=config digest sha256:f43d6e21591a7dc1d23094691ce3f05052c664907b1b2b4b71bb151ea7b315c4); rollback ghcr.io/adberilgen35/parkio/parking-service@sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9
+
 name: parkio
 
 services:
