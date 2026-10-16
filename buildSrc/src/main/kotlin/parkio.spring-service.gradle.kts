@@ -98,6 +98,13 @@ tasks.named<Test>("test") {
 tasks.register<Test>("integrationTest") {
     // N-19: one fork under Docker contention so parallel Testcontainers do not OOM/kill peers.
     maxParallelForks = 1
+    // Each IT class has its own Testcontainers JDBC URL, so another class can never reuse its
+    // ApplicationContext. The default cache (32) still keeps those contexts, and their pools,
+    // after the container has stopped. Parking's single worker reached HikariPool-30 and the
+    // next refresh died with Java heap space while creating KafkaAnnotationDrivenConfiguration
+    // (run 38872692932, RoadsideParkingControllerTimestamptzIT). One slot preserves reuse
+    // across methods of the same class and closes the previous class's context first.
+    systemProperty("spring.test.context.cache.maxSize", "1")
     description = "Runs @Tag(\"integration\") Testcontainers integration tests (requires Docker)."
     group = "verification"
     useJUnitPlatform {
