@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# N-05 / #354 / R-05 #414: before a mutating Compose command that includes the Civo non-root overlay,
-# require every overlay-affected volume to be COMPLIANT or ABSENT (fresh host) per
-# nonroot-volume-migration.sh plan. Read-only: never calls apply/restore.
+# N-05 / #354 / R-05 #414 / Y-06 #440: before a mutating Compose command that includes the Civo
+# non-root overlay, require every overlay-affected volume to be COMPLIANT or ABSENT (fresh host)
+# per nonroot-volume-migration.sh plan. Read-only: never calls apply/restore/init-absent.
 #
 # Sourced by scripts/parkio-prod-compose.sh. Expects ROOT to be set.
 #
-# ABSENT: named volumes that non-root images initialise on first up are allowed so a
-# fresh DR host can bring the stack up. NEEDS_CHOWN / other non-COMPLIANT still block.
+# ABSENT: allowed only for map rows with absent_bringup=self-init (postgres, redis). init-chown
+# rows (minio) must use init-absent before the first overlay up on a fresh host.
+# NEEDS_CHOWN / other non-COMPLIANT still block.
 # Owner break-glass (default off):
 #   PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES
 #
@@ -20,6 +21,8 @@ PARKIO_NONROOT_OVERLAY_VOLUME_SERVICES=(
   postgres-gamification postgres-notification postgres-moderation postgres-analytics
   postgres-ai-validation redis minio
 )
+
+PARKIO_NONROOT_VOLUME_MAP="${PARKIO_NONROOT_VOLUME_MAP:-$ROOT/scripts/lib/nonroot-volume-map.tsv}"
 
 parkio_nonroot_volume_gate_skip_requested() {
   local v="${PARKIO_SKIP_NONROOT_VOLUME_GATE:-}"
@@ -61,8 +64,6 @@ parkio_nonroot_volume_gate_project() {
 }
 
 # True when the first compose subcommand can create/replace containers.
-# Unknown global flags that take a value are skipped as flag+value pairs.
-# If the subcommand cannot be identified, fail closed (treat as mutating).
 parkio_nonroot_volume_gate_is_mutating() {
   local prev="" a sub=""
   for a in "$@"; do
@@ -82,7 +83,6 @@ parkio_nonroot_volume_gate_is_mutating() {
         continue
         ;;
       --*)
-        # Unknown long option without = : assume it takes a following value (e.g. --parallel N)
         prev="$a"
         continue
         ;;
@@ -101,22 +101,56 @@ parkio_nonroot_volume_gate_is_mutating() {
       return 1
       ;;
     *)
-      # Unidentified / empty / numeric leftover from a misparsed flag → fail closed
       return 0
       ;;
   esac
 }
 
+# Load absent_bringup for overlay services from the volume map (once per check).
+parkio_nonroot_volume_gate_load_absent_policy() {
+  local -n _out="$1"
+  local svc absent_bringup
+  [ -r "$PARKIO_NONROOT_VOLUME_MAP" ] || {
+    echo "ERROR: non-root volume gate: map not readable: $PARKIO_NONROOT_VOLUME_MAP" >&2
+    return 1
+  }
+  while IFS=$'\t' read -r svc _key _owner _readiness absent_bringup _note; do
+    svc="${svc//$'\r'/}"
+    absent_bringup="${absent_bringup//$'\r'/}"
+    case "$svc" in ''|'#'*) continue ;; esac
+    _out["$svc"]="$absent_bringup"
+  done < "$PARKIO_NONROOT_VOLUME_MAP"
+}
+
 # Statuses allowed through the gate without break-glass.
-# ABSENT = volume not created yet (fresh host / DR); non-root images initialise ownership on first up.
 parkio_nonroot_volume_gate_status_ok() {
-  case "$1" in
-    COMPLIANT|ABSENT) return 0 ;;
-    *) return 1 ;;
+  local status="$1"
+  local svc="$2"
+  local -n _absent_policy="$3"
+  case "$status" in
+    COMPLIANT) return 0 ;;
+    ABSENT)
+      case "${_absent_policy[$svc]:-}" in
+        self-init) return 0 ;;
+        init-chown)
+          echo "ERROR: non-root volume gate: service=$svc is ABSENT but absent_bringup=init-chown (the image does not initialise the target uid)" >&2
+          echo "ERROR: on a fresh host run scripts/nonroot-volume-migration.sh init-absent --project <name> --service $svc --confirm-project <name> --evidence-dir <dir>" >&2
+          echo "ERROR: then re-run this command; see docs/operations/nonroot-volume-migration.md and disaster-recovery-runbook.md" >&2
+          return 1
+          ;;
+        *)
+          echo "ERROR: non-root volume gate: service=$svc is ABSENT with unknown absent_bringup=${_absent_policy[$svc]:-}" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
   esac
 }
 
-# Run read-only plan and require COMPLIANT or ABSENT for every overlay volume service.
+# Run read-only plan and require COMPLIANT or eligible ABSENT for every overlay volume service.
 parkio_nonroot_volume_gate_check() {
   local project="$1"
   local script="${PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT:-$ROOT/scripts/nonroot-volume-migration.sh}"
@@ -124,6 +158,8 @@ parkio_nonroot_volume_gate_check() {
     echo "ERROR: non-root volume gate: migration script missing: $script" >&2
     return 1
   fi
+  local -A absent_policy=()
+  parkio_nonroot_volume_gate_load_absent_policy absent_policy || return 1
   local args=(plan --project "$project")
   local s
   for s in "${PARKIO_NONROOT_OVERLAY_VOLUME_SERVICES[@]}"; do
@@ -154,11 +190,13 @@ parkio_nonroot_volume_gate_check() {
       status="${BASH_REMATCH[1]}"
     fi
     seen["$svc"]=1
-    if ! parkio_nonroot_volume_gate_status_ok "${status:-}"; then
-      echo "ERROR: non-root volume gate: service=$svc is not COMPLIANT/ABSENT (status=${status:-unknown})" >&2
-      echo "ERROR: migrate with scripts/nonroot-volume-migration.sh or set" >&2
-      echo "ERROR: PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES (owner break-glass)" >&2
-      echo "ERROR: plan line: $line" >&2
+    if ! parkio_nonroot_volume_gate_status_ok "${status:-}" "$svc" absent_policy; then
+      if [ "${status:-}" != ABSENT ]; then
+        echo "ERROR: non-root volume gate: service=$svc is not COMPLIANT/ABSENT (status=${status:-unknown})" >&2
+        echo "ERROR: migrate with scripts/nonroot-volume-migration.sh or set" >&2
+        echo "ERROR: PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES (owner break-glass)" >&2
+        echo "ERROR: plan line: $line" >&2
+      fi
       return 1
     fi
   done <<< "$plan_out"
@@ -168,7 +206,7 @@ parkio_nonroot_volume_gate_check() {
       return 1
     fi
   done
-  echo "non-root volume gate: PASS project=$project (${#PARKIO_NONROOT_OVERLAY_VOLUME_SERVICES[@]} services COMPLIANT or ABSENT)" >&2
+  echo "non-root volume gate: PASS project=$project (${#PARKIO_NONROOT_OVERLAY_VOLUME_SERVICES[@]} services COMPLIANT or eligible ABSENT)" >&2
   return 0
 }
 

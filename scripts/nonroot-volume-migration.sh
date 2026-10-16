@@ -7,9 +7,10 @@
 # each volume owned by that uid:gid first. This script plans the change, applies it to stopped
 # volumes, and restores the exact previous owners and modes from a manifest it writes first.
 #
-#   plan    --project P [--service S]...
-#   apply   --project P --service S [--service S]... --confirm-project P --evidence-dir D
-#   restore --project P --service S [--service S]... --confirm-project P --evidence-dir D
+#   plan        --project P [--service S]...
+#   init-absent --project P --service S [--service S]... --confirm-project P --evidence-dir D
+#   apply       --project P --service S [--service S]... --confirm-project P --evidence-dir D
+#   restore     --project P --service S [--service S]... --confirm-project P --evidence-dir D
 #
 # Targets come from scripts/lib/nonroot-volume-map.tsv (PARKIO_NONROOT_VOLUME_MAP overrides it).
 # Volumes are found by their Compose labels, never by name. apply and restore refuse: a missing
@@ -49,7 +50,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$mode" in
-  plan|apply|restore) ;;
+  plan|init-absent|apply|restore) ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -65,11 +66,13 @@ fi
 
 # Map rows for the selected services (all rows for plan without --service).
 rows=()
-while IFS=$'\t' read -r svc key owner readiness note; do
+while IFS=$'\t' read -r svc key owner readiness absent_bringup note; do
+  svc="${svc//$'\r'/}"; key="${key//$'\r'/}"; owner="${owner//$'\r'/}"
+  readiness="${readiness//$'\r'/}"; absent_bringup="${absent_bringup//$'\r'/}"; note="${note//$'\r'/}"
   case "$svc" in ''|'#'*) continue ;; esac
   [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || die "map row for $svc/$key has an invalid owner '$owner'"
   if [ ${#services[@]} -eq 0 ] || [[ " ${services[*]} " == *" $svc "* ]]; then
-    rows+=("$svc"$'\t'"$key"$'\t'"$owner"$'\t'"$readiness"$'\t'"$note")
+    rows+=("$svc"$'\t'"$key"$'\t'"$owner"$'\t'"$readiness"$'\t'"$absent_bringup"$'\t'"$note")
   fi
 done < "$MAP"
 for svc in "${services[@]}"; do
@@ -83,6 +86,16 @@ resolve_volume() { # key -> volume name, or nothing
     --filter "label=com.docker.compose.volume=$1")"
   [ "$(printf '%s' "$names" | grep -c .)" -le 1 ] || die "more than one volume for $project/$1"
   printf '%s' "$names"
+}
+
+create_labelled_volume() { # key -> volume name
+  local key="$1"
+  local name="${project}_${key}"
+  docker volume create \
+    --label "com.docker.compose.project=$project" \
+    --label "com.docker.compose.volume=$key" \
+    "$name" >/dev/null
+  printf '%s' "$name"
 }
 
 # "count uid:gid" per owner, sorted, comma separated; then the number of paths with a newline.
@@ -127,19 +140,42 @@ check_volume_free() { # volume
 # any volume changes, so a refusal never leaves a service half migrated.
 selected=()
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r svc key owner readiness note <<<"$row"
+  IFS=$'\t' read -r svc key owner readiness absent_bringup note <<<"$row"
   volume="$(resolve_volume "$key")"
   if [ -z "$volume" ]; then
-    echo "service=$svc volume=$project/$key target=$owner readiness=$readiness status=ABSENT"
-    [ "$mode" = plan ] || refuse "no volume labelled $project/$key"
+    echo "service=$svc volume=$project/$key target=$owner readiness=$readiness absent_bringup=$absent_bringup status=ABSENT"
+    if [ "$mode" = init-absent ]; then
+      [ "$readiness" = ready ] || refuse "$svc is blocked: $note"
+      [ "$absent_bringup" = init-chown ] || refuse "$svc absent_bringup=$absent_bringup does not use init-absent (self-init volumes are created by compose up)"
+      selected+=("$svc"$'\t'"$key"$'\t'"$owner"$'\t'"create")
+    elif [ "$mode" = plan ]; then
+      :
+    else
+      refuse "no volume labelled $project/$key"
+    fi
     continue
   fi
   inspection="$(owners_of "$volume")" || helper_failed inspect "$volume"
   histogram="$(sed -n 1p <<<"$inspection")"
   newline_paths="$(sed -n 2p <<<"$inspection")"
   status="$(status_of "$histogram" "$owner")"
-  echo "service=$svc volume=$volume target=$owner readiness=$readiness status=$status owners=\"$histogram\""
+  echo "service=$svc volume=$volume target=$owner readiness=$readiness absent_bringup=$absent_bringup status=$status owners=\"$histogram\""
   [ "$mode" = plan ] && continue
+
+  if [ "$mode" = init-absent ]; then
+    [ "$readiness" = ready ] || refuse "$svc is blocked: $note"
+    [ "$absent_bringup" = init-chown ] || refuse "$svc absent_bringup=$absent_bringup does not use init-absent"
+    case "$status" in
+      COMPLIANT) echo "service=$svc volume=$volume init-absent skipped (already COMPLIANT)"; continue ;;
+      NEEDS_CHOWN)
+        paths="$(path_count "$volume")" || helper_failed count "$volume"
+        [ "$paths" = 1 ] || refuse "$volume has $paths paths; init-absent only applies to an empty fresh volume (use apply for live data)"
+        selected+=("$svc"$'\t'"$volume"$'\t'"$owner"$'\t'"chown")
+        continue
+        ;;
+      *) refuse "$svc volume=$volume status=$status is not eligible for init-absent" ;;
+    esac
+  fi
 
   [ "$readiness" != blocked ] || refuse "$svc is blocked: $note"
   [ "$newline_paths" = 0 ] || refuse "$volume has $newline_paths path(s) containing a newline"
@@ -153,16 +189,44 @@ for row in "${rows[@]}"; do
     (cd "$evidence" && sha256sum -c --quiet "$(basename "$before").sha256") \
       || refuse "$before does not match its .sha256"
   fi
-  selected+=("$svc"$'\t'"$volume"$'\t'"$owner")
+  selected+=("$svc"$'\t'"$volume"$'\t'"$owner"$'\t'"${mode}")
 done
 [ "$mode" = plan ] && exit 0
+[ "$mode" = init-absent ] && [ ${#selected[@]} -eq 0 ] && exit 0
 
 # Pass 2 changes the volumes.
 failed=0
 for row in "${selected[@]}"; do
-  IFS=$'\t' read -r svc volume owner <<<"$row"
+  IFS=$'\t' read -r svc volume_or_key owner action <<<"$row"
+  action="${action:-apply}"
+  if [ "$action" = create ]; then
+    volume="$(create_labelled_volume "$volume_or_key")"
+    action=chown
+  else
+    volume="$volume_or_key"
+  fi
   check_volume_free "$volume"
   before="$evidence/$volume.before.manifest"
+
+  if [ "$mode" = init-absent ]; then
+    manifest_of "$volume" > "$before" || helper_failed manifest "$volume"
+    paths="$(path_count "$volume")" || helper_failed count "$volume"
+    listed="$(grep -c . "$before" || true)"
+    [ "$paths" = "$listed" ] && grep -q ' /v$' "$before" \
+      || helper_failed manifest "$volume" "it lists $listed of $paths paths"
+    (cd "$evidence" && sha256sum "$(basename "$before")" > "$(basename "$before").sha256")
+    "${HELPER[@]}" --cap-add CHOWN --cap-add DAC_READ_SEARCH --cap-add FOWNER -v "$volume:/v" \
+      --entrypoint chown "$HELPER_IMAGE" -R -h "$owner" /v \
+      || helper_failed chown "$volume" "restore from $before"
+    after="$(owners_of "$volume" | sed -n 1p)" || helper_failed verify "$volume"
+    if [ "$(status_of "$after" "$owner")" = COMPLIANT ]; then
+      echo "service=$svc volume=$volume init-absent applied owners=\"$after\" manifest=$before"
+    else
+      echo "service=$svc volume=$volume init-absent VERIFY FAILED owners=\"$after\"" >&2
+      failed=1
+    fi
+    continue
+  fi
 
   if [ "$mode" = apply ]; then
     # Until the .sha256 is written nothing has changed, but the incomplete manifest blocks a second

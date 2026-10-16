@@ -16,8 +16,13 @@ scripts/nonroot-volume-migration.sh apply   --project P --service S... --confirm
 scripts/nonroot-volume-migration.sh restore --project P --service S... --confirm-project P --evidence-dir D
 ```
 
-- **plan** is read-only. It prints one line per volume: target, readiness, owner histogram and
-  `COMPLIANT`, `NEEDS_CHOWN` or `ABSENT`.
+- **plan** is read-only. It prints one line per volume: target, readiness, `absent_bringup`, owner
+  histogram and `COMPLIANT`, `NEEDS_CHOWN` or `ABSENT`.
+- **init-absent** prepares an **empty** fresh volume for map rows marked `absent_bringup=init-chown`
+  (MinIO today). It creates the labelled volume when missing, writes the same manifest as apply, and
+  chowns the empty tree to the target owner. It refuses rows marked `self-init` (Postgres, Redis)
+  and non-empty volumes (use apply on a stopped service instead). DR/fresh-host only; live migration
+  still uses stop → apply → overlay → up.
 - **apply** works through every selected volume in two passes.
   - The first pass checks them all, so a refusal never leaves a service half migrated.
   - The second pass then, for each volume:
@@ -78,8 +83,9 @@ Civo non-root overlay is on the file list. Before `up` / `create` / `run` (and w
 subcommand cannot be identified — fail closed), every overlay volume service must plan as
 `COMPLIANT` or `ABSENT`.
 
-- `ABSENT` is allowed so a **fresh host / DR** can bring the stack up; non-root images initialise
-  named-volume ownership on first start.
+- `ABSENT` is allowed through the gate **only** when the map row has `absent_bringup=self-init`
+  (Postgres, Redis). Rows with `absent_bringup=init-chown` (MinIO) refuse `ABSENT`; run
+  `init-absent` first on a fresh project, then mutating `up`/`create`/`run`.
 - `NEEDS_CHOWN` and any other non-ok status still refuse the mutation. Owner break-glass remains
   `PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`.
 - Plan stderr is written to a private `mktemp` file (not a fixed world-readable `/tmp` path).
@@ -119,12 +125,17 @@ invocation uses the hosted-beta production file list. invite-production and host
 deploy/rollback (canonical list only) do **not** use this overlay, so fresh root-owned volumes
 there keep working.
 
-**Volume readiness gate (N-05).** For mutating commands (`up`, `create`, `run`) that carry this
-overlay, the wrapper runs a read-only `nonroot-volume-migration.sh plan` for every overlay
-service that has a `ready` volume row (ten Postgres volumes, redis, minio). Every line must be
-`status=COMPLIANT` or the wrapper exits nonzero **before** any Compose mutation. Non-mutating
-commands (`ps`, `logs`, …) skip the gate. Caller-supplied file lists that omit
-`docker-compose.azure-hosted-beta.yml` never append the overlay and never run the gate.
+**Volume readiness gate (N-05 / Y-06 #440).** For mutating commands (`up`, `create`, `run`) that
+carry this overlay, the wrapper runs a read-only `nonroot-volume-migration.sh plan` for every
+overlay service that has a `ready` volume row (ten Postgres volumes, redis, minio). Every line must
+be `status=COMPLIANT`, or `status=ABSENT` with `absent_bringup=self-init`, or the wrapper exits
+nonzero **before** any Compose mutation. Non-mutating commands (`ps`, `logs`, …) skip the gate.
+Caller-supplied file lists that omit `docker-compose.azure-hosted-beta.yml` never append the overlay
+and never run the gate.
+
+**Fresh-host drill (Y-06).** `scripts/fresh-host-nonroot-drill.sh` brings up each overlay service on
+a disposable project with this overlay and records plan/bringup/owner/health per service. CI runs it
+via `.github/workflows/fresh-host-nonroot-drill.yml`.
 
 Break-glass (default off, wrong values refused):
 `PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`. Documented only for an
