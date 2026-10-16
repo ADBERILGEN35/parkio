@@ -43,6 +43,9 @@ jobs:
     name: Fresh-host overlay bring-up drill
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +57,12 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull pinned MinIO image (private ghcr.io package)
+        run: |
+          set -euo pipefail
+          MINIO_IMAGE="$(grep -E '^MINIO_IMAGE=' docker/.env.azure-hosted-beta.example | head -n1 | cut -d= -f2- | tr -d '"')"
+          docker pull "$MINIO_IMAGE"
 
       - name: Run fresh-host non-root drill
         run: |
