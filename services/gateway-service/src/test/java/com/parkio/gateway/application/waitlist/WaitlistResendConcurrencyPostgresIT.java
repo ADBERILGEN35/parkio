@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import com.parkio.gateway.infrastructure.persistence.waitlist.JdbcWaitlistInterestRepository;
@@ -211,6 +212,38 @@ class WaitlistResendConcurrencyPostgresIT {
                 .isEqualTo(1);
     }
 
+
+
+    @Test
+    void retryAfterFailedDeliverySendsExactlyOnce() {
+        String initialVerification = "initial-verification-token-y04aaaa";
+        String initialWithdraw = "initial-withdraw-token-y04bbbb";
+        insertPending(EMAIL, initialVerification, initialWithdraw, FIXED_NOW.minus(Duration.ofHours(1)), 0);
+
+        doThrow(new RuntimeException("synthetic provider failure"))
+                .doAnswer(invocation -> {
+                    sendCount.incrementAndGet();
+                    sentVerificationToken.set(invocation.getArgument(1));
+                    sentWithdrawToken.set(invocation.getArgument(2));
+                    return null;
+                })
+                .when(emailSender)
+                .sendConfirmation(anyString(), anyString(), anyString(), anyString());
+
+        service.resend(EMAIL, "127.0.0.1").block();
+        WaitlistInterest afterFailure = realRepository.findByEmailHash(hasher.hash(EMAIL)).orElseThrow();
+        assertThat(afterFailure.resendCount()).isZero();
+        assertThat(afterFailure.verificationClaimedAt()).isNull();
+        assertThat(sendCount.get()).isZero();
+
+        service.resend(EMAIL, "127.0.0.1").block();
+
+        assertThat(sendCount.get()).isEqualTo(1);
+        WaitlistInterest afterSuccess = realRepository.findByEmailHash(hasher.hash(EMAIL)).orElseThrow();
+        assertThat(afterSuccess.resendCount()).isEqualTo(1);
+        assertThat(afterSuccess.verificationSentAt()).isEqualTo(FIXED_NOW);
+        assertThat(afterSuccess.verificationClaimedAt()).isEqualTo(FIXED_NOW);
+    }
 
     @Test
     void overlappingResendAfterClaimBeforeDeliveryYieldsOneSend() throws Exception {
