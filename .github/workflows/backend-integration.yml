@@ -35,6 +35,10 @@ on:
       - "docker/**"
       - "scripts/ci/check-integration-test-not-reused.sh"
       - ".github/workflows/backend-integration.yml"
+  schedule:
+    # 03:17 UTC nightly (off the hour to avoid the cron stampede).
+    # Required for #368 N-19 ten consecutive schedule greens after #411.
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:

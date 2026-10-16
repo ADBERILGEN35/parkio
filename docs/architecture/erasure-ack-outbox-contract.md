@@ -143,27 +143,34 @@ participant: missing, `FAILED`, unknown status, duplicate and replayed ACKs.
     writes, `parkio.media.object_writes.outcome_unknown` does too.
 - **ACK row cannot be published:** deterministic poison counts toward
   `parkio.kafka.relay.max-attempts` and is dead-lettered
-  (`parkio.outbox.deadlettered`) for redrive. Transient broker/transport
-  failures do **not** consume that budget (CL-N12 / B11); the row stays queued.
-  The request stays `IN_PROGRESS` until a successful publish, so the failure is
-  safe: no false `COMPLETE`.
+  (`parkio.outbox.deadlettered`) for redrive. Transient broker failures
+  (`RetriableException` / `TimeoutException`, including inside
+  `KafkaProducerException`) defer without consuming that budget until
+  `parkio.kafka.relay.max-transient-deferral-ms` (default 900000 ms / 15 minutes)
+  since `first_transient_failure_at`; after the ceiling, polls count again and
+  the row can dead-letter (R-07). The request stays `IN_PROGRESS` until a
+  successful publish, so the failure is safe: no false `COMPLETE`.
 
-### Broker outage vs poison (CL-N12 / B11)
+### Broker outage vs poison (CL-N12 / B11 / R-07)
 
 Relay send failures are classified:
 
-- **Transient broker/transport failures** (sync `send()` throw such as
-  `max.block.ms` metadata wait, failed/timed-out producer futures with Kafka /
-  timeout / network signatures): the row stays unpublished, last-failure
-  metadata is recorded, and the **dead-letter attempt budget is not consumed**.
-  The next poll retries. No false `COMPLETE`.
+- **Transient broker failures** — only `RetriableException` and
+  `TimeoutException` (also when nested in `KafkaProducerException`). The row
+  stays unpublished; `first_transient_failure_at` / last-failure metadata are
+  recorded. The dead-letter attempt budget is **not** consumed until
+  `parkio.kafka.relay.max-transient-deferral-ms` (default **15 minutes**) has
+  elapsed. After that ceiling each failed poll counts toward
+  `parkio.kafka.relay.max-attempts` and the row can dead-letter even if the
+  payload is fine. Operators must clear the outage and redrive per
+  `docs/operations/dlq-redrive-runbook.md`. No false `COMPLETE`.
 - **Deterministic poison** (unroutable aggregate type, unreadable payload):
   counts toward `parkio.kafka.relay.max-attempts` and dead-letters when
   exhausted; retained for redrive.
 
 Participant inventory (nine copy-pasted relays): auth, user, parking, media,
 moderation, notification, gamification, analytics, ai-validation. All share this
-classification after CL-N12.
+classification after CL-N12 / R-07.
 
 ## Rolling out to another participant
 
