@@ -18,7 +18,10 @@
     {"workflow": "candidate-images.yml", "job": "Full stack acceptance (candidate images)", "reason": "runs only on a workflow_dispatch with acceptance"},
     {"workflow": "candidate-images.yml", "job": "Auth+gateway artifact acceptance (U03, 22 checks)", "reason": "runs only on a workflow_dispatch with acceptance"},
     {"workflow": "candidate-images.yml", "job": "Web suites against the candidate web image (a11y, CX-F11)", "reason": "runs only on a workflow_dispatch with acceptance"},
-    {"workflow": "candidate-images.yml", "job": "Candidate manifest", "reason": "runs only on a workflow_dispatch"}
+    {"workflow": "candidate-images.yml", "job": "Candidate manifest", "reason": "runs only on a workflow_dispatch"},
+    {"workflow": "backend-integration.yml", "job": "Integration tests (Testcontainers)", "reason": "path scope: no backend/build/docker paths; Backend integration summary still required and fails closed on in-scope failures (#418)"},
+    {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "reason": "path scope: no frontend/marketing paths; Frontend CI summary still required and fails closed on in-scope failures (#418)"},
+    {"workflow": "frontend-ci.yml", "job": "Browser regression (e2e)", "reason": "path scope: no frontend/marketing paths; Frontend CI summary still required and fails closed on in-scope failures (#418)"}
   ],
   "evidence": [
     {"workflow": "backend-ci.yml", "job": "Build & unit tests", "label": "unit tests", "pattern": "Unit test evidence: (\\d+) tests", "min": 1},
