@@ -88,8 +88,8 @@ before_owners="$(owners "$DATA")"
 echo "=== plan ==="
 run_tool plan --project "$PROJECT"
 if [ "$rc" = 0 ] \
-  && grep -q "service=svc-data volume=$DATA target=999:1000 readiness=ready status=NEEDS_CHOWN owners=\"7 0:0,2 1:2,1 999:1000\"" <<<"$out" \
-  && grep -q "service=svc-absent volume=$PROJECT/absent target=70:70 readiness=ready status=ABSENT" <<<"$out"; then
+  && grep -q "service=svc-data volume=$DATA target=999:1000 readiness=ready absent_bringup=self-init status=NEEDS_CHOWN owners=\"7 0:0,2 1:2,1 999:1000\"" <<<"$out" \
+  && grep -q "service=svc-absent volume=$PROJECT/absent target=70:70 readiness=ready absent_bringup=init-chown status=ABSENT" <<<"$out"; then
   ok "plan reports owners per volume and marks the missing one ABSENT"
 else
   bad "plan output unexpected (rc=$rc): $out"
@@ -153,7 +153,7 @@ fi
 [ "$(stat_in "$DATA" top)" = "999:1000 755" ] && ok "chown clears the set-uid bit (restore puts it back)" \
   || bad "top after apply: $(stat_in "$DATA" top)"
 run_tool plan --project "$PROJECT" --service svc-data
-grep -q "volume=$DATA target=999:1000 readiness=ready status=COMPLIANT" <<<"$out" && ok "plan reports COMPLIANT after apply" || bad "plan after apply: $out"
+grep -q "volume=$DATA target=999:1000 readiness=ready absent_bringup=self-init status=COMPLIANT" <<<"$out" && ok "plan reports COMPLIANT after apply" || bad "plan after apply: $out"
 
 echo "=== restore ==="
 cp -- "$EVIDENCE/$DATA.before.manifest" "$WORK/manifest.saved"
@@ -218,7 +218,7 @@ run_tool restore --project "$PROJECT" --service svc-data --confirm-project "$PRO
 run_tool init-absent --project "$PROJECT" --service svc-absent --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/init-absent"
 if [ "$rc" = 0 ] && grep -q 'init-absent applied' <<<"$out"; then
   vol="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.volume=absent" | head -n1)"
-  [ -n "$vol" ] && [ "$(owners "$vol")" = "70:70 1" ] \
+  [ -n "$vol" ] && [ "$(owners "$vol")" = "1 70:70" ] \
     && ok "init-absent creates and chowns an empty fresh volume" \
     || bad "init-absent owner mismatch on $vol: $(owners "$vol" 2>/dev/null)"
 else
