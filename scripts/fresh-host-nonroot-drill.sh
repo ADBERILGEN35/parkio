@@ -7,13 +7,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 ENV_EXAMPLE="$ROOT/docker/.env.azure-hosted-beta.example"
-NONROOT_OVERLAY="$ROOT/docker/docker-compose.civo-nonroot.yml"
 MAP="$ROOT/scripts/lib/nonroot-volume-map.tsv"
 HELPER="busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"
 PROJECT="parkio-y06-$(date +%s)-$RANDOM"
 EVIDENCE="$(mktemp -d "${TMPDIR:-/tmp}/parkio-y06-evidence.XXXXXX")"
 RESULTS="${PARKIO_Y06_DRILL_RESULTS:-$ROOT/build/y06-fresh-host-nonroot-drill.txt}"
-COMPOSE=(docker compose -p "$PROJECT" --env-file "$ENV_EXAMPLE" -f "$ROOT/docker/docker-compose.yml" -f "$NONROOT_OVERLAY")
 
 SERVICES=(
   postgres-auth postgres-gateway postgres-user postgres-parking postgres-media
@@ -21,12 +19,14 @@ SERVICES=(
   postgres-ai-validation redis minio
 )
 
-declare -A VOLUME_KEY USER_SPEC HEALTH_TIMEOUT
+declare -A VOLUME_KEY USER_SPEC HEALTH_TIMEOUT ABSENT_BRINGUP
 while IFS=$'\t' read -r svc key owner _readiness absent_bringup _note; do
   svc="${svc//$'\r'/}"; key="${key//$'\r'/}"; owner="${owner//$'\r'/}"
+  absent_bringup="${absent_bringup//$'\r'/}"
   case "$svc" in ''|'#'*) continue ;; esac
   VOLUME_KEY["$svc"]="$key"
   USER_SPEC["$svc"]="${owner%:*}"
+  ABSENT_BRINGUP["$svc"]="$absent_bringup"
   case "$svc" in
     postgres-parking) HEALTH_TIMEOUT["$svc"]=180 ;;
     minio) HEALTH_TIMEOUT["$svc"]=90 ;;
@@ -35,10 +35,27 @@ while IFS=$'\t' read -r svc key owner _readiness absent_bringup _note; do
   esac
 done < "$MAP"
 
+PROD_FILES=()
+while IFS= read -r line || [ -n "$line" ]; do
+  line="${line//$'\r'/}"
+  [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  PROD_FILES+=("$ROOT/$line")
+done < "$ROOT/docker/compose.production.files"
+
+ROOT_START=(docker compose -p "$PROJECT" --env-file "$ENV_EXAMPLE")
+OVERLAY=(docker compose -p "$PROJECT" --env-file "$ENV_EXAMPLE")
+for f in "${PROD_FILES[@]}"; do
+  ROOT_START+=(-f "$f")
+  OVERLAY+=(-f "$f")
+done
+OVERLAY+=(-f "$ROOT/docker/docker-compose.civo-alertmanager.yml" -f "$ROOT/docker/docker-compose.civo-nonroot.yml")
+
+COMPOSE_ACTIVE=("${OVERLAY[@]}")
+
 log() { printf '%s\n' "$*" | tee -a "$RESULTS"; }
 
 cleanup_project() {
-  "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  "${OVERLAY[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 }
 
 trap 'cleanup_project; rm -rf "$EVIDENCE"' EXIT
@@ -55,7 +72,7 @@ fi
 wait_healthy() {
   local svc="$1" timeout="${2:-120}" i=0 cid h
   while [ "$i" -lt "$timeout" ]; do
-    cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null | head -n1 || true)"
+    cid="$("${COMPOSE_ACTIVE[@]}" ps -q "$svc" 2>/dev/null | head -n1 || true)"
     if [ -n "$cid" ]; then
       h="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)"
       case "$h" in
@@ -69,16 +86,6 @@ wait_healthy() {
     i=$((i + 2))
   done
   return 1
-}
-
-# The production gate plans every overlay volume; minio ABSENT is refused until init-absent runs.
-ensure_minio_gate_ready() {
-  local st
-  st="$(plan_status minio)"
-  [ "$st" = COMPLIANT ] && return 0
-  [ "$st" = ABSENT ] || return 1
-  bash "$ROOT/scripts/nonroot-volume-migration.sh" init-absent \
-    --project "$PROJECT" --service minio --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/minio-gate"
 }
 
 volume_owner() {
@@ -95,28 +102,61 @@ plan_status() {
     | sed -n 's/.*status=\([A-Z_]*\).*/\1/p' | head -n1
 }
 
+ensure_minio_gate_ready() {
+  local st
+  st="$(plan_status minio)"
+  [ "$st" = COMPLIANT ] && return 0
+  [ "$st" = ABSENT ] || return 1
+  bash "$ROOT/scripts/nonroot-volume-migration.sh" init-absent \
+    --project "$PROJECT" --service minio --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/minio-gate"
+}
+
+bootstrap_absent() {
+  local svc="$1" st="${ABSENT_BRINGUP[$svc]:-}" plan
+  plan="$(plan_status "$svc")"
+  [ "$plan" = ABSENT ] || return 0
+  case "$st" in
+    self-init)
+      COMPOSE_ACTIVE=("${ROOT_START[@]}")
+      if ! "${ROOT_START[@]}" up -d --no-build --no-deps "$svc" >"$EVIDENCE/bootstrap.out" 2>"$EVIDENCE/bootstrap.err"; then
+        return 1
+      fi
+      wait_healthy "$svc" "${HEALTH_TIMEOUT[$svc]:-120}" || return 1
+      "${ROOT_START[@]}" stop "$svc" >/dev/null 2>&1 || true
+      COMPOSE_ACTIVE=("${OVERLAY[@]}")
+      ;;
+    init-chown)
+      bash "$ROOT/scripts/nonroot-volume-migration.sh" init-absent \
+        --project "$PROJECT" --service "$svc" --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/$svc-init"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 drill_service() {
   local svc="$1"
   local key="${VOLUME_KEY[$svc]:-}"
-  local plan bringup owner health rc=0
+  local plan bringup owner health rc=0 bootstrap=skipped
 
   cleanup_project
   plan="$(plan_status "$svc")"
   [ -n "$plan" ] || plan=UNKNOWN
 
-  if [ "$svc" = minio ] && [ "$plan" = ABSENT ]; then
-    if ! bash "$ROOT/scripts/nonroot-volume-migration.sh" init-absent \
-      --project "$PROJECT" --service minio --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/$svc" \
-      >/dev/null 2>&1; then
-      log "service=$svc plan=$plan bringup=SKIP owner=n/a health=FAILED reason=init-absent_failed"
-      return 1
-    fi
-    plan="$(plan_status "$svc")"
-  elif [ "$svc" != minio ]; then
+  if [ "$svc" != minio ]; then
     ensure_minio_gate_ready || {
       log "service=$svc plan=$plan bringup=SKIP owner=n/a health=FAILED reason=minio_gate_prep_failed"
       return 1
     }
+  fi
+
+  if [ "$plan" = ABSENT ]; then
+    bootstrap=root-start
+    if ! bootstrap_absent "$svc"; then
+      log "service=$svc plan=$plan bringup=SKIP owner=n/a health=FAILED reason=bootstrap_failed bootstrap=$bootstrap"
+      return 1
+    fi
+    [ "${ABSENT_BRINGUP[$svc]:-}" = init-chown ] && bootstrap=init-absent
+    plan="$(plan_status "$svc")"
   fi
 
   if ! PARKIO_ENV_FILE="$ENV_EXAMPLE" \
@@ -126,10 +166,12 @@ drill_service() {
     COMPOSE_PROJECT_NAME="$PROJECT" \
     bash "$ROOT/scripts/parkio-prod-compose.sh" -p "$PROJECT" up -d --no-build --no-deps "$svc" \
     >"$EVIDENCE/last-up.out" 2>"$EVIDENCE/last-up.err"; then
-    log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=compose_up"
+    log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=compose_up bootstrap=$bootstrap"
+    tail -n 3 "$EVIDENCE/last-up.err" >>"$RESULTS" 2>/dev/null || true
     return 1
   fi
   bringup=OK
+  COMPOSE_ACTIVE=("${OVERLAY[@]}")
 
   if wait_healthy "$svc" "${HEALTH_TIMEOUT[$svc]:-120}"; then
     health=healthy
@@ -138,7 +180,7 @@ drill_service() {
     rc=1
   fi
   owner="$(volume_owner "$key")"
-  log "service=$svc plan=$plan bringup=$bringup owner=$owner health=$health uid=${USER_SPEC[$svc]:-}"
+  log "service=$svc plan=$plan bringup=$bringup owner=$owner health=$health uid=${USER_SPEC[$svc]:-} bootstrap=$bootstrap"
   return "$rc"
 }
 
