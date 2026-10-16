@@ -1,0 +1,82 @@
+# Y-06 / #440: disposable-Docker proof of fresh-host non-root bring-up per overlay volume service.
+name: Fresh-host non-root drill
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fresh-host-nonroot-drill.yml"
+      - "scripts/fresh-host-nonroot-drill.sh"
+      - "scripts/nonroot-volume-migration.sh"
+      - "scripts/lib/prod-nonroot-volume-gate.sh"
+      - "scripts/lib/nonroot-volume-map.tsv"
+      - "scripts/test-prod-nonroot-readiness.sh"
+      - "docker/docker-compose.civo-nonroot.yml"
+      - "docker/docker-compose.yml"
+      - "docker/.env.azure-hosted-beta.example"
+      - "docs/operations/nonroot-volume-migration.md"
+      - "docs/operations/disaster-recovery-runbook.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fresh-host-nonroot-drill-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  readiness-gate-tests:
+    name: Non-root readiness gate (stub)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: test-prod-nonroot-readiness.sh
+        run: |
+          set -euo pipefail
+          chmod +x scripts/test-prod-nonroot-readiness.sh scripts/parkio-prod-compose.sh
+          bash scripts/test-prod-nonroot-readiness.sh
+
+  fresh-host-drill:
+    name: Fresh-host overlay bring-up drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR for pinned MinIO/Postgres images
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Run fresh-host non-root drill
+        run: |
+          set -euo pipefail
+          chmod +x scripts/fresh-host-nonroot-drill.sh scripts/nonroot-volume-migration.sh scripts/parkio-prod-compose.sh
+          bash scripts/fresh-host-nonroot-drill.sh | tee drill.log
+          cp build/y06-fresh-host-nonroot-drill.txt results.txt
+
+      - name: Drill summary
+        if: always()
+        run: |
+          {
+            echo "## Y-06 fresh-host non-root drill"
+            echo
+            if [ -f results.txt ]; then sed 's/^/- /' results.txt; else echo "- (no results file)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload drill results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: y06-fresh-host-nonroot-drill
+          path: |
+            results.txt
+            drill.log
+          if-no-files-found: warn
