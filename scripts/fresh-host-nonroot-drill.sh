@@ -165,15 +165,19 @@ drill_service() {
     plan="$(plan_status "$svc")"
   fi
 
-  if ! PARKIO_ENV_FILE="$ENV_EXAMPLE" \
-    PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE \
-    PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D \
-    PARKIO_SKIP_IMAGE_PROVENANCE=I_ACCEPT_UNVERIFIED_IMAGE_PROVENANCE \
-    COMPOSE_PROJECT_NAME="$PROJECT" \
-    bash "$ROOT/scripts/parkio-prod-compose.sh" -p "$PROJECT" up -d --no-build --no-deps "$svc" \
+  # Same gate the production wrapper runs before a mutating command with the non-root overlay.
+  # Bring-up uses the merged overlay model directly (disposable CI; no web/provenance guards).
+  # shellcheck source=lib/prod-nonroot-volume-gate.sh
+  source "$ROOT/scripts/lib/prod-nonroot-volume-gate.sh"
+  if ! parkio_nonroot_volume_gate_check "$PROJECT" >"$EVIDENCE/last-gate.out" 2>"$EVIDENCE/last-gate.err"; then
+    log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=volume_gate bootstrap=$bootstrap"
+    tail -n 3 "$EVIDENCE/last-gate.err" >>"$RESULTS" 2>/dev/null || true
+    return 1
+  fi
+  if ! "${OVERLAY[@]}" up -d --no-build --no-deps --pull missing "$svc" \
     >"$EVIDENCE/last-up.out" 2>"$EVIDENCE/last-up.err"; then
     log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=compose_up bootstrap=$bootstrap"
-    tail -n 3 "$EVIDENCE/last-up.err" >>"$RESULTS" 2>/dev/null || true
+    tail -n 5 "$EVIDENCE/last-up.err" >>"$RESULTS" 2>/dev/null || true
     return 1
   fi
   bringup=OK
