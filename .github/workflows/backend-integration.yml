@@ -4,8 +4,8 @@
 # so they are kept OUT of the fast PR gate (`backend-ci.yml`).
 #
 # When it runs:
-#  - pull_request: only when backend/build/docker paths change (path filter
-#    below), so frontend-/docs-only PRs stay fast.
+#  - pull_request: always starts so "Backend integration summary" can be required;
+#    Testcontainers run only when backend/build/docker paths change (#418 / N-09c).
 #  - workflow_dispatch: on demand, and nightly from master's
 #    scheduled-restore-drills.yml dispatcher (`--ref api`). GitHub only
 #    evaluates `on.schedule` on the default branch, so this workflow must not
@@ -21,22 +21,6 @@ name: Backend integration tests
 
 on:
   pull_request:
-    paths:
-      - "services/**"
-      - "platform/**"
-      - "tools/**"
-      - "buildSrc/**"
-      - "gradle/**"
-      - "gradlew"
-      - "gradlew.bat"
-      - "build.gradle*"
-      - "settings.gradle*"
-      - "gradle.properties"
-      # ManagedParkingPublicCensusIT runs scripts/azure/sql/managed-parking-public-census.sql (CI audit N6).
-      - "scripts/azure/sql/**"
-      - "docker/**"
-      - "scripts/ci/check-integration-test-not-reused.sh"
-      - ".github/workflows/backend-integration.yml"
   workflow_dispatch:
 
 permissions:
@@ -49,8 +33,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect:
+    name: Detect backend paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant paths
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          # ManagedParkingPublicCensusIT runs scripts/azure/sql/managed-parking-public-census.sql (CI audit N6).
+          PATH_REGEX: '^(services/|platform/|tools/|buildSrc/|gradle/|gradlew(\.bat)?$|build\.gradle|settings\.gradle|gradle\.properties$|scripts/azure/sql/|docker/|scripts/ci/check-integration-test-not-reused\.sh|\.github/workflows/backend-integration\.yml|scripts/ci/detect_path_scope\.sh|scripts/ci/path_filtered_summary_gate\.sh)'
+        run: bash scripts/ci/detect_path_scope.sh
+
   integration-test:
     name: Integration tests (Testcontainers)
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -113,3 +120,23 @@ jobs:
             **/build/test-results/**
           retention-days: 7
           if-no-files-found: ignore
+
+  # Always reports on every PR so it can become a required check after #368's
+  # scheduled streak without blocking frontend-/docs-only PRs (#418). Failures
+  # in the Testcontainers job propagate; intentional path skips are success.
+  summary:
+    name: Backend integration summary
+    if: always()
+    needs: [detect, integration-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail summary if a required gate failed
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          RUN: ${{ needs.detect.outputs.run }}
+          WORK_RESULTS: ${{ needs.integration-test.result }}
+        run: bash scripts/ci/path_filtered_summary_gate.sh
