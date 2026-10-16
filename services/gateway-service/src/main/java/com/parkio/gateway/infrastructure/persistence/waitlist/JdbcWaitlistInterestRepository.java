@@ -206,6 +206,20 @@ public class JdbcWaitlistInterestRepository implements WaitlistInterestRepositor
     }
 
     @Override
+    public boolean releaseFailedVerificationClaim(String emailHash, long claimVersion) {
+        int updated = jdbcTemplate.update("""
+                UPDATE waitlist_interest
+                SET verification_claimed_at = NULL
+                WHERE email_hash = ?
+                  AND status = 'PENDING'
+                  AND verification_claim_version = ?
+                """,
+                emailHash,
+                claimVersion);
+        return updated > 0;
+    }
+
+    @Override
     public long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo) {
         List<Object> args = new ArrayList<>();
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM waitlist_interest");

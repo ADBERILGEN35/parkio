@@ -57,6 +57,13 @@ public interface WaitlistInterestRepository {
      */
     boolean markVerificationSent(String emailHash, long claimVersion, Instant sentAt, int resendCount);
 
+    /**
+     * Clears {@code verification_claimed_at} for a claim whose delivery failed, so cooldown
+     * is not anchored on an abandoned in-flight claim. Returns false when the claim version
+     * no longer matches (superseded by a newer resend).
+     */
+    boolean releaseFailedVerificationClaim(String emailHash, long claimVersion);
+
     /** Confirmed subscriptions whose confirmation time lies in {@code [confirmedFrom, confirmedTo)}. */
     long countConfirmedForExport(Instant confirmedFrom, Instant confirmedTo);
 

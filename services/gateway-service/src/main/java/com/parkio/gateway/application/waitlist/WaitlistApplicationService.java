@@ -427,6 +427,11 @@ public class WaitlistApplicationService {
             }
         } catch (RuntimeException ex) {
             log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
+            if (!repository.releaseFailedVerificationClaim(emailHash, claimVersion)) {
+                log.warn(
+                        "Waitlist confirmation delivery failed but claim was superseded; emailHash={}",
+                        emailHash);
+            }
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
         }
     }
