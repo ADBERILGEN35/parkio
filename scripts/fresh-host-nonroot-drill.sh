@@ -122,8 +122,10 @@ drill_service() {
   if ! PARKIO_ENV_FILE="$ENV_EXAMPLE" \
     PARKIO_SKIP_WEB_MAP_GUARD=I_ACCEPT_UNVERIFIED_WEB_IMAGE \
     PARKIO_SKIP_WEB_CONF_D_CHECK=I_ACCEPT_UNCHECKED_WEB_CONF_D \
+    PARKIO_SKIP_IMAGE_PROVENANCE=I_ACCEPT_UNVERIFIED_IMAGE_PROVENANCE \
     COMPOSE_PROJECT_NAME="$PROJECT" \
-    bash "$ROOT/scripts/parkio-prod-compose.sh" up -d --no-build --no-deps "$svc" >/dev/null 2>&1; then
+    bash "$ROOT/scripts/parkio-prod-compose.sh" -p "$PROJECT" up -d --no-build --no-deps "$svc" \
+    >"$EVIDENCE/last-up.out" 2>"$EVIDENCE/last-up.err"; then
     log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=compose_up"
     return 1
   fi
