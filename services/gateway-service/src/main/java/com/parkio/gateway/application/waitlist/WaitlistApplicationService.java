@@ -418,21 +418,27 @@ public class WaitlistApplicationService {
             int resendCountAfterSuccess) {
         try {
             emailSender.sendConfirmation(email, verificationToken, withdrawToken, locale);
-            boolean completed = repository.markVerificationSent(
-                    emailHash, claimVersion, clock.instant(), resendCountAfterSuccess);
-            if (!completed) {
-                log.warn(
-                        "Waitlist confirmation delivery succeeded but claim was superseded; emailHash={}",
-                        emailHash);
-            }
         } catch (RuntimeException ex) {
             log.warn("Waitlist confirmation delivery failed after durable write; emailHash={}", emailHash);
-            if (!repository.releaseFailedVerificationClaim(emailHash, claimVersion)) {
-                log.warn(
-                        "Waitlist confirmation delivery failed but claim was superseded; emailHash={}",
-                        emailHash);
+            try {
+                if (!repository.releaseFailedVerificationClaim(emailHash, claimVersion)) {
+                    log.warn(
+                            "Waitlist confirmation delivery failed but claim was superseded; emailHash={}",
+                            emailHash);
+                }
+            } catch (RuntimeException releaseEx) {
+                ex.addSuppressed(releaseEx);
             }
             throw new WaitlistEmailDeliveryException("WAITLIST_EMAIL_DELIVERY_FAILED", ex);
+        }
+        // Provider succeeded: bookkeeping failures must not release the claim or report delivery
+        // failure (that would trigger a second outbound email on retry).
+        boolean completed = repository.markVerificationSent(
+                emailHash, claimVersion, clock.instant(), resendCountAfterSuccess);
+        if (!completed) {
+            log.warn(
+                    "Waitlist confirmation delivery succeeded but claim was superseded; emailHash={}",
+                    emailHash);
         }
     }
 
