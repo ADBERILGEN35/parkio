@@ -1,12 +1,13 @@
 # Parkio GMP release pins — hosted-beta (gateway / media / parking).
 # #419 current pins (media + parking): source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
 # Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
-# gateway-service: HELD (private owner fix) — not republished in #419; pin unchanged.
-# Rollback targets for media/parking: previous live registry pins (per-service records).
+# gateway pin unchanged in #419.
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
+# Release order: gateway, then web, then auth; media and parking after auth. Roll back in reverse.
 #
 # Practical digest update: change ONLY the services.<service>.image lines below.
+# #419 pin record gateway-service: source/OCI 504b9cb453aca31954800cb4f73a074f3b8f5ef6; candidate run 38087836817; publish run 38125100729; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:ff21f4a6dbcd6baba9b2a69527a2d6006016c4d00e5390e1bce01b94e86cf026; image id=config digest sha256:5fe2150ac77085c8c152fd5212286770744ffd7ab96a855d958a096c1a0addc4); rollback ghcr.io/adberilgen35/parkio/gateway-service@sha256:866a7fe09ccc5fd2148db893fc8abb013a2c2e8ac9567f85a4eb6c7c11f9bb48
 # #419 pin record media-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:def9ab1089d80e5f634f09fbdc9fa9cbb6d25d56adeb8ff1cff8fa90b51573eb; image id=config digest sha256:ceded817ca3f555935c620a4498f86ce8c95592381fba8e3ea6cc5f69b2fa306); rollback ghcr.io/adberilgen35/parkio/media-service@sha256:db3065e39a7086e6c740980de0ad2b3c0abda14676e3398d65d43e720e9b7c72
 # #419 pin record parking-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:bad978c53cd962963d8f54b0e779aab207cc96ab2809bb22d0d88e3f671b13b9; image id=config digest sha256:f43d6e21591a7dc1d23094691ce3f05052c664907b1b2b4b71bb151ea7b315c4); rollback ghcr.io/adberilgen35/parkio/parking-service@sha256:3888df0564910477d376a7d8ed8f6c4991e02e66a643f67ca8f2de5a067f96a9
 
