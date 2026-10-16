@@ -6,8 +6,10 @@
 # When it runs:
 #  - pull_request: only when backend/build/docker paths change (path filter
 #    below), so frontend-/docs-only PRs stay fast.
-#  - schedule: nightly, to catch drift even on weeks with no backend PRs.
-#  - workflow_dispatch: on demand from the Actions tab.
+#  - workflow_dispatch: on demand, and nightly from master's
+#    scheduled-restore-drills.yml dispatcher (`--ref api`). GitHub only
+#    evaluates `on.schedule` on the default branch, so this workflow must not
+#    carry its own schedule on api (Z-04 / #450).
 #
 # `-Pparkio.integrationTest.requireDocker=true` makes the run FAIL FAST if the
 # runner has no Docker daemon, instead of silently skipping every suite and
@@ -35,10 +37,6 @@ on:
       - "docker/**"
       - "scripts/ci/check-integration-test-not-reused.sh"
       - ".github/workflows/backend-integration.yml"
-  schedule:
-    # 03:17 UTC nightly (off the hour to avoid the cron stampede).
-    # Required for #368 N-19 ten consecutive schedule greens after #411.
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
