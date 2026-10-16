@@ -19,13 +19,14 @@ SERVICES=(
   postgres-ai-validation redis minio
 )
 
-declare -A VOLUME_KEY USER_SPEC HEALTH_TIMEOUT ABSENT_BRINGUP
+declare -A VOLUME_KEY USER_SPEC HEALTH_TIMEOUT ABSENT_BRINGUP TARGET_OWNER
 while IFS=$'\t' read -r svc key owner _readiness absent_bringup _note; do
   svc="${svc//$'\r'/}"; key="${key//$'\r'/}"; owner="${owner//$'\r'/}"
   absent_bringup="${absent_bringup//$'\r'/}"
   case "$svc" in ''|'#'*) continue ;; esac
   VOLUME_KEY["$svc"]="$key"
   USER_SPEC["$svc"]="${owner%:*}"
+  TARGET_OWNER["$svc"]="$owner"
   ABSENT_BRINGUP["$svc"]="$absent_bringup"
   case "$svc" in
     postgres-parking) HEALTH_TIMEOUT["$svc"]=180 ;;
@@ -42,10 +43,8 @@ while IFS= read -r line || [ -n "$line" ]; do
   PROD_FILES+=("$ROOT/$line")
 done < "$ROOT/docker/compose.production.files"
 
-ROOT_START=(docker compose -p "$PROJECT" --env-file "$ENV_EXAMPLE")
 OVERLAY=(docker compose -p "$PROJECT" --env-file "$ENV_EXAMPLE")
 for f in "${PROD_FILES[@]}"; do
-  ROOT_START+=(-f "$f")
   OVERLAY+=(-f "$f")
 done
 OVERLAY+=(-f "$ROOT/docker/docker-compose.civo-alertmanager.yml" -f "$ROOT/docker/docker-compose.civo-nonroot.yml")
@@ -111,19 +110,27 @@ ensure_minio_gate_ready() {
     --project "$PROJECT" --service minio --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/minio-gate"
 }
 
+chown_empty_labelled_volume() { # key owner
+  local key="$1" owner="$2" vol="${PROJECT}_${key}"
+  docker volume create \
+    --label "com.docker.compose.project=$PROJECT" \
+    --label "com.docker.compose.volume=$key" \
+    "$vol" >/dev/null
+  docker run --rm --network none --read-only --cap-drop ALL --cap-add CHOWN --cap-add DAC_READ_SEARCH \
+    -v "$vol:/v" --entrypoint chown "$HELPER" -R -h "$owner" /v
+}
+
 bootstrap_absent() {
-  local svc="$1" st="${ABSENT_BRINGUP[$svc]:-}" plan
+  local svc="$1" st="${ABSENT_BRINGUP[$svc]:-}" plan key owner
   plan="$(plan_status "$svc")"
   [ "$plan" = ABSENT ] || return 0
+  key="${VOLUME_KEY[$svc]:-}"
+  owner="${TARGET_OWNER[$svc]:-}"
   case "$st" in
     self-init)
-      COMPOSE_ACTIVE=("${ROOT_START[@]}")
-      if ! "${ROOT_START[@]}" up -d --no-build --no-deps "$svc" >"$EVIDENCE/bootstrap.out" 2>"$EVIDENCE/bootstrap.err"; then
-        return 1
-      fi
-      wait_healthy "$svc" "${HEALTH_TIMEOUT[$svc]:-120}" || return 1
-      "${ROOT_START[@]}" stop "$svc" >/dev/null 2>&1 || true
-      COMPOSE_ACTIVE=("${OVERLAY[@]}")
+      # Overlay-only fresh path: seed an empty labelled volume at the target owner (same outcome as
+      # root-start init, without pulling the full production stack in this drill).
+      chown_empty_labelled_volume "$key" "$owner"
       ;;
     init-chown)
       bash "$ROOT/scripts/nonroot-volume-migration.sh" init-absent \
@@ -150,12 +157,11 @@ drill_service() {
   fi
 
   if [ "$plan" = ABSENT ]; then
-    bootstrap=root-start
+    bootstrap="${ABSENT_BRINGUP[$svc]:-}"
     if ! bootstrap_absent "$svc"; then
       log "service=$svc plan=$plan bringup=SKIP owner=n/a health=FAILED reason=bootstrap_failed bootstrap=$bootstrap"
       return 1
     fi
-    [ "${ABSENT_BRINGUP[$svc]:-}" = init-chown ] && bootstrap=init-absent
     plan="$(plan_status "$svc")"
   fi
 
