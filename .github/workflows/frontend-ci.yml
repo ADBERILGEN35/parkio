@@ -10,19 +10,14 @@
 # Playwright network mocks and does not start backend services; real-stack E2E
 # remains a separate manual workflow.
 #
-# Path-filtered to frontend changes so backend-/docs-only PRs stay fast, the
-# mirror image of how backend-integration.yml filters to backend paths.
+# Path scope is decided inside the workflow (not via workflow-level path filters on
+# pull_request) so an always-reporting summary job can be a required check without
+# blocking unrelated PRs (#418 / N-09c). Push keeps path filters to avoid noise.
 
 name: Frontend CI
 
 on:
   pull_request:
-    paths:
-      - "frontend/**"
-      - "web/marketing/**"
-      - "scripts/serve-marketing-site.mjs"
-      - "scripts/validate-marketing-site.mjs"
-      - ".github/workflows/frontend-ci.yml"
   push:
     branches: [api, master]
     paths:
@@ -31,6 +26,8 @@ on:
       - "scripts/serve-marketing-site.mjs"
       - "scripts/validate-marketing-site.mjs"
       - ".github/workflows/frontend-ci.yml"
+      - "scripts/ci/detect_path_scope.sh"
+      - "scripts/ci/path_filtered_summary_gate.sh"
   workflow_dispatch:
 
 permissions:
@@ -46,8 +43,31 @@ defaults:
     working-directory: frontend
 
 jobs:
+  detect:
+    name: Detect frontend paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant paths
+        id: scope
+        working-directory: .
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PATH_REGEX: '^(frontend/|web/marketing/|scripts/serve-marketing-site\.mjs|scripts/validate-marketing-site\.mjs|\.github/workflows/frontend-ci\.yml|scripts/ci/detect_path_scope\.sh|scripts/ci/path_filtered_summary_gate\.sh)'
+        run: bash scripts/ci/detect_path_scope.sh
+
   frontend-build:
     name: Typecheck, lint, test & build
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -212,6 +232,8 @@ jobs:
   # runs even when an earlier one failed; the job then fails, and its traces are uploaded.
   e2e-regression:
     name: Browser regression (e2e)
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -276,3 +298,24 @@ jobs:
           path: frontend/apps/web/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  # Always reports on every PR so it can be a required check without blocking
+  # backend-/docs-only PRs (#418). Failures in in-scope jobs propagate; intentional
+  # path skips are success.
+  summary:
+    name: Frontend CI summary
+    if: always()
+    needs: [detect, frontend-build, e2e-regression]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail summary if a required gate failed
+        working-directory: .
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          RUN: ${{ needs.detect.outputs.run }}
+          WORK_RESULTS: ${{ needs.frontend-build.result }} ${{ needs.e2e-regression.result }}
+        run: bash scripts/ci/path_filtered_summary_gate.sh
