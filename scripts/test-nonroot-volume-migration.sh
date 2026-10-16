@@ -29,12 +29,12 @@ cleanup() {
 trap cleanup EXIT
 
 export PARKIO_NONROOT_VOLUME_MAP="$WORK/map.tsv"
-printf '%s\t%s\t%s\t%s\t%s\n' \
-  svc-data data 999:1000 ready "two volumes, mixed owners" \
-  svc-data extra 999:1000 ready "second volume of svc-data" \
-  svc-blocked blocked 100:101 blocked "cannot run non-root yet" \
-  svc-newline newline 999:1000 ready "a path with a newline" \
-  svc-absent absent 70:70 ready "never created" > "$PARKIO_NONROOT_VOLUME_MAP"
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+  svc-data data 999:1000 ready self-init "two volumes, mixed owners" \
+  svc-data extra 999:1000 ready self-init "second volume of svc-data" \
+  svc-blocked blocked 100:101 blocked n/a "cannot run non-root yet" \
+  svc-newline newline 999:1000 ready self-init "a path with a newline" \
+  svc-absent absent 70:70 ready init-chown "never created" > "$PARKIO_NONROOT_VOLUME_MAP"
 
 create_volume() { # key, populate script
   docker volume create --label "com.docker.compose.project=$PROJECT" \
@@ -213,6 +213,20 @@ docker run --rm --network none -v "$DATA:/v" --entrypoint sh "$HELPER_IMAGE" -c 
 run_tool restore --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/second"
 [ "$rc" = 1 ] && grep -q 'RESTORE MISMATCH mismatched=1 new_wrong_owner=0' <<<"$out" \
   && ok "restore reports a path it could not restore as recorded" || bad "type change: rc=$rc $out"
+
+# init-absent (Y-06): fresh labelled volume for an init-chown map row
+run_tool init-absent --project "$PROJECT" --service svc-absent --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/init-absent"
+if [ "$rc" = 0 ] && grep -q 'init-absent applied' <<<"$out"; then
+  vol="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.volume=absent" | head -n1)"
+  [ -n "$vol" ] && [ "$(owners "$vol")" = "70:70 1" ] \
+    && ok "init-absent creates and chowns an empty fresh volume" \
+    || bad "init-absent owner mismatch on $vol: $(owners "$vol" 2>/dev/null)"
+else
+  bad "init-absent: rc=$rc $out"
+fi
+run_tool init-absent --project "$PROJECT" --service svc-data --confirm-project "$PROJECT" --evidence-dir "$EVIDENCE/init-refuse"
+[ "$rc" = 3 ] && grep -q 'does not use init-absent' <<<"$out" \
+  && ok "init-absent refuses self-init map rows" || bad "init-absent self-init refusal: rc=$rc $out"
 
 echo
 echo "nonroot-volume-migration: $pass passed, $fail failed"

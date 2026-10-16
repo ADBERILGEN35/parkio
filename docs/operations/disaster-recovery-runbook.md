@@ -199,11 +199,13 @@ with the live databases is proven first.
 ### Non-root volume gate on a fresh DR host (R-05 / #414)
 
 When `scripts/parkio-prod-compose.sh up` includes the Civo non-root overlay, the volume gate runs
-first. On a **fresh host** every overlay volume plans as `ABSENT`; that status is allowed so the
-first `up` can create and initialise volumes. `NEEDS_CHOWN` still blocks until
-`scripts/nonroot-volume-migration.sh apply` (or the owner break-glass
-`PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`). See
-`docs/operations/nonroot-volume-migration.md`.
+first. On a **fresh host** Postgres and Redis volumes may plan as `ABSENT` (`absent_bringup=self-init`)
+and the first `up` initialises them. **MinIO** plans as `ABSENT` with `absent_bringup=init-chown` and
+the gate **refuses** until `scripts/nonroot-volume-migration.sh init-absent --project <name> --service
+minio --confirm-project <name> --evidence-dir <dir>` has created and chowned the empty
+`minio-data` volume (synthetic/DR evidence only). `NEEDS_CHOWN` on existing data still blocks until
+`apply` (or owner break-glass `PARKIO_SKIP_NONROOT_VOLUME_GATE=I_ACCEPT_UNMIGRATED_VOLUMES`). See
+`docs/operations/nonroot-volume-migration.md` and `scripts/fresh-host-nonroot-drill.sh`.
 
 
 

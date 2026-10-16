@@ -98,7 +98,18 @@ for s in "\${services[@]}"; do
       fi
       ;;
     all_absent)
-      echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=ABSENT"
+      if [ "\$s" = minio ]; then
+        echo "service=\$s volume=\$project/minio-data target=10001:10001 readiness=ready status=ABSENT"
+      else
+        echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=ABSENT"
+      fi
+      ;;
+    self_init_absent)
+      if [ "\$s" = minio ]; then
+        echo "service=\$s volume=\$project/minio-data target=10001:10001 readiness=ready status=COMPLIANT owners=\"10001:10001\""
+      else
+        echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=ABSENT"
+      fi
       ;;
     *)
       echo "service=\$s volume=\$project/\${s}-data target=1:1 readiness=ready status=COMPLIANT owners=\"1:1\""
@@ -158,7 +169,7 @@ grep -q 'STUB_PLAN' "$TMP/plan-calls.log" && pass "plan stub was invoked for ref
 
 write_plan_stub absent
 wrap 0 yes "allow up when a volume is ABSENT (fresh/DR)" up -d --no-build --no-deps redis
-grep -q 'COMPLIANT or ABSENT' "$TMP/err" && pass "ABSENT pass message names the gate" || bad "ABSENT pass message names the gate"
+grep -qE 'COMPLIANT or (eligible )?ABSENT' "$TMP/err" && pass "ABSENT pass message names the gate" || bad "ABSENT pass message names the gate"
 
 write_plan_stub omit_redis
 wrap 1 no "refuse up when plan omits a required service" up -d --no-build --no-deps gateway-service
@@ -251,9 +262,13 @@ write_plan_stub compliant
 wrap 0 yes "compliant create proceeds" create redis
 
 
-# --- R-05 / #414: fresh host all ABSENT, value-taking flags, private stderr ---
+# --- R-05 / #414 / Y-06 #440: fresh host ABSENT policy, value-taking flags, private stderr ---
 write_plan_stub all_absent
-wrap 0 yes "fresh host all ABSENT allows up" up -d --no-build --no-deps redis
+wrap 1 no "fresh host minio ABSENT refuses up (init-chown)" up -d --no-build --no-deps redis
+grep -q 'init-absent' "$TMP/err" && pass "minio ABSENT error names init-absent" || bad "minio ABSENT error names init-absent"
+
+write_plan_stub self_init_absent
+wrap 0 yes "fresh host self-init ABSENT with minio COMPLIANT allows up" up -d --no-build --no-deps redis
 
 write_plan_stub needs_chown
 wrap 1 no "refuse --parallel 2 up when NEEDS_CHOWN" --parallel 2 up -d --no-build --no-deps redis
@@ -262,7 +277,7 @@ grep -q 'not COMPLIANT/ABSENT\|not COMPLIANT' "$TMP/err" && pass "--parallel 2 N
 # Private mktemp stderr: force plan failure and ensure no world-readable fixed /tmp path is required
 write_plan_stub fail
 reset_logs
-rm -f /tmp/parkio-nonroot-volume-gate.err
+rm -f /tmp/parkio-nonroot-volume-gate.er
 set +e
 PARKIO_ENV_FILE="$ENV_FILE" \
   PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT="$TMP/nonroot-volume-migration.sh" \
