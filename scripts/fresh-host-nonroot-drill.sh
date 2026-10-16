@@ -175,7 +175,7 @@ drill_service() {
     return 1
   fi
   docker rm -f "parkio-${svc#postgres-}" "parkio-$svc" 2>/dev/null || true
-  if ! "${OVERLAY[@]}" up -d --no-build --no-deps "$svc" \
+  if ! "${OVERLAY[@]}" up -d --no-build --no-deps --pull missing "$svc" \
     >"$EVIDENCE/last-up.out" 2>"$EVIDENCE/last-up.err"; then
     err="$(tr '\n' ' ' <"$EVIDENCE/last-up.err" | sed 's/  */ /g' | cut -c1-240)"
     log "service=$svc plan=$plan bringup=FAILED owner=$(volume_owner "$key") health=FAILED reason=compose_up bootstrap=$bootstrap err=${err:-unknown}"
