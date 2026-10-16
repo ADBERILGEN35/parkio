@@ -108,10 +108,17 @@ messages need a redrive. They are never suppressed.
 Either way, `AccountErasureStuck` fires once a request has been past its 1-hour SLA for
 15 minutes. A dead-lettered outbox row also fires `OutboxDeadlettered`.
 
-**Transient errors count.** Owner decision B11 keeps this counting:
-- During a broker outage, every relay poll that cannot send counts one attempt toward
-  `parkio.kafka.relay.max-attempts`.
-- After a long outage, erasure rows can be dead-lettered although nothing is wrong with them.
+**Transient broker failures defer, then count.** After R-07 / N-12:
+- Only `RetriableException` / `TimeoutException` (including when wrapped in
+  `KafkaProducerException`) are treated as transient broker failures.
+- Those failures **defer** the row without consuming the dead-letter budget until
+  `parkio.kafka.relay.max-transient-deferral-ms` has elapsed since
+  `first_transient_failure_at` (default **900000** ms / 15 minutes).
+- After that ceiling, each subsequent failed poll counts toward
+  `parkio.kafka.relay.max-attempts`, and the row dead-letters when attempts are
+  exhausted — even if the payload is fine. Outages longer than 15 minutes therefore
+  still need operator attention: clear the broker issue, watch the relay / DLQ
+  alerts, and redrive dead-lettered erasure ACK rows per this runbook.
 
 **Nothing removes them on its own.**
 - The outbox retention job deletes only published rows. A dead-lettered row stays until an
