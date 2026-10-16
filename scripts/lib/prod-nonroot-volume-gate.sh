@@ -3,7 +3,9 @@
 # non-root overlay, require every overlay-affected volume to be COMPLIANT or ABSENT (fresh host)
 # per nonroot-volume-migration.sh plan. Read-only: never calls apply/restore/init-absent.
 #
-# Sourced by scripts/parkio-prod-compose.sh. Expects ROOT to be set.
+# Sourced by scripts/parkio-prod-compose.sh and scripts/lib/deploy-common.sh.
+# Callers that run the gate must set ROOT (or override paths). Sourcing alone must not
+# expand ROOT at file scope under `set -u` (Z-01 / #448).
 #
 # ABSENT: allowed only for map rows with absent_bringup=self-init (postgres, redis). init-chown
 # rows (minio) must use init-absent before the first overlay up on a fresh host.
@@ -22,7 +24,18 @@ PARKIO_NONROOT_OVERLAY_VOLUME_SERVICES=(
   postgres-ai-validation redis minio
 )
 
-PARKIO_NONROOT_VOLUME_MAP="${PARKIO_NONROOT_VOLUME_MAP:-$ROOT/scripts/lib/nonroot-volume-map.tsv}"
+# Resolve the volume map path only when the gate runs — never at source time.
+parkio_nonroot_volume_gate_map_path() {
+  if [ -n "${PARKIO_NONROOT_VOLUME_MAP:-}" ]; then
+    printf '%s' "$PARKIO_NONROOT_VOLUME_MAP"
+    return 0
+  fi
+  local root="${ROOT:-}"
+  if [ -z "$root" ]; then
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  fi
+  printf '%s' "$root/scripts/lib/nonroot-volume-map.tsv"
+}
 
 parkio_nonroot_volume_gate_skip_requested() {
   local v="${PARKIO_SKIP_NONROOT_VOLUME_GATE:-}"
@@ -110,8 +123,10 @@ parkio_nonroot_volume_gate_is_mutating() {
 parkio_nonroot_volume_gate_load_absent_policy() {
   local -n _out="$1"
   local svc absent_bringup
-  [ -r "$PARKIO_NONROOT_VOLUME_MAP" ] || {
-    echo "ERROR: non-root volume gate: map not readable: $PARKIO_NONROOT_VOLUME_MAP" >&2
+  local map
+  map="$(parkio_nonroot_volume_gate_map_path)"
+  [ -r "$map" ] || {
+    echo "ERROR: non-root volume gate: map not readable: $map" >&2
     return 1
   }
   while IFS=$'\t' read -r svc _key _owner _readiness absent_bringup _note; do
@@ -119,7 +134,7 @@ parkio_nonroot_volume_gate_load_absent_policy() {
     absent_bringup="${absent_bringup//$'\r'/}"
     case "$svc" in ''|'#'*) continue ;; esac
     _out["$svc"]="$absent_bringup"
-  done < "$PARKIO_NONROOT_VOLUME_MAP"
+  done < "$map"
 }
 
 # Statuses allowed through the gate without break-glass.
@@ -153,7 +168,14 @@ parkio_nonroot_volume_gate_status_ok() {
 # Run read-only plan and require COMPLIANT or eligible ABSENT for every overlay volume service.
 parkio_nonroot_volume_gate_check() {
   local project="$1"
-  local script="${PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT:-$ROOT/scripts/nonroot-volume-migration.sh}"
+  local script="${PARKIO_NONROOT_VOLUME_MIGRATION_SCRIPT:-}"
+  if [ -z "$script" ]; then
+    local root="${ROOT:-}"
+    if [ -z "$root" ]; then
+      root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    fi
+    script="$root/scripts/nonroot-volume-migration.sh"
+  fi
   if [ ! -x "$script" ] && [ ! -f "$script" ]; then
     echo "ERROR: non-root volume gate: migration script missing: $script" >&2
     return 1
