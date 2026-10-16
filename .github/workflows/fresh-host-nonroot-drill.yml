@@ -61,7 +61,8 @@ jobs:
       - name: Pull pinned MinIO image (private ghcr.io package)
         run: |
           set -euo pipefail
-          MINIO_IMAGE="$(grep -E '^MINIO_IMAGE=' docker/.env.azure-hosted-beta.example | head -n1 | cut -d= -f2- | tr -d '"')"
+          MINIO_IMAGE="$(grep -E '^MINIO_IMAGE=' docker/.env.example | head -n1 | cut -d= -f2- | tr -d '"')"
+          [ -n "$MINIO_IMAGE" ] || { echo "MINIO_IMAGE not found in docker/.env.example" >&2; exit 1; }
           docker pull "$MINIO_IMAGE"
 
       - name: Run fresh-host non-root drill
