@@ -1,18 +1,12 @@
-# Parkio hosted-beta web release pin - MapTiler fix 2026-10-13
-# #419 pin update web: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; image id sha256:8e267d781562d4977d33607a2a1aa2f5113d500b81c63ec1f29c69d2ff66a58d; rollback ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
-# Source / OCI revision: f888a81b113c0c486ea0949067779443857e644d (the release PIN). Candidate images run 38359910354
-# (accepted-candidate), published by candidate-publish run 38375423320; registry config digest = accepted image id
-# sha256:47c6f07d4f83270f484c66400429c17645c863628bfeb6b0f121ad1fc2ab90b2 (linux/amd64).
-# Bakes the production MapTiler browser key fingerprint 0e1413b0e161 (owner decision K1, 2026-10-13). Its served
-# bundle equals the 843ae7cb web's apart from the key (web-bundle-compare v4: IDENTICAL, canonical 8f5e464e6820).
-# Recreate with PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT=0e1413b0e161, so the F-05 guard checks the baked key.
-# Rollback (the previous live pin, source 843ae7cb, blank map):
-#   ghcr.io/adberilgen35/parkio/web@sha256:4625a72e5dd3afd4cc6b2d2a62d8cdb999725942ed6471591d33b96cbd42b6a6
-# Do not pin 8d9bfca4; it bakes the CI synthetic MapTiler key. Do not roll back to aacf9dc9 (3bb89c6c): it predates #324.
+# Parkio hosted-beta web release pin.
+# #419 current pin: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
+# Recreate with PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT matching the baked key.
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
-# Recreate with: scripts/parkio-prod-compose.sh up -d --no-build --no-deps --force-recreate web
 #
 # Practical digest update: change ONLY the services.web.image line below.
+# #419 pin record web: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:d154fbd5df9c5b1185701b99c4e61b32d1a64b7a8101112e0d74504c07c271b7; image id=config digest sha256:8e267d781562d4977d33607a2a1aa2f5113d500b81c63ec1f29c69d2ff66a58d); rollback ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
+
 name: parkio
 
 services:
