@@ -39,6 +39,12 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/lib/cosign-pin.env
+          # Refuse mutable tags / bare names: require image@sha256:<64 hex>.
+          if [[ ! "$IMAGE_REF" =~ ^[^@[:space:]]+@sha256:[0-9a-fA-F]{64}$ ]]; then
+            echo "::error::image_ref must be an immutable digest ref (name@sha256:<64hex>); got: $IMAGE_REF"
+            echo "POSITIVE_PROVENANCE_STATUS=REFUSED_INVALID_DIGEST"
+            exit 1
+          fi
           echo "POSITIVE_PROVENANCE_STATUS=EXECUTING"
           cosign verify-attestation \
             --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \

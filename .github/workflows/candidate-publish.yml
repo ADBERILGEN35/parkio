@@ -208,6 +208,7 @@ jobs:
           from pathlib import Path
           sha, images_run_id, base, workflow_ref, publish_run_id = sys.argv[1:6]
           published = json.load(open("published/published-digests.json"))["published"]
+          attested = 0
           for row in published:
               service = row["service"]
               if not service.endswith("-service"):
@@ -263,6 +264,10 @@ jobs:
                   check=True,
               )
               print(f"verified attestation for {ref}")
+              attested += 1
+          if attested < 1:
+              raise SystemExit("no *-service images were attested/verified; publication fail-closed")
+          print(f"attested_and_verified={attested}")
           ATTEST
 
       - name: Upload the publication record
