@@ -46,6 +46,12 @@ def _seed_store(db_path: Path) -> None:
         store.close()
 
 
+
+def assert_mode_0644(path: Path) -> None:
+    mode = path.stat().st_mode & 0o777
+    if mode != 0o644:
+        raise AssertionError(f"expected mode 0644 for {path}, got {oct(mode)}")
+
 class TextfileExportTimerTest(unittest.TestCase):
     def test_unit_points_at_export_script(self) -> None:
         body = SERVICE.read_text(encoding="utf-8")
@@ -97,6 +103,7 @@ class TextfileExportTimerTest(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
             self.assertTrue(out.is_file())
+            assert_mode_0644(out)
             leftover = list(out.parent.glob(".parkio_slack_biz.*.tmp"))
             self.assertEqual(leftover, [], f"tmp left behind: {leftover}")
 
