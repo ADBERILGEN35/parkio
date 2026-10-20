@@ -6,6 +6,7 @@
 # ONLY the six app services' image references. Do not broaden.
 # Applied via docker/compose.production.files (after the GMP pins, before the auth/web pins).
 #
+# pin record ai-validation-service: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:00343958e0f9d103e9a4cb965e4803098e979d58861e4627b11af85cb01f003d; config=sha256:4f1738026090fe5c68893036078bac7b10313e87b464b91ee55e848cdb689898); rollback ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b; cosign_verify_attestation=PASS
 # Practical digest update: change ONLY the services.<service>.image lines below.
 # #419 pin record user-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:85e9507644a8da4110bfb1bc8e2453a6f5fdeb4f3b4566544feb94a58177fe59; image id=config digest sha256:f48913b9a5c38e451167d2fae0575d0cdb45427a774062dfdacf46682539c136); rollback ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
 # #419 pin record gamification-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:cfb33e0e34db279a021ae63e45d1699b957d8d4968dd83b14438671c64bb7bf7; image id=config digest sha256:dc21efb0ea0bde0cdde26228c9989974163d6b82b4408986289f1c8336893f7f); rollback ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
@@ -34,7 +35,7 @@ services:
     pull_policy: never
 
   ai-validation-service:
-    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b
+    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:00343958e0f9d103e9a4cb965e4803098e979d58861e4627b11af85cb01f003d
     pull_policy: never
 
   analytics-service:
