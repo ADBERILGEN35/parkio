@@ -16,6 +16,21 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+# B-02: fixture harness supplies pinned cosign stub (negative cases in test-preflight-cosign-pin.sh).
+# shellcheck disable=SC1091
+. "$ROOT/scripts/lib/cosign-pin.env"
+COSIGN_STUB_DIR="$TMP_ROOT/cosign-stub"
+mkdir -p "$COSIGN_STUB_DIR"
+cat >"$COSIGN_STUB_DIR/cosign" <<EOF
+#!/bin/sh
+echo "GitVersion:    $PARKIO_COSIGN_VERSION"
+exit 0
+EOF
+chmod +x "$COSIGN_STUB_DIR/cosign"
+PATH="$COSIGN_STUB_DIR:$PATH"
+export PATH
+
+
 python3 - "$ROOT/docker/.env.invite-production.example" "$VALID_ENV" <<'PY'
 from pathlib import Path
 import sys

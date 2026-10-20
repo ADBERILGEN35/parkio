@@ -43,6 +43,13 @@ jobs:
         with:
           cosign-release: v2.5.3
 
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify pin file + cosign version
         run: |
           set -euo pipefail
@@ -52,20 +59,15 @@ jobs:
           grep -F "$PARKIO_COSIGN_VERSION" /tmp/cosign-version.txt
 
       - name: Negative — unattested published digest must fail verify-attestation
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           source scripts/lib/cosign-pin.env
-          # Pick a currently pinned *-service digest from api compose pins (no attestation today).
           pin="$(python3 - <<'PY'
           from pathlib import Path
           import re
           text = Path("docker/docker-compose.app-release-pins.yml").read_text(encoding="utf-8")
-          # first user-service or any *-service @sha256
           m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
           if not m:
-              # fallback auth pin file
               text = Path("docker/docker-compose.auth-release-pin.yml").read_text(encoding="utf-8")
               m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
           if not m:
@@ -79,11 +81,20 @@ jobs:
             --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
             --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
             --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
-            "$pin"
+            "$pin" > /tmp/cosign-neg.out 2>&1
           ec=$?
           set -e
+          cat /tmp/cosign-neg.out
           if [ "$ec" -eq 0 ]; then
             echo "::error::expected verify-attestation to FAIL on unattested digest"
+            exit 1
+          fi
+          if grep -qiE 'UNAUTHORIZED|authentication required' /tmp/cosign-neg.out; then
+            echo "::error::negative proof failed for registry auth, not missing attestation"
+            exit 1
+          fi
+          if ! grep -qiE 'no matching attestations|no attestation|error verifying attestation|unable to verify attestation|no signatures found|none were verified' /tmp/cosign-neg.out; then
+            echo "::error::verify-attestation failed for an unexpected reason (need attestation miss)"
             exit 1
           fi
           echo "PASS: real cosign fail-closed on unattested digest (exit $ec)"
@@ -100,7 +111,15 @@ jobs:
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         with:
           cosign-release: v2.5.3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify attested image
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
         run: |
           set -euo pipefail
           source scripts/lib/cosign-pin.env
@@ -108,4 +127,4 @@ jobs:
             --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
             --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
             --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
-            "${{ inputs.image_ref }}"
+            "$IMAGE_REF"
