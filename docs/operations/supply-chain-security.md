@@ -179,3 +179,27 @@ Run on the dev box (WSL); see the sprint report for full output.
   Kubernetes/Helm/ArgoCD per constraints).
 - Reproducible jars are enabled (stable order, zeroed timestamps); full bit-for-bit image
   reproducibility additionally needs pinned base-image digests (Dependabot-managed).
+
+## Host cosign pin (B-02 / candidate SLSA attestations)
+
+Deploy provenance for every `*-service` image requires `cosign verify-attestation` with:
+
+- type `https://slsa.dev/provenance/v1`
+- issuer `https://token.actions.githubusercontent.com`
+- identity regexp `https://github.com/ADBERILGEN35/parkio/.github/workflows/.*`
+
+`scripts/preflight-hosted-beta.sh` refuses a missing cosign or a version other than the pin in
+`scripts/lib/cosign-pin.env`. Install the pinned release (integrity-verified) before the first
+wrapper `up` that exercises the provenance gate:
+
+```bash
+# Example — verify the release asset checksum from the GitHub release page, then:
+curl -fsSL -o cosign "https://github.com/sigstore/cosign/releases/download/${PARKIO_COSIGN_VERSION}/cosign-linux-amd64"
+# sha256sum -c <<< "<published-sha256>  cosign"
+chmod 0755 cosign
+sudo mv cosign /usr/local/bin/cosign
+cosign version   # must report PARKIO_COSIGN_VERSION
+```
+
+`Candidate publish` attaches keyless SLSA provenance for each published `*-service` image and
+verifies it in-job. The break-glass `PARKIO_SKIP_IMAGE_PROVENANCE` is **not** a deploy step.

@@ -48,6 +48,34 @@ done
 
 cd "$ROOT" || exit 2
 
+parkio_preflight_require_cosign() {
+  local base="${ROOT:-${PARKIO_ROOT:-.}}"
+  local pin_file="$base/scripts/lib/cosign-pin.env"
+  if [ ! -f "$pin_file" ]; then
+    echo "ERROR: preflight: missing $pin_file" >&2
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source "$pin_file"
+  if ! command -v cosign >/dev/null 2>&1; then
+    echo "ERROR: preflight: cosign not on PATH (install pinned $PARKIO_COSIGN_VERSION; see docs/operations/supply-chain-security.md)" >&2
+    return 1
+  fi
+  local ver
+  # Avoid external filters so PATH stubs in unit tests remain valid.
+  ver="$(cosign version 2>/dev/null || true)"
+  case "$ver" in
+    *"$PARKIO_COSIGN_VERSION"*) ;;
+    *)
+      echo "ERROR: preflight: cosign version mismatch (have: $ver; want: $PARKIO_COSIGN_VERSION)" >&2
+      return 1
+      ;;
+  esac
+  echo "preflight: cosign $PARKIO_COSIGN_VERSION ok"
+  return 0
+}
+
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: env file not found: $ENV_FILE" >&2
   echo "       Copy docker/.env.hosted-beta.example to docker/.env and fill in real values." >&2
@@ -692,6 +720,14 @@ else
 fi
 
 # --------------------------------------------------------------------------- #
+# B-02 cosign pin (fail-closed for deploy provenance)
+category "Cosign"
+if parkio_preflight_require_cosign; then
+  ok
+else
+  fail "cosign" "pinned cosign missing or wrong version" "install PARKIO_COSIGN_VERSION from scripts/lib/cosign-pin.env"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "=== PREFLIGHT: FAIL — $FAILURES failure(s), $WARNINGS warning(s), $CHECKS check(s) passed ==="
@@ -701,3 +737,4 @@ if [ "$FAILURES" -gt 0 ]; then
 fi
 echo "=== PREFLIGHT: PASS — $CHECKS check(s) passed, $WARNINGS warning(s) ==="
 exit 0
+

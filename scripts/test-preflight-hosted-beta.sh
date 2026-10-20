@@ -62,6 +62,24 @@ expect_not() {
 
 echo "=== preflight-hosted-beta regression tests ==="
 
+# B-02: fixture harness supplies a PATH stub matching scripts/lib/cosign-pin.env
+# so expected-pass cases remain focused on env validation. Negative cosign cases
+# live in scripts/test-preflight-cosign-pin.sh.
+# shellcheck disable=SC1091
+. "$ROOT/scripts/lib/cosign-pin.env"
+COSIGN_STUB_DIR="${TMPDIR:-/tmp}/preflight-cosign-stub-$$"
+mkdir -p "$COSIGN_STUB_DIR"
+cat >"$COSIGN_STUB_DIR/cosign" <<EOF
+#!/bin/sh
+echo "GitVersion:    $PARKIO_COSIGN_VERSION"
+exit 0
+EOF
+chmod +x "$COSIGN_STUB_DIR/cosign"
+PATH="$COSIGN_STUB_DIR:$PATH"
+export PATH
+trap 'rm -rf "$COSIGN_STUB_DIR"' EXIT
+
+
 # ---- valid env passes -------------------------------------------------------
 run_case "valid.env exits 0" valid.env 0
 expect   "valid.env reports PASS" "PREFLIGHT: PASS"

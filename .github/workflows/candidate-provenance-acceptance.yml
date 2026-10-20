@@ -1,0 +1,110 @@
+# B-02 / #461 — real cosign acceptance for the deploy provenance gate.
+# Negative path runs on PRs that touch the gate/publish path (expects failure on an
+# existing unattested pin). Positive verification runs inside candidate-publish.yml
+# immediately after attest (requires environment approval + merged workflow).
+name: Candidate provenance acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/candidate-publish.yml"
+      - ".github/workflows/candidate-provenance-acceptance.yml"
+      - "scripts/lib/deploy-image-provenance.sh"
+      - "scripts/lib/cosign-pin.env"
+      - "scripts/ci/generate-candidate-slsa-predicate.py"
+      - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-deploy-image-provenance.sh"
+      - "scripts/test-preflight-hosted-beta.sh"
+      - "docs/operations/supply-chain-security.md"
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: "Optional image@sha256:... to verify (positive path; must already be attested)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  negative-unattested-digest:
+    name: Real cosign fails closed on unattested pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
+      - name: Verify pin file + cosign version
+        run: |
+          set -euo pipefail
+          # shellcheck source=scripts/lib/cosign-pin.env
+          source scripts/lib/cosign-pin.env
+          cosign version | tee /tmp/cosign-version.txt
+          grep -F "$PARKIO_COSIGN_VERSION" /tmp/cosign-version.txt
+
+      - name: Negative — unattested published digest must fail verify-attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source scripts/lib/cosign-pin.env
+          # Pick a currently pinned *-service digest from api compose pins (no attestation today).
+          pin="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path("docker/docker-compose.app-release-pins.yml").read_text(encoding="utf-8")
+          # first user-service or any *-service @sha256
+          m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
+          if not m:
+              # fallback auth pin file
+              text = Path("docker/docker-compose.auth-release-pin.yml").read_text(encoding="utf-8")
+              m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
+          if not m:
+              raise SystemExit("no pinned *-service digest found for negative proof")
+          print(f"{m.group(1)}@sha256:{m.group(2)}")
+          PY
+          )"
+          echo "negative_target=$pin"
+          set +e
+          cosign verify-attestation \
+            --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
+            --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
+            --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
+            "$pin"
+          ec=$?
+          set -e
+          if [ "$ec" -eq 0 ]; then
+            echo "::error::expected verify-attestation to FAIL on unattested digest"
+            exit 1
+          fi
+          echo "PASS: real cosign fail-closed on unattested digest (exit $ec)"
+
+  positive-optional:
+    name: Real cosign verify (optional attested ref)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.image_ref != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+      - name: Verify attested image
+        run: |
+          set -euo pipefail
+          source scripts/lib/cosign-pin.env
+          cosign verify-attestation \
+            --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
+            --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
+            --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
+            "${{ inputs.image_ref }}"

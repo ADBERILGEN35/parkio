@@ -52,6 +52,7 @@ jobs:
       contents: read
       packages: write
       actions: read
+      id-token: write
     env:
       REGISTRY: ghcr.io
       RUN_ID: ${{ inputs.run_id }}
@@ -183,6 +184,84 @@ jobs:
           PY
           (cd published && sha256sum published-digests.json SUMMARY.md > SHA256SUMS)
           cat published/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
+      - name: Attest SLSA provenance for application services (keyless)
+        env:
+          SHA: ${{ inputs.source_sha }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=scripts/lib/cosign-pin.env
+          source scripts/lib/cosign-pin.env
+          cosign version | tee /tmp/cosign-version.txt
+          grep -F "$PARKIO_COSIGN_VERSION" /tmp/cosign-version.txt \
+            || { echo "::error::cosign binary is not the pinned $PARKIO_COSIGN_VERSION"; exit 1; }
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          python3 - "$SHA" "$RUN_ID" "$REGISTRY/$repo" "${GITHUB_WORKFLOW_REF}" <<'ATTEST'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          sha, run_id, base, workflow_ref = sys.argv[1:5]
+          published = json.load(open("published/published-digests.json"))["published"]
+          for row in published:
+              service = row["service"]
+              if not service.endswith("-service"):
+                  print(f"skip attestation (not *-service): {service}")
+                  continue
+              digest = row["digest"]
+              if not digest.startswith("sha256:"):
+                  digest = f"sha256:{digest}"
+              image = f"{base}/{service}"
+              pred = Path(f"published/{service}-slsa-predicate.json")
+              subprocess.run(
+                  [
+                      sys.executable,
+                      "scripts/ci/generate-candidate-slsa-predicate.py",
+                      "--source-sha", sha,
+                      "--digest", digest,
+                      "--image-name", image,
+                      "--run-id", run_id,
+                      "--workflow-ref", workflow_ref,
+                      "--out", str(pred),
+                  ],
+                  check=True,
+              )
+              ref = f"{image}@{digest}"
+              print(f"attesting {ref}")
+              subprocess.run(
+                  [
+                      "cosign",
+                      "attest",
+                      "--yes",
+                      "--type",
+                      "slsaprovenance1",
+                      "--predicate",
+                      str(pred),
+                      ref,
+                  ],
+                  check=True,
+              )
+              # Fail-closed local verify with the same policy the deploy gate uses
+              subprocess.run(
+                  [
+                      "cosign",
+                      "verify-attestation",
+                      "--type",
+                      "https://slsa.dev/provenance/v1",
+                      "--certificate-oidc-issuer",
+                      os.environ["PARKIO_PROVENANCE_OIDC_ISSUER"],
+                      "--certificate-identity-regexp",
+                      os.environ["PARKIO_PROVENANCE_IDENTITY_REGEXP"],
+                      ref,
+                  ],
+                  check=True,
+              )
+              print(f"verified attestation for {ref}")
+          ATTEST
 
       - name: Upload the publication record
         if: always()
