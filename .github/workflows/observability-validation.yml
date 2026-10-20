@@ -51,6 +51,7 @@ on:
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
       - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/ops/**"
       - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
       - "docs/architecture/production-readiness.md"
@@ -106,6 +107,7 @@ on:
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
       - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/ops/**"
       - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
       - "docs/architecture/production-readiness.md"
@@ -322,6 +324,7 @@ jobs:
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
           bash scripts/test-preflight-hosted-beta.sh
+          bash scripts/ops/test-r01-target-override.sh
 
       - name: Live backup-stale acceptance tooling (fake Prometheus and Alertmanager, no host)
         run: |

@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - "scripts/slack_biz/**"
+      - "scripts/newrelic_log_pilot/**"
       - "docker/docker-compose.apps.yml"
       - "docker/docker-compose.waitlist-ops-inbox.yml"
       - "docker/compose.production.files"
@@ -70,6 +71,16 @@ jobs:
       - name: U07 ambiguous-response / crash-restart regressions
         working-directory: scripts
         run: python -m unittest -v slack_biz.test_ambiguous_delivery
+
+      - name: Textfile export mode/freshness unit test
+        working-directory: scripts
+        run: python -m unittest -v slack_biz.test_textfile_export_timer
+
+      - name: NR gate probe textfile unit test
+        run: python3 scripts/newrelic_log_pilot/test_gate_probe_textfile.py
+
+      - name: NR gate probe installer self-test
+        run: bash scripts/newrelic_log_pilot/test_install_gate_probe.sh
 
       - name: Civo relay package static checks
         run: |
