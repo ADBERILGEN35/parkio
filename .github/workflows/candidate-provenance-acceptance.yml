@@ -101,25 +101,45 @@ jobs:
 
   positive-optional:
     name: Real cosign verify (optional attested ref)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.image_ref != '' }}
+    # Must not use a job-level `if` that skips on pull_request: CI gate forbids skips
+    # in this workflow. Empty IMAGE_REF → no-op success; positive attest lives in
+    # candidate-publish.yml after merge + approved publish.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Resolve optional image ref
+        id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "${IMAGE_REF:-}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No attested IMAGE_REF on this event; positive verify is candidate-publish in-job check."
+          fi
+      - name: Install cosign (pinned)
+        if: steps.ref.outputs.run == 'true'
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         with:
           cosign-release: v2.5.3
       - name: Log in to ghcr.io
+        if: steps.ref.outputs.run == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify attested image
+        if: steps.ref.outputs.run == 'true'
         env:
-          IMAGE_REF: ${{ inputs.image_ref }}
+          IMAGE_REF: ${{ steps.ref.outputs.image_ref }}
         run: |
           set -euo pipefail
           source scripts/lib/cosign-pin.env
