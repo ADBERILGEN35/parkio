@@ -39,5 +39,5 @@ services:
     pull_policy: never
 
   analytics-service:
-    image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:a9fc0a2bb8e99c1ddf816038568a43889f8927d86ec62b13b5dee39a411bb611
+    image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:ce1a2d691691338b71e6b2dc32a349d76dc7a88fcc66dba8cf561e214a72b07f
     pull_policy: never
