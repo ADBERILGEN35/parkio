@@ -56,7 +56,8 @@ parkio_preflight_require_cosign() {
     return 1
   fi
   # shellcheck disable=SC1090
-  source "$pin_file"
+  # POSIX sh: use `.` (bash `source` is unavailable under #!/bin/sh)
+  . "$pin_file"
   if ! command -v cosign >/dev/null 2>&1; then
     echo "ERROR: preflight: cosign not on PATH (install pinned $PARKIO_COSIGN_VERSION; see docs/operations/supply-chain-security.md)" >&2
     return 1

@@ -50,6 +50,7 @@ on:
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
       - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
@@ -105,6 +106,7 @@ on:
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
       - "scripts/preflight-fixtures/**"
       - "docs/operations/**"
@@ -321,6 +323,7 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+          bash scripts/test-preflight-cosign-pin.sh
           bash scripts/test-preflight-hosted-beta.sh
 
       - name: Live backup-stale acceptance tooling (fake Prometheus and Alertmanager, no host)

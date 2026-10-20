@@ -14,6 +14,7 @@ on:
       - "scripts/ci/generate-candidate-slsa-predicate.py"
       - "scripts/preflight-hosted-beta.sh"
       - "scripts/test-deploy-image-provenance.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
       - "docs/operations/supply-chain-security.md"
   workflow_dispatch:
