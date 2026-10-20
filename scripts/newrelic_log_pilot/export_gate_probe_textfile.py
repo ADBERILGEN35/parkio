@@ -115,6 +115,7 @@ def atomic_write(path: Path, body: str) -> None:
     ) as tmp:
         tmp.write(body)
         tmp.flush()
+        os.fchmod(tmp.fileno(), 0o644)
         os.fsync(tmp.fileno())
         tmp_path = Path(tmp.name)
     tmp_path.replace(path)
