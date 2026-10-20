@@ -8,6 +8,7 @@ import threading
 import unittest
 from pathlib import Path
 import sys
+import os
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +42,12 @@ def _serve(status: int) -> tuple[http.server.HTTPServer, str]:
     return server, f"http://{host}:{port}/health"
 
 
+
+def assert_mode_0644(path: Path) -> None:
+    mode = path.stat().st_mode & 0o777
+    if mode != 0o644:
+        raise AssertionError(f"expected mode 0644 for {path}, got {oct(mode)}")
+
 class GateProbeTextfileTest(unittest.TestCase):
     def test_absent_clears_prom(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,6 +72,7 @@ class GateProbeTextfileTest(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 body = out.read_text(encoding="utf-8")
                 self.assertIn("parkio_nr_budget_gate_probe_success 1", body)
+                assert_mode_0644(out)
                 leftover = list(out.parent.glob(".parkio_nr_budget_gate.*.tmp"))
                 self.assertEqual(leftover, [])
         finally:
@@ -79,6 +87,7 @@ class GateProbeTextfileTest(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 body = out.read_text(encoding="utf-8")
                 self.assertIn("parkio_nr_budget_gate_probe_success 0", body)
+                assert_mode_0644(out)
         finally:
             server.shutdown()
 
