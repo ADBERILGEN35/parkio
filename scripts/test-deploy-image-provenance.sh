@@ -365,6 +365,14 @@ else
   bad "synthetic compose overlay validation"
 fi
 
+echo "=== B-02 gate args match cosign-pin.env ==="
+# shellcheck source=scripts/lib/cosign-pin.env
+source scripts/lib/cosign-pin.env
+grep -Fq "https://slsa.dev/provenance/v1" scripts/lib/deploy-image-provenance.sh
+grep -Fq "$PARKIO_PROVENANCE_OIDC_ISSUER" scripts/lib/deploy-image-provenance.sh
+grep -Fq "$PARKIO_PROVENANCE_IDENTITY_REGEXP" scripts/lib/deploy-image-provenance.sh
+ok "cosign-pin.env identity matches deploy gate"
+
 echo
 echo "Results: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

@@ -1,0 +1,73 @@
+# B-02 / #461 — PR negative + contract checks for the deploy provenance gate.
+# Positive verification of a freshly attested digest is NOT performed here.
+# Mandatory positive verify runs in candidate-publish.yml immediately after attest.
+# Optional operator re-verify: candidate-provenance-positive.yml (workflow_dispatch only).
+name: Candidate provenance acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/candidate-publish.yml"
+      - ".github/workflows/candidate-provenance-acceptance.yml"
+      - ".github/workflows/candidate-provenance-positive.yml"
+      - "scripts/lib/deploy-image-provenance.sh"
+      - "scripts/lib/cosign-pin.env"
+      - "scripts/ci/generate-candidate-slsa-predicate.py"
+      - "scripts/ci/run-negative-provenance-acceptance.sh"
+      - "scripts/ci/fixtures/provenance-negative-digest.env"
+      - "scripts/ci/test_generate_candidate_slsa_predicate.py"
+      - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-deploy-image-provenance.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
+      - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/install-cosign-pinned.sh"
+      - "docs/operations/supply-chain-security.md"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  negative-unattested-digest:
+    name: Real cosign fails closed on unattested fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify pin file + cosign version
+        run: |
+          set -euo pipefail
+          # shellcheck source=scripts/lib/cosign-pin.env
+          source scripts/lib/cosign-pin.env
+          out="$(cosign version)"
+          parsed="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*GitVersion:[[:space:]]*//p' | head -n 1)"
+          test "$parsed" = "$PARKIO_COSIGN_VERSION"
+
+      - name: Negative — controlled unattested digest
+        run: bash scripts/ci/run-negative-provenance-acceptance.sh
+
+  predicate-contract:
+    name: Candidate SLSA predicate field contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Unit test predicate generator
+        run: python3 -m unittest -v scripts/ci/test_generate_candidate_slsa_predicate.py

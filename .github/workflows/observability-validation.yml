@@ -50,6 +50,7 @@ on:
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
       - "scripts/ops/**"
       - "scripts/preflight-fixtures/**"
@@ -106,6 +107,7 @@ on:
       - ".github/workflows/alerting-operator-acceptance.yml"
       - "scripts/alerting-acceptance-receiver.py"
       - "scripts/preflight-hosted-beta.sh"
+      - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
       - "scripts/ops/**"
       - "scripts/preflight-fixtures/**"
@@ -280,6 +282,11 @@ jobs:
             exit 1
           fi
 
+      - name: Install cosign (pinned for preflight)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
       - name: Docker compose config
         run: |
           set -euo pipefail
@@ -323,6 +330,7 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+          bash scripts/test-preflight-cosign-pin.sh
           bash scripts/test-preflight-hosted-beta.sh
           bash scripts/ops/test-r01-target-override.sh
 

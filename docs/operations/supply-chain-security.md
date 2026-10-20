@@ -179,3 +179,39 @@ Run on the dev box (WSL); see the sprint report for full output.
   Kubernetes/Helm/ArgoCD per constraints).
 - Reproducible jars are enabled (stable order, zeroed timestamps); full bit-for-bit image
   reproducibility additionally needs pinned base-image digests (Dependabot-managed).
+
+## Host cosign pin (B-02 / candidate SLSA attestations)
+
+Deploy provenance for every `*-service` image requires `cosign verify-attestation` with:
+
+- `--type https://slsa.dev/provenance/v1`
+- `--certificate-oidc-issuer https://token.actions.githubusercontent.com`
+- `--certificate-identity-regexp` matching `ADBERILGEN35/parkio` workflow identities
+
+`scripts/preflight-hosted-beta.sh` refuses a missing cosign or a `GitVersion` that is not
+**exactly** equal to `PARKIO_COSIGN_VERSION` in `scripts/lib/cosign-pin.env`.
+
+### Integrity-verified install (required)
+
+Do **not** install cosign from an unverified download. From a checkout of the reviewed revision:
+
+```bash
+cd /path/to/parkio
+./scripts/install-cosign-pinned.sh
+# optional: PARKIO_COSIGN_INSTALL_DIR=$HOME/bin ./scripts/install-cosign-pinned.sh
+```
+
+The installer:
+
+1. Loads `scripts/lib/cosign-pin.env` (reviewed pin + per-arch sha256).
+2. Selects `cosign-linux-amd64` or `cosign-linux-arm64` from `uname -m`.
+3. Downloads the asset into a temporary directory.
+4. Requires `sha256sum` to match the pin file digest (from the upstream release checksums for that version).
+5. On mismatch: exits non-zero and **does not** replace any existing `cosign` binary.
+6. On match: installs atomically and checks `GitVersion` equals `PARKIO_COSIGN_VERSION`.
+
+Positive provenance acceptance (a real attested digest) is performed in `candidate-publish.yml`
+immediately after `cosign attest`. Until that publish has run for a digest, treat positive
+acceptance as **NOT EXECUTED**. Optional operator re-check: workflow
+`Candidate provenance positive` (`workflow_dispatch` only).
+
