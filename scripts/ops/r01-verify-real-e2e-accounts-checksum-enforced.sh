@@ -75,17 +75,17 @@ else
 fi
 
 echo "== target script integrity ($TARGET_REL) =="
-if [ ! -f "$TARGET" ]; then
-  echo "ERROR: target absent at $TARGET" >&2
-  echo "Stage reviewed api copy to a NEW path only (do not overwrite dirty files), e.g.:" >&2
-  echo "  $TARGET.reviewed-r01" >&2
-  echo "Then: TARGET=$TARGET.reviewed-r01 PARKIO_ROOT=$ROOT bash <this-helper>" >&2
-  exit 2
-fi
-
 if [ -n "${TARGET_OVERRIDE:-}" ]; then
   TARGET="$TARGET_OVERRIDE"
   echo "target_override=$TARGET"
+fi
+
+if [ ! -f "$TARGET" ]; then
+  echo "ERROR: target absent at $TARGET" >&2
+  echo "Stage reviewed api copy to a NEW path only (do not overwrite dirty files), e.g.:" >&2
+  echo "  ${ROOT}/${TARGET_REL}.reviewed-r01" >&2
+  echo "Then: TARGET_OVERRIDE=${ROOT}/${TARGET_REL}.reviewed-r01 PARKIO_ROOT=$ROOT bash <this-helper>" >&2
+  exit 2
 fi
 
 ACTUAL_TARGET_SHA256="$(sha256sum "$TARGET" | awk '{print $1}')"

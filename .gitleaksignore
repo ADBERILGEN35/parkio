@@ -114,7 +114,7 @@ a845371e504c22aa8c682627631be8e1c279c0ef:services/auth-service/src/test/java/com
 # I. N-09b / #364 (owner rotation confirmed 2026-10-15): individually reviewed historical findings from
 # full-history Security CI run 38537972982 (35 generic-api-key). Each entry is one commit:file:rule:line.
 # Rationale classes: (1) shared disposable e2e/k6/docs password used in benchmarks/docs/tests;
-#     historical seed-real-e2e.sh fingerprints are NOT excepted here while GHSA-7vg4-p4j2-4hfv (N-04) remains open;
+#     historical seed-real-e2e.sh fingerprints are NOT excepted here (hosted test-account rotation is owner ops; do not allowlist live-seed history blindly);
 # (2) invite-operator startup-check fixture for a real-looking token (test-only, never production);
 # (3) Pencil design-file fileToken in untitled.pen (local design artifact, not a product credential).
 # Never paste values here. New or out-of-baseline findings and the seeded-secret self-test still fail.
