@@ -197,7 +197,10 @@ jobs:
         run: |
           set -euo pipefail
           # shellcheck source=scripts/lib/cosign-pin.env
+          # Export pin vars so the Python attestation/verify block sees them in os.environ.
+          set -a
           source scripts/lib/cosign-pin.env
+          set +a
           out="$(cosign version | tee /tmp/cosign-version.txt)"
           parsed="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*GitVersion:[[:space:]]*//p' | head -n 1)"
           test "$parsed" = "$PARKIO_COSIGN_VERSION" \
