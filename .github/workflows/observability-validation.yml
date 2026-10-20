@@ -280,6 +280,11 @@ jobs:
             exit 1
           fi
 
+      - name: Install cosign (pinned for preflight)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
       - name: Docker compose config
         run: |
           set -euo pipefail
