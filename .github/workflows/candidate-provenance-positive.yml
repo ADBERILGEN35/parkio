@@ -1,0 +1,48 @@
+# B-02 / #461 — dispatch-only positive acceptance against an already-attested digest.
+# This workflow does NOT run on pull_request. PR CI must not treat its absence as a pass.
+# Mandatory positive verify after attestation remains in candidate-publish.yml.
+name: Candidate provenance positive
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: "image@sha256:... that already carries Parkio SLSA provenance"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  positive-verify:
+    name: Real cosign verify attested digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify attested image
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          set -euo pipefail
+          source scripts/lib/cosign-pin.env
+          echo "POSITIVE_PROVENANCE_STATUS=EXECUTING"
+          cosign verify-attestation \
+            --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
+            --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
+            --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
+            "$IMAGE_REF"
+          echo "POSITIVE_PROVENANCE_STATUS=PASSED"

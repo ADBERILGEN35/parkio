@@ -1,7 +1,7 @@
-# B-02 / #461 — real cosign acceptance for the deploy provenance gate.
-# Negative path runs on PRs that touch the gate/publish path (expects failure on an
-# existing unattested pin). Positive verification runs inside candidate-publish.yml
-# immediately after attest (requires environment approval + merged workflow).
+# B-02 / #461 — PR negative + contract checks for the deploy provenance gate.
+# Positive verification of a freshly attested digest is NOT performed here.
+# Mandatory positive verify runs in candidate-publish.yml immediately after attest.
+# Optional operator re-verify: candidate-provenance-positive.yml (workflow_dispatch only).
 name: Candidate provenance acceptance
 
 on:
@@ -9,20 +9,19 @@ on:
     paths:
       - ".github/workflows/candidate-publish.yml"
       - ".github/workflows/candidate-provenance-acceptance.yml"
+      - ".github/workflows/candidate-provenance-positive.yml"
       - "scripts/lib/deploy-image-provenance.sh"
       - "scripts/lib/cosign-pin.env"
       - "scripts/ci/generate-candidate-slsa-predicate.py"
+      - "scripts/ci/run-negative-provenance-acceptance.sh"
+      - "scripts/ci/fixtures/provenance-negative-digest.env"
+      - "scripts/ci/test_generate_candidate_slsa_predicate.py"
       - "scripts/preflight-hosted-beta.sh"
       - "scripts/test-deploy-image-provenance.sh"
       - "scripts/test-preflight-cosign-pin.sh"
       - "scripts/test-preflight-hosted-beta.sh"
+      - "scripts/install-cosign-pinned.sh"
       - "docs/operations/supply-chain-security.md"
-  workflow_dispatch:
-    inputs:
-      image_ref:
-        description: "Optional image@sha256:... to verify (positive path; must already be attested)"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -30,7 +29,7 @@ permissions:
 
 jobs:
   negative-unattested-digest:
-    name: Real cosign fails closed on unattested pin
+    name: Real cosign fails closed on unattested fixture
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -55,96 +54,20 @@ jobs:
           set -euo pipefail
           # shellcheck source=scripts/lib/cosign-pin.env
           source scripts/lib/cosign-pin.env
-          cosign version | tee /tmp/cosign-version.txt
-          grep -F "$PARKIO_COSIGN_VERSION" /tmp/cosign-version.txt
+          out="$(cosign version)"
+          parsed="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*GitVersion:[[:space:]]*//p' | head -n 1)"
+          test "$parsed" = "$PARKIO_COSIGN_VERSION"
 
-      - name: Negative — unattested published digest must fail verify-attestation
-        run: |
-          set -euo pipefail
-          source scripts/lib/cosign-pin.env
-          pin="$(python3 - <<'PY'
-          from pathlib import Path
-          import re
-          text = Path("docker/docker-compose.app-release-pins.yml").read_text(encoding="utf-8")
-          m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
-          if not m:
-              text = Path("docker/docker-compose.auth-release-pin.yml").read_text(encoding="utf-8")
-              m = re.search(r'(ghcr\.io/[^:\s]+/[a-z0-9-]+-service)@sha256:([0-9a-f]{64})', text)
-          if not m:
-              raise SystemExit("no pinned *-service digest found for negative proof")
-          print(f"{m.group(1)}@sha256:{m.group(2)}")
-          PY
-          )"
-          echo "negative_target=$pin"
-          set +e
-          cosign verify-attestation \
-            --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
-            --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
-            --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
-            "$pin" > /tmp/cosign-neg.out 2>&1
-          ec=$?
-          set -e
-          cat /tmp/cosign-neg.out
-          if [ "$ec" -eq 0 ]; then
-            echo "::error::expected verify-attestation to FAIL on unattested digest"
-            exit 1
-          fi
-          if grep -qiE 'UNAUTHORIZED|authentication required' /tmp/cosign-neg.out; then
-            echo "::error::negative proof failed for registry auth, not missing attestation"
-            exit 1
-          fi
-          if ! grep -qiE 'no matching attestations|no attestation|error verifying attestation|unable to verify attestation|no signatures found|none were verified' /tmp/cosign-neg.out; then
-            echo "::error::verify-attestation failed for an unexpected reason (need attestation miss)"
-            exit 1
-          fi
-          echo "PASS: real cosign fail-closed on unattested digest (exit $ec)"
+      - name: Negative — controlled unattested digest
+        run: bash scripts/ci/run-negative-provenance-acceptance.sh
 
-  positive-optional:
-    name: Real cosign verify (optional attested ref)
-    # Must not use a job-level `if` that skips on pull_request: CI gate forbids skips
-    # in this workflow. Empty IMAGE_REF → no-op success; positive attest lives in
-    # candidate-publish.yml after merge + approved publish.
+  predicate-contract:
+    name: Candidate SLSA predicate field contract
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Resolve optional image ref
-        id: ref
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          IMAGE_REF: ${{ inputs.image_ref }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "${IMAGE_REF:-}" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "No attested IMAGE_REF on this event; positive verify is candidate-publish in-job check."
-          fi
-      - name: Install cosign (pinned)
-        if: steps.ref.outputs.run == 'true'
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
-        with:
-          cosign-release: v2.5.3
-      - name: Log in to ghcr.io
-        if: steps.ref.outputs.run == 'true'
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify attested image
-        if: steps.ref.outputs.run == 'true'
-        env:
-          IMAGE_REF: ${{ steps.ref.outputs.image_ref }}
-        run: |
-          set -euo pipefail
-          source scripts/lib/cosign-pin.env
-          cosign verify-attestation \
-            --type "$PARKIO_PROVENANCE_PREDICATE_TYPE" \
-            --certificate-oidc-issuer "$PARKIO_PROVENANCE_OIDC_ISSUER" \
-            --certificate-identity-regexp "$PARKIO_PROVENANCE_IDENTITY_REGEXP" \
-            "$IMAGE_REF"
+      - name: Unit test predicate generator
+        run: python3 -m unittest -v scripts/ci/test_generate_candidate_slsa_predicate.py

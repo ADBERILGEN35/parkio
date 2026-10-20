@@ -198,14 +198,15 @@ jobs:
           set -euo pipefail
           # shellcheck source=scripts/lib/cosign-pin.env
           source scripts/lib/cosign-pin.env
-          cosign version | tee /tmp/cosign-version.txt
-          grep -F "$PARKIO_COSIGN_VERSION" /tmp/cosign-version.txt \
-            || { echo "::error::cosign binary is not the pinned $PARKIO_COSIGN_VERSION"; exit 1; }
+          out="$(cosign version | tee /tmp/cosign-version.txt)"
+          parsed="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*GitVersion:[[:space:]]*//p' | head -n 1)"
+          test "$parsed" = "$PARKIO_COSIGN_VERSION" \
+            || { echo "::error::cosign binary is not the pinned $PARKIO_COSIGN_VERSION (got: $parsed)"; exit 1; }
           repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          python3 - "$SHA" "$RUN_ID" "$REGISTRY/$repo" "${GITHUB_WORKFLOW_REF}" <<'ATTEST'
+          python3 - "$SHA" "$RUN_ID" "$REGISTRY/$repo" "${GITHUB_WORKFLOW_REF}" "${GITHUB_RUN_ID}" <<'ATTEST'
           import json, os, subprocess, sys
           from pathlib import Path
-          sha, run_id, base, workflow_ref = sys.argv[1:5]
+          sha, images_run_id, base, workflow_ref, publish_run_id = sys.argv[1:6]
           published = json.load(open("published/published-digests.json"))["published"]
           for row in published:
               service = row["service"]
@@ -224,7 +225,8 @@ jobs:
                       "--source-sha", sha,
                       "--digest", digest,
                       "--image-name", image,
-                      "--run-id", run_id,
+                      "--candidate-images-run-id", images_run_id,
+                      "--publish-run-id", publish_run_id,
                       "--workflow-ref", workflow_ref,
                       "--out", str(pred),
                   ],

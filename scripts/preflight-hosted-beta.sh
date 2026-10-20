@@ -62,16 +62,27 @@ parkio_preflight_require_cosign() {
     echo "ERROR: preflight: cosign not on PATH (install pinned $PARKIO_COSIGN_VERSION; see docs/operations/supply-chain-security.md)" >&2
     return 1
   fi
-  local ver
-  # Avoid external filters so PATH stubs in unit tests remain valid.
-  ver="$(cosign version 2>/dev/null || true)"
-  case "$ver" in
-    *"$PARKIO_COSIGN_VERSION"*) ;;
-    *)
-      echo "ERROR: preflight: cosign version mismatch (have: $ver; want: $PARKIO_COSIGN_VERSION)" >&2
-      return 1
-      ;;
-  esac
+  local ver_out ver_ec parsed
+  set +e
+  ver_out="$(cosign version 2>&1)"
+  ver_ec=$?
+  set -e
+  if [ "$ver_ec" -ne 0 ]; then
+    echo "ERROR: preflight: cosign version failed (exit $ver_ec)" >&2
+    printf '%s\n' "$ver_out" >&2
+    return 1
+  fi
+  # Exact GitVersion field (not substring of the whole blob).
+  parsed="$(printf '%s\n' "$ver_out" | sed -n 's/^[[:space:]]*GitVersion:[[:space:]]*//p' | head -n 1)"
+  if [ -z "$parsed" ]; then
+    echo "ERROR: preflight: cosign version output missing GitVersion field" >&2
+    printf '%s\n' "$ver_out" >&2
+    return 1
+  fi
+  if [ "$parsed" != "$PARKIO_COSIGN_VERSION" ]; then
+    echo "ERROR: preflight: cosign version mismatch (have: $parsed; want: $PARKIO_COSIGN_VERSION)" >&2
+    return 1
+  fi
   echo "preflight: cosign $PARKIO_COSIGN_VERSION ok"
   return 0
 }

@@ -184,22 +184,34 @@ Run on the dev box (WSL); see the sprint report for full output.
 
 Deploy provenance for every `*-service` image requires `cosign verify-attestation` with:
 
-- type `https://slsa.dev/provenance/v1`
-- issuer `https://token.actions.githubusercontent.com`
-- identity regexp `https://github.com/ADBERILGEN35/parkio/.github/workflows/.*`
+- `--type https://slsa.dev/provenance/v1`
+- `--certificate-oidc-issuer https://token.actions.githubusercontent.com`
+- `--certificate-identity-regexp` matching `ADBERILGEN35/parkio` workflow identities
 
-`scripts/preflight-hosted-beta.sh` refuses a missing cosign or a version other than the pin in
-`scripts/lib/cosign-pin.env`. Install the pinned release (integrity-verified) before the first
-wrapper `up` that exercises the provenance gate:
+`scripts/preflight-hosted-beta.sh` refuses a missing cosign or a `GitVersion` that is not
+**exactly** equal to `PARKIO_COSIGN_VERSION` in `scripts/lib/cosign-pin.env`.
+
+### Integrity-verified install (required)
+
+Do **not** install cosign from an unverified download. From a checkout of the reviewed revision:
 
 ```bash
-# Example — verify the release asset checksum from the GitHub release page, then:
-curl -fsSL -o cosign "https://github.com/sigstore/cosign/releases/download/${PARKIO_COSIGN_VERSION}/cosign-linux-amd64"
-# sha256sum -c <<< "<published-sha256>  cosign"
-chmod 0755 cosign
-sudo mv cosign /usr/local/bin/cosign
-cosign version   # must report PARKIO_COSIGN_VERSION
+cd /path/to/parkio
+./scripts/install-cosign-pinned.sh
+# optional: PARKIO_COSIGN_INSTALL_DIR=$HOME/bin ./scripts/install-cosign-pinned.sh
 ```
 
-`Candidate publish` attaches keyless SLSA provenance for each published `*-service` image and
-verifies it in-job. The break-glass `PARKIO_SKIP_IMAGE_PROVENANCE` is **not** a deploy step.
+The installer:
+
+1. Loads `scripts/lib/cosign-pin.env` (reviewed pin + per-arch sha256).
+2. Selects `cosign-linux-amd64` or `cosign-linux-arm64` from `uname -m`.
+3. Downloads the asset into a temporary directory.
+4. Requires `sha256sum` to match the pin file digest (from the upstream release checksums for that version).
+5. On mismatch: exits non-zero and **does not** replace any existing `cosign` binary.
+6. On match: installs atomically and checks `GitVersion` equals `PARKIO_COSIGN_VERSION`.
+
+Positive provenance acceptance (a real attested digest) is performed in `candidate-publish.yml`
+immediately after `cosign attest`. Until that publish has run for a digest, treat positive
+acceptance as **NOT EXECUTED**. Optional operator re-check: workflow
+`Candidate provenance positive` (`workflow_dispatch` only).
+
