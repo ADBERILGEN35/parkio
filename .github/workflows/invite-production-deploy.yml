@@ -157,6 +157,11 @@ jobs:
           PARKIO_DISPATCH_PUBLIC_EXPLORE_AUTHORIZATION: ${{ inputs.public_explore_authorization }}
         run: ./scripts/attest-invite-production-deploy-dispatch.sh
 
+      - name: Install cosign (pinned for preflight)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
       - name: Invite-production configuration and secret-safety tests
         env:
           # The dark-endpoint binding must be proven against the real merged
