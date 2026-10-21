@@ -108,8 +108,9 @@ else is an ERROR, never a pass.
 - Refusals before any provider call: names outside `parkio-n02-orl-accept-<yyyymmdd>-<hex6>` /
   `parkio-n02-noorl-ctrl-<same>`, accounts outside the project, a shared account, a modified checkout,
   an unknown SHA, a non-empty output directory, a service-account key file as ADC.
-- Stop thresholds (checked before every request): 1,200 logical operations, 1,500 HTTP requests,
-  320 generations, 40 COMPLIANCE generations, 45 min. The plan uses 773 / ≈773 / 236 / 25 / ~4.3 min of waits.
+- Stop thresholds, checked before every storage operation (client retries inside one operation are
+  counted, not gated): 1,200 logical operations, 1,500 HTTP requests, 320 generations, 40 COMPLIANCE
+  generations, 45 min. The plan uses 773 / ≈773 / 236 / 25 / ~4.3 min of waits.
 - Output: `result.json` (verdict, source SHA/tree, client versions, bucket snapshot incl. project number
   and creation time, identities, per-case evidence and operations, budget, list-price cost, cleanup
   inventory with every generation and its retain-until), synthetic `bundle.json`, `SHA256SUMS`. Provider
@@ -117,7 +118,8 @@ else is an ERROR, never a pass.
 - `evidenceClass` is `live-provider` only for `run`; `countsFor483` is true only for a live PASS.
 - Local tests (not evidence): `GcsAcceptanceToolTest` (offline sequence, one test per modelled provider
   defect, caps, secret scan, refusals) and `LiveGcsAcceptanceProviderRequestShapeTest` (what the real
-  client sends, recorded by a local HTTP endpoint). Ten mutants of the harness gates were killed.
+  client sends, recorded by a local HTTP endpoint). Eleven mutants of the harness gates and of the
+  adapter's versioning check were all killed by these tests.
 
 ## 7. Execution proposal (awaiting owner approval)
 
