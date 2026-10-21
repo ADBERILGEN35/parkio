@@ -19,7 +19,7 @@ name: parkio
 
 services:
   user-service:
-    image: ghcr.io/adberilgen35/parkio/user-service@sha256:85e9507644a8da4110bfb1bc8e2453a6f5fdeb4f3b4566544feb94a58177fe59
+    image: ghcr.io/adberilgen35/parkio/user-service@sha256:8b7f1237f2b333a6607b92f60d3c293d57cf57b9d6bfce8ebba08ed5a434f3f5
     pull_policy: never
 
   gamification-service:
