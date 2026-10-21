@@ -27,6 +27,9 @@ on:
       - "scripts/restore-database.sh"
       - "scripts/lib/restore-safe-preflight.sh"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-production-recovery-evidence.sh"
+      - "scripts/production-recovery-evidence.sh"
+      - "scripts/lib/production-recovery-evidence.sh"
       - "scripts/lib/backup-common.sh"
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/backup-metrics.py"
@@ -84,6 +87,9 @@ on:
       - "scripts/restore-database.sh"
       - "scripts/lib/restore-safe-preflight.sh"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-production-recovery-evidence.sh"
+      - "scripts/production-recovery-evidence.sh"
+      - "scripts/lib/production-recovery-evidence.sh"
       - "scripts/lib/backup-common.sh"
       - "scripts/lib/erasure-tombstones.sh"
       - "scripts/lib/backup-metrics.py"
@@ -311,6 +317,7 @@ jobs:
             scripts/test-backup-production-fail-closed.sh \
             scripts/test-backup-complete-gate.sh \
             scripts/test-restore-safe-preflight.sh \
+            scripts/test-production-recovery-evidence.sh \
             scripts/test-civo-alertmanager-canonical.sh \
             scripts/parkio-prod-compose.sh
           for f in scripts/backup-hosted-beta.sh scripts/backup-minio.sh scripts/restore-hosted-beta.sh \
@@ -321,6 +328,7 @@ jobs:
             scripts/test-backup-production-fail-closed.sh \
             scripts/test-backup-complete-gate.sh \
             scripts/test-restore-safe-preflight.sh \
+            scripts/test-production-recovery-evidence.sh \
             scripts/test-civo-alertmanager-canonical.sh \
             scripts/parkio-prod-compose.sh; do
             bash -n "$f"
@@ -330,6 +338,7 @@ jobs:
           ./scripts/test-backup-production-fail-closed.sh
           ./scripts/test-backup-complete-gate.sh
           ./scripts/test-restore-safe-preflight.sh
+          ./scripts/test-production-recovery-evidence.sh
           bash scripts/test-preflight-cosign-pin.sh
           bash scripts/test-preflight-hosted-beta.sh
           bash scripts/ops/test-r01-target-override.sh
