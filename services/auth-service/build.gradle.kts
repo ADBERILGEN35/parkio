@@ -118,3 +118,31 @@ tasks.register<JavaExec>("recoveryDrillTool") {
     mainClass.set("com.parkio.auth.infrastructure.durable.RecoveryDrillTool")
     javaLauncher.set(javaToolchains.launcherFor(recoveryDrillToolchain))
 }
+
+// N-02 real-provider acceptance harness (#483). Test classpath only, so it is never packaged in the
+// service image. `plan <dir>` runs the case sequence against an offline model without network;
+// `run <dir>` drives the merged GCS adapter and store against the owner-approved test bucket, with
+// settings from N02_GCS_* variables and Application Default Credentials impersonating one service
+// account per identity. The checkout's SHA, tree and tracked-file state are read from git when the
+// task runs and recorded in the result; `run` refuses a modified checkout.
+tasks.register<JavaExec>("gcsProviderAcceptance") {
+    group = "verification"
+    description = "N-02 GCS Object Retention Lock acceptance harness (#483): plan offline; run only when approved"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.parkio.auth.infrastructure.durable.GcsAcceptanceTool")
+    javaLauncher.set(javaToolchains.launcherFor(recoveryDrillToolchain))
+    val checkout = rootProject.layout.projectDirectory.asFile
+    doFirst {
+        fun git(vararg args: String): String {
+            val process = ProcessBuilder(listOf("git") + args).directory(checkout).redirectErrorStream(true).start()
+            val text = process.inputStream.bufferedReader().readText().trim()
+            if (process.waitFor() != 0) {
+                throw GradleException("git ${args.joinToString(" ")} failed: $text")
+            }
+            return text
+        }
+        systemProperty("n02.source.sha", git("rev-parse", "HEAD"))
+        systemProperty("n02.source.tree", git("rev-parse", "HEAD^{tree}"))
+        systemProperty("n02.source.dirty", git("status", "--porcelain", "--untracked-files=no").isNotEmpty().toString())
+    }
+}
