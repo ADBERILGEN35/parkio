@@ -53,6 +53,7 @@ final class RecoveryReplayPreflight {
             "parkio.privacy.account-erasure.durable-recording-enabled",
             "parkio.privacy.account-erasure.durable-recording-retry-worker-enabled",
             "parkio.privacy.account-erasure.durable-store.object-lock.enabled",
+            "parkio.privacy.account-erasure.durable-store.gcs.enabled",
             "parkio.privacy.account-erasure.durable-store.checkpoint.enabled");
     static final String POLL_INTERVAL = "parkio.privacy.account-erasure.recovery-replay.poll-interval";
     static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(5);

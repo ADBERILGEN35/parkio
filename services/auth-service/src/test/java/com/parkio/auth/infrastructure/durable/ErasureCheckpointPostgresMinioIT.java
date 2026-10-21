@@ -20,7 +20,7 @@ import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.infrastructure.persistence.JdbcErasureLedgerCapture;
 import com.parkio.auth.infrastructure.persistence.PostgresDatabaseIdentity;
 import io.minio.MinioClient;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -370,7 +370,7 @@ class ErasureCheckpointPostgresMinioIT {
             throw new IllegalStateException("could not create the object-lock test bucket", ex);
         }
         return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minioClient(), bucket), trust(), PRODUCER.keyId(),
-                RetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
+                EvidenceRetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
     }
 
     private static List<String> storeKeys(ObjectLockDurableErasureRecordStore store) {

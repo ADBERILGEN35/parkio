@@ -28,8 +28,7 @@ import io.minio.errors.InternalException;
 import io.minio.errors.InvalidResponseException;
 import io.minio.errors.ServerException;
 import io.minio.errors.XmlParserException;
-import io.minio.messages.Retention;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -118,16 +117,16 @@ class ObjectLockCheckpointStoreIT {
         assertThat(checkpoint.entryCount()).isEqualTo(3);
         assertThat(checkpoint.filledReservation()).isFalse();
         String key = DurableErasureEvidence.checkpointKey(1);
-        ObjectLockBucket.StoredVersion published = bucket.oldest(key).orElseThrow();
+        DurableEvidenceBucket.StoredVersion published = bucket.oldest(key).orElseThrow();
         assertThat(published.bytes()).isEqualTo(DurableErasureEvidence.checkpoint(1, entries, DATABASE, PRODUCER));
         assertThat(bucket.oldest(DurableErasureEvidence.sequenceKey(1)).orElseThrow().bytes())
                 .isEqualTo(DurableErasureEvidence.sequenceMarker(1, DurableErasureEvidence.CHECKPOINT_RESERVATION));
         assertThat(ObjectLockTestBuckets.currentFrontier(bucket, verifier()))
                 .isEqualTo(DurableErasureEvidence.frontier(1, 1, DATABASE, PRODUCER));
         assertThat(checkpoint.ledgerDigest()).isEqualTo(verifier().verifyCheckpoint(published.bytes()).ledgerDigest());
-        Retention retention = bucket.retention(key, published.versionId());
-        assertThat(retention.mode()).isEqualTo(RetentionMode.GOVERNANCE);
-        assertThat(retention.retainUntilDate().toInstant()).isAfter(before.plus(RETENTION).minusSeconds(60));
+        DurableEvidenceBucket.RetentionLock retention = bucket.retention(key, published.versionId());
+        assertThat(retention.mode()).isEqualTo(EvidenceRetentionMode.GOVERNANCE);
+        assertThat(retention.retainUntil()).isAfter(before.plus(RETENTION).minusSeconds(60));
         RecoveryVerdict verdict = recover();
         assertThat(verdict.verdict()).isEqualTo(Verdict.ACCEPT_ISOLATED);
         assertThat(verdict.latestTrustedCheckpoint()).isEqualTo(1L);
@@ -235,7 +234,7 @@ class ObjectLockCheckpointStoreIT {
 
     private ObjectLockDurableErasureRecordStore store(MinioClient minio) {
         ObjectLockBucket target = new ObjectLockBucket(minio, bucketName);
-        return new ObjectLockDurableErasureRecordStore(target, TRUST, PRODUCER.keyId(), RetentionMode.GOVERNANCE, RETENTION, clock);
+        return new ObjectLockDurableErasureRecordStore(target, TRUST, PRODUCER.keyId(), EvidenceRetentionMode.GOVERNANCE, RETENTION, clock);
     }
 
     private RecoveryVerdict recover() {

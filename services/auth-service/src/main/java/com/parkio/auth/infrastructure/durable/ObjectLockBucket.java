@@ -26,16 +26,11 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Versioned object-lock bucket I/O for durable erasure evidence. Every write creates a new
- * version under a retention lock; versions are never overwritten or deleted by this class.
- * The <em>oldest</em> version of a key is its canonical content, so a later write or a
- * delete marker cannot replace what was published first.
+ * S3/MinIO Object Lock implementation of {@link DurableEvidenceBucket}. Every write creates a new
+ * version under a retention lock; versions are never overwritten or deleted by this class. The
+ * <em>oldest</em> version of a key is its canonical content.
  */
-final class ObjectLockBucket {
-
-    /** One stored object version. */
-    record StoredVersion(String key, String versionId, byte[] bytes) {
-    }
+final class ObjectLockBucket implements DurableEvidenceBucket {
 
     private final MinioClient client;
     private final String bucket;
@@ -46,8 +41,14 @@ final class ObjectLockBucket {
         this.bucket = Objects.requireNonNull(bucket, "bucket");
     }
 
-    String bucket() {
+    @Override
+    public String bucket() {
         return bucket;
+    }
+
+    @Override
+    public void requireRetentionFeature() {
+        requireObjectLock();
     }
 
     /** Fails unless the bucket exists with object lock (and therefore versioning) enabled. */
@@ -56,8 +57,8 @@ final class ObjectLockBucket {
                 GetObjectLockConfigurationArgs.builder().bucket(bucket).build()));
     }
 
-    /** Keys under {@code prefix} that have at least one non-delete-marker version, ascending. */
-    List<String> keys(String prefix) {
+    @Override
+    public List<String> keys(String prefix) {
         TreeSet<String> keys = new TreeSet<>();
         for (Item item : versions(prefix)) {
             if (!item.isDeleteMarker()) {
@@ -67,18 +68,14 @@ final class ObjectLockBucket {
         return List.copyOf(keys);
     }
 
-    /** The first version written under {@code key}, ignoring delete markers. */
-    Optional<StoredVersion> oldest(String key) {
+    @Override
+    public Optional<StoredVersion> oldest(String key) {
         List<Item> versions = objectVersions(key);
         return versions.isEmpty() ? Optional.empty() : Optional.of(read(versions.get(versions.size() - 1)));
     }
 
-    /**
-     * Every version of {@code key} except delete markers, in listing order (newest modification
-     * time first, which a backward clock step on the store host can disturb). A version's bytes
-     * never change, so each version is read once per bucket instance.
-     */
-    List<StoredVersion> allVersions(String key) {
+    @Override
+    public List<StoredVersion> allVersions(String key) {
         List<StoredVersion> all = new ArrayList<>();
         for (Item item : objectVersions(key)) {
             all.add(versionCache.computeIfAbsent(key + "\n" + item.versionId(), ignored -> read(item)));
@@ -86,26 +83,35 @@ final class ObjectLockBucket {
         return all;
     }
 
-    int versionCount(String key) {
+    @Override
+    public int versionCount(String key) {
         return objectVersions(key).size();
     }
 
-    /** Writes a new locked version and returns its version id. */
-    String put(String key, byte[] bytes, RetentionMode mode, ZonedDateTime retainUntil) {
+    @Override
+    public String put(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil) {
+        RetentionMode minioMode = RetentionMode.valueOf(mode.name());
         return call("put " + key, () -> client.putObject(PutObjectArgs.builder()
                         .bucket(bucket)
                         .object(key)
                         .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
                         .contentType("application/json")
                         .headers(Map.of("Content-MD5", contentMd5(bytes)))
-                        .retention(new Retention(mode, retainUntil))
+                        .retention(new Retention(minioMode, retainUntil))
                         .build()))
                 .versionId();
     }
 
-    Retention retention(String key, String versionId) {
-        return call("retention " + key, () -> client.getObjectRetention(GetObjectRetentionArgs.builder()
+    @Override
+    public RetentionLock retention(String key, String versionId) {
+        Retention retention = call("retention " + key, () -> client.getObjectRetention(GetObjectRetentionArgs.builder()
                 .bucket(bucket).object(key).versionId(versionId).build()));
+        if (retention == null || retention.mode() == null || retention.retainUntilDate() == null) {
+            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                    "durable store retention " + key + " failed: missing lock");
+        }
+        return new RetentionLock(EvidenceRetentionMode.valueOf(retention.mode().name()),
+                retention.retainUntilDate().toInstant());
     }
 
     /** Non-delete-marker versions of exactly {@code key}, newest first (S3 listing order). */
@@ -141,7 +147,6 @@ final class ObjectLockBucket {
 
     private static String contentMd5(byte[] bytes) {
         try {
-            // Object-lock writes need Content-MD5 (S3 rejects retention headers without it).
             return Base64.getEncoder().encodeToString(MessageDigest.getInstance("MD5").digest(bytes));
         } catch (java.security.NoSuchAlgorithmException ex) {
             throw new IllegalStateException("MD5 is required for object-lock writes", ex);
