@@ -58,6 +58,15 @@ class GcsObjectRetentionBucketTest {
     }
 
     @Test
+    void requireRetentionFeatureRefusesWhenObjectVersioningIsDisabled() {
+        transport.setVersioningEnabled(false);
+        assertThatThrownBy(bucket::requireRetentionFeature)
+                .isInstanceOf(AuthException.class)
+                .extracting(ex -> ((AuthException) ex).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+    }
+
+    @Test
     void oldestIsLowestGenerationEvenWhenListingReturnsNewestFirstAcrossPages() {
         var retainUntil = CLOCK.instant().plus(RETENTION).atZone(ZoneOffset.UTC);
         String key = "records/" + UUID.randomUUID() + ".json";

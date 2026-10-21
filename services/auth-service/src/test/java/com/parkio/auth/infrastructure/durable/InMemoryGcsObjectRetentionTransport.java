@@ -26,6 +26,7 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
     private final Map<String, List<Stored>> objects = new ConcurrentHashMap<>();
     private final ReentrantLock lock = new ReentrantLock();
     private boolean objectRetentionEnabled = true;
+    private boolean versioningEnabled = true;
     private boolean unavailable;
     private boolean missingListPermission;
     private boolean missingWritePermission;
@@ -38,6 +39,10 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
 
     void setObjectRetentionEnabled(boolean enabled) {
         this.objectRetentionEnabled = enabled;
+    }
+
+    void setVersioningEnabled(boolean enabled) {
+        this.versioningEnabled = enabled;
     }
 
     void setUnavailable(boolean unavailable) {
@@ -71,6 +76,9 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         failIfUnavailable();
         if (!objectRetentionEnabled) {
             throw new IllegalStateException("bucket " + bucket + " does not have Object Retention Lock enabled");
+        }
+        if (!versioningEnabled) {
+            throw new IllegalStateException("bucket " + bucket + " does not have Object Versioning enabled");
         }
     }
 

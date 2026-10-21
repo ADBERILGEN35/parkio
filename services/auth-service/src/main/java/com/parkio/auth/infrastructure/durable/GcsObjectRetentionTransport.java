@@ -24,7 +24,10 @@ interface GcsObjectRetentionTransport {
 
     String bucket();
 
-    /** Fails unless the bucket has Object Retention Lock enabled (not merely Bucket Lock). */
+    /**
+     * Fails unless the bucket has Object Retention Lock enabled (not merely Bucket Lock) and Object
+     * Versioning, so that every write adds a generation.
+     */
     void requireObjectRetentionEnabled();
 
     /**
