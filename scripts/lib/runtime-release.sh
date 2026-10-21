@@ -296,6 +296,11 @@ parkio_stage_runtime_release() {
   # never built from here (builds run against the checkout), but the path must
   # exist and be traversable for the model to load.
   #
+  # GNU install -d -m only applies MODE to the final path component; parents
+  # created under umask 0077 can stay 0700. Force every staged directory open
+  # for non-root container traversal before publishing the immutable release.
+  find "$staged" -type d -exec chmod "$PARKIO_RELEASE_DIR_MODE" {} +
+
   # rename(2) is atomic, so a concurrent reader sees either no release or the
   # complete one — never a half-staged tree.
   if ! mv -T --no-clobber -- "$staged" "$release" 2>/dev/null; then
