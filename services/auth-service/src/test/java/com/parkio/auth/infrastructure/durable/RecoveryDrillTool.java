@@ -6,7 +6,7 @@ import com.parkio.auth.application.durable.EvidenceTrust;
 import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.infrastructure.persistence.JdbcErasureLedgerCapture;
 import io.minio.MinioClient;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -61,7 +61,7 @@ public final class RecoveryDrillTool {
         EvidenceTrust trust = EvidenceTrust.parse(Files.readAllBytes(Path.of(env("DRILL_TRUST_FILE"))));
         ObjectLockDurableErasureRecordStore store = new ObjectLockDurableErasureRecordStore(
                 new ObjectLockBucket(client(), env("DRILL_STORE_BUCKET")), trust, env("DRILL_PRODUCER_KEY_ID"),
-                RetentionMode.valueOf(env("DRILL_STORE_RETENTION_MODE")),
+                EvidenceRetentionMode.parse(env("DRILL_STORE_RETENTION_MODE")),
                 Duration.parse(env("DRILL_STORE_RETENTION")), Clock.systemUTC());
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 env("DRILL_JDBC_URL"), env("DRILL_JDBC_USER"), env("DRILL_JDBC_PASSWORD"));

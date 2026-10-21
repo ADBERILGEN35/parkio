@@ -5,7 +5,6 @@ import com.parkio.auth.application.durable.EvidenceTrust;
 import com.parkio.auth.application.durable.TrustedKey;
 import com.parkio.auth.infrastructure.persistence.PostgresDatabaseIdentity;
 import io.minio.MinioClient;
-import io.minio.messages.RetentionMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -36,7 +36,12 @@ class ObjectLockDurableStoreConfig {
 
     @Bean
     ObjectLockDurableErasureRecordStore objectLockDurableErasureRecordStore(ObjectLockStoreProperties properties,
-                                                                           Clock clock, JdbcTemplate jdbc) {
+                                                                           Clock clock, JdbcTemplate jdbc,
+                                                                           Environment environment) {
+        if ("true".equalsIgnoreCase(environment.getProperty(
+                "parkio.privacy.account-erasure.durable-store.gcs.enabled", "false"))) {
+            throw new IllegalStateException(PREFIX + " and durable-store.gcs.enabled cannot both be true");
+        }
         List<String> problems = properties.problems();
         if (!problems.isEmpty()) {
             throw new IllegalStateException(PREFIX + " is enabled but incomplete: " + String.join(", ", problems));
@@ -65,7 +70,7 @@ class ObjectLockDurableStoreConfig {
         ObjectLockBucket bucket = new ObjectLockBucket(client, properties.getBucket());
         bucket.requireObjectLock();
         return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(),
-                RetentionMode.valueOf(properties.getRetentionMode()), properties.getRetention(), clock);
+                EvidenceRetentionMode.parse(properties.getRetentionMode()), properties.getRetention(), clock);
     }
 
     private static EvidenceTrust trust(String file) {

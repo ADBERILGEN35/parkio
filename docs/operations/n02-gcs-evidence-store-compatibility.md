@@ -53,11 +53,9 @@ Third-party S3-client reports (rclone, encryption gateways): GCS XML **does not 
 
 ## 4. Selected technical route
 
-**B — Preferred:** Add a **narrow Google Cloud Object Retention Lock adapter** behind the existing `DurableErasureRecordStore` / bucket I/O boundary when a later authorized real-provider validation issue is opened. Prefer Google-managed Cloud Storage + (optionally) Secret Manager for secret envelopes. No new microservice; no self-hosted MinIO for production evidence.
+**B — Implemented (default-off, #482):** Narrow Google Cloud Object Retention Lock adapter behind extracted `DurableEvidenceBucket`. Design detail: `docs/operations/n02-gcs-evidence-adapter-design.md`. Canonical generation = **lowest generation number**. MinIO Object Lock remains available and mutually exclusive. Real-provider acceptance: **#483** / `docs/operations/n02-gcs-provider-acceptance-plan.md`.
 
-**Interim default-off path (implemented today):** Keep the existing **MinIO Object Lock** adapter for Testcontainers / synthetic validation and as the only coded durable store. It remains **disabled** unless explicitly enabled. This does **not** claim GCS readiness.
-
-**C — Contingency:** If real GCS validation shows the Google adapter cannot preserve oldest-version / COMPLIANCE semantics at reasonable complexity, retain a **dedicated AWS S3 Object Lock** evidence bucket even if application hosting moves to GCP.
+**C — Contingency:** If real GCS validation (#483) shows the Google adapter cannot preserve oldest-generation / COMPLIANCE semantics at reasonable complexity, retain a **dedicated AWS S3 Object Lock** evidence bucket even if application hosting moves to GCP.
 
 ## 5. Secret Manager (future)
 

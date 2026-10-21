@@ -50,7 +50,7 @@ public final class ObjectLockTestBuckets {
     static byte[] currentFrontier(ObjectLockBucket bucket, DurableErasureEvidenceVerifier verifier) {
         byte[] current = null;
         VerifiedFrontier highest = null;
-        for (ObjectLockBucket.StoredVersion version : bucket.allVersions(DurableErasureEvidence.FRONTIER_KEY)) {
+        for (DurableEvidenceBucket.StoredVersion version : bucket.allVersions(DurableErasureEvidence.FRONTIER_KEY)) {
             VerifiedFrontier frontier;
             try {
                 frontier = verifier.verifyFrontier(Optional.of(version.bytes())).orElseThrow();

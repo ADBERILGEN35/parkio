@@ -268,8 +268,19 @@ parkio:
           producer-key-id: ${PARKIO_ERASURE_STORE_PRODUCER_KEY_ID:}
           connect-timeout: ${PARKIO_ERASURE_STORE_CONNECT_TIMEOUT:5s}
           call-timeout: ${PARKIO_ERASURE_STORE_CALL_TIMEOUT:15s}
+        # Google Cloud Storage Object Retention Lock adapter (Route B). Off by default and
+        # mutually exclusive with object-lock above. Uses ADC; trust HMAC keys stay separate.
+        # Real-provider acceptance is #483 — enabling this flag is not production readiness.
+        gcs:
+          enabled: ${PARKIO_ERASURE_STORE_GCS_ENABLED:false}
+          project-id: ${PARKIO_ERASURE_STORE_GCS_PROJECT_ID:}
+          bucket: ${PARKIO_ERASURE_STORE_GCS_BUCKET:}
+          retention-mode: ${PARKIO_ERASURE_STORE_GCS_RETENTION_MODE:}
+          retention: ${PARKIO_ERASURE_STORE_GCS_RETENTION:}
+          trust-file: ${PARKIO_ERASURE_STORE_GCS_TRUST_FILE:}
+          producer-key-id: ${PARKIO_ERASURE_STORE_GCS_PRODUCER_KEY_ID:}
         # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published
-        # to the object-lock store above. Off by default and nothing calls the producer: the
+        # to the active durable evidence store above. Off by default and nothing calls the producer: the
         # cadence is an operator decision. The timeouts bound the capture transaction.
         checkpoint:
           enabled: ${PARKIO_ERASURE_CHECKPOINT_ENABLED:false}

@@ -44,7 +44,7 @@ import io.minio.errors.InvalidResponseException;
 import io.minio.errors.ServerException;
 import io.minio.errors.XmlParserException;
 import io.minio.messages.Item;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -180,7 +180,7 @@ class ObjectLockRetryAfterPartialPublicationPostgresMinioIT {
         DurableErasureRecordStore objectLockStoreWithFailingFrontier(FrontierFailingMinioClient client) {
             return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(client, BUCKET),
                     new EvidenceTrust(DATABASE, java.util.List.of(PRODUCER)), PRODUCER.keyId(),
-                    RetentionMode.GOVERNANCE, Duration.ofDays(1), CLOCK);
+                    EvidenceRetentionMode.GOVERNANCE, Duration.ofDays(1), CLOCK);
         }
     }
 

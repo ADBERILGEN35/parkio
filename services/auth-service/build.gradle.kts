@@ -71,6 +71,8 @@ dependencies {
 
     // S3-compatible object-lock store for durable erasure records (off by default).
     implementation(libs.minio)
+    // GCS Object Retention Lock adapter for durable erasure records (off by default).
+    implementation(libs.google.cloud.storage)
 
     // MinIO pulls bcprov transitively; raise floor to catalog ≥1.85 (CVE-2026-8763).
     constraints {

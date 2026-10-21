@@ -18,7 +18,7 @@ import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.Result;
 import io.minio.messages.Item;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -123,7 +123,7 @@ class ObjectLockFrontierVersionOrderIT {
         bucket().put(DurableErasureEvidence.FRONTIER_KEY,
                 "{\"expectedThrough\":999,\"highestReserved\":999,\"kind\":\"erasure-expected-frontier\"}"
                         .getBytes(StandardCharsets.UTF_8),
-                RetentionMode.GOVERNANCE, ZonedDateTime.now(ZoneOffset.UTC).plusDays(1));
+                EvidenceRetentionMode.GOVERNANCE, ZonedDateTime.now(ZoneOffset.UTC).plusDays(1));
 
         DurableErasureRecord next = record();
         store.putIfAbsent(next);
@@ -140,7 +140,7 @@ class ObjectLockFrontierVersionOrderIT {
                 DurableErasureEvidence.frontier(1, 1, DATABASE,
                         TrustedKey.active(PRODUCER.keyId(), PRODUCER.producerId(),
                                 "another-key-not-a-secret".getBytes(StandardCharsets.UTF_8), PRODUCER.notBefore())),
-                RetentionMode.GOVERNANCE, ZonedDateTime.now(ZoneOffset.UTC).plusDays(1));
+                EvidenceRetentionMode.GOVERNANCE, ZonedDateTime.now(ZoneOffset.UTC).plusDays(1));
 
         assertThatThrownBy(() -> verifier().recover(new ObjectLockEvidenceObjects(bucket()), null))
                 .isInstanceOf(DurableEvidenceException.class)
@@ -149,7 +149,7 @@ class ObjectLockFrontierVersionOrderIT {
 
     private ObjectLockDurableErasureRecordStore store(MinioClient minio) {
         return new ObjectLockDurableErasureRecordStore(new ObjectLockBucket(minio, bucketName), TRUST, PRODUCER.keyId(),
-                RetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
+                EvidenceRetentionMode.GOVERNANCE, Duration.ofDays(1), Clock.systemUTC());
     }
 
     private ObjectLockBucket bucket() {

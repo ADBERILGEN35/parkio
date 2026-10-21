@@ -56,8 +56,10 @@ Evidence must be verifiable **without** trusting restored application data or ca
 | Issue | Role | Closure rule |
 |---|---|---|
 | #365 | Parent: close remaining production recovery coverage gap | OPEN while production/legal/provider gap remains |
-| #366 | Design trusted production recovery inputs | Close when design + custody facts + matrix are recorded |
-| #367 | Default-off adapter + stub E2E after design | Close when `test-production-recovery-evidence.sh` red→green and refusal gates preserved |
+| #366 | Design trusted production recovery inputs | CLOSED (#481) |
+| #367 | Bundle-validation default-off wrapper | CLOSED (#481) — layer A, not GCS I/O |
+| #482 | Default-off GCS Object Retention Lock I/O adapter | Implementation (#482) |
+| #483 | Real GCS provider acceptance (synthetic) | Blocked on #482 + cloud authorization |
 | #296 | Isolated drill + measured RTO/RPO | skipped-FIXED — do not recreate |
 
 ## 5. Hard boundaries observed

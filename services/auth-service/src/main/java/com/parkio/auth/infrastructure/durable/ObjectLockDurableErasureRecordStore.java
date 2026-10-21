@@ -21,8 +21,8 @@ import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
-import io.minio.messages.Retention;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.RetentionLock;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.StoredVersion;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -42,7 +42,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Off-host durable erasure record store on an S3-compatible bucket with object lock, writing
+ * Off-host durable erasure record store on a retention-locked evidence bucket
+ * ({@link DurableEvidenceBucket}: MinIO/S3 Object Lock or GCS Object Retention Lock), writing
  * evidence format v2 (docs/operations/recovery-evidence-contract.md). The protocol mirrors the
  * Python model: reserve a sequence with a marker, raise the frontier's highest reservation,
  * publish the signed record, then raise the expected boundary to cover it.
@@ -74,12 +75,12 @@ public final class ObjectLockDurableErasureRecordStore
     private static final Logger log = LoggerFactory.getLogger(ObjectLockDurableErasureRecordStore.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final ObjectLockBucket bucket;
+    private final DurableEvidenceBucket bucket;
     private final ObjectLockEvidenceObjects objects;
     private final EvidenceTrust trust;
     private final TrustedKey signingKey;
     private final String databaseIdentity;
-    private final RetentionMode retentionMode;
+    private final EvidenceRetentionMode retentionMode;
     private final Duration retention;
     private final Clock clock;
     private final AtomicInteger reportedIgnoredFrontierVersions = new AtomicInteger();
@@ -88,8 +89,8 @@ public final class ObjectLockDurableErasureRecordStore
      * Signs with {@code signingKeyId} from {@code trust} and verifies what it reads with the whole
      * trust, so objects signed with an earlier key still verify after a key rotation.
      */
-    ObjectLockDurableErasureRecordStore(ObjectLockBucket bucket, EvidenceTrust trust, String signingKeyId,
-                                        RetentionMode retentionMode, Duration retention, Clock clock) {
+    ObjectLockDurableErasureRecordStore(DurableEvidenceBucket bucket, EvidenceTrust trust, String signingKeyId,
+                                        EvidenceRetentionMode retentionMode, Duration retention, Clock clock) {
         this.bucket = Objects.requireNonNull(bucket, "bucket");
         this.objects = new ObjectLockEvidenceObjects(bucket);
         this.trust = Objects.requireNonNull(trust, "trust");
@@ -106,7 +107,7 @@ public final class ObjectLockDurableErasureRecordStore
         requireNoTransaction();
         signingKey();
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
-        Optional<ObjectLockBucket.StoredVersion> existing = bucket.oldest(key);
+        Optional<StoredVersion> existing = bucket.oldest(key);
         if (existing.isPresent()) {
             return settle(existing.get(), record, false);
         }
@@ -114,7 +115,7 @@ public final class ObjectLockDurableErasureRecordStore
         advanceFrontier(null, sequence);
         String versionId = publish(key,
                 DurableErasureEvidence.pendingRecord(record, sequence, databaseIdentity, signingKey()));
-        ObjectLockBucket.StoredVersion canonical = bucket.oldest(key)
+        StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("record " + key + " is not readable after publication"));
         return settle(canonical, record, canonical.versionId().equals(versionId));
     }
@@ -122,7 +123,7 @@ public final class ObjectLockDurableErasureRecordStore
     @Override
     public Optional<DurableErasureRecord> findByRequestId(UUID erasureRequestId) {
         requireNoTransaction();
-        Optional<ObjectLockBucket.StoredVersion> stored = bucket.oldest(DurableErasureEvidence.recordKey(erasureRequestId));
+        Optional<StoredVersion> stored = bucket.oldest(DurableErasureEvidence.recordKey(erasureRequestId));
         if (stored.isEmpty()) {
             return Optional.empty();
         }
@@ -154,7 +155,7 @@ public final class ObjectLockDurableErasureRecordStore
         String key = DurableErasureEvidence.checkpointKey(sequence);
         String versionId = publish(key,
                 DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, signingKey()));
-        ObjectLockBucket.StoredVersion canonical = bucket.oldest(key)
+        StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("checkpoint " + key + " is not readable after publication"));
         if (!canonical.versionId().equals(versionId)) {
             throw unavailable("checkpoint " + key + " was published by another writer");
@@ -170,7 +171,7 @@ public final class ObjectLockDurableErasureRecordStore
         return objects;
     }
 
-    private DurableErasurePutResult settle(ObjectLockBucket.StoredVersion stored, DurableErasureRecord candidate,
+    private DurableErasurePutResult settle(StoredVersion stored, DurableErasureRecord candidate,
                                            boolean writtenNow) {
         VerifiedPending pending = verify(stored);
         DurableErasureRecord existing = toRecord(pending, stored);
@@ -185,13 +186,10 @@ public final class ObjectLockDurableErasureRecordStore
     }
 
     /** The canonical version's id, the SHA-256 of its bytes, and the lock the store reports on it. */
-    private DurableErasureReceipt receipt(ObjectLockBucket.StoredVersion stored) {
-        Retention retention = bucket.retention(stored.key(), stored.versionId());
-        if (retention == null || retention.mode() == null || retention.retainUntilDate() == null) {
-            throw unavailable("record " + stored.key() + " has no retention lock");
-        }
+    private DurableErasureReceipt receipt(StoredVersion stored) {
+        RetentionLock retention = bucket.retention(stored.key(), stored.versionId());
         return new DurableErasureReceipt(stored.versionId(), sha256Hex(stored.bytes()), retention.mode().name(),
-                retention.retainUntilDate().toInstant());
+                retention.retainUntil());
     }
 
     private static String sha256Hex(byte[] bytes) {
@@ -260,7 +258,7 @@ public final class ObjectLockDurableErasureRecordStore
         }
     }
 
-    private static boolean isCheckpointReservation(ObjectLockBucket.StoredVersion marker) {
+    private static boolean isCheckpointReservation(StoredVersion marker) {
         return DurableErasureEvidence.CHECKPOINT_RESERVATION.toString().equals(markerRequestId(marker));
     }
 
@@ -293,7 +291,7 @@ public final class ObjectLockDurableErasureRecordStore
         return versions.highest();
     }
 
-    private VerifiedCheckpoint verifyCheckpoint(ObjectLockBucket.StoredVersion stored) {
+    private VerifiedCheckpoint verifyCheckpoint(StoredVersion stored) {
         try {
             return verifier().verifyCheckpoint(stored.bytes());
         } catch (DurableEvidenceException ex) {
@@ -303,7 +301,7 @@ public final class ObjectLockDurableErasureRecordStore
         }
     }
 
-    private VerifiedPending verify(ObjectLockBucket.StoredVersion stored) {
+    private VerifiedPending verify(StoredVersion stored) {
         try {
             return verifier().verifyPending(stored.bytes());
         } catch (DurableEvidenceException ex) {
@@ -313,7 +311,7 @@ public final class ObjectLockDurableErasureRecordStore
         }
     }
 
-    private static DurableErasureRecord toRecord(VerifiedPending pending, ObjectLockBucket.StoredVersion stored) {
+    private static DurableErasureRecord toRecord(VerifiedPending pending, StoredVersion stored) {
         try {
             JsonNode body = JSON.readTree(stored.bytes());
             return new DurableErasureRecord(UUID.fromString(pending.erasureRequestId()),
@@ -324,7 +322,7 @@ public final class ObjectLockDurableErasureRecordStore
         }
     }
 
-    private static String markerRequestId(ObjectLockBucket.StoredVersion marker) {
+    private static String markerRequestId(StoredVersion marker) {
         try {
             return JSON.readTree(marker.bytes()).path("erasureRequestId").asText();
         } catch (IOException ex) {

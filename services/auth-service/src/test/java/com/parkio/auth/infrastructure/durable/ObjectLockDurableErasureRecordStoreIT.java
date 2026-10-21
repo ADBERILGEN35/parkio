@@ -19,8 +19,6 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.Retention;
-import io.minio.messages.RetentionMode;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -88,7 +86,7 @@ class ObjectLockDurableErasureRecordStoreIT {
         ObjectLockTestBuckets.createLockedBucket(client, bucketName);
         bucket = new ObjectLockBucket(client, bucketName);
         bucket.requireObjectLock();
-        store = new ObjectLockDurableErasureRecordStore(bucket, TRUST, PRODUCER.keyId(), RetentionMode.GOVERNANCE, RETENTION, clock);
+        store = new ObjectLockDurableErasureRecordStore(bucket, TRUST, PRODUCER.keyId(), EvidenceRetentionMode.GOVERNANCE, RETENTION, clock);
     }
 
     @Test
@@ -143,7 +141,7 @@ class ObjectLockDurableErasureRecordStoreIT {
         DurableErasureRecord record = record("2026-09-29T08:15:30.123456Z");
         store.putIfAbsent(record);
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
-        ObjectLockBucket.StoredVersion published = bucket.oldest(key).orElseThrow();
+        DurableEvidenceBucket.StoredVersion published = bucket.oldest(key).orElseThrow();
 
         // A later write only adds a version; the first version stays canonical.
         byte[] forged = DurableErasureEvidence.pendingRecord(record("2026-09-29T09:00:00Z", record.erasureRequestId()), 1,
@@ -172,8 +170,8 @@ class ObjectLockDurableErasureRecordStoreIT {
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
 
         // The bucket's own view of the canonical version, read independently of the store.
-        ObjectLockBucket.StoredVersion canonical = bucket.oldest(key).orElseThrow();
-        Retention retention = bucket.retention(key, canonical.versionId());
+        DurableEvidenceBucket.StoredVersion canonical = bucket.oldest(key).orElseThrow();
+        DurableEvidenceBucket.RetentionLock retention = bucket.retention(key, canonical.versionId());
 
         assertThat(receipt.versionId()).isEqualTo(canonical.versionId());
         assertThat(receipt.sha256())
@@ -181,7 +179,7 @@ class ObjectLockDurableErasureRecordStoreIT {
                 .isEqualTo(sha256(DurableErasureEvidence.pendingRecord(record, 1, DATABASE, PRODUCER)));
         assertThat(receipt.retentionMode()).isEqualTo("GOVERNANCE").isEqualTo(retention.mode().name());
         assertThat(receipt.retainUntil())
-                .isEqualTo(retention.retainUntilDate().toInstant())
+                .isEqualTo(retention.retainUntil())
                 .isBetween(before.plus(RETENTION).minus(1, ChronoUnit.MINUTES), clock.instant().plus(RETENTION).plus(1, ChronoUnit.MINUTES));
 
         // An identical retry and a conflicting retry name the same canonical version.
@@ -199,7 +197,7 @@ class ObjectLockDurableErasureRecordStoreIT {
         DurableErasureRecord governed = record("2026-09-29T08:16:00Z");
         DurableErasureReceipt governedReceipt = store.putIfAbsent(governed).receipt();
         ObjectLockDurableErasureRecordStore compliance = new ObjectLockDurableErasureRecordStore(
-                bucket, TRUST, PRODUCER.keyId(), RetentionMode.COMPLIANCE, RETENTION, clock);
+                bucket, TRUST, PRODUCER.keyId(), EvidenceRetentionMode.COMPLIANCE, RETENTION, clock);
         DurableErasureRecord locked = record("2026-09-29T08:17:00Z");
         DurableErasureReceipt lockedReceipt = compliance.putIfAbsent(locked).receipt();
         String governedKey = DurableErasureEvidence.recordKey(governed.erasureRequestId());
@@ -207,7 +205,7 @@ class ObjectLockDurableErasureRecordStoreIT {
 
         assertThat(governedReceipt.retentionMode()).isEqualTo("GOVERNANCE");
         assertThat(lockedReceipt.retentionMode()).isEqualTo("COMPLIANCE");
-        assertThat(bucket.retention(lockedKey, lockedReceipt.versionId()).mode()).isEqualTo(RetentionMode.COMPLIANCE);
+        assertThat(bucket.retention(lockedKey, lockedReceipt.versionId()).mode()).isEqualTo(EvidenceRetentionMode.COMPLIANCE);
 
         // A principal allowed to bypass governance retention (here the root user) deletes the
         // GOVERNANCE-locked canonical version...
@@ -227,11 +225,12 @@ class ObjectLockDurableErasureRecordStoreIT {
         store.putIfAbsent(first);
         // Crash after reserving sequence 2 and publishing the record, before the frontier moved.
         DurableErasureRecord second = record("2026-09-29T08:17:45.120Z");
-        Retention lock = new Retention(RetentionMode.GOVERNANCE, clock.instant().plus(RETENTION).atZone(ZoneOffset.UTC));
+        var retainUntil = clock.instant().plus(RETENTION).atZone(ZoneOffset.UTC);
         bucket.put(DurableErasureEvidence.sequenceKey(2), DurableErasureEvidence.sequenceMarker(2, second.erasureRequestId()),
-                lock.mode(), lock.retainUntilDate());
+                EvidenceRetentionMode.GOVERNANCE, retainUntil);
         bucket.put(DurableErasureEvidence.recordKey(second.erasureRequestId()),
-                DurableErasureEvidence.pendingRecord(second, 2, DATABASE, PRODUCER), lock.mode(), lock.retainUntilDate());
+                DurableErasureEvidence.pendingRecord(second, 2, DATABASE, PRODUCER),
+                EvidenceRetentionMode.GOVERNANCE, retainUntil);
 
         assertThat(store.findByRequestId(second.erasureRequestId())).isEmpty();
         assertThat(recover().expectedThrough()).isEqualTo(1L);
@@ -266,7 +265,7 @@ class ObjectLockDurableErasureRecordStoreIT {
     void anUnreachableStoreFailsWithinTheCallTimeout() throws Exception {
         ObjectLockDurableErasureRecordStore impatient = new ObjectLockDurableErasureRecordStore(
                 new ObjectLockBucket(client(Duration.ofSeconds(2)), bucketName), TRUST, PRODUCER.keyId(),
-                RetentionMode.GOVERNANCE, RETENTION, clock);
+                EvidenceRetentionMode.GOVERNANCE, RETENTION, clock);
         MINIO.getDockerClient().pauseContainerCmd(MINIO.getContainerId()).exec();
         try {
             long started = System.nanoTime();

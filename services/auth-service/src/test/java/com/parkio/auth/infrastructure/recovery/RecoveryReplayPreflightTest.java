@@ -111,6 +111,7 @@ class RecoveryReplayPreflightTest {
                 "parkio.privacy.account-erasure.durable-recording-enabled",
                 "parkio.privacy.account-erasure.durable-recording-retry-worker-enabled",
                 "parkio.privacy.account-erasure.durable-store.object-lock.enabled",
+                "parkio.privacy.account-erasure.durable-store.gcs.enabled",
                 "parkio.privacy.account-erasure.durable-store.checkpoint.enabled")) {
             MockEnvironment withWriter = RecoveryFixtures.environment();
             withWriter.setProperty(writer, "true");

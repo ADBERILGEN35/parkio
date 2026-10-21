@@ -17,7 +17,7 @@ import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import io.minio.MinioClient;
-import io.minio.messages.RetentionMode;
+import com.parkio.auth.infrastructure.durable.EvidenceRetentionMode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -150,7 +150,7 @@ class ObjectLockKeyRotationIT {
     }
 
     private ObjectLockDurableErasureRecordStore store(TrustedKey signingKey, Instant now) {
-        return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(), RetentionMode.GOVERNANCE,
+        return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(), EvidenceRetentionMode.GOVERNANCE,
                 Duration.ofDays(1), Clock.fixed(now, ZoneOffset.UTC));
     }
 
