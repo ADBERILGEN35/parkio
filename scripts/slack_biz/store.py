@@ -128,13 +128,24 @@ class DeliveryStore:
         dedup_retention_hours: int = 168,
         lease_seconds: float = 30.0,
         worker_stale_seconds: float = 60.0,
+        readonly: bool = False,
     ):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.readonly = readonly
         self.dedup_retention_hours = dedup_retention_hours
         self.lease_seconds = lease_seconds
         self.worker_stale_seconds = worker_stale_seconds
         self._lock = threading.RLock()
+        if readonly:
+            # Metrics exporters must open the delivery DB read-only so systemd
+            # ReadOnlyPaths=/var/lib/parkio/slack-biz stays compatible (no WAL/schema writes).
+            if not self.db_path.is_file():
+                raise FileNotFoundError(f"delivery db absent for readonly open: {self.db_path}")
+            uri = f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            return
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")

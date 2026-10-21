@@ -80,12 +80,16 @@ def main(argv: list[str] | None = None) -> int:
         dedup_retention_hours=cfg.dedup_retention_hours,
         lease_seconds=cfg.lease_seconds,
         worker_stale_seconds=cfg.worker_stale_seconds,
+        readonly=True,
     )
-    out = Path(args.output)
-    body = render(store)
-    atomic_write(out, body)
-    print(f"wrote {out}")
-    return 0
+    try:
+        out = Path(args.output)
+        body = render(store)
+        atomic_write(out, body)
+        print(f"wrote {out}")
+        return 0
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":
