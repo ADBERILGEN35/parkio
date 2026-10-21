@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -60,10 +61,65 @@ class TextfileExportTimerTest(unittest.TestCase):
             body,
             r"ExecStart=.*/scripts/slack_biz/export_textfile_metrics\.py",
         )
+        # Exporter must read the delivery DB; only the textfile leaf is writable.
+        self.assertRegex(
+            body,
+            r"(?m)^ReadWritePaths=/opt/parkio/docker/prometheus/textfile$",
+        )
+        self.assertRegex(
+            body,
+            r"(?m)^ReadOnlyPaths=.*(?:^|[\s=])/var/lib/parkio/slack-biz(?:\s|$)",
+        )
         self.assertTrue(TIMER.is_file())
         timer = TIMER.read_text(encoding="utf-8")
         self.assertIn("Unit=parkio-slack-biz-textfile-export.service", timer)
         self.assertIn("OnUnitActiveSec=1min", timer)
+
+    def test_readonly_store_rejects_writes_but_export_succeeds(self) -> None:
+        """Unit ReadOnlyPaths requires URI mode=ro; WAL/schema open must not be used."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            data_dir = tmp_path / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            db_path = data_dir / "slack_biz.sqlite3"
+            _seed_store(db_path)
+
+            ro = DeliveryStore(db_path, readonly=True)
+            try:
+                self.assertEqual(ro.count_by_status("delivery_unknown"), 2)
+                with self.assertRaises(sqlite3.OperationalError):
+                    with ro._lock:  # noqa: SLF001
+                        ro._conn.execute("CREATE TABLE IF NOT EXISTS _should_fail(x INT)")
+            finally:
+                ro.close()
+
+            out = tmp_path / "textfile" / "parkio_slack_biz.prom"
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PARKIO_SLACK_BIZ_DATA_DIR": str(data_dir),
+                    "PARKIO_SLACK_BIZ_ENVIRONMENT": "unit-test",
+                    "PARKIO_SLACK_BIZ_ENABLED": "false",
+                    "PARKIO_SLACK_BIZ_WAITLIST_INBOX": str(tmp_path / "inbox"),
+                    "PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS": "gateway-waitlist-outbox",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                }
+            )
+            (tmp_path / "inbox").mkdir(parents=True, exist_ok=True)
+            proc = subprocess.run(
+                [sys.executable, str(EXPORT), "--output", str(out)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=str(ROOT),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+            self.assertTrue(out.is_file())
+            assert_mode_0644(out)
+            body = out.read_text(encoding="utf-8")
+            self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
+            self.assertIn("parkio_slack_biz_dlt_rows 3", body)
 
     def test_export_writes_prom_atomically_with_freshness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
