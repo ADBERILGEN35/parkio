@@ -20,7 +20,8 @@ concurrency:
 jobs:
   chromium:
     name: Auth CSRF Chromium acceptance
-    runs-on: ubuntu-latest
+    # Pin 24.04: ubuntu-latest moved to 26.04; Playwright 1.60 cannot install Chromium there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
