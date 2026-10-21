@@ -1044,10 +1044,16 @@ YML
   if [ "$c8_ok" -eq 1 ]; then
     GOOD_REF="$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$CG" | grep "^$REG@" | head -n1)"
     reset_c; base_model "$GOOD_REF"
-    docker tag "$CB" "$REG:good"
+    # Do not retag $REG:good to the bad image before the first digest-pinned up.
+    # On current Docker Engine, moving the only floating tag for that repo can make
+    # `name@sha256:…` unresolvable locally even though $CG still exists, which fails
+    # the guard's "present locally" check before Compose starts.
     wrap_c up -d --no-build --no-deps web
     expect_image "digest-pinned web: verified manifest ref deployed" "$CG"
     if grep -q "bound=$GOOD_REF" "$TMP/out"; then pass "real compose: digest-pinned web is bound to its manifest ref"; else bad "real compose: digest-pinned web is bound to its manifest ref"; fi
+    # After the digest is proven, move the floating tag to the bad image and repeat:
+    # the digest pin must still select $CG and must not recreate the container.
+    docker tag "$CB" "$REG:good"
     before="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
     wrap_c up -d --no-build --no-deps web
     after="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
