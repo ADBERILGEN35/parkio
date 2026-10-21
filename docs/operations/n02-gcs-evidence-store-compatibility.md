@@ -53,7 +53,7 @@ Third-party S3-client reports (rclone, encryption gateways): GCS XML **does not 
 
 ## 4. Selected technical route
 
-**B — Implemented (default-off, #482):** Narrow Google Cloud Object Retention Lock adapter behind extracted `DurableEvidenceBucket`. Design detail: `docs/operations/n02-gcs-evidence-adapter-design.md`. Canonical generation = **lowest generation number**. MinIO Object Lock remains available and mutually exclusive. Real-provider acceptance: **#483** / `docs/operations/n02-gcs-provider-acceptance-plan.md`.
+**B — Implemented (default-off, #482):** Narrow Google Cloud Object Retention Lock adapter behind extracted `DurableEvidenceBucket`. Design detail: `docs/operations/n02-gcs-evidence-adapter-design.md`. Canonical generation = **lowest generation number**. MinIO Object Lock remains available and mutually exclusive. Real-provider acceptance: **#483** / `docs/operations/n02-gcs-provider-acceptance-plan.md` (harness ready; real-provider column above stays "Not run" until the approved run).
 
 **C — Contingency:** If real GCS validation (#483) shows the Google adapter cannot preserve oldest-generation / COMPLIANCE semantics at reasonable complexity, retain a **dedicated AWS S3 Object Lock** evidence bucket even if application hosting moves to GCP.
 
