@@ -7,7 +7,9 @@ jjwt = "0.12.6"
 # MinIO client is not part of the Spring Boot BOM, so it needs an explicit version.
 minio = "8.6.0"
 # Google Cloud Storage client (auth-service GCS Object Retention Lock adapter; default-off).
-googleCloudStorage = "2.47.0"
+# 2.60.0+ pulls grpc-netty-shaded ≥1.76 (CVE-2025-55163 fixed in 1.75.0).
+googleCloudStorage = "2.60.0"
+grpcNettyShaded = "1.76.0"
 # Bouncy Castle arrives transitively (MinIO → media; spring-cloud-starter → gateway).
 # Pin floor to ≥1.85 for CVE-2026-8763 (Name Constraints bypass; fixed in BC Java 1.85+).
 # Also supersedes the prior 1.81.1 floor for CVE-2025-14813. See Keyfactor/BC 1.85 notes.
@@ -85,6 +87,7 @@ jts-core = { module = "org.locationtech.jts:jts-core", version.ref = "jts" }
 # Object storage (S3-compatible, used by media-service).
 minio = { module = "io.minio:minio", version.ref = "minio" }
 google-cloud-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "googleCloudStorage" }
+grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded", version.ref = "grpcNettyShaded" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 # JWT (access tokens).

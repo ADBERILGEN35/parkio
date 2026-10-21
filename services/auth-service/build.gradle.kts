@@ -75,9 +75,13 @@ dependencies {
     implementation(libs.google.cloud.storage)
 
     // MinIO pulls bcprov transitively; raise floor to catalog ≥1.85 (CVE-2026-8763).
+    // google-cloud-storage may pin older grpc-netty-shaded; raise floor to ≥1.75 (CVE-2025-55163).
     constraints {
         implementation(libs.bouncycastle.bcprov) {
             because("CVE-2026-8763: bcprov-jdk18on before 1.85 is blocked by Security CI CRITICAL policy")
+        }
+        implementation(libs.grpc.netty.shaded) {
+            because("CVE-2025-55163: grpc-netty-shaded before 1.75.0 is blocked by Security CI HIGH library policy")
         }
     }
 
