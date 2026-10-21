@@ -77,7 +77,7 @@ When pin digests change, update this table to match the pin files. Keep **Accept
 
 ## RPO / RTO
 
-**No production RPO or RTO is offered.** Design matrix for the remaining production recovery coverage gap (F-27 / #365): [f27-production-recovery-coverage-design-matrix.md](f27-production-recovery-coverage-design-matrix.md). Isolated #296 evidence is not production acceptance; D-DP1 and #104 HOLD remain. Backups run nightly, but while production restore is
+**No production RPO or RTO is offered.** Design matrix for the remaining production recovery coverage gap (F-27 / #365): [f27-production-recovery-coverage-design-matrix.md](f27-production-recovery-coverage-design-matrix.md). Custody / platform preference (2026-10-21): [erasure-evidence-key-custody.md](erasure-evidence-key-custody.md), [n02-gcs-evidence-store-compatibility.md](n02-gcs-evidence-store-compatibility.md). Isolated #296 evidence is not production acceptance; D-DP1 and #104 HOLD remain. Backups run nightly, but while production restore is
 BLOCKED no recovery time or recovery point can be promised. The U02 measured, disposable
 full-recovery drill (host/state loss → fresh environment → erasure-safe recovery) has run; its
 numbers are below, with the conditions they were measured under, and describe that drill only.

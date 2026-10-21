@@ -1,14 +1,28 @@
 # Erasure evidence keys: custody, rotation and retirement (format v2)
 
-Procedure only. This document contains no key and generates none. Who holds the keys, how often
-they rotate, and where trust documents live on hosts are operator decisions that are not yet
-recorded. Contract: `docs/operations/recovery-evidence-contract.md` §7 "Trust and key rotation".
+Procedure only. This document contains no key and generates none. Contract:
+`docs/operations/recovery-evidence-contract.md` §7 "Trust and key rotation". Platform preference
+and store compatibility: `docs/operations/n02-gcs-evidence-store-compatibility.md`.
+
+**Owner decision recorded 2026-10-21 (issue #366):**
+
+| Field | Value |
+|---|---|
+| Key custodian | Repository owner operating as GitHub account **`ADBERILGEN35`** (operating identity only; no legal name recorded) |
+| Compromise response owner | Same account (**`ADBERILGEN35`**); no additional delegate |
+| Centralized secrets store | **None claimed** to exist |
+| Evidence vs backup secrets | Evidence trust keys remain **separate** from backup encryption secrets and from storage authentication |
+| Preferred platform to investigate | **Google Cloud** (Object Retention Lock; optional future Secret Manager for distinct secret envelopes) |
+| Production recovery | Remains **BLOCKED** pending legal retention basis, real-provider validation, intentional enablement |
+| Keys / infrastructure | **Not** created or provisioned by this decision |
+
+Production duration for object retention remains **unset** (discarded 400-day placeholder stays discarded). Engineering floor guidance only: offsite backup window 14 days → technical floor ≥ 45 days (14+30); recommended engineering floor before counsel ≥ 90 days. Test retention stays short and synthetic.
 
 ## Roles
 
 | Role | Holds | Does |
 |---|---|---|
-| Key custodian (operator to be named) | every producer key | generates, distributes, rotates and retires keys; keeps the record of `keyId` windows |
+| Key custodian (`ADBERILGEN35`) | every producer key | generates, distributes, rotates and retires keys; keeps the record of `keyId` windows |
 | Producer: auth-service object-lock store | a trust document and the id of its signing key | signs evidence with one key; verifies what it reads with the whole trust document |
 | Consumer: recovery operator and tooling | a trust document with the keys it must verify | verifies evidence; never reads keys or the database identity from the evidence |
 
@@ -89,10 +103,10 @@ objects cannot be re-signed, recovery through those objects is `BLOCKED`. Treat 
 unknown tail (contract §2): keep a restored copy unexposed, and handle the affected erasures
 through the documented re-request path. Rotate to a new key before retiring the compromised one.
 
-## Not decided here
+## Still open (not claimed decided)
 
-- The key custodian.
-- The rotation cadence.
-- The host location and mount mechanism of trust documents.
-- The distribution channel to consumers.
-- The response owner for a compromised key.
+- Rotation cadence (design recommendation remains annual + on compromise; not owner-locked).
+- Host path / mount for trust documents once a real producer host exists (`/etc/parkio/erasure-evidence-trust.json` remains the technical recommendation).
+- Distribution channel once a secrets envelope exists (future Google Secret Manager is an investigation candidate only; nothing provisioned).
+- Lawful basis / retention duration for any real production evidence export or irreversible retention lock (D-DP1 / counsel).
+- Real-provider immutability acceptance for Google Cloud Object Retention Lock (or contingency AWS S3 Object Lock).

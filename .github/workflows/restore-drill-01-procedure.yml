@@ -25,6 +25,9 @@ on:
       - "scripts/lib/recovery_evidence_contract.py"
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
+      - "scripts/test-production-recovery-evidence.sh"
+      - "scripts/production-recovery-evidence.sh"
+      - "scripts/lib/production-recovery-evidence.sh"
       - "scripts/test-recovery-evidence-contract.py"
       - "scripts/test-recovery-evidence-pg-share-lock.py"
       - "scripts/lib/recovery_persist_protocol.py"
@@ -113,6 +116,7 @@ jobs:
           python3 scripts/test-recovery-stage4.py
           python3 scripts/test-durable-erasure-evidence-interop.py
           bash scripts/test-restore-safe-preflight.sh
+          bash scripts/test-production-recovery-evidence.sh
           bash scripts/test-restore-isolated-teardown.sh
 
       - name: Isolated-fixture entrypoints against disposable PostgreSQL/MinIO
