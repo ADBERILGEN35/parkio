@@ -1051,19 +1051,47 @@ YML
     wrap_c up -d --no-build --no-deps web
     expect_image "digest-pinned web: verified manifest ref deployed" "$CG"
     if grep -q "bound=$GOOD_REF" "$TMP/out"; then pass "real compose: digest-pinned web is bound to its manifest ref"; else bad "real compose: digest-pinned web is bound to its manifest ref"; fi
-    # After the digest is proven, move the floating tag to the bad image and repeat:
-    # the digest pin must still select $CG and must not recreate the container.
+    # Keep a second tag on $CG in the same repo before moving :good. On current
+    # Docker Engine, clearing the only floating tag for that repository drops the
+    # local name@sha256 association the guard needs, so a later guarded up would
+    # BLOCK (false "no recreate") and the §9.3 hash check would abort under set -e.
+    docker tag "$CG" "$REG:verified-c8"
     docker tag "$CB" "$REG:good"
     before="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
     wrap_c up -d --no-build --no-deps web
     after="$("$REAL_DOCKER" inspect -f '{{.Id}}' "$PROJ-web-1" 2>/dev/null)"
-    if [ -n "$before" ] && [ "$before" = "$after" ]; then pass "real compose: repeated guarded up does not recreate a digest-pinned web"; else bad "real compose: repeated guarded up recreated web"; fi
+    if [ -n "$before" ] && [ "$before" = "$after" ] && [ "$CRC" -eq 0 ]; then
+      pass "real compose: repeated guarded up does not recreate a digest-pinned web"
+    else
+      bad "real compose: repeated guarded up recreated web or guard blocked (rc=$CRC)"
+    fi
     # Activation check (RELEASE-PACKAGE §9.3): the binding must not change the web config hash.
-    bash "$GUARD" --compose-config-json <(docker compose -p "$PROJ" -f "$C/base.yml" config --format json) \
-      --bind-override-out "$C/bind-check.yml" >/dev/null 2>&1 || true
-    h1="$(docker compose -p "$PROJ" -f "$C/base.yml" config --hash web 2>/dev/null)"
-    h2="$(docker compose -p "$PROJ" -f "$C/base.yml" -f "$C/bind-check.yml" config --hash web 2>/dev/null)"
-    if [ -n "$h1" ] && [ -s "$C/bind-check.yml" ] && [ "$h1" = "$h2" ]; then pass "real compose: config --hash web is unchanged by a digest binding (no-recreate check)"; else bad "real compose: config --hash web unchanged by digest binding ('$h1' vs '$h2')"; fi
+    rm -f "$C/bind-check.yml"
+    set +e
+    docker compose -p "$PROJ" -f "$C/base.yml" config --format json >"$C/model-check.json" 2>"$C/model-check.err"
+    model_rc=$?
+    if [ "$model_rc" -eq 0 ]; then
+      bash "$GUARD" --compose-config-json "$C/model-check.json" --bind-override-out "$C/bind-check.yml" >"$TMP/out" 2>"$TMP/err"
+      guard_rc=$?
+    else
+      guard_rc=1
+      printf 'compose config --format json failed (rc=%s)\n' "$model_rc" >"$TMP/err"
+      cat "$C/model-check.err" >>"$TMP/err" 2>/dev/null || true
+    fi
+    h1="$(docker compose -p "$PROJ" -f "$C/base.yml" config --hash web 2>"$C/hash1.err")"
+    h1_rc=$?
+    h2=""
+    h2_rc=1
+    if [ -s "$C/bind-check.yml" ]; then
+      h2="$(docker compose -p "$PROJ" -f "$C/base.yml" -f "$C/bind-check.yml" config --hash web 2>"$C/hash2.err")"
+      h2_rc=$?
+    fi
+    set -e
+    if [ "$guard_rc" -eq 0 ] && [ "$h1_rc" -eq 0 ] && [ "$h2_rc" -eq 0 ] && [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+      pass "real compose: config --hash web is unchanged by a digest binding (no-recreate check)"
+    else
+      bad "real compose: config --hash web unchanged by digest binding (guard_rc=$guard_rc h1_rc=$h1_rc h2_rc=$h2_rc '$h1' vs '$h2')"
+    fi
   elif docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -q 'Docker Desktop'; then
     echo "SKIP C8 digest-pinned registry scenario: Docker Desktop cannot push to a host-loopback registry"
   else
