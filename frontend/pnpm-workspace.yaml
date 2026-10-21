@@ -54,3 +54,7 @@ overrides:
   # CVE-2026-102422 GHSA-pqg4-j6r4-53mv (shell-quote >= 1.8.4 < 1.11.0, patched 1.11.0).
   # launch-editor 2.14.1 (^1.8.4) and react-devtools-core 6.1.5 (^1.6.1) resolved it to 1.9.0.
   'shell-quote': '^1.11.0'
+  # CVE-2026-111755 / CVE-2026-111756 (follow-redirects < 1.16.1).
+  'follow-redirects': '>=1.16.1'
+  # CVE-2026-112942 (launch-editor < 2.14.2).
+  'launch-editor': '>=2.14.2'
