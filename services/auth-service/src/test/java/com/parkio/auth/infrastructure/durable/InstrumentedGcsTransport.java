@@ -14,10 +14,11 @@ import java.util.function.Supplier;
 /**
  * Wraps the merged adapter's transport for the #483 harness without changing what it sends: each
  * call is checked against the run's caps, counted, and its outcome (provider status included) kept
- * for the cases. One optional fault, a response lost after the provider committed a write, is
- * injected <em>after</em> the real call returned, so the generation exists exactly as on a timeout.
- * Optional client-side pacing spaces writes to one object name; it is off unless a case turns it
- * on, so the store is otherwise measured as merged.
+ * for the cases. Every write is recorded with the retain-until it requests before it is sent. One
+ * optional fault, a response lost after the provider committed a write, is injected <em>after</em>
+ * the real call returned, so the generation exists exactly as on a timeout. Optional client-side
+ * pacing spaces writes to one object name; it is off unless a diagnostic case turns it on, so the
+ * store is otherwise exercised as merged.
  */
 final class InstrumentedGcsTransport implements GcsObjectRetentionTransport {
 
@@ -88,21 +89,30 @@ final class InstrumentedGcsTransport implements GcsObjectRetentionTransport {
 
     @Override
     public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil) {
-        if (mode == EvidenceRetentionMode.COMPLIANCE) {
-            ledger.beforeComplianceWrite();
-        }
         pace(objectName);
-        long generation = call("objects.insert", () -> delegate.createGeneration(objectName, bytes, mode, retainUntil));
-        ledger.created(objectName, generation, mode, retainUntil, bytes.length);
-        synchronized (this) {
-            lastWrite.put(objectName, provider.clock().instant());
-            if (objectName.equals(loseResponseFor)) {
-                loseResponseFor = null;
-                lostResponseGeneration = generation;
-                throw new SimulatedLostResponse(objectName);
+        return call("objects.insert", () -> {
+            long attempt = ledger.writeRequested(objectName, mode, retainUntil);
+            long generation;
+            try {
+                generation = delegate.createGeneration(objectName, bytes, mode, retainUntil);
+            } catch (RuntimeException ex) {
+                ledger.writeFailed(attempt, ex);
+                throw ex;
             }
-        }
-        return generation;
+            synchronized (this) {
+                lastWrite.put(objectName, provider.clock().instant());
+                if (objectName.equals(loseResponseFor)) {
+                    loseResponseFor = null;
+                    lostResponseGeneration = generation;
+                    // As on a timeout: committed, but the caller learns no generation.
+                    SimulatedLostResponse lost = new SimulatedLostResponse(objectName);
+                    ledger.writeFailed(attempt, lost);
+                    throw lost;
+                }
+            }
+            ledger.writeAcknowledged(attempt, generation, bytes.length);
+            return generation;
+        });
     }
 
     @Override

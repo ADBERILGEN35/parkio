@@ -51,8 +51,10 @@ interface GcsAcceptanceProvider {
     }
 
     /**
-     * Raw operations outside the adapter. Retention changes address the live generation and carry
-     * an {@code ifGenerationMatch} precondition: the JSON API patches only the live object.
+     * Raw operations outside the adapter. {@link #setRetention} and {@link #clearRetention} patch the
+     * live object as the Java client does (it sends no {@code generation} parameter), guarded by
+     * {@code ifGenerationMatch}. The {@code ...OfGeneration} variants send the JSON API's
+     * {@code generation} parameter, which selects a specific (also noncurrent) generation.
      */
     interface RetentionProbe {
 
@@ -66,10 +68,19 @@ interface GcsAcceptanceProvider {
         ProbeOutcome clearRetention(String bucket, String name, long liveGeneration,
                                     boolean overrideUnlockedRetention);
 
+        ProbeOutcome setRetentionOfGeneration(String bucket, String name, long generation, EvidenceRetentionMode mode,
+                                              Instant retainUntil, boolean overrideUnlockedRetention);
+
+        ProbeOutcome clearRetentionOfGeneration(String bucket, String name, long generation,
+                                                boolean overrideUnlockedRetention);
+
         ProbeOutcome delete(String bucket, String name, long generation);
+
+        /** An insert without retention: only {@code storage.objects.create} is needed (IAM probe). */
+        ProbeOutcome insertWithoutRetention(String bucket, String name, byte[] bytes);
     }
 
-    /** {@code live-provider} or {@code offline-model}. */
+    /** {@code live-provider}, {@code local-test-endpoint} or {@code offline-model}. */
     String evidenceClass();
 
     /** The merged adapter's transport for {@code identity}; the harness instruments it. */

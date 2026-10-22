@@ -17,18 +17,22 @@ import java.util.regex.Pattern;
 
 /**
  * Accounting and stop thresholds of one #483 acceptance run: every logical storage operation, the
- * HTTP requests the live client sent, each generation the run created (for cleanup), the case
- * results, and the hard caps. A cap stops the run before the next operation is sent; cloud billing
- * cannot enforce one. Nothing secret is recorded: provider messages pass through
- * {@link #sanitize(String)}.
+ * HTTP requests the live clients open (storage and token requests, retries included), each write
+ * requested and each generation created (for cleanup), the case results, and the hard caps. A cap
+ * stops the run before the next operation is sent and before the next HTTP connection is opened;
+ * cloud billing cannot enforce one. Events also go to the run's {@link GcsAcceptanceJournal} as
+ * they happen. Nothing secret is recorded: provider messages pass through {@link #sanitize(String)}.
  */
 final class GcsAcceptanceLedger {
 
-    /** Hard stop thresholds; the offline plan of the full sequence leaves at least 20% headroom under each. */
+    /**
+     * Hard stop thresholds; the offline plan of the full sequence leaves at least 20% headroom under
+     * each. {@code httpRequests} counts storage and token requests together.
+     */
     record Caps(int logicalOperations, int httpRequests, int generations, int complianceGenerations,
                 Duration wallClock) {
 
-        static final Caps APPROVED = new Caps(1_200, 1_500, 320, 40, Duration.ofMinutes(45));
+        static final Caps APPROVED = new Caps(1_200, 1_500, 360, 40, Duration.ofMinutes(45));
     }
 
     /** Regional Standard storage list prices (USD), cloud.google.com/storage/pricing, read 2026-10-22. */
@@ -38,7 +42,12 @@ final class GcsAcceptanceLedger {
 
     enum Status { PASS, FAIL, MEASURED, SKIPPED, ERROR }
 
-    enum Kind { PREFLIGHT, ASSERTION, MEASUREMENT }
+    /**
+     * PREFLIGHT and ASSERTION cases must pass. A MEASUREMENT records a provider fact either way. A
+     * DIAGNOSTIC runs only after a required case failed, to explain the failure; it never counts
+     * towards a pass.
+     */
+    enum Kind { PREFLIGHT, ASSERTION, MEASUREMENT, DIAGNOSTIC }
 
     /** A failure the instrumented transport or a probe observed, as the cases inspect causes. */
     record Failure(String operation, int code, String reason, String exception) {
@@ -52,6 +61,15 @@ final class GcsAcceptanceLedger {
                              Instant retainUntil, int bytes, Instant createdAt) {
     }
 
+    /** A write whose outcome is unknown (timeout, 408, 5xx, lost response): it may have created a generation. */
+    record UnresolvedWrite(String caseId, String name, EvidenceRetentionMode mode, Instant retainUntil,
+                           Instant requestedAt, String cause) {
+    }
+
+    private record PendingWrite(String caseId, String name, EvidenceRetentionMode mode, Instant retainUntil,
+                                Instant requestedAt) {
+    }
+
     /** Thrown when a cap is reached; the run stops and later cases are skipped. */
     static final class BudgetExceeded extends RuntimeException {
         BudgetExceeded(String message) {
@@ -61,23 +79,36 @@ final class GcsAcceptanceLedger {
 
     private static final Pattern TOKEN = Pattern.compile("ya29\\.[A-Za-z0-9_\\-.]+");
     private static final Pattern BEARER = Pattern.compile("(?i)bearer\\s+\\S+");
+    private static final Pattern JWT = Pattern.compile("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]*");
+    private static final Pattern PEM = Pattern.compile("-----BEGIN [A-Z ]+-----[\\s\\S]*?(-----END [A-Z ]+-----|$)");
     private static final Pattern SECRET_FIELD = Pattern.compile(
-            "(?i)(access_token|refresh_token|id_token|client_secret|private_key)(\"?\\s*[:=]\\s*\"?)[^\",\\s}]+");
+            "(?i)(access_?token|refresh_?token|id_?token|client_?secret|private_?key(?:_id)?)"
+                    + "(\"?\\s*[:=]\\s*\"?)[^\",\\s}]+");
 
     private final Clock clock;
     private final Caps caps;
     private final Instant startedAt;
     private final AtomicLong httpRequests = new AtomicLong();
+    private final AtomicLong authHttpRequests = new AtomicLong();
     private final Map<String, Map<String, Long>> operations = new TreeMap<>();
     private final List<CreatedGeneration> created = new ArrayList<>();
+    private final Map<Long, PendingWrite> pending = new TreeMap<>();
+    private final List<UnresolvedWrite> unresolved = new ArrayList<>();
+    private final Map<String, String> violations = new TreeMap<>();
     private final List<Map<String, Object>> deleted = new ArrayList<>();
     private final List<CaseResult> cases = new ArrayList<>();
     private final ThreadLocal<Failure> lastFailure = new ThreadLocal<>();
     private long logicalOperations;
+    private long possibleGenerations;
+    private long possibleComplianceGenerations;
     private long chargedClassA;
     private long chargedClassB;
     private String abortReason;
     private String currentCase = "-";
+    private Instant latestRequestedRetainUntil;
+    private long requestedWrites;
+    private long nextAttempt;
+    private GcsAcceptanceJournal journal;
 
     GcsAcceptanceLedger(Clock clock, Caps caps) {
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -93,9 +124,37 @@ final class GcsAcceptanceLedger {
         return startedAt;
     }
 
-    /** Counts one HTTP request the live storage client opened (retries included). */
-    void httpRequest() {
-        httpRequests.incrementAndGet();
+    /** The instant the wall-clock cap ends the run. */
+    Instant deadline() {
+        return startedAt.plus(caps.wallClock());
+    }
+
+    /** Sends every later event to {@code journal} too. */
+    synchronized void attach(GcsAcceptanceJournal journal) {
+        this.journal = Objects.requireNonNull(journal, "journal");
+    }
+
+    /**
+     * Gate of every HTTP connection a live client opens, retries and token refreshes included: after
+     * a stop, at the request cap or past the wall-clock cap the connection is refused before anything
+     * is sent, so client retry loops cannot exceed the cap. The refusal is an unchecked exception,
+     * which the client libraries do not retry.
+     */
+    synchronized void beforeHttpRequest(boolean tokenRequest) {
+        if (abortReason != null) {
+            throw new BudgetExceeded(abortReason);
+        }
+        String reached = null;
+        if (httpRequests.get() + authHttpRequests.get() >= caps.httpRequests()) {
+            reached = "HTTP request cap " + caps.httpRequests();
+        } else if (clock.instant().isAfter(deadline())) {
+            reached = "wall-clock cap " + caps.wallClock();
+        }
+        if (reached != null) {
+            abort(reached + " reached before an HTTP request");
+            throw new BudgetExceeded(abortReason);
+        }
+        (tokenRequest ? authHttpRequests : httpRequests).incrementAndGet();
     }
 
     long httpRequests() {
@@ -110,26 +169,131 @@ final class GcsAcceptanceLedger {
         String reached = null;
         if (logicalOperations >= caps.logicalOperations()) {
             reached = "logical operation cap " + caps.logicalOperations();
-        } else if (httpRequests.get() >= caps.httpRequests()) {
+        } else if (httpRequests.get() + authHttpRequests.get() >= caps.httpRequests()) {
             reached = "HTTP request cap " + caps.httpRequests();
-        } else if (Duration.between(startedAt, clock.instant()).compareTo(caps.wallClock()) > 0) {
+        } else if (clock.instant().isAfter(deadline())) {
             reached = "wall-clock cap " + caps.wallClock();
-        } else if ("objects.insert".equals(operation) && created.size() >= caps.generations()) {
-            reached = "generation cap " + caps.generations();
         }
         if (reached != null) {
-            abortReason = reached + " reached before " + operation;
+            abort(reached + " reached before " + operation);
             throw new BudgetExceeded(abortReason);
         }
         logicalOperations++;
     }
 
-    /** Refuses a COMPLIANCE write beyond the cap of irreversible generations. */
-    synchronized void beforeComplianceWrite() {
-        long compliance = created.stream().filter(c -> c.mode() == EvidenceRetentionMode.COMPLIANCE).count();
-        if (compliance >= caps.complianceGenerations()) {
-            abortReason = "COMPLIANCE generation cap " + caps.complianceGenerations() + " reached";
+    /**
+     * Reserves a write about to be sent, before the provider answers, and returns its attempt id.
+     * The generation caps count every write that may have created a generation (acknowledged,
+     * unresolved or in flight); check and reservation happen together, so concurrent writers cannot
+     * pass a cap. Whether or not a response arrives, nothing the write may have created is retained
+     * beyond {@code retainUntil}.
+     */
+    synchronized long writeRequested(String name, EvidenceRetentionMode mode, Instant retainUntil) {
+        if (abortReason != null) {
             throw new BudgetExceeded(abortReason);
+        }
+        String reached = null;
+        if (possibleGenerations >= caps.generations()) {
+            reached = "generation cap " + caps.generations();
+        } else if (mode == EvidenceRetentionMode.COMPLIANCE
+                && possibleComplianceGenerations >= caps.complianceGenerations()) {
+            reached = "COMPLIANCE generation cap " + caps.complianceGenerations();
+        }
+        if (reached != null) {
+            abort(reached + " reached before a write");
+            throw new BudgetExceeded(abortReason);
+        }
+        requestedWrites++;
+        possibleGenerations++;
+        if (mode == EvidenceRetentionMode.COMPLIANCE) {
+            possibleComplianceGenerations++;
+        }
+        requested(retainUntil);
+        long attempt = ++nextAttempt;
+        pending.put(attempt, new PendingWrite(currentCase, name, mode, retainUntil, clock.instant()));
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("attempt", attempt);
+        fields.put("case", currentCase);
+        fields.put("name", name);
+        fields.put("mode", mode.name());
+        fields.put("retainUntil", retainUntil.toString());
+        journal("write-requested", fields);
+        return attempt;
+    }
+
+    /** The provider acknowledged attempt {@code attempt} with {@code generation}. */
+    synchronized void writeAcknowledged(long attempt, long generation, int bytes) {
+        PendingWrite write = Objects.requireNonNull(pending.remove(attempt), "unknown write attempt");
+        created.add(new CreatedGeneration(write.caseId(), write.name(), generation, write.mode(), write.retainUntil(),
+                bytes, clock.instant()));
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("attempt", attempt);
+        fields.put("case", write.caseId());
+        fields.put("name", write.name());
+        fields.put("generation", Long.toString(generation));
+        fields.put("mode", write.mode().name());
+        fields.put("retainUntil", write.retainUntil().toString());
+        journal("generation-created", fields);
+    }
+
+    /**
+     * Settles a failed attempt: a definite refusal (a 4xx other than 408, or a request the gate never
+     * sent) created nothing; anything else (no response, 408, 5xx) may have created a generation and
+     * stays in the cleanup inventory as unresolved.
+     */
+    synchronized void writeFailed(long attempt, Throwable failure) {
+        PendingWrite write = Objects.requireNonNull(pending.remove(attempt), "unknown write attempt");
+        Failure observed = describe("objects.insert", failure);
+        boolean refused = "stopped".equals(observed.reason())
+                || observed.code() >= 400 && observed.code() < 500 && observed.code() != 408;
+        if (refused) {
+            possibleGenerations--;
+            if (write.mode() == EvidenceRetentionMode.COMPLIANCE) {
+                possibleComplianceGenerations--;
+            }
+            return;
+        }
+        unresolved.add(new UnresolvedWrite(write.caseId(), write.name(), write.mode(), write.retainUntil(),
+                write.requestedAt(), observed.exception()));
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("attempt", attempt);
+        fields.put("case", write.caseId());
+        fields.put("name", write.name());
+        fields.put("mode", write.mode().name());
+        fields.put("retainUntil", write.retainUntil().toString());
+        fields.put("cause", observed.exception());
+        journal("write-unresolved", fields);
+    }
+
+    /**
+     * A safety property the run exists to check was contradicted (for example an accepted change of
+     * Locked retention): the run stops at once, the result carries the flag, and the operation is
+     * not repeated.
+     */
+    synchronized void violation(String flag, String detail) {
+        violations.putIfAbsent(flag, sanitize(detail));
+        journal("violation", Map.of("flag", flag, "detail", sanitize(detail)));
+        abort("stopped after a safety violation: " + flag);
+    }
+
+    synchronized Map<String, String> violations() {
+        return Map.copyOf(violations);
+    }
+
+    /** Records a retention change about to be sent (an extension can move the cleanup time). */
+    synchronized void retentionRequested(String name, long generation, Instant retainUntil) {
+        requested(retainUntil);
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("case", currentCase);
+        fields.put("name", name);
+        fields.put("generation", Long.toString(generation));
+        fields.put("retainUntil", retainUntil.toString());
+        journal("retention-requested", fields);
+    }
+
+    private void requested(Instant retainUntil) {
+        if (latestRequestedRetainUntil == null || retainUntil.isAfter(latestRequestedRetainUntil)) {
+            latestRequestedRetainUntil = retainUntil;
         }
     }
 
@@ -145,6 +309,10 @@ final class GcsAcceptanceLedger {
                 chargedClassB++;
             }
         } else {
+            if (failure instanceof InstrumentedGcsTransport.SimulatedLostResponse) {
+                // The provider committed and charged the write; only its response is withheld.
+                chargedClassA++;
+            }
             Failure observed = describe(operation, failure);
             lastFailure.set(observed);
             outcome = observed.code() > 0 ? Integer.toString(observed.code())
@@ -152,6 +320,14 @@ final class GcsAcceptanceLedger {
         }
         operations.computeIfAbsent(operation + " as " + identity, ignored -> new TreeMap<>())
                 .merge(outcome, 1L, Long::sum);
+    }
+
+    /** How often {@code operation} ended with {@code outcome} ("ok", an HTTP code or an exception), all identities. */
+    synchronized long outcomes(String operation, String outcome) {
+        return operations.entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith(operation + " as "))
+                .mapToLong(entry -> entry.getValue().getOrDefault(outcome, 0L))
+                .sum();
     }
 
     /** The most recent failure this thread observed since its last successful operation. */
@@ -163,17 +339,13 @@ final class GcsAcceptanceLedger {
         lastFailure.remove();
     }
 
-    synchronized void created(String name, long generation, EvidenceRetentionMode mode, Instant retainUntil,
-                              int bytes) {
-        created.add(new CreatedGeneration(currentCase, name, generation, mode, retainUntil, bytes, clock.instant()));
-    }
-
     synchronized void deletedGeneration(String name, long generation) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("case", currentCase);
         item.put("name", name);
         item.put("generation", Long.toString(generation));
         deleted.add(item);
+        journal("generation-deleted", new LinkedHashMap<>(item));
     }
 
     synchronized List<CreatedGeneration> created() {
@@ -191,6 +363,7 @@ final class GcsAcceptanceLedger {
     synchronized void abort(String reason) {
         if (abortReason == null) {
             abortReason = reason;
+            journal("stopped", Map.of("reason", reason));
         }
     }
 
@@ -201,6 +374,20 @@ final class GcsAcceptanceLedger {
     synchronized void record(CaseResult result) {
         cases.add(result);
         currentCase = "-";
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("case", result.id());
+        fields.put("kind", result.kind().name());
+        fields.put("status", result.status().name());
+        fields.put("detail", result.detail());
+        fields.put("durationMs", result.durationMs());
+        fields.put("operations", result.operations());
+        journal("case", fields);
+    }
+
+    private void journal(String event, Map<String, Object> fields) {
+        if (journal != null) {
+            journal.append(event, fields);
+        }
     }
 
     synchronized List<CaseResult> cases() {
@@ -220,11 +407,28 @@ final class GcsAcceptanceLedger {
         counters.put("chargedClassB", chargedClassB);
         counters.put("failed", failed);
         counters.put("http", httpRequests.get());
+        counters.put("tokenHttp", authHttpRequests.get());
+        counters.put("writesRequested", requestedWrites);
+        counters.put("possibleGenerations", possibleGenerations);
+        counters.put("unresolvedWrites", (long) unresolved.size());
         return counters;
     }
 
-    /** The latest retain-until of any generation this run created: the earliest full cleanup time. */
+    /**
+     * The earliest full cleanup time: the latest retain-until of any generation this run created or
+     * any write or retention change it requested, acknowledged or not (a lost response can hide a
+     * generation, never a later retain-until than the one requested).
+     */
     synchronized Instant latestRetainUntil() {
+        Instant acknowledged = latestAcknowledgedRetainUntil();
+        if (acknowledged == null) {
+            return latestRequestedRetainUntil;
+        }
+        return latestRequestedRetainUntil == null || acknowledged.isAfter(latestRequestedRetainUntil)
+                ? acknowledged : latestRequestedRetainUntil;
+    }
+
+    private Instant latestAcknowledgedRetainUntil() {
         return created.stream().map(CreatedGeneration::retainUntil).max(Instant::compareTo).orElse(null);
     }
 
@@ -256,11 +460,17 @@ final class GcsAcceptanceLedger {
         Map<String, Object> generations = new LinkedHashMap<>();
         generations.put("governance", governance);
         generations.put("compliance", compliance);
+        generations.put("unresolvedWrites", unresolved.size());
+        generations.put("possible", possibleGenerations);
+        generations.put("possibleCompliance", possibleComplianceGenerations);
         generations.put("bytes", bytes);
         generations.put("deletedDuringRun", deleted.size());
         summary.put("generations", generations);
         Instant latest = latestRetainUntil();
+        Instant acknowledged = latestAcknowledgedRetainUntil();
         summary.put("latestRetainUntil", latest == null ? null : latest.toString());
+        summary.put("latestRetainUntilBasis", "every write and retention change requested, acknowledged or not");
+        summary.put("latestAcknowledgedRetainUntil", acknowledged == null ? null : acknowledged.toString());
         double operationsUsd = chargedClassA * CLASS_A_USD_PER_1000 / 1000 + chargedClassB * CLASS_B_USD_PER_1000 / 1000;
         double hours = latest == null ? 0 : Math.max(0, Duration.between(startedAt, latest).toMinutes() / 60.0);
         double storageUsd = bytes / (1024.0 * 1024 * 1024) * STANDARD_USD_PER_GIB_MONTH * hours / 730.0;
@@ -273,6 +483,7 @@ final class GcsAcceptanceLedger {
         return summary;
     }
 
+    /** Every acknowledged generation, then every write that may have created one ({@code generation: unknown}). */
     synchronized List<Map<String, Object>> cleanupInventory() {
         List<Map<String, Object>> inventory = new ArrayList<>();
         for (CreatedGeneration item : created) {
@@ -282,6 +493,27 @@ final class GcsAcceptanceLedger {
             entry.put("generation", Long.toString(item.generation()));
             entry.put("mode", item.mode().name());
             entry.put("retainUntil", item.retainUntil().toString());
+            inventory.add(entry);
+        }
+        List<Object> open = new ArrayList<>(unresolved);
+        open.addAll(pending.values());
+        for (Object item : open) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            if (item instanceof UnresolvedWrite write) {
+                entry.put("case", write.caseId());
+                entry.put("name", write.name());
+                entry.put("generation", "unknown");
+                entry.put("mode", write.mode().name());
+                entry.put("retainUntil", write.retainUntil().toString());
+                entry.put("cause", write.cause());
+            } else if (item instanceof PendingWrite write) {
+                entry.put("case", write.caseId());
+                entry.put("name", write.name());
+                entry.put("generation", "unknown");
+                entry.put("mode", write.mode().name());
+                entry.put("retainUntil", write.retainUntil().toString());
+                entry.put("cause", "no answer when the result was written");
+            }
             inventory.add(entry);
         }
         return inventory;
@@ -301,12 +533,14 @@ final class GcsAcceptanceLedger {
                 || operation.equals("buckets.get");
     }
 
-    /** Provider text without bearer tokens or credential fields, bounded in length. */
+    /** Provider text without bearer tokens, JWTs, PEM blocks or credential fields, bounded in length. */
     static String sanitize(String text) {
         if (text == null) {
             return "";
         }
-        String clean = TOKEN.matcher(text).replaceAll("<redacted-token>");
+        String clean = PEM.matcher(text).replaceAll("<redacted-pem>");
+        clean = TOKEN.matcher(clean).replaceAll("<redacted-token>");
+        clean = JWT.matcher(clean).replaceAll("<redacted-jwt>");
         clean = BEARER.matcher(clean).replaceAll("Bearer <redacted>");
         clean = SECRET_FIELD.matcher(clean).replaceAll("$1$2<redacted>");
         clean = clean.replaceAll("\\s+", " ").trim();
@@ -314,6 +548,11 @@ final class GcsAcceptanceLedger {
     }
 
     static Failure describe(String operation, Throwable failure) {
+        for (Throwable link = failure; link != null; link = link.getCause()) {
+            if (link instanceof BudgetExceeded stopped) {
+                return new Failure(operation, 0, "stopped", "BudgetExceeded: " + sanitize(stopped.getMessage()));
+            }
+        }
         Throwable cause = failure;
         while (cause instanceof AuthException && cause.getCause() != null) {
             cause = cause.getCause();

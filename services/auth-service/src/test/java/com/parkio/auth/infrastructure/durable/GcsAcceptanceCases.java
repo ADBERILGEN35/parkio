@@ -74,11 +74,12 @@ final class GcsAcceptanceCases {
     static final int HISTORY_GENERATIONS = 205;
     static final int TRANSPORT_PAGE_SIZE = 32;
     static final int RACE_WRITERS = 8;
+    static final int RACE_ROUNDS = 3;
     /** Cloud Storage allows about one write and one metadata update per second per object name. */
     static final Duration SAME_OBJECT_SPACING = Duration.ofMillis(1_100);
     static final Duration THROTTLE_BACKOFF = Duration.ofSeconds(2);
     static final int MAX_ATTEMPTS = 4;
-    static final int UNPACED_CHECKPOINT_ATTEMPTS = 2;
+    static final int BURST_WRITES = 10;
     static final Map<String, String> REQUIRED_LABELS = Map.of(
             "parkio-purpose", "n02-gcs-acceptance", "parkio-data", "synthetic");
 
@@ -87,10 +88,14 @@ final class GcsAcceptanceCases {
     private static final Duration SHORTEN_BY = Duration.ofMinutes(30);
     private static final String PATCH = "objects.patch";
     private static final String DELETE = "objects.delete";
+    private static final String INSERT = "objects.insert";
     private static final Duration EXTEND_BY = Duration.ofSeconds(60);
 
-    /** Bucket names, the approved location and this run's id (its namespace is {@code runs/<id>/}). */
-    record Settings(String bucket, String controlBucket, String location, String runId) {
+    /**
+     * Bucket names, the approved location, the number of the project the buckets must belong to, and
+     * this run's id (its namespace is {@code runs/<id>/}).
+     */
+    record Settings(String bucket, String controlBucket, String location, String projectNumber, String runId) {
 
         String prefix() {
             return "runs/" + runId + "/";
@@ -162,6 +167,47 @@ final class GcsAcceptanceCases {
         this.t0 = provider.clock().instant().truncatedTo(ChronoUnit.SECONDS);
     }
 
+    /**
+     * The owner's three checkpoint facts, kept apart: (a) did one unpaced production call complete, and
+     * did the provider throttle it; (b) was external pacing needed (only S5b, a diagnostic run after a
+     * failed S5, can say yes); (c) did a retry converge without losing progress. Plus the burst T1.
+     */
+    Map<String, Object> checkpointFacts() {
+        Map<String, Object> s5 = evidence("S5");
+        Map<String, Object> s5b = evidence("S5b");
+        Object throttled = s5.get("throttledResponses");
+        Map<String, Object> facts = new LinkedHashMap<>();
+        facts.put("normalPathCompleted", status("S5") == Status.PASS);
+        facts.put("normalPathThrottledResponses", throttled);
+        facts.put("throttlingObservedOnNormalPath", throttled instanceof Number number && number.longValue() > 0);
+        String pacing;
+        if (status("S5") == Status.PASS) {
+            pacing = "no";
+        } else if (Boolean.TRUE.equals(s5b.get("completedWithPacing"))) {
+            pacing = "yes";
+        } else if (Boolean.FALSE.equals(s5b.get("completedWithPacing"))) {
+            pacing = "pacing did not help";
+        } else {
+            pacing = "not determined";
+        }
+        facts.put("externalPacingRequired", pacing);
+        facts.put("retryConvergedWithoutLoss", status("S5r") == Status.PASS);
+        facts.put("retryScenario", evidence("S5r").get("scenario"));
+        facts.put("burstWritesCompleted", status("T1") == Status.PASS);
+        facts.put("burstThrottledResponses", evidence("T1").get("throttledResponses"));
+        Map<String, Object> statuses = new LinkedHashMap<>();
+        for (String id : List.of("S5", "S5r", "S5b", "T1")) {
+            statuses.put(id, status(id).name());
+        }
+        facts.put("cases", statuses);
+        return facts;
+    }
+
+    private Map<String, Object> evidence(String id) {
+        return ledger.cases().stream().filter(result -> result.id().equals(id)).map(CaseResult::evidence)
+                .findFirst().orElse(Map.of());
+    }
+
     /** The exported synthetic evidence bundle (V2), if the run got that far. */
     byte[] bundle() {
         return bundle == null ? null : bundle.clone();
@@ -173,6 +219,7 @@ final class GcsAcceptanceCases {
         putAndInspect();
         history();
         concurrency();
+        burst();
         store();
         verify();
         leastPrivilege();
@@ -214,8 +261,8 @@ final class GcsAcceptanceCases {
         if (snapshot.retentionPolicySeconds() != null && snapshot.retentionPolicySeconds() > 0) {
             problems.add(label + ": has a bucket retention policy (Bucket Lock is out of scope)");
         }
-        if (snapshot.softDeleteSeconds() != null && snapshot.softDeleteSeconds() > 0) {
-            problems.add(label + ": soft delete is enabled");
+        if (snapshot.softDeleteSeconds() == null || snapshot.softDeleteSeconds() > 0) {
+            problems.add(label + ": soft delete is enabled or not reported");
         }
         if (!Boolean.TRUE.equals(snapshot.uniformBucketLevelAccess())) {
             problems.add(label + ": uniform bucket-level access is off");
@@ -225,6 +272,10 @@ final class GcsAcceptanceCases {
         }
         if (Boolean.TRUE.equals(snapshot.hierarchicalNamespace())) {
             problems.add(label + ": hierarchical namespace is enabled");
+        }
+        if (!settings.projectNumber().equals(snapshot.projectNumber())) {
+            problems.add(label + ": belongs to project number " + snapshot.projectNumber() + ", not the approved "
+                    + settings.projectNumber());
         }
         if (!settings.location().equalsIgnoreCase(String.valueOf(snapshot.location()))) {
             problems.add(label + ": location " + snapshot.location() + " is not " + settings.location());
@@ -249,7 +300,8 @@ final class GcsAcceptanceCases {
                     Failure cause = expectUnavailable(
                             () -> adapter(Identity.READER, settings.controlBucket()).requireRetentionFeature());
                     ev.put("cause", failure(cause));
-                    if (cause == null || cause.code() != 0 || !cause.exception().startsWith("IllegalStateException")) {
+                    if (cause == null || cause.code() != 0 || !cause.exception().startsWith("IllegalStateException")
+                            || !cause.exception().contains("does not have Object Retention Lock enabled")) {
                         throw new CaseFailure("refused for another reason than the missing feature");
                     }
                 });
@@ -358,7 +410,7 @@ final class GcsAcceptanceCases {
                 Kind.ASSERTION, Identity.READER, ev -> {
                     List<Long> written = require(history, "H1");
                     InstrumentedGcsTransport transport = transport(Identity.READER, settings.bucket());
-                    GcsObjectRetentionBucket reader = new GcsObjectRetentionBucket(transport);
+                    GcsObjectRetentionBucket reader = bucketOver(transport);
                     int count = reader.versionCount(key);
                     Optional<StoredVersion> oldest = reader.oldest(key);
                     List<StoredVersion> all = reader.allVersions(key);
@@ -427,44 +479,19 @@ final class GcsAcceptanceCases {
     // ---- C: concurrent writers and retries -------------------------------------------------------
 
     private void concurrency() {
-        run("C1", RACE_WRITERS + " concurrent writers on one object: the lowest generation is canonical with its writer's bytes",
-                Kind.ASSERTION, Identity.WRITER, ev -> {
-                    String key = key("adapter/race.json");
-                    ZonedDateTime until = until(GOVERNANCE_RETENTION);
-                    Map<Integer, byte[]> bodies = new HashMap<>();
-                    List<Future<Object>> futures = new ArrayList<>();
-                    CountDownLatch start = new CountDownLatch(1);
-                    ExecutorService pool = Executors.newFixedThreadPool(RACE_WRITERS);
-                    try {
-                        for (int w = 0; w < RACE_WRITERS; w++) {
-                            byte[] body = body("C1", Map.of("writer", w));
-                            bodies.put(w, body);
-                            GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
-                            futures.add(pool.submit(() -> {
-                                start.await();
-                                try {
-                                    return Long.parseLong(writer.put(key, body, EvidenceRetentionMode.GOVERNANCE, until));
-                                } catch (AuthException ex) {
-                                    Failure cause = ledger.lastFailure();
-                                    return cause == null ? new Failure("objects.insert", 0, "", "unknown") : cause;
-                                }
-                            }));
+        run("C1", RACE_WRITERS + " concurrent writers on one object: every writer sees the same canonical generation,"
+                        + " exactly one sees its own, and it is the lowest generation", Kind.ASSERTION, Identity.WRITER,
+                ev -> {
+                    List<Map<String, Object>> rounds = new ArrayList<>();
+                    ev.put("rounds", rounds);
+                    for (int round = 1; round <= RACE_ROUNDS; round++) {
+                        Map<String, Object> outcome = new LinkedHashMap<>();
+                        rounds.add(outcome);
+                        if (race(key("adapter/race-" + round + ".json"), outcome) >= 2) {
+                            return;
                         }
-                        start.countDown();
-                        Map<Long, Integer> acknowledged = new TreeMap<>();
-                        Map<Integer, Failure> failed = new TreeMap<>();
-                        for (int w = 0; w < futures.size(); w++) {
-                            Object outcome = futures.get(w).get(2, TimeUnit.MINUTES);
-                            if (outcome instanceof Long generation) {
-                                acknowledged.put(generation, w);
-                            } else {
-                                failed.put(w, (Failure) outcome);
-                            }
-                        }
-                        raceOutcome(key, bodies, acknowledged, failed, ev);
-                    } finally {
-                        pool.shutdownNow();
                     }
+                    throw new CaseFailure("no round committed two concurrent writes: the race was not exercised");
                 });
         run("C2", "An identical body written twice is kept twice by the provider; the first stays canonical",
                 Kind.ASSERTION, Identity.WRITER, ev -> {
@@ -484,44 +511,170 @@ final class GcsAcceptanceCases {
                 });
     }
 
-    private void raceOutcome(String key, Map<Integer, byte[]> bodies, Map<Long, Integer> acknowledged,
-                             Map<Integer, Failure> failed, Map<String, Object> ev) {
-        GcsObjectRetentionBucket reader = adapter(Identity.READER);
-        List<StoredVersion> listed = reader.allVersions(key);
-        Set<Long> generations = listed.stream().map(v -> Long.parseLong(v.versionId())).collect(Collectors.toSet());
-        long throttled = failed.values().stream().filter(f -> f.code() == 429).count();
-        long ambiguous = failed.values().stream().filter(f -> f.code() == 0 || f.code() >= 500).count();
-        long unacknowledged = generations.stream().filter(g -> !acknowledged.containsKey(g)).count();
+    /** One writer of the race: its generation and the canonical generation it read right after its put. */
+    private record Racer(int writer, Long generation, String canonicalSeen, Failure failure) {
+    }
+
+    /**
+     * One round of {@link #RACE_WRITERS} writers released together on {@code key}. Each puts and then
+     * reads the canonical version, as the store's sequence reservation does. Returns the number of
+     * acknowledged generations; a round with fewer than two did not exercise the race.
+     */
+    private int race(String key, Map<String, Object> ev) throws Exception {
+        ZonedDateTime until = until(GOVERNANCE_RETENTION);
+        Map<Integer, byte[]> bodies = new HashMap<>();
+        List<Future<Racer>> futures = new ArrayList<>();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(RACE_WRITERS);
+        List<Racer> racers = new ArrayList<>();
+        try {
+            for (int w = 0; w < RACE_WRITERS; w++) {
+                int writerIndex = w;
+                byte[] body = body("C1", Map.of("writer", w));
+                bodies.put(w, body);
+                GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    ledger.clearLastFailure();
+                    long generation;
+                    try {
+                        generation = Long.parseLong(writer.put(key, body, EvidenceRetentionMode.GOVERNANCE, until));
+                    } catch (AuthException ex) {
+                        Failure cause = ledger.lastFailure();
+                        return new Racer(writerIndex, null, null,
+                                cause == null ? new Failure("objects.insert", 0, "", "unknown") : cause);
+                    }
+                    try {
+                        return new Racer(writerIndex, generation,
+                                writer.oldest(key).map(StoredVersion::versionId).orElse(null), null);
+                    } catch (AuthException ex) {
+                        return new Racer(writerIndex, generation, null, ledger.lastFailure());
+                    }
+                }));
+            }
+            start.countDown();
+            for (Future<Racer> future : futures) {
+                racers.add(future.get(3, TimeUnit.MINUTES));
+            }
+        } finally {
+            pool.shutdownNow();
+            if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
+                ledger.abort("C1 writers did not stop after the race");
+            }
+        }
+        Map<Long, Integer> acknowledged = new TreeMap<>();
+        racers.stream().filter(r -> r.generation() != null).forEach(r -> acknowledged.put(r.generation(), r.writer()));
+        List<Racer> failed = racers.stream().filter(r -> r.generation() == null).toList();
+        long ambiguous = failed.stream().filter(r -> r.failure().code() == 0 || r.failure().code() == 408
+                || r.failure().code() >= 500).count();
+        List<Long> listed = pagedGenerations(key);
+        Set<String> seen = racers.stream().filter(r -> r.canonicalSeen() != null).map(Racer::canonicalSeen)
+                .collect(Collectors.toCollection(java.util.TreeSet::new));
+        long selfWinners = racers.stream()
+                .filter(r -> r.generation() != null && Long.toString(r.generation()).equals(r.canonicalSeen()))
+                .count();
+        ev.put("key", key);
         ev.put("acknowledged", acknowledged.size());
-        ev.put("throttled", throttled);
-        ev.put("otherFailures", failed.values().stream().filter(f -> f.code() != 429).map(this::failure).toList());
-        ev.put("listedGenerations", generations.size());
-        ev.put("unacknowledgedGenerations", unacknowledged);
+        ev.put("refusedAfterResends", failed.stream().filter(r -> r.failure().code() == 429).count());
+        ev.put("ambiguousFailures", ambiguous);
+        ev.put("otherFailures", failed.stream().filter(r -> r.failure().code() != 429).map(r -> failure(r.failure()))
+                .toList());
+        ev.put("listedGenerations", listed.size());
+        ev.put("canonicalSeenByWriters", seen);
+        ev.put("selfWinners", selfWinners);
         if (acknowledged.isEmpty()) {
             throw new CaseFailure("no concurrent writer succeeded");
         }
-        if (!generations.containsAll(acknowledged.keySet())) {
+        if (racers.stream().anyMatch(r -> r.generation() != null && r.canonicalSeen() == null)) {
+            throw new IllegalStateException("a writer could not read the canonical version after its write");
+        }
+        if (new HashSet<>(listed).size() != listed.size()) {
+            throw new CaseFailure("a generation was listed twice");
+        }
+        if (!listed.containsAll(acknowledged.keySet())) {
             throw new CaseFailure("an acknowledged generation is not listed");
         }
-        if (unacknowledged > ambiguous) {
+        if (listed.stream().filter(g -> !acknowledged.containsKey(g)).count() > ambiguous) {
             throw new CaseFailure("listed generations that no writer can account for");
         }
-        long lowest = Collections.min(generations);
-        StoredVersion canonical = reader.oldest(key).orElseThrow(() -> new CaseFailure("no canonical version"));
-        Integer owner = acknowledged.get(lowest);
-        ev.put("canonicalGeneration", canonical.versionId());
-        ev.put("canonicalWriter", owner);
-        if (!canonical.versionId().equals(Long.toString(lowest))) {
-            throw new CaseFailure("the canonical version is not the lowest listed generation");
+        long lowest = Collections.min(listed);
+        if (!acknowledged.containsKey(lowest) && ambiguous == 0) {
+            throw new CaseFailure("the lowest listed generation was acknowledged to no writer");
         }
-        if (owner != null && !Arrays.equals(canonical.bytes(), bodies.get(owner))) {
-            throw new CaseFailure("the canonical bytes are not those of the writer that got that generation");
+        if (seen.size() != 1) {
+            throw new CaseFailure("the writers disagree on the canonical generation: " + seen);
         }
-        for (StoredVersion version : listed) {
+        if (!seen.contains(Long.toString(lowest))) {
+            throw new CaseFailure("the canonical generation the writers read is not the lowest listed generation");
+        }
+        if (selfWinners != (acknowledged.containsKey(lowest) ? 1 : 0)) {
+            throw new CaseFailure(selfWinners + " writers read their own write as canonical");
+        }
+        GcsObjectRetentionBucket reader = adapter(Identity.READER);
+        for (StoredVersion version : reader.allVersions(key)) {
             if (bodies.values().stream().noneMatch(body -> Arrays.equals(body, version.bytes()))) {
                 throw new CaseFailure("generation " + version.versionId() + " holds bytes no writer sent");
             }
         }
+        Integer owner = acknowledged.get(lowest);
+        if (owner != null) {
+            expectCanonical(reader, key, lowest, bodies.get(owner));
+        }
+        return acknowledged.size();
+    }
+
+    /** The provider's own listing of {@code key}, paged through the transport, independent of the adapter. */
+    private List<Long> pagedGenerations(String key) {
+        InstrumentedGcsTransport transport = transport(Identity.READER, settings.bucket());
+        List<Long> seen = new ArrayList<>();
+        Optional<String> token = Optional.empty();
+        int pages = 0;
+        do {
+            ListPage page = transport.listGenerations(key, token, TRANSPORT_PAGE_SIZE);
+            if (++pages > 1_000) {
+                throw new CaseFailure("pagination did not terminate");
+            }
+            page.items().stream().filter(item -> item.objectName().equals(key))
+                    .forEach(item -> seen.add(item.generation()));
+            token = page.nextPageToken();
+        } while (token.isPresent());
+        return seen;
+    }
+
+    // ---- T: the provider's per-object write limit against the adapter ----------------------------
+
+    private void burst() {
+        run("T1", BURST_WRITES + " back-to-back writes to one object through the adapter all complete under the"
+                        + " per-object write limit", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    String key = key("adapter/burst.json");
+                    GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
+                    ZonedDateTime until = until(GOVERNANCE_RETENTION);
+                    long throttledBefore = ledger.outcomes("objects.insert", "429");
+                    Instant started = provider.clock().instant();
+                    List<Long> generations = new ArrayList<>();
+                    try {
+                        for (int i = 0; i < BURST_WRITES; i++) {
+                            ledger.clearLastFailure();
+                            try {
+                                generations.add(generation(writer.put(key, body("T1", Map.of("i", i)),
+                                        EvidenceRetentionMode.GOVERNANCE, until)));
+                            } catch (AuthException ex) {
+                                ev.put("cause", failure(ledger.lastFailure()));
+                                throw new CaseFailure("write " + i + " did not complete: " + ex.getMessage());
+                            }
+                        }
+                    } finally {
+                        ev.put("completedWrites", generations.size());
+                        ev.put("throttledResponses", ledger.outcomes("objects.insert", "429") - throttledBefore);
+                        ev.put("elapsedMs", Duration.between(started, provider.clock().instant()).toMillis());
+                    }
+                    if (!generations.equals(generations.stream().sorted().distinct().toList())) {
+                        throw new CaseFailure("the generations are not strictly increasing");
+                    }
+                    if (adapter(Identity.READER).versionCount(key) != BURST_WRITES) {
+                        throw new CaseFailure("the listing does not hold exactly one generation per write");
+                    }
+                });
     }
 
     // ---- S: the store protocol on the live provider ----------------------------------------------
@@ -529,7 +682,7 @@ final class GcsAcceptanceCases {
     private void store() {
         storeTransport = transport(Identity.WRITER, settings.bucket());
         store = new ObjectLockDurableErasureRecordStore(
-                new PrefixedEvidenceBucket(new GcsObjectRetentionBucket(storeTransport), storePrefix()), trust,
+                new PrefixedEvidenceBucket(bucketOver(storeTransport), storePrefix()), trust,
                 signingKeyId, EvidenceRetentionMode.COMPLIANCE, COMPLIANCE_RETENTION, provider.clock());
         run("S1", "Store putIfAbsent: COMPLIANCE receipt on the canonical record generation", Kind.ASSERTION,
                 Identity.WRITER, ev -> {
@@ -566,8 +719,10 @@ final class GcsAcceptanceCases {
                 Identity.WRITER, ev -> {
                     DurableErasureRecord record = require(recordOne, "S1");
                     int before = ledger.created().size();
-                    DurableErasurePutResult result = putRecord(record).value();
+                    Attempted<DurableErasurePutResult> retried = putRecord(record);
+                    DurableErasurePutResult result = retried.value();
                     int written = ledger.created().size() - before;
+                    ev.put("attempts", retried.attempts());
                     ev.put("generationsWritten", written);
                     if (result.created() || result.conflict() || !result.receipt().versionId().equals(recordOneVersion)) {
                         throw new CaseFailure("the retry did not settle on the existing record");
@@ -582,8 +737,10 @@ final class GcsAcceptanceCases {
                     DurableErasureRecord conflicting = DurableErasureRecord.of(record.erasureRequestId(),
                             UUID.randomUUID(), record.erasedAt().plusSeconds(1));
                     int before = ledger.created().size();
-                    DurableErasurePutResult result = putRecord(conflicting).value();
+                    Attempted<DurableErasurePutResult> attempted = putRecord(conflicting);
+                    DurableErasurePutResult result = attempted.value();
                     int written = ledger.created().size() - before;
+                    ev.put("attempts", attempted.attempts());
                     ev.put("generationsWritten", written);
                     if (!result.conflict() || !result.receipt().versionId().equals(recordOneVersion)) {
                         throw new CaseFailure("the conflicting body was not reported as a conflict");
@@ -594,48 +751,53 @@ final class GcsAcceptanceCases {
                 });
         run("S4", "A response lost after the provider committed the record: the retry converges on that generation",
                 Kind.ASSERTION, Identity.WRITER, ev -> lostResponse(ev));
-        run("S5", "Checkpoint publication as merged (unpaced): its two frontier writes against the per-object limit",
-                Kind.MEASUREMENT, Identity.WRITER, ev -> {
+        run("S5", "One checkpoint call through the production path, unpaced, completes under the per-object write"
+                        + " limit and leaves the frontier covering it", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    // Production publishes a checkpoint on its own, well after the last store write.
+                    provider.sleep(SAME_OBJECT_SPACING);
+                    ev.put("gapBeforeCallMs", SAME_OBJECT_SPACING.toMillis());
+                    long throttledBefore = ledger.outcomes("objects.insert", "429");
                     int before = ledger.created().size();
+                    DurableErasureCheckpoint published;
+                    ledger.clearLastFailure();
                     try {
-                        Attempted<DurableErasureCheckpoint> published = attempt(
-                                () -> store.publishCheckpoint(() -> capture()), UNPACED_CHECKPOINT_ATTEMPTS);
-                        checkpointSequence = checked(published.value()).sequence();
-                        ev.put("converged", true);
-                        ev.put("attempts", published.attempts());
-                        ev.put("sequence", checkpointSequence);
-                        ev.put("filledReservation", published.value().filledReservation());
+                        published = checked(store.publishCheckpoint(() -> capture()));
                     } catch (AuthException ex) {
-                        if (ex.errorCode() != AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE) {
-                            throw ex;
-                        }
-                        ev.put("converged", false);
-                        ev.put("attempts", UNPACED_CHECKPOINT_ATTEMPTS);
-                        ev.put("lastCause", failure(ledger.lastFailure()));
+                        ev.put("cause", failure(ledger.lastFailure()));
+                        throw new CaseFailure("the checkpoint call did not complete: " + ex.getMessage());
+                    } finally {
+                        ev.put("throttledResponses", ledger.outcomes("objects.insert", "429") - throttledBefore);
+                        ev.put("generationsWritten", ledger.created().size() - before);
                     }
-                    ev.put("generationsWritten", ledger.created().size() - before);
+                    ev.put("sequence", published.sequence());
+                    ev.put("filledReservation", published.filledReservation());
+                    checkpointSequence = published.sequence();
+                    requireConverged(published.sequence(), ev);
                 });
-        run("S5b", "Checkpoint publication completes when writes to one object are spaced by the documented limit",
-                Kind.ASSERTION, Identity.WRITER, ev -> {
-                    if (checkpointSequence != null) {
-                        ev.put("needed", false);
-                        return;
+        run("S5r", "A checkpoint call that fails is retried unpaced: the retry converges and loses no progress",
+                Kind.ASSERTION, Identity.WRITER, ev -> retryConverges(ev));
+        run("S5b", "Diagnostic after a failed S5 only: one checkpoint call with writes to one object spaced by the"
+                        + " documented limit (never counts as a pass)", Kind.DIAGNOSTIC, Identity.WRITER, ev -> {
+                    if (status("S5") == Status.PASS) {
+                        throw new Skip("S5 passed; external pacing was not needed");
                     }
-                    ev.put("needed", true);
                     storeTransport.paceSameObjectWrites(SAME_OBJECT_SPACING);
+                    ledger.clearLastFailure();
                     try {
-                        Attempted<DurableErasureCheckpoint> published = attempt(
-                                () -> store.publishCheckpoint(() -> capture()), MAX_ATTEMPTS);
-                        checkpointSequence = checked(published.value()).sequence();
-                        ev.put("attempts", published.attempts());
-                        ev.put("sequence", checkpointSequence);
-                        ev.put("filledReservation", published.value().filledReservation());
+                        DurableErasureCheckpoint published = checked(store.publishCheckpoint(() -> capture()));
+                        ev.put("completedWithPacing", true);
+                        ev.put("sequence", published.sequence());
+                        checkpointSequence = published.sequence();
+                    } catch (AuthException ex) {
+                        ev.put("completedWithPacing", false);
+                        ev.put("cause", failure(ledger.lastFailure()));
                     } finally {
                         storeTransport.stopPacing();
                     }
                 });
         run("S6", "Further records under the provider's per-object write rate; frontier history grows",
                 Kind.ASSERTION, Identity.WRITER, ev -> {
+                    int retriesBefore = storeRetries;
                     for (int i = 0; i < 2; i++) {
                         Attempted<DurableErasurePutResult> put = putRecord(record());
                         if (put.value().conflict() || (!put.value().created() && put.attempts() == 1)) {
@@ -648,8 +810,82 @@ final class GcsAcceptanceCases {
                             .toList();
                     ev.put("frontierGenerations", frontier.size());
                     ev.put("minimumFrontierWriteIntervalMs", minimumIntervalMs(frontier));
-                    ev.put("storeRetriesAfterThrottlingOrUnavailable", storeRetries);
+                    ev.put("storeRetries", storeRetries - retriesBefore);
                 });
+    }
+
+    /**
+     * After a failed S5 the production path itself is retried (the store's contract: an unavailable
+     * store is retried with the same input). After a passing S5 a failure is injected: the response
+     * to the next reservation marker is lost after the provider committed it, so the retry must fill
+     * that reservation instead of leaving a gap.
+     */
+    private void retryConverges(Map<String, Object> ev) throws InterruptedException {
+        DurableErasureCheckpoint retried;
+        if (status("S5") != Status.PASS) {
+            ev.put("scenario", "retry after the failed S5 call");
+            Attempted<DurableErasureCheckpoint> attempted;
+            try {
+                attempted = attempt(() -> checked(store.publishCheckpoint(() -> capture())), MAX_ATTEMPTS);
+            } catch (AuthException ex) {
+                ev.put("cause", failure(ledger.lastFailure()));
+                throw new CaseFailure("no retry of the checkpoint completed: " + ex.getMessage());
+            }
+            ev.put("attempts", attempted.attempts());
+            retried = attempted.value();
+        } else {
+            ev.put("scenario", "lost response of the next reservation marker");
+            long reserved = highestSequence(storeBucket(Identity.READER)) + 1;
+            String marker = storePrefix() + DurableErasureEvidence.sequenceKey(reserved);
+            provider.sleep(SAME_OBJECT_SPACING);
+            storeTransport.loseResponseAfterCommitOnce(marker);
+            try {
+                store.publishCheckpoint(() -> capture());
+                throw new CaseFailure("the call succeeded although the marker response was lost");
+            } catch (AuthException ex) {
+                if (!String.valueOf(ex.getMessage())
+                        .endsWith(InstrumentedGcsTransport.SimulatedLostResponse.class.getSimpleName())) {
+                    ev.put("cause", failure(ledger.lastFailure()));
+                    throw new CaseFailure("the first call failed before the marker was written: " + ex.getMessage());
+                }
+            }
+            ev.put("reservedSequence", reserved);
+            ledger.clearLastFailure();
+            try {
+                retried = checked(store.publishCheckpoint(() -> capture()));
+            } catch (AuthException ex) {
+                ev.put("cause", failure(ledger.lastFailure()));
+                throw new CaseFailure("the retry did not complete: " + ex.getMessage());
+            }
+            if (retried.sequence() != reserved || !retried.filledReservation()) {
+                throw new CaseFailure("the retry took sequence " + retried.sequence()
+                        + " instead of filling the abandoned reservation " + reserved);
+            }
+        }
+        ev.put("sequence", retried.sequence());
+        ev.put("filledReservation", retried.filledReservation());
+        checkpointSequence = retried.sequence();
+        requireConverged(retried.sequence(), ev);
+    }
+
+    /**
+     * The verifier over the live store (read-only identity): no gap, no abandoned reservation, the
+     * signed boundary covers every published sequence and {@code sequence} is the latest checkpoint.
+     */
+    private void requireConverged(long sequence, Map<String, Object> ev) {
+        DurableEvidenceBucket reader = storeBucket(Identity.READER);
+        RecoveryVerdict verdict = verifier().recover(ObjectLockEvidenceObjects.of(reader), null);
+        Map<String, Object> state = verdict(verdict);
+        ev.put("storeState", state);
+        if (!verdict.gaps().isEmpty() || !verdict.abandonedReservations().isEmpty()) {
+            throw new CaseFailure("the store has gaps or abandoned reservations: " + state);
+        }
+        if (verdict.expectedThrough() == null || verdict.expectedThrough() < highestSequence(reader)) {
+            throw new CaseFailure("the frontier does not cover every published sequence: " + state);
+        }
+        if (!Long.valueOf(sequence).equals(verdict.latestTrustedCheckpoint())) {
+            throw new CaseFailure("checkpoint " + sequence + " is not the latest trusted checkpoint: " + state);
+        }
     }
 
     private void lostResponse(Map<String, Object> ev) throws InterruptedException {
@@ -720,7 +956,7 @@ final class GcsAcceptanceCases {
     private void verify() {
         run("V1", "Local verifier over the live store, read by the read-only identity: complete coverage",
                 Kind.ASSERTION, Identity.READER, ev -> {
-                    Long checkpoint = require(checkpointSequence, "S5/S5b");
+                    Long checkpoint = require(checkpointSequence, "S5/S5r");
                     PrefixedEvidenceBucket reader = storeBucket(Identity.READER);
                     long required = highestSequence(reader);
                     RecoveryVerdict verdict = verifier().recover(ObjectLockEvidenceObjects.of(reader), required);
@@ -798,6 +1034,10 @@ final class GcsAcceptanceCases {
                             throw ex;
                         }
                         overwrite = ledger.lastFailure();
+                        if (overwrite == null || overwrite.code() != 403) {
+                            throw new IllegalStateException("inconclusive overwrite failure: "
+                                    + (overwrite == null ? "no provider answer" : "HTTP " + overwrite.code()));
+                        }
                     }
                     int versions = adapter(Identity.READER).versionCount(key);
                     boolean refused = overwrite != null;
@@ -817,6 +1057,27 @@ final class GcsAcceptanceCases {
                 Identity.WRITER, ev -> refusedUnchanged(Identity.WRITER, require(governanceBasic, "P1"), ev, PATCH,
                         (probe, gen) -> probe.setRetention(settings.bucket(), gen.name(), gen.generation(),
                                 EvidenceRetentionMode.GOVERNANCE, gen.retainUntil().minus(SHORTEN_BY), true)));
+        run("L5", "Identities without storage.objects.create cannot insert, even without retention", Kind.ASSERTION,
+                Identity.READER, ev -> {
+                    for (Identity identity : List.of(Identity.READER, Identity.PROBE_ADMIN)) {
+                        String key = key("adapter/no-create-" + identity.name().toLowerCase(java.util.Locale.ROOT)
+                                + ".json");
+                        byte[] body = body("L5", Map.of("identity", identity.name()));
+                        ProbeOutcome outcome = probeCall(identity, INSERT,
+                                probe -> probe.insertWithoutRetention(settings.bucket(), key, body));
+                        ev.put(identity.name(), outcome(outcome));
+                        if (outcome.accepted()) {
+                            throw new CaseFailure(identity + " inserted an object without storage.objects.create");
+                        }
+                        if (outcome.code() != 403) {
+                            throw new IllegalStateException("inconclusive refusal: HTTP " + outcome.code() + " "
+                                    + outcome.reason());
+                        }
+                        if (adapter(Identity.READER).versionCount(key) != 0) {
+                            throw new CaseFailure("an object exists after the refused insert");
+                        }
+                    }
+                });
     }
 
     // ---- K: Locked (COMPLIANCE) refusals by the object admin -------------------------------------
@@ -843,6 +1104,7 @@ final class GcsAcceptanceCases {
                 Identity.PROBE_ADMIN, ev -> {
                     Gen live = require(complianceLive, "P3");
                     Instant extended = live.retainUntil().plus(EXTEND_BY);
+                    ledger.retentionRequested(live.name(), live.generation(), extended);
                     ProbeOutcome outcome = mutate(Identity.PROBE_ADMIN, PATCH, probe -> probe.setRetention(
                             settings.bucket(), live.name(), live.generation(), EvidenceRetentionMode.COMPLIANCE,
                             extended, false));
@@ -863,6 +1125,21 @@ final class GcsAcceptanceCases {
                     Gen record = new Gen(storePrefix() + recordKey(recordOne), Long.parseLong(version), null, null);
                     refusedUnchanged(Identity.PROBE_ADMIN, record, ev, DELETE,
                             (probe, gen) -> probe.delete(settings.bucket(), gen.name(), gen.generation()));
+                });
+        run("K8", "Locked retention of a noncurrent generation cannot be shortened by a PATCH addressed to it,"
+                        + " even with override", Kind.ASSERTION, Identity.PROBE_ADMIN, ev -> {
+                    require(complianceLive, "P3");
+                    refusedUnchanged(Identity.PROBE_ADMIN, require(complianceFirst, "P2"), ev, PATCH,
+                            (probe, gen) -> probe.setRetentionOfGeneration(settings.bucket(), gen.name(),
+                                    gen.generation(), EvidenceRetentionMode.COMPLIANCE,
+                                    gen.retainUntil().minus(SHORTEN_BY), true));
+                });
+        run("K9", "Locked retention of a noncurrent generation cannot be removed by a PATCH addressed to it",
+                Kind.ASSERTION, Identity.PROBE_ADMIN, ev -> {
+                    require(complianceLive, "P3");
+                    refusedUnchanged(Identity.PROBE_ADMIN, require(complianceFirst, "P2"), ev, PATCH,
+                            (probe, gen) -> probe.clearRetentionOfGeneration(settings.bucket(), gen.name(),
+                                    gen.generation(), true));
                 });
     }
 
@@ -916,6 +1193,28 @@ final class GcsAcceptanceCases {
                     }
                     ledger.deletedGeneration(gen.name(), gen.generation());
                 });
+        run("G5", "Positive control for L3: once the object admin removed GOVERNANCE retention, the writer can delete"
+                        + " the generation", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    String key = key("adapter/governance-writer-delete.json");
+                    byte[] body = body("G5", Map.of());
+                    ZonedDateTime until = until(GOVERNANCE_RETENTION);
+                    long generation = generation(putWithBackoff(adapter(Identity.WRITER), key, body,
+                            EvidenceRetentionMode.GOVERNANCE, until, ev));
+                    Gen gen = new Gen(key, generation, body, until.toInstant());
+                    ProbeOutcome cleared = mutate(Identity.PROBE_ADMIN, PATCH,
+                            probe -> probe.clearRetention(settings.bucket(), key, generation, true));
+                    ev.put("clear", outcome(cleared));
+                    if (!cleared.accepted() || state(gen).mode() != null) {
+                        throw new CaseFailure("the retention was not removed");
+                    }
+                    ProbeOutcome deleted = probeCall(Identity.WRITER, DELETE,
+                            probe -> probe.delete(settings.bucket(), key, generation));
+                    ev.put("delete", outcome(deleted));
+                    if (!deleted.accepted() || state(gen).exists()) {
+                        throw new CaseFailure("the writer could not delete the unretained generation");
+                    }
+                    ledger.deletedGeneration(key, generation);
+                });
     }
 
     // ---- case plumbing ------------------------------------------------------------------------------
@@ -937,7 +1236,7 @@ final class GcsAcceptanceCases {
         String detail = "";
         try {
             body.run(evidence);
-            status = kind == Kind.MEASUREMENT ? Status.MEASURED : Status.PASS;
+            status = kind == Kind.MEASUREMENT || kind == Kind.DIAGNOSTIC ? Status.MEASURED : Status.PASS;
         } catch (CaseFailure ex) {
             status = Status.FAIL;
             detail = ex.getMessage();
@@ -956,7 +1255,7 @@ final class GcsAcceptanceCases {
             status = Status.ERROR;
             detail = ex.getClass().getSimpleName() + ": " + ex.getMessage();
         }
-        if (status == Status.FAIL && ledger.aborted()) {
+        if (status == Status.FAIL && ledger.aborted() && ledger.violations().isEmpty()) {
             status = Status.ERROR;
             detail = "stopped: " + ledger.abortReason();
         }
@@ -989,7 +1288,12 @@ final class GcsAcceptanceCases {
     }
 
     private GcsObjectRetentionBucket adapter(Identity identity, String bucket) {
-        return new GcsObjectRetentionBucket(transport(identity, bucket));
+        return bucketOver(transport(identity, bucket));
+    }
+
+    /** The merged adapter; its pauses before resending a throttled write use the provider's clock. */
+    private GcsObjectRetentionBucket bucketOver(GcsObjectRetentionTransport transport) {
+        return new GcsObjectRetentionBucket(transport, provider::sleep);
     }
 
     private InstrumentedGcsTransport transport(Identity identity, String bucket) {
@@ -1130,8 +1434,10 @@ final class GcsAcceptanceCases {
         observed.put("reportedRetainUntil", lock.retainUntil().toString());
         ev.put(label, observed);
         if (lock.mode() != mode || !requested.equals(lock.retainUntil())) {
-            throw new CaseFailure(label + " is " + lock.mode() + " until " + lock.retainUntil() + ", expected " + mode
-                    + " until " + requested);
+            String detail = label + " is " + lock.mode() + " until " + lock.retainUntil() + ", expected " + mode
+                    + " until " + requested;
+            ledger.violation("lockMismatch", detail);
+            throw new CaseFailure(detail);
         }
     }
 
@@ -1158,11 +1464,17 @@ final class GcsAcceptanceCases {
         ev.put("outcome", outcome(outcome));
         ev.put("after", state(after));
         if (outcome.accepted()) {
+            if (before.mode() == EvidenceRetentionMode.COMPLIANCE) {
+                ledger.violation("lockedMutationAccepted", operation + " accepted on the Locked generation "
+                        + target.name() + "#" + target.generation());
+            }
             throw new CaseFailure("the provider accepted the operation");
         }
-        int code = outcome.code();
-        if (code < 400 || code == 401 || code == 404 || code == 412 || code == 429 || code >= 500) {
-            throw new IllegalStateException("inconclusive refusal: HTTP " + code + " " + outcome.reason());
+        // Only an explicit refusal counts; a retention PATCH may be refused as 400 or 403 (the positive
+        // controls K6, G3 and G4 send the same request shape and must be accepted).
+        Set<Integer> refusals = DELETE.equals(operation) ? Set.of(403) : Set.of(400, 403);
+        if (!refusals.contains(outcome.code())) {
+            throw new IllegalStateException("inconclusive refusal: HTTP " + outcome.code() + " " + outcome.reason());
         }
         if (!before.exists() || !after.exists() || before.mode() != after.mode()
                 || !Objects.equals(before.retainUntil(), after.retainUntil())) {

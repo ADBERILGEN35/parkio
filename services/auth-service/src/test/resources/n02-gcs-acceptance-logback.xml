@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Logging of the N-02 acceptance harness (gcsProviderAcceptance task only): no DEBUG output, and
+     Google client libraries at WARN, so no token response can reach the console. -->
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <logger name="com.google" level="WARN"/>
+    <logger name="io.grpc" level="WARN"/>
+    <root level="INFO">
+        <appender-ref ref="STDERR"/>
+    </root>
+</configuration>

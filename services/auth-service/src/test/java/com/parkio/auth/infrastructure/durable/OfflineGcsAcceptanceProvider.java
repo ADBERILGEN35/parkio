@@ -38,7 +38,23 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         CONTROL_BUCKET_HAS_RETENTION_LOCK,
         VERSIONING_DISABLED,
         GENERATIONS_DECREASE,
-        PROBE_ADMIN_WITHOUT_BUCKET_GET
+        PROBE_ADMIN_WITHOUT_BUCKET_GET,
+        /** A generation-addressed PATCH may shorten or remove Locked retention of a noncurrent generation. */
+        NONCURRENT_LOCKED_SHORTENABLE,
+        /** A refused Locked change is answered 408 (request timeout) instead of a refusal. */
+        LOCKED_REFUSAL_AS_408,
+        /** The object admin also holds storage.objects.create. */
+        PROBE_ADMIN_MAY_CREATE,
+        /** Throttled writes stay refused for 30 s, longer than the adapter's resends. */
+        WRITE_LIMIT_PENALTY,
+        /** The buckets belong to another project than the approved one. */
+        BUCKET_IN_ANOTHER_PROJECT,
+        /** Concurrent writes of the race object get decreasing generations (not the commit order). */
+        RACE_GENERATIONS_DECREASE,
+        /** The bucket metadata omits the soft-delete policy. */
+        SOFT_DELETE_NOT_REPORTED,
+        /** Only the first writer of a race object is ever admitted; the others stay throttled. */
+        RACE_ADMITS_ONE_WRITER
     }
 
     static final String PROJECT_NUMBER = "100000000001";
@@ -51,15 +67,16 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
             "storage.objects.get", "storage.objects.list", "storage.objects.setRetention");
     private static final Set<String> READER = Set.of("storage.buckets.get", "storage.objects.get",
             "storage.objects.list");
-    private static final Set<String> PROBE_ADMIN = Set.of("storage.buckets.get", "storage.objects.get",
-            "storage.objects.update", "storage.objects.delete", "storage.objects.setRetention",
-            "storage.objects.overrideUnlockedRetention");
+    private static final Set<String> PROBE_ADMIN = Set.of("storage.buckets.get", "storage.objects.update",
+            "storage.objects.delete", "storage.objects.setRetention", "storage.objects.overrideUnlockedRetention");
+    private static final Set<String> BUCKET_METADATA_READER = Set.of("storage.buckets.get");
 
     private final VirtualClock clock;
     private final Set<Defect> defects;
     private final Map<String, BucketModel> buckets = new HashMap<>();
     private final Map<String, Map<Identity, Set<String>>> grants = new HashMap<>();
     private long lastGeneration;
+    private long raceGeneration;
 
     OfflineGcsAcceptanceProvider(Instant start, String bucket, String controlBucket, String location,
                                  Set<Defect> defects) {
@@ -77,7 +94,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                 ? PROBE_ADMIN.stream().filter(p -> !p.equals("storage.buckets.get")).collect(Collectors.toSet())
                 : PROBE_ADMIN);
         grants.put(bucket, main);
-        grants.put(controlBucket, new EnumMap<>(Map.of(Identity.READER, READER)));
+        grants.put(controlBucket, new EnumMap<>(Map.of(Identity.READER, BUCKET_METADATA_READER)));
     }
 
     @Override
@@ -175,6 +192,14 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         return gen.retainUntil != null && gen.retainUntil.isAfter(clock.instant());
     }
 
+    private long nextGeneration(String objectName) {
+        if (defects.contains(Defect.RACE_GENERATIONS_DECREASE) && objectName.contains("/adapter/race-")) {
+            raceGeneration = raceGeneration == 0 ? lastGeneration + 1_000_000_000L : raceGeneration - 1;
+            return raceGeneration;
+        }
+        return nextGeneration();
+    }
+
     private long nextGeneration() {
         long now = ChronoUnit.MICROS.between(Instant.EPOCH, clock.instant());
         if (defects.contains(Defect.GENERATIONS_DECREASE)) {
@@ -187,7 +212,11 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
 
     private void throttle(Map<String, Instant> last, String objectName) {
         Instant previous = last.get(objectName);
-        if (previous != null && Duration.between(previous, clock.instant()).compareTo(Duration.ofSeconds(1)) < 0) {
+        Duration window = Duration.ofSeconds(1);
+        if (previous != null && Duration.between(previous, clock.instant()).compareTo(window) < 0) {
+            if (defects.contains(Defect.WRITE_LIMIT_PENALTY)) {
+                last.put(objectName, clock.instant().plusSeconds(29));
+            }
             throw new StorageException(429, "The object exceeded the rate limit for object mutation operations");
         }
         last.put(objectName, clock.instant());
@@ -241,8 +270,12 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                 if (!retainUntil.isAfter(clock.instant())) {
                     throw new StorageException(400, "retainUntilTime must be in the future");
                 }
+                if (defects.contains(Defect.RACE_ADMITS_ONE_WRITER) && objectName.contains("/adapter/race-")
+                        && model.objects.containsKey(objectName)) {
+                    throw new StorageException(429, "The object exceeded the rate limit for object mutation operations");
+                }
                 throttle(model.lastWrite, objectName);
-                Gen gen = new Gen(nextGeneration(), bytes.clone(), mode, retainUntil);
+                Gen gen = new Gen(nextGeneration(objectName), bytes.clone(), mode, retainUntil);
                 if (live.isPresent() && !model.versioning) {
                     live.get().deleted = true;
                 }
@@ -313,8 +346,10 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
             synchronized (OfflineGcsAcceptanceProvider.this) {
                 BucketModel model = model(bucket);
                 require(identity, bucket, "storage.buckets.get");
-                return new BucketSnapshot(model.name, PROJECT_NUMBER, model.location.toUpperCase(java.util.Locale.ROOT),
-                        "region", "STANDARD", model.versioning, model.objectRetention ? "Enabled" : null, null, 0L,
+                String project = defects.contains(Defect.BUCKET_IN_ANOTHER_PROJECT) ? "100000000002" : PROJECT_NUMBER;
+                return new BucketSnapshot(model.name, project, model.location.toUpperCase(java.util.Locale.ROOT),
+                        "region", "STANDARD", model.versioning, model.objectRetention ? "Enabled" : null, null,
+                        defects.contains(Defect.SOFT_DELETE_NOT_REPORTED) ? null : 0L,
                         true, "enforced", false, LABELS, "2026-10-22T00:00:00Z", 1L);
             }
         }
@@ -333,40 +368,91 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         @Override
         public ProbeOutcome setRetention(String bucket, String name, long liveGeneration, EvidenceRetentionMode mode,
                                          Instant retainUntil, boolean override) {
-            return mutate(bucket, name, liveGeneration, override, gen -> {
-                if (!retainUntil.isAfter(clock.instant())) {
-                    return refused(400, "invalid", "retainUntilTime must be in the future");
-                }
-                boolean reduces = gen.retainUntil != null && retainUntil.isBefore(gen.retainUntil);
-                if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen)
-                        && (reduces || mode != EvidenceRetentionMode.COMPLIANCE)
-                        && !defects.contains(Defect.LOCKED_RETENTION_SHORTENABLE)) {
-                    return refused(403, "forbidden", "Locked retention cannot be reduced or unlocked");
-                }
-                boolean locks = gen.mode == EvidenceRetentionMode.GOVERNANCE && mode == EvidenceRetentionMode.COMPLIANCE;
-                if (gen.mode == EvidenceRetentionMode.GOVERNANCE && (reduces || locks) && !override) {
-                    return refused(403, "forbidden", "overrideUnlockedRetention is required");
-                }
-                gen.mode = mode;
-                gen.retainUntil = retainUntil;
-                return ProbeOutcome.ok();
-            });
+            return mutate(bucket, name, liveGeneration, override, gen -> set(gen, mode, retainUntil, override, false));
         }
 
         @Override
         public ProbeOutcome clearRetention(String bucket, String name, long liveGeneration, boolean override) {
-            return mutate(bucket, name, liveGeneration, override, gen -> {
-                if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen)
-                        && !defects.contains(Defect.LOCKED_RETENTION_SHORTENABLE)) {
-                    return refused(403, "forbidden", "Locked retention cannot be removed");
+            return mutate(bucket, name, liveGeneration, override, gen -> clear(gen, override, false));
+        }
+
+        @Override
+        public ProbeOutcome setRetentionOfGeneration(String bucket, String name, long generation,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+            return mutateGeneration(bucket, name, generation, override,
+                    gen -> set(gen, mode, retainUntil, override, true));
+        }
+
+        @Override
+        public ProbeOutcome clearRetentionOfGeneration(String bucket, String name, long generation,
+                                                       boolean override) {
+            return mutateGeneration(bucket, name, generation, override, gen -> clear(gen, override, true));
+        }
+
+        @Override
+        public ProbeOutcome insertWithoutRetention(String bucket, String name, byte[] bytes) {
+            synchronized (OfflineGcsAcceptanceProvider.this) {
+                BucketModel model = model(bucket);
+                boolean mayCreate = identity == Identity.PROBE_ADMIN && defects.contains(Defect.PROBE_ADMIN_MAY_CREATE)
+                        || identity == Identity.READER && defects.contains(Defect.READER_MAY_CREATE);
+                try {
+                    if (!mayCreate) {
+                        require(identity, bucket, "storage.objects.create");
+                    }
+                    if (model.live(name).isPresent() && !mayCreate) {
+                        require(identity, bucket, "storage.objects.delete");
+                    }
+                    throttle(model.lastWrite, name);
+                } catch (StorageException ex) {
+                    return refused(ex.getCode(), ex.getCode() == 429 ? "rateLimitExceeded" : "forbidden",
+                            ex.getMessage());
                 }
-                if (gen.mode == EvidenceRetentionMode.GOVERNANCE && !override) {
-                    return refused(403, "forbidden", "overrideUnlockedRetention is required");
-                }
-                gen.mode = null;
-                gen.retainUntil = null;
+                model.objects.computeIfAbsent(name, ignored -> new ArrayList<>())
+                        .add(new Gen(nextGeneration(), bytes.clone(), null, null));
                 return ProbeOutcome.ok();
-            });
+            }
+        }
+
+        private ProbeOutcome set(Gen gen, EvidenceRetentionMode mode, Instant retainUntil, boolean override,
+                                 boolean addressed) {
+            if (!retainUntil.isAfter(clock.instant())) {
+                return refused(400, "invalid", "retainUntilTime must be in the future");
+            }
+            boolean reduces = gen.retainUntil != null && retainUntil.isBefore(gen.retainUntil);
+            if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen)
+                    && (reduces || mode != EvidenceRetentionMode.COMPLIANCE) && !lockedShortenable(addressed)) {
+                return lockedRefusal("Locked retention cannot be reduced or unlocked");
+            }
+            boolean locks = gen.mode == EvidenceRetentionMode.GOVERNANCE && mode == EvidenceRetentionMode.COMPLIANCE;
+            if (gen.mode == EvidenceRetentionMode.GOVERNANCE && (reduces || locks) && !override) {
+                return refused(403, "forbidden", "overrideUnlockedRetention is required");
+            }
+            gen.mode = mode;
+            gen.retainUntil = retainUntil;
+            return ProbeOutcome.ok();
+        }
+
+        private ProbeOutcome clear(Gen gen, boolean override, boolean addressed) {
+            if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen) && !lockedShortenable(addressed)) {
+                return lockedRefusal("Locked retention cannot be removed");
+            }
+            if (gen.mode == EvidenceRetentionMode.GOVERNANCE && !override) {
+                return refused(403, "forbidden", "overrideUnlockedRetention is required");
+            }
+            gen.mode = null;
+            gen.retainUntil = null;
+            return ProbeOutcome.ok();
+        }
+
+        private boolean lockedShortenable(boolean addressed) {
+            return defects.contains(Defect.LOCKED_RETENTION_SHORTENABLE)
+                    || addressed && defects.contains(Defect.NONCURRENT_LOCKED_SHORTENABLE);
+        }
+
+        private ProbeOutcome lockedRefusal(String message) {
+            return defects.contains(Defect.LOCKED_REFUSAL_AS_408)
+                    ? refused(408, "requestTimeout", "Request Timeout")
+                    : refused(403, "forbidden", message);
         }
 
         @Override
@@ -416,6 +502,33 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     return refused(429, "rateLimitExceeded", ex.getMessage());
                 }
                 return change.apply(live.get());
+            }
+        }
+
+        /** A PATCH with the generation parameter: any existing generation, current or noncurrent. */
+        private ProbeOutcome mutateGeneration(String bucket, String name, long generation, boolean override,
+                                              java.util.function.Function<Gen, ProbeOutcome> change) {
+            synchronized (OfflineGcsAcceptanceProvider.this) {
+                BucketModel model = model(bucket);
+                try {
+                    require(identity, bucket, "storage.objects.update");
+                    require(identity, bucket, "storage.objects.setRetention");
+                    if (override) {
+                        require(identity, bucket, "storage.objects.overrideUnlockedRetention");
+                    }
+                } catch (StorageException ex) {
+                    return refused(403, "forbidden", ex.getMessage());
+                }
+                Optional<Gen> target = model.find(name, generation);
+                if (target.isEmpty()) {
+                    return refused(404, "notFound", "No such object");
+                }
+                try {
+                    throttle(model.lastUpdate, name);
+                } catch (StorageException ex) {
+                    return refused(429, "rateLimitExceeded", ex.getMessage());
+                }
+                return change.apply(target.get());
             }
         }
 

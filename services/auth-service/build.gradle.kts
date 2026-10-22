@@ -123,8 +123,9 @@ tasks.register<JavaExec>("recoveryDrillTool") {
 // service image. `plan <dir>` runs the case sequence against an offline model without network;
 // `run <dir>` drives the merged GCS adapter and store against the owner-approved test bucket, with
 // settings from N02_GCS_* variables and Application Default Credentials impersonating one service
-// account per identity. The checkout's SHA, tree and tracked-file state are read from git when the
-// task runs and recorded in the result; `run` refuses a modified checkout.
+// account per identity. The checkout's SHA, tree and the state of the build inputs (tracked changes
+// and untracked files) are read from git when the task runs and recorded in the result; `run`
+// refuses a modified checkout. Library logging goes to stderr at INFO, Google libraries at WARN.
 tasks.register<JavaExec>("gcsProviderAcceptance") {
     group = "verification"
     description = "N-02 GCS Object Retention Lock acceptance harness (#483): plan offline; run only when approved"
@@ -141,8 +142,12 @@ tasks.register<JavaExec>("gcsProviderAcceptance") {
             }
             return text
         }
+        val status = git("status", "--porcelain", "--untracked-files=all", "--", "services/auth-service", "buildSrc",
+            "platform", "gradle", "gradlew", "settings.gradle.kts", "build.gradle.kts", "gradle.properties")
         systemProperty("n02.source.sha", git("rev-parse", "HEAD"))
         systemProperty("n02.source.tree", git("rev-parse", "HEAD^{tree}"))
-        systemProperty("n02.source.dirty", git("status", "--porcelain", "--untracked-files=no").isNotEmpty().toString())
+        systemProperty("n02.source.dirty", status.isNotEmpty().toString())
+        systemProperty("n02.source.status", status.lines().take(20).joinToString("; "))
+        systemProperty("logback.configurationFile", "n02-gcs-acceptance-logback.xml")
     }
 }
