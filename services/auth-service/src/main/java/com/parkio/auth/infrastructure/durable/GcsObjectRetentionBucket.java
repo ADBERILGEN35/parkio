@@ -23,7 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * write with HTTP 429 without writing it. The store writes its frontier twice per record and per
  * checkpoint, so a refused write is sent again after {@link #RATE_LIMIT_PAUSES}; the client
  * library does not retry these writes itself, because an insert without a precondition is not
- * idempotent.
+ * idempotent. The resend keeps the bytes and the retain-until computed for the first send. While
+ * it waits (up to 16.5 s per write) the caller keeps the store's lock; the record path runs after
+ * the erasure commit on the request thread, so before enablement (#365, #492) the total pause must
+ * be bounded per operation or that path must fail fast to the retry worker.
  *
  * <p>This class does not claim real-provider immutability acceptance; that remains #483.
  */
