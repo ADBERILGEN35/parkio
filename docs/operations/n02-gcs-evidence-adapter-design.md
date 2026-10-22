@@ -17,7 +17,7 @@
 
 Same as MinIO `ObjectLockBucket`, via `DurableEvidenceBucket`:
 
-1. **Retention feature discovery** — refuse startup unless Object Retention Lock is enabled on the bucket (not merely Bucket Lock) and Object Versioning is on (ORL does not imply versioning; without it a write replaces the live generation).
+1. **Retention feature discovery** — refuse startup unless Object Retention Lock is enabled on the bucket (not merely Bucket Lock) and Object Versioning is on (ORL does not imply versioning; without it a rewrite of a retained name is refused, and after expiry it would replace the live generation).
 2. **Put + retention** — every write creates a new generation with GOVERNANCE (Unlocked) or COMPLIANCE (Locked) retain-until.
 3. **Retention inspect** — receipt requires a lock on the canonical generation.
 4. **List + pagination** — transport pages generations; adapter aggregates pages.
