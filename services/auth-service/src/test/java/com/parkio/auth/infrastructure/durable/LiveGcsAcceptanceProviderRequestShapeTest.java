@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.api.client.http.EmptyContent;
+import com.google.api.client.http.GenericUrl;
+import com.google.api.client.http.HttpRequest;
+import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Caps;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.Identity;
@@ -265,6 +269,26 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
                 .satisfies(ex -> assertThat(GcsAcceptanceLedger.describe("buckets.get", ex).reason()).isEqualTo("stopped"));
         assertThat(requests).hasSize(2);
         assertThat(late.abortReason()).contains("wall-clock cap");
+    }
+
+    @Test
+    void tokenRequestsPassTheSameGateAndCountTowardsTheRequestCap() throws Exception {
+        GenericUrl token = new GenericUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/token");
+        GcsAcceptanceLedger capped = new GcsAcceptanceLedger(Clock.systemUTC(),
+                new Caps(1_200, 2, 320, 40, Duration.ofMinutes(45)));
+        HttpTransportFactory tokens = LiveGcsAcceptanceProvider.gatedTransport(capped, true);
+
+        for (int i = 0; i < 2; i++) {
+            HttpRequest request = tokens.create().createRequestFactory().buildPostRequest(token, new EmptyContent());
+            request.setThrowExceptionOnExecuteError(false);
+            request.execute().disconnect();
+        }
+        assertThatThrownBy(() -> tokens.create().createRequestFactory().buildPostRequest(token, new EmptyContent()).execute())
+                .satisfies(ex -> assertThat(GcsAcceptanceLedger.describe("token", ex).reason()).isEqualTo("stopped"));
+
+        assertThat(requests).hasSize(2);
+        assertThat(capped.counters()).containsEntry("tokenHttp", 2L).containsEntry("http", 0L);
+        assertThat(capped.abortReason()).contains("HTTP request cap 2");
     }
 
     @Test

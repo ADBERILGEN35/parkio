@@ -159,7 +159,7 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
     }
 
     /** One shared transport whose connection factory passes every request, retries included, through the gate. */
-    private static HttpTransportFactory gatedTransport(GcsAcceptanceLedger ledger, boolean tokenRequests) {
+    static HttpTransportFactory gatedTransport(GcsAcceptanceLedger ledger, boolean tokenRequests) {
         DefaultConnectionFactory connections = new DefaultConnectionFactory();
         NetHttpTransport transport = new NetHttpTransport.Builder()
                 .setConnectionFactory(url -> {
