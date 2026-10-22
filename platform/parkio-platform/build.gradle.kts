@@ -27,7 +27,7 @@ dependencies {
         // kafka-clients 3.9.2 pins lz4-java 1.10.1 (runtime): CVE-2026-106451 (HIGH) and five lower lz4-java
         // CVEs are fixed in 1.11.4. Every service gets kafka-clients through this platform, so this one
         // constraint moves all of them. Drop it once kafka-clients itself requires >= 1.11.4.
-        api("at.yawk.lz4:lz4-java:1.11.4")
+        api("at.yawk.lz4:lz4-java:1.12.0")
     }
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
