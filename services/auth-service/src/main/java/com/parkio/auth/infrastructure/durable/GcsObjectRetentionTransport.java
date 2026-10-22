@@ -24,12 +24,16 @@ interface GcsObjectRetentionTransport {
 
     String bucket();
 
-    /** Fails unless the bucket has Object Retention Lock enabled (not merely Bucket Lock). */
+    /**
+     * Fails unless the bucket has Object Retention Lock enabled (not merely Bucket Lock) and Object
+     * Versioning, so that every write adds a generation.
+     */
     void requireObjectRetentionEnabled();
 
     /**
      * Creates a new generation with the given retention. Returns the generation number. Must not
-     * overwrite prior generations in place.
+     * overwrite prior generations in place. A write the provider refuses under its per-object rate
+     * fails with a {@link com.google.cloud.storage.StorageException} of code 429 and writes nothing.
      */
     long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil);
 

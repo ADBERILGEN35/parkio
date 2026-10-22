@@ -1,7 +1,9 @@
 package com.parkio.auth.infrastructure.durable;
 
+import com.google.cloud.storage.StorageException;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,17 +19,41 @@ import java.util.concurrent.ConcurrentHashMap;
  * key (oldest write), never the listing order — GCS list pages may return newest-first or be
  * paginated arbitrarily.
  *
+ * <p>Cloud Storage allows about one write per second to one object name and answers a faster
+ * write with HTTP 429 without writing it. The store writes its frontier twice per record and per
+ * checkpoint, so a refused write is sent again after {@link #RATE_LIMIT_PAUSES}; the client
+ * library does not retry these writes itself, because an insert without a precondition is not
+ * idempotent. The resend keeps the bytes and the retain-until computed for the first send. While
+ * it waits (up to 16.5 s per write) the caller keeps the store's lock; the record path runs after
+ * the erasure commit on the request thread, so before enablement (#365, #492) the total pause must
+ * be bounded per operation or that path must fail fast to the retry worker.
+ *
  * <p>This class does not claim real-provider immutability acceptance; that remains #483.
  */
 final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
 
     static final int LIST_PAGE_SIZE = 100;
+    /** Pauses before each resend of a write refused with 429; after the last one the put fails. */
+    static final List<Duration> RATE_LIMIT_PAUSES = List.of(
+            Duration.ofMillis(1_100), Duration.ofMillis(2_200), Duration.ofMillis(4_400), Duration.ofMillis(8_800));
+
+    /** Waits between resends; tests replace the real sleep. */
+    @FunctionalInterface
+    interface Pause {
+        void sleep(Duration duration) throws InterruptedException;
+    }
 
     private final GcsObjectRetentionTransport transport;
+    private final Pause pause;
     private final ConcurrentHashMap<String, StoredVersion> versionCache = new ConcurrentHashMap<>();
 
     GcsObjectRetentionBucket(GcsObjectRetentionTransport transport) {
+        this(transport, duration -> Thread.sleep(duration.toMillis()));
+    }
+
+    GcsObjectRetentionBucket(GcsObjectRetentionTransport transport, Pause pause) {
         this.transport = Objects.requireNonNull(transport, "transport");
+        this.pause = Objects.requireNonNull(pause, "pause");
     }
 
     @Override
@@ -38,7 +64,13 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     @Override
     public void requireRetentionFeature() {
         call("object retention configuration", () -> {
-            transport.requireObjectRetentionEnabled();
+            try {
+                transport.requireObjectRetentionEnabled();
+            } catch (IllegalStateException ex) {
+                // The transport's own refusal names only the bucket and the missing feature.
+                throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                        "durable store object retention configuration failed: " + ex.getMessage());
+            }
             return null;
         });
     }
@@ -84,8 +116,18 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
 
     @Override
     public String put(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil) {
-        long generation = call("put " + key,
-                () -> transport.createGeneration(key, bytes, mode, retainUntil.toInstant()));
+        long generation = call("put " + key, () -> {
+            for (int resends = 0; ; resends++) {
+                try {
+                    return transport.createGeneration(key, bytes, mode, retainUntil.toInstant());
+                } catch (StorageException ex) {
+                    if (ex.getCode() != 429 || resends == RATE_LIMIT_PAUSES.size()) {
+                        throw ex;
+                    }
+                    pause.sleep(RATE_LIMIT_PAUSES.get(resends));
+                }
+            }
+        });
         return Long.toString(generation);
     }
 

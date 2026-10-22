@@ -1,0 +1,32 @@
+# N-02 real-GCS acceptance (#483): stub-driven end-to-end test of the operator script that
+# provisions, runs and cleans up the approved operation. A fake gcloud models the dedicated project;
+# nothing reaches Google Cloud and the job holds no cloud credentials.
+name: N-02 GCS acceptance operation
+
+on:
+  pull_request:
+    paths:
+      - "scripts/n02-gcs-acceptance-op.sh"
+      - "scripts/test-n02-gcs-acceptance-op.sh"
+      - ".github/workflows/n02-gcs-acceptance-op.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: n02-gcs-acceptance-op-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stub-test:
+    name: Operator script stub test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run the stub-driven end-to-end test
+        run: bash scripts/test-n02-gcs-acceptance-op.sh

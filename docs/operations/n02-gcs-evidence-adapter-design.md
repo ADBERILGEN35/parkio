@@ -17,7 +17,7 @@
 
 Same as MinIO `ObjectLockBucket`, via `DurableEvidenceBucket`:
 
-1. **Retention feature discovery** — refuse startup unless Object Retention Lock is enabled on the bucket (not merely Bucket Lock).
+1. **Retention feature discovery** — refuse startup unless Object Retention Lock is enabled on the bucket (not merely Bucket Lock) and Object Versioning is on (ORL does not imply versioning; without it a rewrite of a retained name is refused, and after expiry it would replace the live generation).
 2. **Put + retention** — every write creates a new generation with GOVERNANCE (Unlocked) or COMPLIANCE (Locked) retain-until.
 3. **Retention inspect** — receipt requires a lock on the canonical generation.
 4. **List + pagination** — transport pages generations; adapter aggregates pages.
@@ -34,7 +34,7 @@ Same as MinIO `ObjectLockBucket`, via `DurableEvidenceBucket`:
 | S3 assumption | GCS reality | Adapter rule |
 |---------------|-------------|--------------|
 | `versionId` opaque string; list newest-first; oldest = last list item | Generations are monotonic ints; list order not write order | Canonical = **min(generation)** |
-| `GetObjectLockConfiguration` | Bucket `objectRetention` mode ENABLED | `requireObjectRetentionEnabled` |
+| `GetObjectLockConfiguration` | Bucket `objectRetention` mode ENABLED; versioning separate | `requireObjectRetentionEnabled` checks both |
 | `x-amz-object-lock-*` | `x-goog-object-lock-*` / JSON Retention | SDK `BlobInfo.Retention` (Locked/Unlocked) |
 | Delete markers | Soft-delete / noncurrent differ | Transport ignores S3 delete-marker semantics |
 
@@ -54,4 +54,5 @@ Operator inputs when enabled: `project-id`, `bucket`, `retention-mode`, `retenti
 |----------|------------|
 | `GcsObjectRetentionBucketTest` + config tests (in-memory transport) | #482 behavioural / wiring |
 | Emulator | **Does not** satisfy #483 |
-| Dedicated real GCS bucket under #483 plan | #483 only |
+| Dedicated real GCS bucket under #483 plan (`gcsProviderAcceptance run`) | #483 only |
+| `gcsProviderAcceptance plan`, `GcsAcceptanceToolTest`, request-shape test | Harness self-checks only |

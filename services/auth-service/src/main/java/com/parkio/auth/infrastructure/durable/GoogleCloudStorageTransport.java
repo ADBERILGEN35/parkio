@@ -39,13 +39,18 @@ final class GoogleCloudStorageTransport implements GcsObjectRetentionTransport {
     @Override
     public void requireObjectRetentionEnabled() {
         Bucket existing = storage.get(bucket, Storage.BucketGetOption.fields(
-                Storage.BucketField.ID, Storage.BucketField.OBJECT_RETENTION));
+                Storage.BucketField.ID, Storage.BucketField.OBJECT_RETENTION, Storage.BucketField.VERSIONING));
         if (existing == null) {
             throw new StorageException(404, "bucket not found: " + bucket);
         }
         BucketInfo.ObjectRetention objectRetention = existing.getObjectRetention();
         if (objectRetention == null || objectRetention.getMode() != BucketInfo.ObjectRetention.Mode.ENABLED) {
             throw new IllegalStateException("bucket " + bucket + " does not have Object Retention Lock enabled");
+        }
+        // Object Retention Lock does not imply versioning (unlike S3 Object Lock). Without it a write
+        // to an existing name replaces the live generation instead of adding one.
+        if (!Boolean.TRUE.equals(existing.versioningEnabled())) {
+            throw new IllegalStateException("bucket " + bucket + " does not have Object Versioning enabled");
         }
     }
 

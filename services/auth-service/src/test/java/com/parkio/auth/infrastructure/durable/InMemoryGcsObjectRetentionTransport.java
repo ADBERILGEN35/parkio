@@ -1,7 +1,10 @@
 package com.parkio.auth.infrastructure.durable;
 
+import com.google.cloud.storage.StorageException;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -26,11 +29,14 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
     private final Map<String, List<Stored>> objects = new ConcurrentHashMap<>();
     private final ReentrantLock lock = new ReentrantLock();
     private boolean objectRetentionEnabled = true;
+    private boolean versioningEnabled = true;
     private boolean unavailable;
     private boolean missingListPermission;
     private boolean missingWritePermission;
     private boolean listNewestFirst = true;
     private int forcedPageSizeOverride = -1;
+    private Clock writeRateClock;
+    private final Map<String, Instant> lastWrite = new ConcurrentHashMap<>();
 
     InMemoryGcsObjectRetentionTransport(String bucket) {
         this.bucket = Objects.requireNonNull(bucket, "bucket");
@@ -38,6 +44,10 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
 
     void setObjectRetentionEnabled(boolean enabled) {
         this.objectRetentionEnabled = enabled;
+    }
+
+    void setVersioningEnabled(boolean enabled) {
+        this.versioningEnabled = enabled;
     }
 
     void setUnavailable(boolean unavailable) {
@@ -56,6 +66,14 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         this.listNewestFirst = newestFirst;
     }
 
+    /**
+     * Refuses a write within one second of the previous write to the same object name with HTTP 429,
+     * as Cloud Storage may under its per-object mutation rate.
+     */
+    void enforceWriteRatePerObject(Clock clock) {
+        this.writeRateClock = Objects.requireNonNull(clock, "clock");
+    }
+
     /** When positive, list pages are capped at this size regardless of the caller page size. */
     void setForcedPageSizeOverride(int pageSize) {
         this.forcedPageSizeOverride = pageSize;
@@ -72,6 +90,9 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         if (!objectRetentionEnabled) {
             throw new IllegalStateException("bucket " + bucket + " does not have Object Retention Lock enabled");
         }
+        if (!versioningEnabled) {
+            throw new IllegalStateException("bucket " + bucket + " does not have Object Versioning enabled");
+        }
     }
 
     @Override
@@ -83,6 +104,14 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         }
         lock.lock();
         try {
+            if (writeRateClock != null) {
+                Instant now = writeRateClock.instant();
+                Instant previous = lastWrite.get(objectName);
+                if (previous != null && Duration.between(previous, now).compareTo(Duration.ofSeconds(1)) < 0) {
+                    throw new StorageException(429, "The object exceeded the rate limit for object mutation operations");
+                }
+                lastWrite.put(objectName, now);
+            }
             long generation = generationSeq.getAndIncrement();
             objects.computeIfAbsent(objectName, ignored -> new ArrayList<>())
                     .add(new Stored(generation, bytes.clone(), mode, retainUntil));

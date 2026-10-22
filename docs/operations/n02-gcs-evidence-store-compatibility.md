@@ -44,7 +44,7 @@ Third-party S3-client reports (rclone, encryption gateways): GCS XML **does not 
 | Version list + pagination | Generations / versions XML; interop list-format quirks | `includeVersions` IT | **Not run** |
 | Oldest-version canonical + frontier | Generations ordered differently than S3 version listing assumptions | `ObjectLockFrontierVersionOrderIT` | **Not run** |
 | Concurrent / retry puts | New generation each write | Partial-publication IT | **Not run** |
-| Auth least-privilege | HMAC + IAM | Synthetic keys | **Not run** |
+| Auth least-privilege | Route A: HMAC + IAM; route B (selected): JSON API, keyless impersonation, custom roles (#483 plan §7.4) | Synthetic keys | **Not run** |
 | Missing perms / objects | Provider errors | Mapped to `DURABLE_RECORDING_UNAVAILABLE` | **Not run** |
 | Refuse shorten under COMPLIANCE | Doc: COMPLIANCE cannot shorten/remove | IT refuse paths | **Not run** (irreversible locks forbidden in research) |
 | Key access after host loss | Secret Manager / escrow separate from bucket | Custody procedure | **Not run** |
@@ -53,7 +53,7 @@ Third-party S3-client reports (rclone, encryption gateways): GCS XML **does not 
 
 ## 4. Selected technical route
 
-**B — Implemented (default-off, #482):** Narrow Google Cloud Object Retention Lock adapter behind extracted `DurableEvidenceBucket`. Design detail: `docs/operations/n02-gcs-evidence-adapter-design.md`. Canonical generation = **lowest generation number**. MinIO Object Lock remains available and mutually exclusive. Real-provider acceptance: **#483** / `docs/operations/n02-gcs-provider-acceptance-plan.md`.
+**B — Implemented (default-off, #482):** Narrow Google Cloud Object Retention Lock adapter behind extracted `DurableEvidenceBucket`. Design detail: `docs/operations/n02-gcs-evidence-adapter-design.md`. Canonical generation = **lowest generation number**. MinIO Object Lock remains available and mutually exclusive. Real-provider acceptance: **#483** / `docs/operations/n02-gcs-provider-acceptance-plan.md` (harness ready; real-provider column above stays "Not run" until the approved run).
 
 **C — Contingency:** If real GCS validation (#483) shows the Google adapter cannot preserve oldest-generation / COMPLIANCE semantics at reasonable complexity, retain a **dedicated AWS S3 Object Lock** evidence bucket even if application hosting moves to GCP.
 
