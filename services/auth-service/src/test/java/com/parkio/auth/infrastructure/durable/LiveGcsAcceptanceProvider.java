@@ -99,9 +99,11 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     .getService());
             jsonApis.put(identity, jsonApi(transport, null, impersonated));
         }
+        // The endpoint comes from a client built above: default options would resolve a default project
+        // over the network outside the gate. ADC is loaded once, above, through the gated transport.
         return new LiveGcsAcceptanceProvider(storages, jsonApis,
                 "ADC source " + source.getClass().getSimpleName() + " impersonating one service account per identity",
-                "live-provider", StorageOptions.getDefaultInstance().getHost());
+                "live-provider", storages.get(Identity.READER).getOptions().getHost());
     }
 
     /**
@@ -199,10 +201,30 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
         description.put("api", "Cloud Storage JSON API over HTTP (google-cloud-storage, default retry settings:"
                 + " 6 attempts within 50 s; default timeouts: 20 s connect, 20 s read)");
         description.put("library", storage(Identity.READER).getOptions().getLibraryVersion());
+        description.put("libraries", Map.of(
+                "google-auth-library-oauth2-http", mavenVersion("com.google.auth", "google-auth-library-oauth2-http"),
+                "google-http-client", mavenVersion("com.google.http-client", "google-http-client"),
+                "gax", mavenVersion("com.google.api", "gax"),
+                "google-cloud-core-http", mavenVersion("com.google.cloud", "google-cloud-core-http")));
         description.put("endpoint", endpoint);
         description.put("credentials", credentials);
         description.put("scopes", SCOPES);
         return description;
+    }
+
+    /** The version a library jar declares in its Maven metadata, or "unknown". */
+    static String mavenVersion(String group, String artifact) {
+        String resource = "META-INF/maven/" + group + "/" + artifact + "/pom.properties";
+        try (var in = LiveGcsAcceptanceProvider.class.getClassLoader().getResourceAsStream(resource)) {
+            if (in == null) {
+                return "unknown";
+            }
+            java.util.Properties properties = new java.util.Properties();
+            properties.load(in);
+            return properties.getProperty("version", "unknown");
+        } catch (IOException ex) {
+            return "unknown";
+        }
     }
 
     private Storage storage(Identity identity) {

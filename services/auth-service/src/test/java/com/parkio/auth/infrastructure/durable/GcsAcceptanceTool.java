@@ -411,7 +411,8 @@ public final class GcsAcceptanceTool {
         }
 
         Outcome outcome(String forcedVerdict, String note) {
-            String verdict = forcedVerdict != null ? forcedVerdict : verdict(ledger);
+            // A recorded safety violation outranks how the run ended.
+            String verdict = forcedVerdict != null && ledger.violations().isEmpty() ? forcedVerdict : verdict(ledger);
             Map<String, Object> document = header();
             boolean live = "live-provider".equals(provider.evidenceClass());
             document.put("countsFor483", live && "PASS".equals(verdict));
@@ -572,35 +573,43 @@ public final class GcsAcceptanceTool {
         criteria.put("generation listing and pagination", List.of("H1", "H2", "H3"));
         criteria.put("oldest generation canonical", List.of("P3", "H2", "C1", "C2"));
         criteria.put("concurrency and retry semantics",
-                List.of("C1", "C2", "T1", "S1", "S2", "S3", "S4", "S5", "S5r", "S6"));
+                List.of("C1", "C2", "T1", "S1", "S2", "S3", "S4", "S5", "S5r", "S5s", "S6"));
         criteria.put("least-privilege failures", List.of("L1", "L3", "L4", "L5", "G5"));
         criteria.put("refusal of shortened or removed Locked retention",
-                List.of("K1", "K2", "K3", "K4", "K5", "K7", "K8", "K9"));
+                List.of("K1", "K2", "K3", "K4", "K5", "K7", "K8c", "K8", "K9", "K6", "G3", "G4"));
         criteria.put("Unlocked (GOVERNANCE) controls", List.of("G1", "G2", "G3", "G4"));
         criteria.put("verifier over live evidence (local verifier, live bytes)", List.of("V1", "V2"));
         return java.util.Collections.unmodifiableMap(criteria);
     }
 
-    /** Per criterion: PASS when all its cases passed, FAIL when one failed, INCOMPLETE otherwise. */
+    /**
+     * Per criterion: PASS when every case passed or is a measurement that ran, FAIL when one failed,
+     * INCOMPLETE otherwise; measurements are listed, since they prove nothing by themselves.
+     */
     static Map<String, Object> criteriaStatus(GcsAcceptanceLedger ledger) {
-        Map<String, Status> statuses = new LinkedHashMap<>();
-        ledger.cases().forEach(result -> statuses.put(result.id(), result.status()));
+        Map<String, CaseResult> results = new LinkedHashMap<>();
+        ledger.cases().forEach(result -> results.put(result.id(), result));
         Map<String, Object> criteria = new LinkedHashMap<>();
         CRITERIA.forEach((criterion, ids) -> {
             String status = "PASS";
+            List<String> measured = new ArrayList<>();
             for (String id : ids) {
-                Status observed = statuses.getOrDefault(id, Status.SKIPPED);
+                CaseResult result = results.get(id);
+                Status observed = result == null ? Status.SKIPPED : result.status();
                 if (observed == Status.FAIL || observed == Status.ERROR) {
                     status = "FAIL";
                     break;
                 }
-                if (observed != Status.PASS) {
+                if (observed == Status.MEASURED && result.kind() == Kind.MEASUREMENT) {
+                    measured.add(id);
+                } else if (observed != Status.PASS) {
                     status = "INCOMPLETE";
                 }
             }
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("status", status);
             entry.put("cases", ids);
+            entry.put("measurementsOnly", measured);
             criteria.put(criterion, entry);
         });
         return criteria;

@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.EnumSource.Mode;
 
 /**
  * The #483 harness itself, against the offline model only: the approved sequence passes with
@@ -101,13 +102,18 @@ class GcsAcceptanceToolTest {
                 .containsEntry("externalPacingRequired", "no")
                 .containsEntry("retryConvergedWithoutLoss", true)
                 .containsEntry("retryScenario", "lost response of the next reservation marker")
+                .containsEntry("sequencesConsumedByPublishedCheckpointRetry", 2L)
                 .containsEntry("burstWritesCompleted", true);
         assertThat(evidence(outcome, "S5r")).containsEntry("filledReservation", true);
+        assertThat(evidence(outcome, "S5s")).containsEntry("filledReservation", false);
+        assertThat(evidence(outcome, "K8c")).containsEntry("generationAddressedRetentionApplied", true);
+        assertThat(status(outcome, "K8")).isEqualTo("PASS");
         assertThat(number(evidence(outcome, "T1"), "throttledResponses")).isPositive();
         List<Object> rounds = list(evidence(outcome, "C1").get("rounds"));
         Map<String, Object> race = map(rounds.get(rounds.size() - 1));
         assertThat(number(race, "acknowledged")).isGreaterThanOrEqualTo(2);
         assertThat(number(race, "selfWinners")).isEqualTo(1);
+        assertThat(race).containsKeys("committedOnFirstSend", "commitSpreadMs");
     }
 
     @Test
@@ -116,17 +122,18 @@ class GcsAcceptanceToolTest {
 
         List<Map<String, Object>> unknown = cleanupInventory(outcome).stream().map(GcsAcceptanceToolTest::map)
                 .filter(entry -> "unknown".equals(entry.get("generation"))).toList();
-        assertThat(unknown).extracting(entry -> entry.get("case")).containsExactly("S4", "S5r");
+        assertThat(unknown).extracting(entry -> entry.get("case")).containsExactly("S4", "S5r", "S5s");
         assertThat(unknown).allSatisfy(entry -> assertThat((String) entry.get("cause")).contains("SimulatedLostResponse"));
     }
 
     @ParameterizedTest
-    @EnumSource(Defect.class)
+    @EnumSource(value = Defect.class, mode = Mode.EXCLUDE, names = "GENERATION_PATCH_IGNORED")
     void everyModelledProviderDefectFailsTheCaseThatMustCatchIt(Defect defect) {
         Outcome outcome = GcsAcceptanceTool.plan(START, CLEAN, Set.of(defect), Caps.APPROVED, null, null);
 
         String caseId = switch (defect) {
-            case LOCKED_RETENTION_SHORTENABLE, LOCKED_REFUSAL_AS_408 -> "K1";
+            case LOCKED_RETENTION_SHORTENABLE, LOCKED_REFUSAL_AS_408, LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT -> "K1";
+            case GENERATION_PATCH_IGNORED -> throw new IllegalStateException("not a failing defect");
             case RETAINED_DELETABLE -> "K4";
             case NONCURRENT_LOCKED_SHORTENABLE -> "K8";
             case LIST_DROPS_PAGE_TAIL -> "H2";
@@ -140,7 +147,8 @@ class GcsAcceptanceToolTest {
             case WRITE_LIMIT_PENALTY -> "S5";
         };
         boolean preflight = caseId.startsWith("F");
-        boolean inconclusive = caseId.equals("F6") || defect == Defect.LOCKED_REFUSAL_AS_408;
+        boolean inconclusive = caseId.equals("F6") || defect == Defect.LOCKED_REFUSAL_AS_408
+                || defect == Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT;
         boolean violation = Set.of(Defect.LOCKED_RETENTION_SHORTENABLE, Defect.RETAINED_DELETABLE,
                 Defect.NONCURRENT_LOCKED_SHORTENABLE).contains(defect);
         assertThat(status(outcome, caseId)).isEqualTo(inconclusive ? "ERROR" : "FAIL");
@@ -155,6 +163,39 @@ class GcsAcceptanceToolTest {
         if (violation) {
             assertThat(status(outcome, "G5")).isEqualTo("SKIPPED");
         }
+        if (defect == Defect.PROBE_ADMIN_MAY_CREATE) {
+            assertThat(cleanupInventory(outcome)).extracting(entry -> map(entry).get("case") + "/" + map(entry).get("mode"))
+                    .contains("L5/none");
+        }
+    }
+
+    @Test
+    void aStopNeverHidesARecordedViolation() {
+        OfflineGcsAcceptanceProvider offline = offline(Set.of());
+        GcsAcceptanceLedger ledger = new GcsAcceptanceLedger(offline.clock(), Caps.APPROVED);
+        Run run = new Run(offline, ledger, config(), CLEAN, null, null);
+        ledger.violation("lockedMutationAccepted", "test");
+
+        Outcome outcome = run.outcome("INTERRUPTED", "test stop");
+
+        assertThat(outcome.verdict()).isEqualTo("FAIL");
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(5);
+    }
+
+    @Test
+    void aGenerationAddressedShapeThatChangesNothingMakesK8AndK9NotApplicable() {
+        Outcome outcome = GcsAcceptanceTool.plan(START, CLEAN, Set.of(Defect.GENERATION_PATCH_IGNORED), Caps.APPROVED,
+                null, null);
+
+        assertThat(evidence(outcome, "K8c")).containsEntry("generationAddressedRetentionApplied", false);
+        assertThat(status(outcome, "K8")).isEqualTo("MEASURED");
+        assertThat(status(outcome, "K9")).isEqualTo("MEASURED");
+        assertThat(evidence(outcome, "K8")).containsKey("notApplicable");
+        assertThat(outcome.verdict()).isEqualTo("PASS");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(list(map(map(outcome.document().get("criteria"))
+                .get("refusal of shortened or removed Locked retention")).get("measurementsOnly")))
+                .containsExactly("K8c", "K8", "K9");
     }
 
     @Test
@@ -397,14 +438,17 @@ class GcsAcceptanceToolTest {
     }
 
     private static Run run(GcsAcceptanceProvider provider, Clock clock) {
+        return new Run(provider, new GcsAcceptanceLedger(clock, Caps.APPROVED), config(), CLEAN, null, null);
+    }
+
+    private static LiveConfig config() {
         Map<Identity, String> accounts = new EnumMap<>(Identity.class);
         for (Identity identity : Identity.values()) {
             accounts.put(identity, "offline-" + identity.name().toLowerCase(Locale.ROOT));
         }
-        LiveConfig config = new LiveConfig("offline-plan", OfflineGcsAcceptanceProvider.PROJECT_NUMBER,
+        return new LiveConfig("offline-plan", OfflineGcsAcceptanceProvider.PROJECT_NUMBER,
                 GcsAcceptanceTool.PLAN_LOCATION, GcsAcceptanceTool.PLAN_BUCKET, GcsAcceptanceTool.PLAN_CONTROL_BUCKET,
                 accounts, "none (offline model)");
-        return new Run(provider, new GcsAcceptanceLedger(clock, Caps.APPROVED), config, CLEAN, null, null);
     }
 
     private static GcsAcceptanceLedger ledger(CaseResult... results) {

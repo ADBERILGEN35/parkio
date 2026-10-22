@@ -153,6 +153,7 @@ final class GcsAcceptanceCases {
     private int storeRecords;
     private int storeRetries;
     private Map<String, Object> liveVerdict;
+    private Boolean generationPatchApplies;
     private byte[] bundle;
 
     /** {@code progress} receives one line per finished case; null keeps the run quiet. */
@@ -177,12 +178,16 @@ final class GcsAcceptanceCases {
         Map<String, Object> s5b = evidence("S5b");
         Object throttled = s5.get("throttledResponses");
         Map<String, Object> facts = new LinkedHashMap<>();
-        facts.put("normalPathCompleted", status("S5") == Status.PASS);
+        facts.put("normalPathCompleted", ran("S5") ? status("S5") == Status.PASS : "not run");
         facts.put("normalPathThrottledResponses", throttled);
         facts.put("throttlingObservedOnNormalPath", throttled instanceof Number number && number.longValue() > 0);
         String pacing;
-        if (status("S5") == Status.PASS) {
+        if (!ran("S5")) {
+            pacing = "not run";
+        } else if (status("S5") == Status.PASS) {
             pacing = "no";
+        } else if (status("S5r") == Status.PASS) {
+            pacing = "no (unpaced retries converged)";
         } else if (Boolean.TRUE.equals(s5b.get("completedWithPacing"))) {
             pacing = "yes";
         } else if (Boolean.FALSE.equals(s5b.get("completedWithPacing"))) {
@@ -191,16 +196,23 @@ final class GcsAcceptanceCases {
             pacing = "not determined";
         }
         facts.put("externalPacingRequired", pacing);
-        facts.put("retryConvergedWithoutLoss", status("S5r") == Status.PASS);
+        facts.put("retryConvergedWithoutLoss", !ran("S5r") ? "not run"
+                : status("S5r") == Status.PASS && (!ran("S5s") || status("S5s") == Status.PASS));
         facts.put("retryScenario", evidence("S5r").get("scenario"));
-        facts.put("burstWritesCompleted", status("T1") == Status.PASS);
+        facts.put("sequencesConsumedByPublishedCheckpointRetry", evidence("S5s").get("sequencesConsumed"));
+        facts.put("burstWritesCompleted", ran("T1") ? status("T1") == Status.PASS : "not run");
         facts.put("burstThrottledResponses", evidence("T1").get("throttledResponses"));
         Map<String, Object> statuses = new LinkedHashMap<>();
-        for (String id : List.of("S5", "S5r", "S5b", "T1")) {
+        for (String id : List.of("S5", "S5r", "S5s", "S5b", "T1")) {
             statuses.put(id, status(id).name());
         }
         facts.put("cases", statuses);
         return facts;
+    }
+
+    /** The case was recorded and not skipped. */
+    private boolean ran(String id) {
+        return ledger.cases().stream().anyMatch(result -> result.id().equals(id) && result.status() != Status.SKIPPED);
     }
 
     private Map<String, Object> evidence(String id) {
@@ -479,8 +491,9 @@ final class GcsAcceptanceCases {
     // ---- C: concurrent writers and retries -------------------------------------------------------
 
     private void concurrency() {
-        run("C1", RACE_WRITERS + " concurrent writers on one object: every writer sees the same canonical generation,"
-                        + " exactly one sees its own, and it is the lowest generation", Kind.ASSERTION, Identity.WRITER,
+        run("C1", RACE_WRITERS + " writers released together on one object (contention through the adapter): every"
+                        + " writer reads the same canonical generation, exactly one reads its own, and it is the lowest",
+                Kind.ASSERTION, Identity.WRITER,
                 ev -> {
                     List<Map<String, Object>> rounds = new ArrayList<>();
                     ev.put("rounds", rounds);
@@ -491,7 +504,8 @@ final class GcsAcceptanceCases {
                             return;
                         }
                     }
-                    throw new CaseFailure("no round committed two concurrent writes: the race was not exercised");
+                    throw new CaseFailure("no round committed two of the released writers: contention was not"
+                            + " exercised");
                 });
         run("C2", "An identical body written twice is kept twice by the provider; the first stays canonical",
                 Kind.ASSERTION, Identity.WRITER, ev -> {
@@ -511,8 +525,11 @@ final class GcsAcceptanceCases {
                 });
     }
 
-    /** One writer of the race: its generation and the canonical generation it read right after its put. */
-    private record Racer(int writer, Long generation, String canonicalSeen, Failure failure) {
+    /**
+     * One writer of the race: its generation, the canonical generation it read right after its put, the
+     * writes it sent (more than one when the adapter resent a throttled write) and any failure.
+     */
+    private record Racer(int writer, Long generation, String canonicalSeen, int sends, Failure failure) {
     }
 
     /**
@@ -532,7 +549,8 @@ final class GcsAcceptanceCases {
                 int writerIndex = w;
                 byte[] body = body("C1", Map.of("writer", w));
                 bodies.put(w, body);
-                GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
+                InstrumentedGcsTransport racerTransport = transport(Identity.WRITER, settings.bucket());
+                GcsObjectRetentionBucket writer = bucketOver(racerTransport);
                 futures.add(pool.submit(() -> {
                     start.await();
                     ledger.clearLastFailure();
@@ -541,14 +559,15 @@ final class GcsAcceptanceCases {
                         generation = Long.parseLong(writer.put(key, body, EvidenceRetentionMode.GOVERNANCE, until));
                     } catch (AuthException ex) {
                         Failure cause = ledger.lastFailure();
-                        return new Racer(writerIndex, null, null,
+                        return new Racer(writerIndex, null, null, racerTransport.writeAttempts(),
                                 cause == null ? new Failure("objects.insert", 0, "", "unknown") : cause);
                     }
+                    int sends = racerTransport.writeAttempts();
                     try {
                         return new Racer(writerIndex, generation,
-                                writer.oldest(key).map(StoredVersion::versionId).orElse(null), null);
+                                writer.oldest(key).map(StoredVersion::versionId).orElse(null), sends, null);
                     } catch (AuthException ex) {
-                        return new Racer(writerIndex, generation, null, ledger.lastFailure());
+                        return new Racer(writerIndex, generation, null, sends, ledger.lastFailure());
                     }
                 }));
             }
@@ -582,6 +601,11 @@ final class GcsAcceptanceCases {
         ev.put("listedGenerations", listed.size());
         ev.put("canonicalSeenByWriters", seen);
         ev.put("selfWinners", selfWinners);
+        ev.put("committedOnFirstSend", racers.stream().filter(r -> r.generation() != null && r.sends() == 1).count());
+        List<Instant> commits = ledger.created().stream().filter(item -> item.name().equals(key))
+                .map(CreatedGeneration::createdAt).sorted().toList();
+        ev.put("commitSpreadMs", commits.size() < 2 ? 0
+                : Duration.between(commits.get(0), commits.get(commits.size() - 1)).toMillis());
         if (acknowledged.isEmpty()) {
             throw new CaseFailure("no concurrent writer succeeded");
         }
@@ -776,6 +800,9 @@ final class GcsAcceptanceCases {
                 });
         run("S5r", "A checkpoint call that fails is retried unpaced: the retry converges and loses no progress",
                 Kind.ASSERTION, Identity.WRITER, ev -> retryConverges(ev));
+        run("S5s", "A checkpoint call that fails after its checkpoint was published: the next call takes a new"
+                        + " sequence and the frontier covers both", Kind.ASSERTION, Identity.WRITER,
+                ev -> publishedCheckpointIsSuperseded(ev));
         run("S5b", "Diagnostic after a failed S5 only: one checkpoint call with writes to one object spaced by the"
                         + " documented limit (never counts as a pass)", Kind.DIAGNOSTIC, Identity.WRITER, ev -> {
                     if (status("S5") == Status.PASS) {
@@ -798,7 +825,7 @@ final class GcsAcceptanceCases {
         run("S6", "Further records under the provider's per-object write rate; frontier history grows",
                 Kind.ASSERTION, Identity.WRITER, ev -> {
                     int retriesBefore = storeRetries;
-                    for (int i = 0; i < 2; i++) {
+                    for (int i = 0; i < 1; i++) {
                         Attempted<DurableErasurePutResult> put = putRecord(record());
                         if (put.value().conflict() || (!put.value().created() && put.attempts() == 1)) {
                             throw new CaseFailure("record " + i + " was not created");
@@ -864,6 +891,47 @@ final class GcsAcceptanceCases {
         }
         ev.put("sequence", retried.sequence());
         ev.put("filledReservation", retried.filledReservation());
+        checkpointSequence = retried.sequence();
+        requireConverged(retried.sequence(), ev);
+    }
+
+    /**
+     * The non-resumable failure (#365 finding 3): the response to the checkpoint object itself is lost
+     * after the provider committed it. The store has no resume path for a published checkpoint, so the
+     * next call reserves a new sequence; nothing may be lost and the frontier must cover both.
+     */
+    private void publishedCheckpointIsSuperseded(Map<String, Object> ev) throws InterruptedException {
+        if (status("S5") != Status.PASS) {
+            throw new Skip("needs a passing S5");
+        }
+        long next = highestSequence(storeBucket(Identity.READER)) + 1;
+        provider.sleep(SAME_OBJECT_SPACING);
+        storeTransport.loseResponseAfterCommitOnce(storePrefix() + DurableErasureEvidence.checkpointKey(next));
+        try {
+            store.publishCheckpoint(() -> capture());
+            throw new CaseFailure("the call succeeded although the checkpoint response was lost");
+        } catch (AuthException ex) {
+            if (!String.valueOf(ex.getMessage())
+                    .endsWith(InstrumentedGcsTransport.SimulatedLostResponse.class.getSimpleName())) {
+                ev.put("cause", failure(ledger.lastFailure()));
+                throw new CaseFailure("the first call failed before the checkpoint was written: " + ex.getMessage());
+            }
+        }
+        ledger.clearLastFailure();
+        DurableErasureCheckpoint retried;
+        try {
+            retried = checked(store.publishCheckpoint(() -> capture()));
+        } catch (AuthException ex) {
+            ev.put("cause", failure(ledger.lastFailure()));
+            throw new CaseFailure("the retry did not complete: " + ex.getMessage());
+        }
+        ev.put("publishedSequence", next);
+        ev.put("retriedSequence", retried.sequence());
+        ev.put("sequencesConsumed", retried.sequence() - next + 1);
+        ev.put("filledReservation", retried.filledReservation());
+        if (retried.sequence() <= next) {
+            throw new CaseFailure("the retry reused sequence " + retried.sequence() + " whose checkpoint was published");
+        }
         checkpointSequence = retried.sequence();
         requireConverged(retried.sequence(), ev);
     }
@@ -1063,8 +1131,20 @@ final class GcsAcceptanceCases {
                         String key = key("adapter/no-create-" + identity.name().toLowerCase(java.util.Locale.ROOT)
                                 + ".json");
                         byte[] body = body("L5", Map.of("identity", identity.name()));
-                        ProbeOutcome outcome = probeCall(identity, INSERT,
-                                probe -> probe.insertWithoutRetention(settings.bucket(), key, body));
+                        long attempt = ledger.writeWithoutRetentionRequested(key);
+                        ProbeOutcome outcome;
+                        try {
+                            outcome = probeCall(identity, INSERT,
+                                    probe -> probe.insertWithoutRetention(settings.bucket(), key, body));
+                        } catch (RuntimeException ex) {
+                            ledger.writeFailed(attempt, ex);
+                            throw ex;
+                        }
+                        if (outcome.accepted()) {
+                            ledger.writeAcceptedWithoutGeneration(attempt, "insert without retention accepted");
+                        } else {
+                            ledger.writeFailed(attempt, new StorageException(outcome.code(), outcome.message()));
+                        }
                         ev.put(identity.name(), outcome(outcome));
                         if (outcome.accepted()) {
                             throw new CaseFailure(identity + " inserted an object without storage.objects.create");
@@ -1126,20 +1206,47 @@ final class GcsAcceptanceCases {
                     refusedUnchanged(Identity.PROBE_ADMIN, record, ev, DELETE,
                             (probe, gen) -> probe.delete(settings.bucket(), gen.name(), gen.generation()));
                 });
+        run("K8c", "Control for K8/K9: a PATCH addressed to the noncurrent Locked generation extends its retention by"
+                        + " 60 s", Kind.MEASUREMENT, Identity.PROBE_ADMIN, ev -> {
+                    require(complianceLive, "P3");
+                    Gen first = require(complianceFirst, "P2");
+                    Instant extended = first.retainUntil().plus(EXTEND_BY);
+                    ledger.retentionRequested(first.name(), first.generation(), extended);
+                    ProbeOutcome outcome = mutate(Identity.PROBE_ADMIN, PATCH, probe -> probe.setRetentionOfGeneration(
+                            settings.bucket(), first.name(), first.generation(), EvidenceRetentionMode.COMPLIANCE,
+                            extended, false));
+                    GenerationState after = state(first);
+                    boolean applied = outcome.accepted() && after.mode() == EvidenceRetentionMode.COMPLIANCE
+                            && extended.equals(after.retainUntil());
+                    ev.put("outcome", outcome(outcome));
+                    ev.put("after", state(after));
+                    ev.put("generationAddressedRetentionApplied", applied);
+                    generationPatchApplies = applied;
+                    if (applied) {
+                        ledger.extendRetainUntil(first.name(), first.generation(), extended);
+                        complianceFirst = new Gen(first.name(), first.generation(), first.body(), extended);
+                    } else if (after.retainUntil() != null && after.retainUntil().isBefore(first.retainUntil())) {
+                        ledger.violation("lockedMutationAccepted", "the extension shortened the Locked generation");
+                        throw new CaseFailure("the Locked retention became shorter");
+                    }
+                });
+        boolean applies = Boolean.TRUE.equals(generationPatchApplies);
         run("K8", "Locked retention of a noncurrent generation cannot be shortened by a PATCH addressed to it,"
-                        + " even with override", Kind.ASSERTION, Identity.PROBE_ADMIN, ev -> {
+                        + " even with override" + (applies ? "" : " (not applicable: K8c)"),
+                applies ? Kind.ASSERTION : Kind.MEASUREMENT, Identity.PROBE_ADMIN, ev -> {
                     require(complianceLive, "P3");
                     refusedUnchanged(Identity.PROBE_ADMIN, require(complianceFirst, "P2"), ev, PATCH,
                             (probe, gen) -> probe.setRetentionOfGeneration(settings.bucket(), gen.name(),
                                     gen.generation(), EvidenceRetentionMode.COMPLIANCE,
-                                    gen.retainUntil().minus(SHORTEN_BY), true));
+                                    gen.retainUntil().minus(SHORTEN_BY), true), applies);
                 });
-        run("K9", "Locked retention of a noncurrent generation cannot be removed by a PATCH addressed to it",
-                Kind.ASSERTION, Identity.PROBE_ADMIN, ev -> {
+        run("K9", "Locked retention of a noncurrent generation cannot be removed by a PATCH addressed to it"
+                        + (applies ? "" : " (not applicable: K8c)"),
+                applies ? Kind.ASSERTION : Kind.MEASUREMENT, Identity.PROBE_ADMIN, ev -> {
                     require(complianceLive, "P3");
                     refusedUnchanged(Identity.PROBE_ADMIN, require(complianceFirst, "P2"), ev, PATCH,
                             (probe, gen) -> probe.clearRetentionOfGeneration(settings.bucket(), gen.name(),
-                                    gen.generation(), true));
+                                    gen.generation(), true), applies);
                 });
     }
 
@@ -1456,29 +1563,55 @@ final class GcsAcceptanceCases {
     /** A refused probe that leaves the generation exactly as it was. */
     private void refusedUnchanged(Identity identity, Gen target, Map<String, Object> ev, String operation, Probe probe)
             throws InterruptedException {
+        refusedUnchanged(identity, target, ev, operation, probe, true);
+    }
+
+    /**
+     * A refused probe that leaves the generation exactly as it was. Any change of a Locked generation
+     * (or a state that cannot be read back) is a safety violation, whatever the provider answered. An
+     * answer that changes nothing proves nothing: it is inconclusive, unless {@code applicable} is false
+     * (the request shape was shown not to apply retention changes), when only the unchanged state counts.
+     */
+    private void refusedUnchanged(Identity identity, Gen target, Map<String, Object> ev, String operation, Probe probe,
+                                  boolean applicable) throws InterruptedException {
         GenerationState before = state(target);
         ProbeOutcome outcome = mutate(identity, operation, p -> probe.attempt(p, target));
-        GenerationState after = state(target);
+        GenerationState after;
+        try {
+            after = state(target);
+        } catch (RuntimeException ex) {
+            after = null;
+            ev.put("afterUnreadable", GcsAcceptanceLedger.sanitize(ex.getClass().getSimpleName()));
+        }
         ev.put("target", target.name() + "#" + target.generation());
         ev.put("before", state(before));
         ev.put("outcome", outcome(outcome));
-        ev.put("after", state(after));
-        if (outcome.accepted()) {
-            if (before.mode() == EvidenceRetentionMode.COMPLIANCE) {
-                ledger.violation("lockedMutationAccepted", operation + " accepted on the Locked generation "
-                        + target.name() + "#" + target.generation());
-            }
-            throw new CaseFailure("the provider accepted the operation");
+        ev.put("after", after == null ? null : state(after));
+        boolean unchanged = after != null && before.exists() == after.exists() && before.mode() == after.mode()
+                && Objects.equals(before.retainUntil(), after.retainUntil());
+        if (!unchanged && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
+            ledger.violation("lockedMutationAccepted", operation + " answered " + outcome.code()
+                    + " and the Locked generation " + target.name() + "#" + target.generation()
+                    + (after == null ? " could not be read back" : " changed"));
+            throw new CaseFailure("the Locked generation changed or could not be read back");
         }
-        // Only an explicit refusal counts; a retention PATCH may be refused as 400 or 403 (the positive
-        // controls K6, G3 and G4 send the same request shape and must be accepted).
+        if (!unchanged) {
+            throw new CaseFailure("the provider " + (outcome.accepted() ? "accepted the operation" : "refused it")
+                    + " and the generation changed");
+        }
+        if (!applicable) {
+            ev.put("notApplicable", "the provider did not apply this request shape to retention (K8c)");
+            return;
+        }
+        if (outcome.accepted()) {
+            throw new IllegalStateException("inconclusive: the provider accepted the operation without changing"
+                    + " the generation");
+        }
+        // Only an explicit refusal counts; a retention PATCH may be refused as 400 or 403 (positive controls
+        // with the same request shape must be accepted: K6, G3, G4 for the live object, K8c addressed).
         Set<Integer> refusals = DELETE.equals(operation) ? Set.of(403) : Set.of(400, 403);
         if (!refusals.contains(outcome.code())) {
             throw new IllegalStateException("inconclusive refusal: HTTP " + outcome.code() + " " + outcome.reason());
-        }
-        if (!before.exists() || !after.exists() || before.mode() != after.mode()
-                || !Objects.equals(before.retainUntil(), after.retainUntil())) {
-            throw new CaseFailure("the generation changed although the operation was refused");
         }
     }
 

@@ -32,7 +32,7 @@ final class GcsAcceptanceLedger {
     record Caps(int logicalOperations, int httpRequests, int generations, int complianceGenerations,
                 Duration wallClock) {
 
-        static final Caps APPROVED = new Caps(1_200, 1_500, 360, 40, Duration.ofMinutes(45));
+        static final Caps APPROVED = new Caps(1_500, 1_800, 360, 40, Duration.ofMinutes(45));
     }
 
     /** Regional Standard storage list prices (USD), cloud.google.com/storage/pricing, read 2026-10-22. */
@@ -208,17 +208,28 @@ final class GcsAcceptanceLedger {
         if (mode == EvidenceRetentionMode.COMPLIANCE) {
             possibleComplianceGenerations++;
         }
-        requested(retainUntil);
+        if (retainUntil != null) {
+            requested(retainUntil);
+        }
         long attempt = ++nextAttempt;
         pending.put(attempt, new PendingWrite(currentCase, name, mode, retainUntil, clock.instant()));
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("attempt", attempt);
         fields.put("case", currentCase);
         fields.put("name", name);
-        fields.put("mode", mode.name());
-        fields.put("retainUntil", retainUntil.toString());
+        fields.put("mode", modeName(mode));
+        fields.put("retainUntil", retainUntil == null ? "none" : retainUntil.toString());
         journal("write-requested", fields);
         return attempt;
+    }
+
+    /** A write without retention (an IAM probe): reserved and journaled like any other write. */
+    synchronized long writeWithoutRetentionRequested(String name) {
+        return writeRequested(name, null, null);
+    }
+
+    private static String modeName(EvidenceRetentionMode mode) {
+        return mode == null ? "none" : mode.name();
     }
 
     /** The provider acknowledged attempt {@code attempt} with {@code generation}. */
@@ -253,15 +264,24 @@ final class GcsAcceptanceLedger {
             }
             return;
         }
+        unresolved(attempt, write, observed.exception());
+    }
+
+    /** An accepted write whose generation the caller did not learn (a probe insert): it may exist. */
+    synchronized void writeAcceptedWithoutGeneration(long attempt, String cause) {
+        unresolved(attempt, Objects.requireNonNull(pending.remove(attempt), "unknown write attempt"), cause);
+    }
+
+    private void unresolved(long attempt, PendingWrite write, String cause) {
         unresolved.add(new UnresolvedWrite(write.caseId(), write.name(), write.mode(), write.retainUntil(),
-                write.requestedAt(), observed.exception()));
+                write.requestedAt(), cause));
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("attempt", attempt);
         fields.put("case", write.caseId());
         fields.put("name", write.name());
-        fields.put("mode", write.mode().name());
-        fields.put("retainUntil", write.retainUntil().toString());
-        fields.put("cause", observed.exception());
+        fields.put("mode", modeName(write.mode()));
+        fields.put("retainUntil", write.retainUntil() == null ? "none" : write.retainUntil().toString());
+        fields.put("cause", cause);
         journal("write-unresolved", fields);
     }
 
@@ -503,15 +523,15 @@ final class GcsAcceptanceLedger {
                 entry.put("case", write.caseId());
                 entry.put("name", write.name());
                 entry.put("generation", "unknown");
-                entry.put("mode", write.mode().name());
-                entry.put("retainUntil", write.retainUntil().toString());
+                entry.put("mode", modeName(write.mode()));
+                entry.put("retainUntil", write.retainUntil() == null ? "none" : write.retainUntil().toString());
                 entry.put("cause", write.cause());
             } else if (item instanceof PendingWrite write) {
                 entry.put("case", write.caseId());
                 entry.put("name", write.name());
                 entry.put("generation", "unknown");
-                entry.put("mode", write.mode().name());
-                entry.put("retainUntil", write.retainUntil().toString());
+                entry.put("mode", modeName(write.mode()));
+                entry.put("retainUntil", write.retainUntil() == null ? "none" : write.retainUntil().toString());
                 entry.put("cause", "no answer when the result was written");
             }
             inventory.add(entry);

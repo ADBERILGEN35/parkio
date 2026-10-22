@@ -54,7 +54,11 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         /** The bucket metadata omits the soft-delete policy. */
         SOFT_DELETE_NOT_REPORTED,
         /** Only the first writer of a race object is ever admitted; the others stay throttled. */
-        RACE_ADMITS_ONE_WRITER
+        RACE_ADMITS_ONE_WRITER,
+        /** A PATCH addressed to a generation answers 200 and changes nothing (the shape does not apply). */
+        GENERATION_PATCH_IGNORED,
+        /** A refused change of Locked retention on the live object answers 200 instead of a refusal. */
+        LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT
     }
 
     static final String PROJECT_NUMBER = "100000000001";
@@ -421,7 +425,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
             boolean reduces = gen.retainUntil != null && retainUntil.isBefore(gen.retainUntil);
             if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen)
                     && (reduces || mode != EvidenceRetentionMode.COMPLIANCE) && !lockedShortenable(addressed)) {
-                return lockedRefusal("Locked retention cannot be reduced or unlocked");
+                return lockedRefusal("Locked retention cannot be reduced or unlocked", addressed);
             }
             boolean locks = gen.mode == EvidenceRetentionMode.GOVERNANCE && mode == EvidenceRetentionMode.COMPLIANCE;
             if (gen.mode == EvidenceRetentionMode.GOVERNANCE && (reduces || locks) && !override) {
@@ -434,7 +438,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
 
         private ProbeOutcome clear(Gen gen, boolean override, boolean addressed) {
             if (gen.mode == EvidenceRetentionMode.COMPLIANCE && retained(gen) && !lockedShortenable(addressed)) {
-                return lockedRefusal("Locked retention cannot be removed");
+                return lockedRefusal("Locked retention cannot be removed", addressed);
             }
             if (gen.mode == EvidenceRetentionMode.GOVERNANCE && !override) {
                 return refused(403, "forbidden", "overrideUnlockedRetention is required");
@@ -449,7 +453,10 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     || addressed && defects.contains(Defect.NONCURRENT_LOCKED_SHORTENABLE);
         }
 
-        private ProbeOutcome lockedRefusal(String message) {
+        private ProbeOutcome lockedRefusal(String message, boolean addressed) {
+            if (!addressed && defects.contains(Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT)) {
+                return ProbeOutcome.ok();
+            }
             return defects.contains(Defect.LOCKED_REFUSAL_AS_408)
                     ? refused(408, "requestTimeout", "Request Timeout")
                     : refused(403, "forbidden", message);
@@ -527,6 +534,9 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     throttle(model.lastUpdate, name);
                 } catch (StorageException ex) {
                     return refused(429, "rateLimitExceeded", ex.getMessage());
+                }
+                if (defects.contains(Defect.GENERATION_PATCH_IGNORED)) {
+                    return ProbeOutcome.ok();
                 }
                 return change.apply(target.get());
             }

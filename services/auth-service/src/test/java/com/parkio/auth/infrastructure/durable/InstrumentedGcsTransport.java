@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -39,6 +40,7 @@ final class InstrumentedGcsTransport implements GcsObjectRetentionTransport {
     private final List<ListedPage> pages = new ArrayList<>();
     private final GcsAcceptanceProvider provider;
     private final Map<String, Instant> lastWrite = new HashMap<>();
+    private final AtomicInteger writeAttempts = new AtomicInteger();
     private String loseResponseFor;
     private Long lostResponseGeneration;
     private Duration spacing;
@@ -74,6 +76,11 @@ final class InstrumentedGcsTransport implements GcsObjectRetentionTransport {
         return List.copyOf(pages);
     }
 
+    /** Writes this transport sent, resends included. */
+    int writeAttempts() {
+        return writeAttempts.get();
+    }
+
     @Override
     public String bucket() {
         return delegate.bucket();
@@ -92,6 +99,7 @@ final class InstrumentedGcsTransport implements GcsObjectRetentionTransport {
         pace(objectName);
         return call("objects.insert", () -> {
             long attempt = ledger.writeRequested(objectName, mode, retainUntil);
+            writeAttempts.incrementAndGet();
             long generation;
             try {
                 generation = delegate.createGeneration(objectName, bytes, mode, retainUntil);
