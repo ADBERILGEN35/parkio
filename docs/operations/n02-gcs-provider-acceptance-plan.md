@@ -1,7 +1,7 @@
 # N-02 — Real GCS provider acceptance (#483): plan, harness and execution proposal
 
-**Status (2026-10-22):** harness and operator script independently reviewed (three reviews, all
-findings addressed in #491); **nothing provisioned**. No project, bucket, IAM change, retention lock
+**Status (2026-10-22):** harness and operator script independently reviewed and re-reviewed (three
+reviewers; findings addressed in #491); **nothing provisioned**. No project, bucket, IAM change, retention lock
 or upload has been made. §7 is the exact operation awaiting owner approval.
 **Parent:** #365 · **Adapter:** #482 / #484 · **Defect fixed here:** #492 · **Scope:** real-provider
 acceptance (layer C) only.
@@ -52,6 +52,10 @@ Read from Google documentation on 2026-10-22; the run confirms or refutes each o
 | Revoking an OAuth token revokes the grant of that client: "invalidating any issued access or refresh tokens for all clients registered under that project" | No step revokes; the operation's own credentials live only in a dedicated directory that is deleted at the end | [token revocation](https://developers.google.com/identity/protocols/oauth2/native-app#tokenrevoke) |
 | Requests answered 4xx/5xx are generally not charged; deletes are free; general network egress $0.12/GiB | Negative cases cost nothing; egress ≈ 2 MiB per run | [pricing](https://cloud.google.com/storage/pricing) |
 
+The rows marked "client source 2.60.0" hold for the approved commit only while it pins google-cloud-storage
+2.60.0 (dependabot #485 proposes 2.75.0). Another client version reopens those rows and the request-shape test
+before a live run.
+
 ## 4. Corrections
 
 ### 4.1 To the first version of this plan
@@ -77,6 +81,18 @@ Read from Google documentation on 2026-10-22; the run confirms or refutes each o
 | Lien and project deletion guarded only by a shell variable | `scripts/n02-gcs-acceptance-op.sh` records project number, creation time, labels and the lien baseline and checks them before every destructive step; the project is deleted by number |
 | Project-level and billing changes were not listed | Inventory with permissions in §7.4 |
 
+### 4.3 After the re-review of b36115fd
+
+| Finding | Change |
+|---------|--------|
+| Cleanup could never finish against real gcloud: a recursive listing prints the bucket itself, and `rm` without `--recursive` fails when nothing matches | Generations are counted from the JSON listing (`cloud_object` entries only); `rm` runs only when there are some; the stub gcloud now behaves like 590.0.0 |
+| A failed bucket describe counted as "gone"; the lien and project could go while a bucket remained | Buckets come only from a successful listing; every bucket and the lien baseline are checked before anything is deleted; the listing must be empty before the lien and the project |
+| A failure after the irreversible bucket left provisioning stuck | `provision` resumes on the recorded project and creates only what is missing; 60 s wait after creating service accounts, bounded retries for roles and bindings, polling for the lien |
+| Only `run` was pinned to the approved commit; other gcloud overrides were not refused | `provision`, `verify`, `run` and `cleanup` require `N02_APPROVED_SHA` = HEAD and log it; every `CLOUDSDK_*` variable except `CLOUDSDK_CONFIG` is refused |
+| An answer that changed nothing could count as a refusal or as a violation | A violation needs a changed (or unreadable) Locked generation, whatever the answer; an accepted answer without effect is inconclusive; K8c is a same-shape positive control, and K8/K9 become measurements when the provider does not apply generation-addressed retention changes |
+| Retry convergence only covered the resumable path | S5s: a lost response after the checkpoint object committed; the next call takes a new sequence and the frontier covers both |
+| L5 inserts bypassed the write ledger; a forced verdict could hide a violation; the endpoint lookup made one ungated request | Fixed; library versions recorded |
+
 ## 5. Cases
 
 Live evidence unless marked. Every write and read uses the adapter; probes are raw client calls.
@@ -93,15 +109,16 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | H1 | writer | 205 sequential writes (1.1 s apart) get strictly increasing generations |
 | H2 | reader | `versionCount`, `oldest`, `allVersions` see all 205 across ≥ 3 pages each; every generation holds its own write |
 | H3 | reader | Transport paging at 32 per page: same set, no duplicates, ≥ 7 pages; prefix key listing complete |
-| C1 | writer | 8 writers released together on one name, each puts then reads the canonical version: ≥ 2 committed (else a fresh round, at most three), every listed generation accounted for, all writers read the same canonical generation, it is the lowest listed, exactly one writer reads its own |
+| C1 | writer | 8 writers released together on one name (contention through the adapter's resends), each puts then reads the canonical version: ≥ 2 committed (else a fresh round, at most three), every listed generation accounted for, all writers read the same canonical generation, it is the lowest listed, exactly one writer reads its own; first-send commits and commit spread recorded |
 | C2 | writer | An identical body twice gives two generations; the first stays canonical |
 | T1 | writer | 10 back-to-back writes to one name through the adapter all complete; the provider's 429s are counted |
 | S1–S3 | writer | Store put: COMPLIANCE receipt on the canonical generation; identical retry settles without a write; different body is a conflict without a write |
 | S4 | writer | Response lost **after** the provider committed the record: not durable before the frontier covers it; the retry settles on that generation without a second write |
 | S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier) |
 | S5r | writer | Retry convergence: after a failed S5, unpaced retries must converge; after a passing S5, the response to the next reservation marker is lost after commit and the next call must fill that reservation; no gap, no abandoned reservation |
+| S5s | writer | After a passing S5: the response to the checkpoint object itself is lost after commit (no resume path, #365 finding 3); the next call takes a new sequence, the frontier covers both, sequences consumed recorded |
 | S5b | writer | Diagnostic, only after a failed S5: one call with writes to one name spaced 1.1 s. Never counts as a pass |
-| S6 | writer | Further records converge under the per-object limit; frontier history recorded |
+| S6 | writer | A further record converges under the per-object limit; frontier history recorded |
 | V1 | reader | Local verifier over the live store: ACCEPT_ISOLATED, no gaps, no abandoned reservations, boundary = highest sequence (local verifier, live bytes) |
 | V2 | reader | Exported bundle verifies with the identical verdict; bundle and SHA-256 kept (local verifier, live bytes) |
 | L1 | reader | Write with retention refused 403; nothing created |
@@ -111,14 +128,17 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | K1–K5 | probe-admin | Locked: shorten, remove, switch to Unlocked, delete live, delete noncurrent — all refused, state unchanged |
 | K6 | probe-admin | Positive control: Locked retain-until extended by 60 s |
 | K7 | probe-admin | A record the store published under COMPLIANCE cannot be deleted |
-| K8, K9 | probe-admin | A PATCH addressed to the noncurrent Locked generation cannot shorten or remove its retention |
+| K8c | probe-admin | Measurement and positive control for K8/K9: a PATCH addressed to the noncurrent Locked generation extends its retention by 60 s |
+| K8, K9 | probe-admin | A PATCH addressed to the noncurrent Locked generation cannot shorten or remove its retention. If K8c showed the provider does not apply addressed retention changes, K8/K9 are measurements that still require an unchanged generation |
 | G1–G4 | probe-admin | GOVERNANCE: delete refused; shorten without override refused; with override shortened, removed, then deleted |
 | G5 | probe-admin, writer | Positive control for L3: after the admin removes GOVERNANCE retention, the writer deletes the generation |
 
 A refusal counts only with an explicit refusal code (403 for deletes and inserts; 400 or 403 for retention
-patches) **and** an unchanged generation; anything else is an ERROR, never a pass. An accepted change of a
-Locked generation stops the run at once (`lockedMutationAccepted`, exit code 5) and the operation is not
-repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
+patches, whose positive controls K6, G3, G4 and K8c use the same request shapes) **and** an unchanged
+generation; an accepted answer that changes nothing, or any other code, is an ERROR, never a pass. Any change
+of a Locked generation (or a state that cannot be read back), whatever the provider answered, stops the run at
+once (`lockedMutationAccepted`, exit code 5) and the operation is not repeated (contingency route C,
+`n02-gcs-evidence-store-compatibility.md`).
 
 ## 6. Harness
 
@@ -138,7 +158,7 @@ repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
   `services/auth-service`, `buildSrc`, `platform`, `gradle`, `gradlew` and the root build files), an
   unknown SHA, a non-empty output directory. ADC must be a user login, workload identity federation or the
   metadata server; a service-account key (also as the source of an impersonation file) is refused.
-- Hard stops: 1,200 logical operations, 1,500 HTTP requests (storage requests, client retries and token
+- Hard stops: 1,500 logical operations, 1,800 HTTP requests (storage requests, client retries and token
   refreshes; the connection is refused before anything is sent), 360 generations and 40 COMPLIANCE
   generations that may exist (acknowledged, unanswered or in flight; reserved before the write), 45 min.
   After the deadline nothing is sent; a request in flight ends within its timeouts; a watchdog writes the
@@ -159,11 +179,12 @@ repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
 - Verdict: PASS only when every PREFLIGHT and ASSERTION case passed and nothing stopped the run;
   MEASUREMENT cases record a fact; DIAGNOSTIC cases never count. Exit codes: 0 PASS, 1 FAIL, 2 refused,
   3 ABORTED/INTERRUPTED, 4 ERROR, 5 FAIL with a safety violation. `countsFor483` is true only for a live PASS.
-- Local tests (not evidence): `GcsAcceptanceToolTest` (28: offline sequence with headroom, one case per
-  modelled provider defect (16), concealment, every cap, harness error, stop while blocked, inventory,
-  secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what the real client sends, resend,
-  generation-addressed PATCH, gate, keyless credentials), `GcsObjectRetentionBucketTest` (13) and
-  `scripts/test-n02-gcs-acceptance-op.sh` (44, fake gcloud). Mutation records: agent-tools evidence of #483.
+- Local tests (not evidence): `GcsAcceptanceToolTest` (31: offline sequence with headroom, one case per
+  modelled provider defect (17), not-applicable addressed PATCH, concealment, every cap, harness error, stop
+  while blocked, a stop never hides a violation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what the
+  real client sends, resend, generation-addressed PATCH, gate, keyless credentials),
+  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (60, a fake gcloud that
+  behaves like 590.0.0). Mutation records: agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
 
@@ -207,6 +228,7 @@ region (no replication charges).
 | Bucket | Test bucket: each account → its role; control bucket: `n02-reader` → `n02BucketMetadataReader` | `storage.buckets.getIamPolicy` / `setIamPolicy` (Owner via the default bucket binding) |
 | Service account | On each of the 4: the operator's user → `n02TokenMinter` (impersonation only) | `iam.serviceAccounts.getIamPolicy` / `setIamPolicy` (Owner) |
 | ADC (dedicated directory) | Quota project of the operator's ADC = this project | `serviceusage.services.use` (Owner) |
+| Read-only checks | List and describe billing accounts; bucket updates; list service-account keys | `billing.accounts.get/list` (Billing Account User); `storage.buckets.update` (Owner via the default bucket binding); `iam.serviceAccountKeys.list` (Owner) |
 
 | Custom role | Permissions |
 |-------------|-------------|
@@ -225,8 +247,10 @@ needs `storage.objects.list/delete`, `storage.buckets.delete`, `iam.serviceAccou
 ### 7.5 Credentials
 
 - Google Cloud CLI 590.0.0 is installed for the operator user from Google's Linux archive
-  (`google-cloud-cli-linux-x86_64.tar.gz`, SHA-256 `351ed4a2…8dd83f` as published on the install page,
-  `install.sh --path-update=false`); `sudo` is not available for the apt package.
+  (`google-cloud-cli-linux-x86_64.tar.gz`, SHA-256
+  `351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f` as published on the install page on
+  2026-10-22, `install.sh --path-update=false`); `sudo` is not available for the apt package. A reinstall
+  stops if the rapid channel has moved past 590.0.0 (the versioned archive has a different hash).
 - Everything runs with `CLOUDSDK_CONFIG=$HOME/.config/gcloud-parkio-n02-483`; the default `~/.config/gcloud`
   is never read or written, no configuration is created or activated, `core/project` stays unset and every
   command passes `--project`. google-auth-library reads ADC from the same directory.
@@ -234,9 +258,13 @@ needs `storage.objects.list/delete`, `storage.buckets.delete`, `iam.serviceAccou
   (before provisioning) and `gcloud auth application-default login --no-launch-browser` +
   `gcloud auth application-default set-quota-project parkio-n02-accept-5c2c7f` (after provisioning).
 - No step revokes a token (Google revokes the whole grant, which would also sign the account out of
-  gcloud/ADC elsewhere). `forget-credentials` deletes only the dedicated directory. The owner may revoke
-  "Google Cloud SDK" / "Google Auth Library" access in the Google account settings, knowing that it signs
-  out every other session of those clients.
+  gcloud/ADC elsewhere). `forget-credentials` deletes only the dedicated directory; deleting it does not
+  invalidate the tokens at Google.
+- The owner's Owner-level refresh tokens stay in that directory on this shared workstation until
+  `forget-credentials`. To keep the window short: `forget-credentials` right after the last `run`, and a fresh
+  `gcloud auth login` in the same directory for the cleanup, then `forget-credentials` again. If the account
+  uses gcloud/ADC nowhere else, the owner can also revoke "Google Cloud SDK" and "Google Auth Library" in the
+  Google account settings after the cleanup.
 
 ### 7.6 Synthetic data and limits
 
@@ -245,11 +273,11 @@ HMAC key generated in memory per run). Never production evidence, trust document
 
 | Per run | Cap | Offline plan |
 |---------|-----|--------------|
-| Logical operations | 1,200 | 870 (443 Class A, 378 Class B charged; 47 refused or throttled) |
-| HTTP requests (incl. retries, tokens) | 1,500 | ≈ 870 plus a few token requests |
-| Generations that may exist | 360 | 255 (229 GOVERNANCE, 24 COMPLIANCE, 2 unanswered) |
-| COMPLIANCE generations that may exist | 40 | 26 |
-| Wall clock | 45 min | ≈ 4.8 min of waits plus request latency |
+| Logical operations | 1,500 | 942 (487 Class A, 410 Class B charged; 46 refused or throttled) |
+| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 942 plus a few token requests |
+| Generations that may exist | 360 | 258 (229 GOVERNANCE, 26 COMPLIANCE, 3 unanswered) |
+| COMPLIANCE generations that may exist | 40 | 29 |
+| Wall clock | 45 min | ≈ 4.7 min of waits plus request latency |
 
 At most **two attempts** under this approval. An attempt counts once it has sent a write; an attempt that
 stops in the preflight (nothing written) does not count, and after three such stops the operator reports
@@ -272,8 +300,8 @@ instead of retrying. A second attempt only after a diagnosed failure.
 List prices read 2026-10-22, europe-west4 regional Standard: Class A $0.005 / 1,000, Class B
 $0.0004 / 1,000, storage $0.020 / GiB-month, egress $0.12 / GiB, deletes free, 4xx/5xx generally not charged.
 
-- Planned run: 445 × A + 378 × B ≈ $0.0024; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
-  ≈ **$0.003 per run**. At the caps (1,500 requests, all Class A, ≈ 150 MiB egress) ≈ $0.03 per run, two runs
+- Planned run: 487 × A + 410 × B ≈ $0.0026; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
+  ≈ **$0.003 per run**. At the caps (1,800 requests, all Class A, ≈ 150 MiB egress) ≈ $0.03 per run, two runs
   ≈ $0.06.
 - Stop rule (Cloud Billing cannot cap spend and its data lags by hours): the harness caps bound each
   run. Before a second attempt and before cleanup, check the latest billing report at gross cost (credits
@@ -283,39 +311,50 @@ $0.0004 / 1,000, storage $0.020 / GiB-month, egress $0.12 / GiB, deletes free, 4
 
 ### 7.9 Exact operation (after approval)
 
-All steps go through `scripts/n02-gcs-acceptance-op.sh` at the approved commit; state lives in
-`$HOME/parkio-n02-483/state` (never in the repository). Each step stops at the first failed check.
+All steps go through `scripts/n02-gcs-acceptance-op.sh` from a clean worktree at the approved commit;
+state lives in `$HOME/parkio-n02-483/state` (never in the repository). Each step stops at the first
+failed check.
 
 ```bash
 export CLOUDSDK_CONFIG="$HOME/.config/gcloud-parkio-n02-483" N02_GCLOUD="$HOME/google-cloud-sdk/bin/gcloud"
+export N02_APPROVED_SHA=<approved merge SHA>     # the clean worktree is checked out at this commit
 scripts/n02-gcs-acceptance-op.sh preflight      # read-only
 N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=<approved id> \
   scripts/n02-gcs-acceptance-op.sh provision    # creates, verifies, records number + lien baseline
-# owner: gcloud auth application-default login --no-launch-browser
-#        gcloud auth application-default set-quota-project parkio-n02-accept-5c2c7f
-N02_APPROVED_SHA=<approved merge SHA> scripts/n02-gcs-acceptance-op.sh run   # >= 7 min after provision
+# owner, interactive, same CLOUDSDK_CONFIG:
+#   "$N02_GCLOUD" auth application-default login --no-launch-browser
+#   "$N02_GCLOUD" auth application-default set-quota-project parkio-n02-accept-5c2c7f
+scripts/n02-gcs-acceptance-op.sh run            # >= 7 min after provision; again only after a diagnosed failure
+scripts/n02-gcs-acceptance-op.sh forget-credentials   # right after the last run
 ```
 
-`provision` refuses without the confirmation, with an unopened billing account, when its state already
-records a project, or when the project ID exists. `run` refuses another checkout than the approved SHA,
-IAM bindings younger than 7 minutes, ADC that is not a user login with this quota project, and a third
-counted attempt.
+Every command except `preflight` runs only from a checkout at `N02_APPROVED_SHA` and logs it. `provision`
+refuses without the confirmation, with an unopened billing account, or when the project ID exists without
+its own record; after a failure it resumes on the recorded project (same number, billing account and
+operator) and creates only what is missing, waiting 60 s after new service accounts and retrying roles and
+bindings. `run` refuses IAM bindings younger than 7 minutes, liens that differ from the recorded baseline,
+ADC that is not a user login with this quota project, and a third counted attempt.
 
 ### 7.10 Cleanup, ownership and latest time
 
 - **Earliest cleanup:** the latest `latestRetainUntil` over all attempts (an attempt without result:
-  its start + 2 h 45 min) + 5 min clock margin. **Latest expected cleanup:** the start of the last attempt
-  + 2 h 50 min; with both attempts on the same day the window closes that day.
+  its harness bound from `run.json`, else its start + 2 h 45 min) + 5 min clock margin. **Latest expected
+  cleanup:** the start of the last attempt + 2 h 50 min (an attempt that starts after about 21:10 local time
+  closes its window the next day).
 - **Owner of the cleanup:** the agent session that ran the operation, on the owner's go-ahead after
   the earliest cleanup time (no scheduled automation); if that session is gone, the owner runs the same
   commands from the same state directory.
-- `cleanup-status` is read-only. `cleanup` needs `N02_CONFIRM=cleanup-parkio-n02-accept-5c2c7f-<project
-  number>` and checks, in order: project ID, recorded number and creation time, ACTIVE, labels; only the two
-  approved buckets exist, each in this project and labelled; no generation is still retained. It then deletes
-  all generations and both buckets, the 4 service accounts and the 6 roles, the lien only when it is the
-  single lien identical to the recorded baseline (parent `projects/<number>`, restriction
-  `resourcemanager.projects.delete`, same origin and reason), and the project **by its number**.
-  It revokes nothing. `forget-credentials` then deletes the dedicated configuration directory.
+- Commands, after a fresh `gcloud auth login --no-launch-browser` in the same directory:
+  `scripts/n02-gcs-acceptance-op.sh cleanup-status`, then
+  `N02_CONFIRM=cleanup-parkio-n02-accept-5c2c7f-<project number> scripts/n02-gcs-acceptance-op.sh cleanup`,
+  then `scripts/n02-gcs-acceptance-op.sh forget-credentials`.
+- `cleanup-status` is read-only. `cleanup` needs that confirmation and, before deleting anything, checks: project ID, recorded number and creation time, ACTIVE,
+  labels; liens equal to the recorded baseline; only the two approved buckets (from a successful listing), each
+  in this project and labelled, with no generation still retained. It then deletes all generations (only when
+  some exist) and both buckets, requires the project's bucket listing to be empty, deletes the 4 service
+  accounts and the 6 roles, then the lien only when it is the single lien identical to the baseline (parent
+  `projects/<number>` or `projects/<id>`, restriction `resourcemanager.projects.delete`), and the project **by
+  its number**. A refused or interrupted cleanup can be run again. It revokes nothing.
 - Record in #483: verdict, `SHA256SUMS`, the empty listings, bucket and project deletion, lien status.
 
 ## 8. Findings for #365 (the live run confirms or refutes)
@@ -323,7 +362,7 @@ counted attempt.
 | # | Finding | Disposition |
 |---|---------|-------------|
 | 1 | Versioning was not checked at discovery; without it a rewrite of a retained name is refused and after expiry would replace history | Fixed in #491 (`requireObjectRetentionEnabled`) |
-| 2 | A store write refused with 429 was never sent again; under the per-object limit the two back-to-back frontier writes made every checkpoint fail, and each later call consumed a new sequence and left three retained generations | #492, fixed in #491 (adapter resends); confirmed or refuted live by S5/S5r/T1 |
+| 2 | A store write refused with 429 was never sent again; under the per-object limit the two back-to-back frontier writes made every checkpoint fail, and each later call consumed a new sequence and left three retained generations | #492, fixed in #491 (adapter resends); confirmed or refuted live by S5/S5r/S5s/T1. The resend waits up to 16.5 s per write while holding the store lock, on the request thread for records: bound the pause or fail fast to the retry worker before enablement (#365) |
 | 3 | `publishCheckpoint` has no resume path for a published but uncovered checkpoint; every call writes the frontier twice | Open under #365 (design); harmless while #492's resend holds |
 | 4 | A versioned overwrite needs `storage.objects.delete`, so the production writer holds delete; retention, not IAM, protects evidence | L2 measures, L3 + G5 prove; production role decision under #365 |
 | 5 | Unbounded `listAll` pagination | #493, open; blocks enablement |
