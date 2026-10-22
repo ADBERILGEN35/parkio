@@ -13,9 +13,9 @@
 #                    creation it started) and creates only what is missing
 #   verify           read-only: the provisioned configuration, IAM policies and lien match the record
 #   run              one harness attempt (at most two counted)
-#   record-liens     after the owner reviewed it, records the project's single project-deletion lien
-#                    as the baseline: a lien Google placed late. Writes local state only
-#   cleanup-status   read-only: earliest cleanup time and what still exists
+#   record-liens     after the owner reviewed it (cleanup-status shows it), records the project's single
+#                    project-deletion lien as the baseline: a lien Google placed late. Local state only
+#   cleanup-status   read-only: earliest cleanup time and what still exists, each lien in full
 #   cleanup          after the retain-until: delete objects, buckets, service accounts, roles, the
 #                    Object Retention Lock lien and the project, each after identity checks; it can
 #                    be run again after a refusal or an interruption. Once it has deleted anything,
@@ -24,7 +24,7 @@
 #
 # provision, verify, run, record-liens and cleanup run only from a checkout at N02_APPROVED_SHA whose
 # copy of this script is unmodified. Changing commands also need N02_CONFIRM: provision
-# "provision-<project>", record-liens "record-liens-<project>-<project number>", cleanup
+# "provision-<project>", record-liens "record-liens-<project>-<project number>-<lien id>", cleanup
 # "cleanup-<project>-<project number>". Google places the project-deletion lien at best effort;
 # if none appears, provision records that and stops, and going on needs the owner's N02_ACCEPT_NO_LIEN=1.
 # No command revokes OAuth tokens: Google revokes the whole grant of a client, which would also sign
@@ -488,6 +488,7 @@ cmd_run() {
   require_isolation
   local root attempts n out adc bound rc stamp
   root="$(require_approved_checkout)"
+  [ ! -e "$(state_file cleanup-started)" ] || die "cleanup has started; no further attempts"
   require_project_identity
   require_lien_baseline
   bound="$(recorded iam-bound-at)"
@@ -567,6 +568,8 @@ cmd_cleanup_status() {
   file="$(mktemp)"
   liens_to "${file}"
   say "liens: $(json "${file}" 'len(d)'); recorded after Object Retention Lock: $(json "$(state_file liens-after-orl.json)" 'len(d)' 2>/dev/null || echo none)"
+  # In full, for the owner's review before record-liens.
+  json "${file}" '"\n".join("lien " + l["name"] + " origin=" + str(l.get("origin", "")) + " reason=" + str(l.get("reason", "")) + " parent=" + str(l.get("parent", "")) + " restrictions=" + ",".join(l.get("restrictions", [])) + " created=" + str(l.get("createTime", "")) for l in d)'
   rm -f "${file}"
 }
 
@@ -669,7 +672,6 @@ cmd_record_liens() {
   local number file count lien
   number="$(recorded project-number)"
   [ -n "${number}" ] || die "no provisioning record in ${STATE}"
-  [ "${N02_CONFIRM:-}" = "record-liens-${PROJECT_ID}-${number}" ] || die "N02_CONFIRM must be record-liens-${PROJECT_ID}-${number}"
   require_project_identity
   file="$(mktemp)"
   liens_to "${file}"
@@ -682,6 +684,9 @@ cmd_record_liens() {
   esac
   [ "$(json "${file}" 'd[0].get("restrictions", [])')" = '["resourcemanager.projects.delete"]' ] \
     || die "the lien ${lien} restricts more than project deletion"
+  # The confirmation names the lien the owner reviewed (cleanup-status shows it in full).
+  [ "${N02_CONFIRM:-}" = "record-liens-${PROJECT_ID}-${number}-${lien#liens/}" ] \
+    || die "N02_CONFIRM must be record-liens-${PROJECT_ID}-${number}-${lien#liens/} after reviewing that lien (cleanup-status)"
   log_command record-liens
   cp "${file}" "$(state_file liens-after-orl.json)"
   rm -f "$(state_file lien-absent)" "${file}"

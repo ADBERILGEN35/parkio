@@ -402,8 +402,13 @@ expect_stop "a lien appearing during cleanup stops it at the lien step" "record-
 expect_stop "provision refuses once cleanup has started" "cleanup has started" env N02_ACCEPT_NO_LIEN=1 \
   N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=ABCDEF-123456-7890AB bash "${OP}" provision
 [ "$(cloud 'len(s["buckets"]) + len(s["accounts"])')" = "0" ] && ok "a refused provision re-created nothing" || bad "provision re-created resources"
-RECORD="record-liens-parkio-n02-accept-5c2c7f-123456789012"
+expect_stop "run refuses once cleanup has started" "no further attempts" bash "${OP}" run
+status="$(bash "${OP}" cleanup-status 2>&1 || true)"
+grep -q 'lien liens/p123456789012-orl origin=storage.googleapis.com reason=Object retention is enabled on a bucket parent=projects/123456789012 restrictions=resourcemanager.projects.delete' <<<"${status}" \
+  && ok "cleanup-status shows each lien in full for review" || bad "cleanup-status lien details: ${status}"
+RECORD="record-liens-parkio-n02-accept-5c2c7f-123456789012-p123456789012-orl"
 expect_stop "record-liens needs its confirmation" "N02_CONFIRM must be record-liens-" bash "${OP}" record-liens
+expect_stop "record-liens confirmation names the reviewed lien" "after reviewing that lien" env N02_CONFIRM="record-liens-parkio-n02-accept-5c2c7f-123456789012-other" bash "${OP}" record-liens
 fake 's["liens"].append({"name": "liens/other", "parent": "projects/123456789012", "origin": "someone", "reason": "keep", "restrictions": ["resourcemanager.projects.delete"]})'
 expect_stop "record-liens refuses more than one lien" "records exactly one" env N02_CONFIRM="${RECORD}" bash "${OP}" record-liens
 fake 's["liens"] = [l for l in s["liens"] if l["name"] != "liens/other"]; s["liens"][0]["parent"] = "projects/999999999999"'
