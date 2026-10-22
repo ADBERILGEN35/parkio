@@ -95,6 +95,7 @@ final class GcsAcceptanceLedger {
     private final Map<Long, PendingWrite> pending = new TreeMap<>();
     private final List<UnresolvedWrite> unresolved = new ArrayList<>();
     private final Map<String, String> violations = new TreeMap<>();
+    private final Map<String, String> unverifiedLockedChanges = new TreeMap<>();
     private final List<Map<String, Object>> deleted = new ArrayList<>();
     private final List<CaseResult> cases = new ArrayList<>();
     private final ThreadLocal<Failure> lastFailure = new ThreadLocal<>();
@@ -298,6 +299,20 @@ final class GcsAcceptanceLedger {
 
     synchronized Map<String, String> violations() {
         return Map.copyOf(violations);
+    }
+
+    /**
+     * An accepted forbidden change of Locked retention whose effect is unknown because the run stopped
+     * before it was read back. Nothing shows a change, so it is no violation, but the result lists it and
+     * the generation is inspected before the operation is repeated.
+     */
+    synchronized void unverifiedLockedChange(String target, String detail) {
+        unverifiedLockedChanges.putIfAbsent(target, sanitize(detail));
+        journal("unverified-locked-change", Map.of("target", target, "detail", sanitize(detail)));
+    }
+
+    synchronized Map<String, String> unverifiedLockedChanges() {
+        return Map.copyOf(unverifiedLockedChanges);
     }
 
     /** Records a retention change about to be sent (an extension can move the cleanup time). */

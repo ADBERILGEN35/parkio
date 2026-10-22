@@ -208,6 +208,7 @@ class GcsAcceptanceToolTest {
         assertThat(status(outcome, "K1")).isEqualTo("ERROR");
         assertThat(outcome.verdict()).isEqualTo("ABORTED");
         assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(map(outcome.document().get("unverifiedLockedChanges"))).hasSize(probeAccepted ? 1 : 0);
         assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(3);
     }
 
@@ -261,6 +262,46 @@ class GcsAcceptanceToolTest {
 
         assertThat(status(outcome, "K1")).isEqualTo("PASS");
         assertThat(status(outcome, "K2")).isEqualTo("ERROR");
+    }
+
+    @Test
+    void anUnreadableStateAfterTheAllowedK8cExtensionIsInconclusive() {
+        OfflineGcsAcceptanceProvider offline = offline(Set.of());
+        AtomicBoolean armed = new AtomicBoolean();
+        AtomicInteger failReads = new AtomicInteger();
+        GcsAcceptanceProvider flaky = new DelegatingProvider(offline) {
+            @Override
+            public RetentionProbe probe(Identity identity) {
+                return new DelegatingProbe(super.probe(identity)) {
+                    @Override
+                    public ProbeOutcome setRetentionOfGeneration(String bucket, String name, long generation,
+                                                                 EvidenceRetentionMode mode, Instant retainUntil,
+                                                                 boolean override) {
+                        ProbeOutcome outcome = super.setRetentionOfGeneration(bucket, name, generation, mode,
+                                retainUntil, override);
+                        if (identity == Identity.PROBE_ADMIN && !override && armed.compareAndSet(false, true)) {
+                            failReads.set(2);
+                        }
+                        return outcome;
+                    }
+
+                    @Override
+                    public GenerationState state(String bucket, String name, long generation) {
+                        if (failReads.getAndUpdate(n -> Math.max(0, n - 1)) > 0) {
+                            throw new StorageException(503, "backend error");
+                        }
+                        return super.state(bucket, name, generation);
+                    }
+                };
+            }
+        };
+
+        Outcome outcome = run(flaky, offline.clock()).execute();
+
+        assertThat(status(outcome, "K8c")).isEqualTo("ERROR");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(outcome.verdict()).isEqualTo("FAIL");
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(1);
     }
 
     /** Fails the next generation reads after the first Locked PATCH with override, which is K1's. */

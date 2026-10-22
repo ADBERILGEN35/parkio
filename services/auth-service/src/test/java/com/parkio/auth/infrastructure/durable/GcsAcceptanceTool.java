@@ -422,6 +422,7 @@ public final class GcsAcceptanceTool {
                 document.put("note", note);
             }
             document.put("violations", ledger.violations());
+            document.put("unverifiedLockedChanges", ledger.unverifiedLockedChanges());
             document.put("criteria", criteriaStatus(ledger));
             document.put("checkpointUnderThrottling", cases.checkpointFacts());
             Map<String, Object> runtime = new LinkedHashMap<>();
@@ -674,6 +675,10 @@ public final class GcsAcceptanceTool {
                 + document.get("countsFor483"));
         if (!((Map<String, Object>) document.get("violations")).isEmpty()) {
             out.println("SAFETY VIOLATION, do not repeat the operation: " + document.get("violations"));
+        }
+        if (!((Map<String, Object>) document.get("unverifiedLockedChanges")).isEmpty()) {
+            out.println("UNVERIFIED accepted Locked change, inspect the generation before repeating: "
+                    + document.get("unverifiedLockedChanges"));
         }
         out.println("checkpointUnderThrottling=" + document.get("checkpointUnderThrottling"));
         Map<String, Object> criteria = (Map<String, Object>) document.get("criteria");

@@ -1217,7 +1217,7 @@ final class GcsAcceptanceCases {
                             settings.bucket(), first.name(), first.generation(), EvidenceRetentionMode.COMPLIANCE,
                             extended, false));
                     ev.put("outcome", outcome(outcome));
-                    GenerationState after = readBack(first, before, outcome, PATCH, ev);
+                    GenerationState after = readBack(first, before, outcome, PATCH, false, ev);
                     ev.put("after", state(after));
                     if (!after.exists() || after.mode() != EvidenceRetentionMode.COMPLIANCE || after.retainUntil() == null
                             || after.retainUntil().isBefore(first.retainUntil())) {
@@ -1588,7 +1588,7 @@ final class GcsAcceptanceCases {
         ev.put("target", target.name() + "#" + target.generation());
         ev.put("before", state(before));
         ev.put("outcome", outcome(outcome));
-        GenerationState after = readBack(target, before, outcome, operation, ev);
+        GenerationState after = readBack(target, before, outcome, operation, true, ev);
         ev.put("after", state(after));
         boolean unchanged = before.exists() == after.exists() && before.mode() == after.mode()
                 && Objects.equals(before.retainUntil(), after.retainUntil());
@@ -1623,24 +1623,28 @@ final class GcsAcceptanceCases {
     /**
      * The generation after a probe. A stopping run is passed on (nothing is known about the target, so it is
      * no violation); any other read failure is retried once. If the state still cannot be read, an accepted
-     * probe of a Locked generation is a violation (the provider claims a forbidden change) and anything
-     * else is inconclusive.
+     * forbidden change of a Locked generation is a violation (the provider claims to have made it); an
+     * allowed change (K8c's extension) or a refused probe is inconclusive.
      */
     private GenerationState readBack(Gen target, GenerationState before, ProbeOutcome outcome, String operation,
-                                     Map<String, Object> ev) {
+                                     boolean forbidden, Map<String, Object> ev) {
         RuntimeException failure = null;
         for (int read = 1; read <= 2; read++) {
             try {
                 return state(target);
             } catch (RuntimeException ex) {
                 if (ledger.aborted() || stopped(ex)) {
+                    if (forbidden && outcome.accepted() && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
+                        ledger.unverifiedLockedChange(target.name() + "#" + target.generation(), operation
+                                + " was accepted and the run stopped before its effect was read back");
+                    }
                     throw ex;
                 }
                 failure = ex;
             }
         }
         ev.put("afterUnreadable", GcsAcceptanceLedger.sanitize(failure.getClass().getSimpleName()));
-        if (outcome.accepted() && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
+        if (forbidden && outcome.accepted() && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
             ledger.violation("lockedMutationAccepted", operation + " was accepted on the Locked generation "
                     + target.name() + "#" + target.generation() + " and its state cannot be read back");
             throw new CaseFailure("an accepted change of a Locked generation cannot be verified");
