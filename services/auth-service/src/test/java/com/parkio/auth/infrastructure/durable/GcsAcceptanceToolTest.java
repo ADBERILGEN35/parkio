@@ -11,7 +11,10 @@ import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.CaseResult;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Caps;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Kind;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Status;
+import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.GenerationState;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.Identity;
+import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.ProbeOutcome;
+import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.RetentionProbe;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceTool.LiveConfig;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceTool.Outcome;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceTool.Recorder;
@@ -38,13 +41,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The #483 harness itself, against the offline model only: the approved sequence passes with
@@ -133,6 +140,7 @@ class GcsAcceptanceToolTest {
 
         String caseId = switch (defect) {
             case LOCKED_RETENTION_SHORTENABLE, LOCKED_REFUSAL_AS_408, LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT -> "K1";
+            case GENERATION_PATCH_UNAVAILABLE, GENERATION_PATCH_CLEARS_RETENTION -> "K8c";
             case GENERATION_PATCH_IGNORED -> throw new IllegalStateException("not a failing defect");
             case RETAINED_DELETABLE -> "K4";
             case NONCURRENT_LOCKED_SHORTENABLE -> "K8";
@@ -148,9 +156,9 @@ class GcsAcceptanceToolTest {
         };
         boolean preflight = caseId.startsWith("F");
         boolean inconclusive = caseId.equals("F6") || defect == Defect.LOCKED_REFUSAL_AS_408
-                || defect == Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT;
+                || defect == Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT || defect == Defect.GENERATION_PATCH_UNAVAILABLE;
         boolean violation = Set.of(Defect.LOCKED_RETENTION_SHORTENABLE, Defect.RETAINED_DELETABLE,
-                Defect.NONCURRENT_LOCKED_SHORTENABLE).contains(defect);
+                Defect.NONCURRENT_LOCKED_SHORTENABLE, Defect.GENERATION_PATCH_CLEARS_RETENTION).contains(defect);
         assertThat(status(outcome, caseId)).isEqualTo(inconclusive ? "ERROR" : "FAIL");
         assertThat(outcome.verdict()).isEqualTo(preflight ? "ABORTED" : "FAIL");
         assertThat(outcome.document().get("countsFor483")).isEqualTo(false);
@@ -167,6 +175,124 @@ class GcsAcceptanceToolTest {
             assertThat(cleanupInventory(outcome)).extracting(entry -> map(entry).get("case") + "/" + map(entry).get("mode"))
                     .contains("L5/none");
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aStopDuringALockedProbeIsNotAViolation(boolean probeAccepted) {
+        OfflineGcsAcceptanceProvider offline = offline(probeAccepted
+                ? Set.of(Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT) : Set.of());
+        GcsAcceptanceLedger ledger = new GcsAcceptanceLedger(offline.clock(), Caps.APPROVED);
+        GcsAcceptanceProvider stopping = new DelegatingProvider(offline) {
+            @Override
+            public RetentionProbe probe(Identity identity) {
+                RetentionProbe probe = super.probe(identity);
+                if (identity != Identity.PROBE_ADMIN) {
+                    return probe;
+                }
+                return new DelegatingProbe(probe) {
+                    @Override
+                    public ProbeOutcome setRetention(String bucket, String name, long liveGeneration,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+                        ProbeOutcome outcome = super.setRetention(bucket, name, liveGeneration, mode, retainUntil,
+                                override);
+                        ledger.abort("test stop while K1 was in flight");
+                        return outcome;
+                    }
+                };
+            }
+        };
+
+        Outcome outcome = new Run(stopping, ledger, config(), CLEAN, null, null).execute();
+
+        assertThat(status(outcome, "K1")).isEqualTo("ERROR");
+        assertThat(outcome.verdict()).isEqualTo("ABORTED");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(3);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 1, PASS, PASS, 0", "false, 2, ERROR, FAIL, 1", "true, 2, FAIL, FAIL, 5"})
+    void aFailedReadBackIsRetriedOnceAndIsAViolationOnlyForAnAcceptedLockedChange(
+            boolean probeAccepted, int failedReads, String k1, String verdict, int exitCode) {
+        OfflineGcsAcceptanceProvider offline = offline(probeAccepted
+                ? Set.of(Defect.LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT) : Set.of());
+
+        Outcome outcome = run(failingReadsAfterK1(offline, failedReads), offline.clock()).execute();
+
+        assertThat(status(outcome, "K1")).isEqualTo(k1);
+        assertThat(outcome.verdict()).isEqualTo(verdict);
+        assertThat(map(outcome.document().get("violations")).keySet())
+                .isEqualTo(exitCode == 5 ? Set.of("lockedMutationAccepted") : Set.of());
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(exitCode);
+    }
+
+    @Test
+    void aRefusalOfAProbeOnAGenerationThatWasNotThereIsInconclusive() {
+        OfflineGcsAcceptanceProvider offline = offline(Set.of());
+        AtomicLong k1Target = new AtomicLong(-1);
+        AtomicInteger readsOfTarget = new AtomicInteger();
+        GcsAcceptanceProvider vanishing = new DelegatingProvider(offline) {
+            @Override
+            public RetentionProbe probe(Identity identity) {
+                return new DelegatingProbe(super.probe(identity)) {
+                    @Override
+                    public ProbeOutcome setRetention(String bucket, String name, long liveGeneration,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+                        if (identity == Identity.PROBE_ADMIN && mode == EvidenceRetentionMode.COMPLIANCE && override) {
+                            k1Target.compareAndSet(-1, liveGeneration);
+                        }
+                        return super.setRetention(bucket, name, liveGeneration, mode, retainUntil, override);
+                    }
+
+                    @Override
+                    public GenerationState state(String bucket, String name, long generation) {
+                        // K1's read-back still finds its target; from K2 on the reader does not.
+                        if (generation == k1Target.get() && readsOfTarget.getAndIncrement() >= 1) {
+                            return GenerationState.absent();
+                        }
+                        return super.state(bucket, name, generation);
+                    }
+                };
+            }
+        };
+
+        Outcome outcome = run(vanishing, offline.clock()).execute();
+
+        assertThat(status(outcome, "K1")).isEqualTo("PASS");
+        assertThat(status(outcome, "K2")).isEqualTo("ERROR");
+    }
+
+    /** Fails the next generation reads after the first Locked PATCH with override, which is K1's. */
+    private static GcsAcceptanceProvider failingReadsAfterK1(OfflineGcsAcceptanceProvider offline, int failures) {
+        AtomicBoolean armed = new AtomicBoolean();
+        AtomicInteger failReads = new AtomicInteger();
+        return new DelegatingProvider(offline) {
+            @Override
+            public RetentionProbe probe(Identity identity) {
+                return new DelegatingProbe(super.probe(identity)) {
+                    @Override
+                    public ProbeOutcome setRetention(String bucket, String name, long liveGeneration,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+                        ProbeOutcome outcome = super.setRetention(bucket, name, liveGeneration, mode, retainUntil,
+                                override);
+                        if (identity == Identity.PROBE_ADMIN && mode == EvidenceRetentionMode.COMPLIANCE && override
+                                && armed.compareAndSet(false, true)) {
+                            failReads.set(failures);
+                        }
+                        return outcome;
+                    }
+
+                    @Override
+                    public GenerationState state(String bucket, String name, long generation) {
+                        if (failReads.getAndUpdate(n -> Math.max(0, n - 1)) > 0) {
+                            throw new StorageException(503, "backend error");
+                        }
+                        return super.state(bucket, name, generation);
+                    }
+                };
+            }
+        };
     }
 
     @Test
@@ -461,6 +587,58 @@ class GcsAcceptanceToolTest {
 
     private static CaseResult result(String id, Kind kind, Status status) {
         return new CaseResult(id, id, kind, Identity.WRITER, status, "", Map.of(), START, 0, Map.of());
+    }
+
+    /** Passes every probe call through; tests override one method to inject a failure. */
+    private static class DelegatingProbe implements GcsAcceptanceProvider.RetentionProbe {
+
+        private final GcsAcceptanceProvider.RetentionProbe delegate;
+
+        DelegatingProbe(GcsAcceptanceProvider.RetentionProbe delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public GcsAcceptanceProvider.BucketSnapshot bucket(String bucket) {
+            return delegate.bucket(bucket);
+        }
+
+        @Override
+        public GenerationState state(String bucket, String name, long generation) {
+            return delegate.state(bucket, name, generation);
+        }
+
+        @Override
+        public ProbeOutcome setRetention(String bucket, String name, long liveGeneration, EvidenceRetentionMode mode,
+                                         Instant retainUntil, boolean override) {
+            return delegate.setRetention(bucket, name, liveGeneration, mode, retainUntil, override);
+        }
+
+        @Override
+        public ProbeOutcome clearRetention(String bucket, String name, long liveGeneration, boolean override) {
+            return delegate.clearRetention(bucket, name, liveGeneration, override);
+        }
+
+        @Override
+        public ProbeOutcome setRetentionOfGeneration(String bucket, String name, long generation,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+            return delegate.setRetentionOfGeneration(bucket, name, generation, mode, retainUntil, override);
+        }
+
+        @Override
+        public ProbeOutcome clearRetentionOfGeneration(String bucket, String name, long generation, boolean override) {
+            return delegate.clearRetentionOfGeneration(bucket, name, generation, override);
+        }
+
+        @Override
+        public ProbeOutcome delete(String bucket, String name, long generation) {
+            return delegate.delete(bucket, name, generation);
+        }
+
+        @Override
+        public ProbeOutcome insertWithoutRetention(String bucket, String name, byte[] bytes) {
+            return delegate.insertWithoutRetention(bucket, name, bytes);
+        }
     }
 
     /** Passes everything to the offline model; tests override one method to inject a harness failure. */

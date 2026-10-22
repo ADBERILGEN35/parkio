@@ -58,7 +58,11 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         /** A PATCH addressed to a generation answers 200 and changes nothing (the shape does not apply). */
         GENERATION_PATCH_IGNORED,
         /** A refused change of Locked retention on the live object answers 200 instead of a refusal. */
-        LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT
+        LOCKED_CHANGE_ACCEPTED_WITHOUT_EFFECT,
+        /** A PATCH addressed to a generation answers 503. */
+        GENERATION_PATCH_UNAVAILABLE,
+        /** A PATCH addressed to a generation removes its retention instead of applying the request. */
+        GENERATION_PATCH_CLEARS_RETENTION
     }
 
     static final String PROJECT_NUMBER = "100000000001";
@@ -536,6 +540,14 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     return refused(429, "rateLimitExceeded", ex.getMessage());
                 }
                 if (defects.contains(Defect.GENERATION_PATCH_IGNORED)) {
+                    return ProbeOutcome.ok();
+                }
+                if (defects.contains(Defect.GENERATION_PATCH_UNAVAILABLE)) {
+                    return refused(503, "backendError", "Service Unavailable");
+                }
+                if (defects.contains(Defect.GENERATION_PATCH_CLEARS_RETENTION)) {
+                    target.get().mode = null;
+                    target.get().retainUntil = null;
                     return ProbeOutcome.ok();
                 }
                 return change.apply(target.get());

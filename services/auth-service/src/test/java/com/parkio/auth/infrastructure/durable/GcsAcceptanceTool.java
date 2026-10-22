@@ -308,7 +308,8 @@ public final class GcsAcceptanceTool {
         long delay = Duration.between(Instant.now(), ledger.deadline().plus(WATCHDOG_GRACE)).toMillis();
         watchdog.schedule(() -> {
             recorder.stop(run, "ABORTED", "the wall-clock cap and its grace passed; written by the watchdog");
-            System.exit(3);
+            Outcome written = recorder.written();
+            System.exit(written == null ? 3 : exitCode(written));
         }, Math.max(0, delay), TimeUnit.MILLISECONDS);
         try {
             return recorder.finish(run.execute());
@@ -474,6 +475,7 @@ public final class GcsAcceptanceTool {
         private final Duration grace;
         private final AtomicBoolean claimed = new AtomicBoolean();
         private final CountDownLatch written = new CountDownLatch(1);
+        private volatile Outcome writtenOutcome;
 
         private Recorder(Path output, String resultName, GcsAcceptanceJournal journal, Duration grace) {
             this.output = output;
@@ -511,10 +513,16 @@ public final class GcsAcceptanceTool {
                 journal.append("finish", Map.of("verdict", outcome.verdict()));
                 journal.close();
                 writeFiles(output, resultName, outcome);
+                writtenOutcome = outcome;
             } finally {
                 written.countDown();
             }
             return outcome;
+        }
+
+        /** The outcome in the written result, or null while none is written. */
+        Outcome written() {
+            return writtenOutcome;
         }
 
         /** From the shutdown hook or the watchdog: stop the run and write what it has, unless already written. */

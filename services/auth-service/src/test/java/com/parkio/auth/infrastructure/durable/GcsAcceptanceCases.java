@@ -929,8 +929,8 @@ final class GcsAcceptanceCases {
         ev.put("retriedSequence", retried.sequence());
         ev.put("sequencesConsumed", retried.sequence() - next + 1);
         ev.put("filledReservation", retried.filledReservation());
-        if (retried.sequence() <= next) {
-            throw new CaseFailure("the retry reused sequence " + retried.sequence() + " whose checkpoint was published");
+        if (storeBucket(Identity.READER).oldest(DurableErasureEvidence.checkpointKey(next)).isEmpty()) {
+            throw new CaseFailure("the checkpoint published by the failed call is gone");
         }
         checkpointSequence = retried.sequence();
         requireConverged(retried.sequence(), ev);
@@ -1212,22 +1212,31 @@ final class GcsAcceptanceCases {
                     Gen first = require(complianceFirst, "P2");
                     Instant extended = first.retainUntil().plus(EXTEND_BY);
                     ledger.retentionRequested(first.name(), first.generation(), extended);
+                    GenerationState before = state(first);
                     ProbeOutcome outcome = mutate(Identity.PROBE_ADMIN, PATCH, probe -> probe.setRetentionOfGeneration(
                             settings.bucket(), first.name(), first.generation(), EvidenceRetentionMode.COMPLIANCE,
                             extended, false));
-                    GenerationState after = state(first);
-                    boolean applied = outcome.accepted() && after.mode() == EvidenceRetentionMode.COMPLIANCE
-                            && extended.equals(after.retainUntil());
                     ev.put("outcome", outcome(outcome));
+                    GenerationState after = readBack(first, before, outcome, PATCH, ev);
                     ev.put("after", state(after));
+                    if (!after.exists() || after.mode() != EvidenceRetentionMode.COMPLIANCE || after.retainUntil() == null
+                            || after.retainUntil().isBefore(first.retainUntil())) {
+                        ledger.violation("lockedMutationAccepted", "the extension request left the Locked generation "
+                                + first.name() + "#" + first.generation() + " deleted, unlocked or shorter");
+                        throw new CaseFailure("the Locked generation was deleted, unlocked or shortened");
+                    }
+                    boolean applied = outcome.accepted() && extended.equals(after.retainUntil());
+                    boolean unchanged = Objects.equals(before.retainUntil(), after.retainUntil());
+                    boolean definite = outcome.accepted() || outcome.code() == 400 || outcome.code() == 403;
+                    if (!applied && !(definite && unchanged)) {
+                        throw new IllegalStateException("inconclusive control: HTTP " + outcome.code() + " "
+                                + outcome.reason());
+                    }
                     ev.put("generationAddressedRetentionApplied", applied);
                     generationPatchApplies = applied;
                     if (applied) {
                         ledger.extendRetainUntil(first.name(), first.generation(), extended);
                         complianceFirst = new Gen(first.name(), first.generation(), first.body(), extended);
-                    } else if (after.retainUntil() != null && after.retainUntil().isBefore(first.retainUntil())) {
-                        ledger.violation("lockedMutationAccepted", "the extension shortened the Locked generation");
-                        throw new CaseFailure("the Locked retention became shorter");
                     }
                 });
         boolean applies = Boolean.TRUE.equals(generationPatchApplies);
@@ -1576,28 +1585,24 @@ final class GcsAcceptanceCases {
                                   boolean applicable) throws InterruptedException {
         GenerationState before = state(target);
         ProbeOutcome outcome = mutate(identity, operation, p -> probe.attempt(p, target));
-        GenerationState after;
-        try {
-            after = state(target);
-        } catch (RuntimeException ex) {
-            after = null;
-            ev.put("afterUnreadable", GcsAcceptanceLedger.sanitize(ex.getClass().getSimpleName()));
-        }
         ev.put("target", target.name() + "#" + target.generation());
         ev.put("before", state(before));
         ev.put("outcome", outcome(outcome));
-        ev.put("after", after == null ? null : state(after));
-        boolean unchanged = after != null && before.exists() == after.exists() && before.mode() == after.mode()
+        GenerationState after = readBack(target, before, outcome, operation, ev);
+        ev.put("after", state(after));
+        boolean unchanged = before.exists() == after.exists() && before.mode() == after.mode()
                 && Objects.equals(before.retainUntil(), after.retainUntil());
         if (!unchanged && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
             ledger.violation("lockedMutationAccepted", operation + " answered " + outcome.code()
-                    + " and the Locked generation " + target.name() + "#" + target.generation()
-                    + (after == null ? " could not be read back" : " changed"));
-            throw new CaseFailure("the Locked generation changed or could not be read back");
+                    + " and the Locked generation " + target.name() + "#" + target.generation() + " changed");
+            throw new CaseFailure("the Locked generation changed");
         }
         if (!unchanged) {
             throw new CaseFailure("the provider " + (outcome.accepted() ? "accepted the operation" : "refused it")
                     + " and the generation changed");
+        }
+        if (!before.exists()) {
+            throw new IllegalStateException("inconclusive: the target generation did not exist before the probe");
         }
         if (!applicable) {
             ev.put("notApplicable", "the provider did not apply this request shape to retention (K8c)");
@@ -1613,6 +1618,38 @@ final class GcsAcceptanceCases {
         if (!refusals.contains(outcome.code())) {
             throw new IllegalStateException("inconclusive refusal: HTTP " + outcome.code() + " " + outcome.reason());
         }
+    }
+
+    /**
+     * The generation after a probe. A stopping run is passed on (nothing is known about the target, so it is
+     * no violation); any other read failure is retried once. If the state still cannot be read, an accepted
+     * probe of a Locked generation is a violation (the provider claims a forbidden change) and anything
+     * else is inconclusive.
+     */
+    private GenerationState readBack(Gen target, GenerationState before, ProbeOutcome outcome, String operation,
+                                     Map<String, Object> ev) {
+        RuntimeException failure = null;
+        for (int read = 1; read <= 2; read++) {
+            try {
+                return state(target);
+            } catch (RuntimeException ex) {
+                if (ledger.aborted() || stopped(ex)) {
+                    throw ex;
+                }
+                failure = ex;
+            }
+        }
+        ev.put("afterUnreadable", GcsAcceptanceLedger.sanitize(failure.getClass().getSimpleName()));
+        if (outcome.accepted() && before.mode() == EvidenceRetentionMode.COMPLIANCE) {
+            ledger.violation("lockedMutationAccepted", operation + " was accepted on the Locked generation "
+                    + target.name() + "#" + target.generation() + " and its state cannot be read back");
+            throw new CaseFailure("an accepted change of a Locked generation cannot be verified");
+        }
+        throw new IllegalStateException("inconclusive: the generation could not be read back after the probe");
+    }
+
+    private static boolean stopped(Throwable failure) {
+        return "stopped".equals(GcsAcceptanceLedger.describe("objects.get", failure).reason());
     }
 
     /** Mutations of one object are spaced by its metadata-update limit; a 429 is retried once. */
