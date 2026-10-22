@@ -3,9 +3,13 @@ package com.parkio.auth.infrastructure.durable;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.google.cloud.storage.StorageException;
 import com.parkio.auth.application.durable.DurableErasureEvidence;
+import com.parkio.auth.application.durable.ErasureLedgerEntry;
 import com.parkio.auth.application.durable.EvidenceTrust;
 import com.parkio.auth.application.durable.TrustedKey;
+import com.parkio.auth.application.port.CapturedErasureLedger;
+import com.parkio.auth.application.port.DurableErasureCheckpoint;
 import com.parkio.auth.application.port.DurableErasurePutResult;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.domain.exception.AuthErrorCode;
@@ -15,8 +19,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +60,8 @@ class GcsObjectRetentionBucketTest {
         transport.setObjectRetentionEnabled(false);
         assertThatThrownBy(bucket::requireRetentionFeature)
                 .isInstanceOf(AuthException.class)
+                .hasMessage("durable store object retention configuration failed: bucket parkio-erasure-evidence-test"
+                        + " does not have Object Retention Lock enabled")
                 .extracting(ex -> ((AuthException) ex).errorCode())
                 .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
     }
@@ -62,6 +71,8 @@ class GcsObjectRetentionBucketTest {
         transport.setVersioningEnabled(false);
         assertThatThrownBy(bucket::requireRetentionFeature)
                 .isInstanceOf(AuthException.class)
+                .hasMessage("durable store object retention configuration failed: bucket parkio-erasure-evidence-test"
+                        + " does not have Object Versioning enabled")
                 .extracting(ex -> ((AuthException) ex).errorCode())
                 .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
     }
@@ -125,6 +136,92 @@ class GcsObjectRetentionBucketTest {
     }
 
     @Test
+    void putIfAbsentCompletesWhenTheProviderThrottlesTheSecondFrontierWrite() {
+        transport.enforceWriteRatePerObject(Clock.systemUTC());
+        DurableErasureRecord record = DurableErasureRecord.of(UUID.randomUUID(), UUID.randomUUID(),
+                Instant.parse("2026-10-21T11:03:00Z"));
+
+        DurableErasurePutResult result = store.putIfAbsent(record);
+
+        assertThat(result.created()).isTrue();
+        assertThat(store.findByRequestId(record.erasureRequestId())).contains(record);
+    }
+
+    @Test
+    void publishCheckpointCompletesWhenTheProviderThrottlesTheSecondFrontierWrite() {
+        transport.enforceWriteRatePerObject(Clock.systemUTC());
+        Instant capturedAt = Instant.parse("2026-10-21T11:04:00Z");
+
+        DurableErasureCheckpoint checkpoint = store.publishCheckpoint(() -> new CapturedErasureLedger(
+                List.of(new ErasureLedgerEntry(UUID.randomUUID(), capturedAt.minusSeconds(60))), capturedAt));
+
+        assertThat(checkpoint.entryCount()).isEqualTo(1);
+        assertThat(bucket.keys("checkpoints/")).hasSize(1);
+        assertThat(bucket.keys("sequences/")).hasSize(1);
+    }
+
+    @Test
+    void aWriteRefusedWithHttp429IsResentAfterEachPauseAndThenFails() {
+        List<Duration> pauses = new ArrayList<>();
+        RefusingTransport refusing = new RefusingTransport(transport, Integer.MAX_VALUE, 429);
+        GcsObjectRetentionBucket throttled = new GcsObjectRetentionBucket(refusing, pauses::add);
+
+        assertThatThrownBy(() -> throttled.put("records/x.json", new byte[] {1}, EvidenceRetentionMode.GOVERNANCE,
+                CLOCK.instant().plus(RETENTION).atZone(ZoneOffset.UTC)))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store put records/x.json failed: StorageException");
+        assertThat(refusing.attempts).hasValue(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES.size() + 1);
+        assertThat(pauses).isEqualTo(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES);
+        assertThat(bucket.versionCount("records/x.json")).isZero();
+    }
+
+    @Test
+    void aResentWriteThatIsAcceptedIsStoredOnce() {
+        List<Duration> pauses = new ArrayList<>();
+        RefusingTransport refusing = new RefusingTransport(transport, 2, 429);
+        GcsObjectRetentionBucket throttled = new GcsObjectRetentionBucket(refusing, pauses::add);
+
+        String generation = throttled.put("records/y.json", new byte[] {1}, EvidenceRetentionMode.GOVERNANCE,
+                CLOCK.instant().plus(RETENTION).atZone(ZoneOffset.UTC));
+
+        assertThat(refusing.attempts).hasValue(3);
+        assertThat(pauses).containsExactly(Duration.ofMillis(1_100), Duration.ofMillis(2_200));
+        assertThat(bucket.versionCount("records/y.json")).isEqualTo(1);
+        assertThat(bucket.oldest("records/y.json").orElseThrow().versionId()).isEqualTo(generation);
+    }
+
+    @Test
+    void otherWriteFailuresAreNotResent() {
+        List<Duration> pauses = new ArrayList<>();
+        RefusingTransport refusing = new RefusingTransport(transport, 1, 503);
+        GcsObjectRetentionBucket failing = new GcsObjectRetentionBucket(refusing, pauses::add);
+
+        assertThatThrownBy(() -> failing.put("records/z.json", new byte[] {1}, EvidenceRetentionMode.GOVERNANCE,
+                CLOCK.instant().plus(RETENTION).atZone(ZoneOffset.UTC)))
+                .isInstanceOf(AuthException.class);
+        assertThat(refusing.attempts).hasValue(1);
+        assertThat(pauses).isEmpty();
+    }
+
+    @Test
+    void anInterruptedPauseFailsThePutAndKeepsTheInterrupt() {
+        RefusingTransport refusing = new RefusingTransport(transport, 1, 429);
+        GcsObjectRetentionBucket interrupted = new GcsObjectRetentionBucket(refusing, duration -> {
+            throw new InterruptedException("stop");
+        });
+        try {
+            assertThatThrownBy(() -> interrupted.put("records/i.json", new byte[] {1},
+                    EvidenceRetentionMode.GOVERNANCE, CLOCK.instant().plus(RETENTION).atZone(ZoneOffset.UTC)))
+                    .isInstanceOf(AuthException.class)
+                    .hasMessage("durable store put records/i.json failed: InterruptedException");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+        assertThat(refusing.attempts).hasValue(1);
+    }
+
+    @Test
     void missingPermissionsAndUnavailableStorageMapToDurableRecordingUnavailable() {
         transport.setMissingWritePermission(true);
         assertThatThrownBy(() -> bucket.put("x", new byte[] {1}, EvidenceRetentionMode.GOVERNANCE,
@@ -146,5 +243,54 @@ class GcsObjectRetentionBucketTest {
                 .isInstanceOf(AuthException.class)
                 .extracting(ex -> ((AuthException) ex).errorCode())
                 .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+    }
+
+    /** Refuses the first {@code refusals} writes with the given HTTP status; everything else is delegated. */
+    private static final class RefusingTransport implements GcsObjectRetentionTransport {
+
+        final AtomicInteger attempts = new AtomicInteger();
+        private final GcsObjectRetentionTransport delegate;
+        private final int refusals;
+        private final int code;
+
+        RefusingTransport(GcsObjectRetentionTransport delegate, int refusals, int code) {
+            this.delegate = delegate;
+            this.refusals = refusals;
+            this.code = code;
+        }
+
+        @Override
+        public String bucket() {
+            return delegate.bucket();
+        }
+
+        @Override
+        public void requireObjectRetentionEnabled() {
+            delegate.requireObjectRetentionEnabled();
+        }
+
+        @Override
+        public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode,
+                                     Instant retainUntil) {
+            if (attempts.incrementAndGet() <= refusals) {
+                throw new StorageException(code, "refused by the test transport");
+            }
+            return delegate.createGeneration(objectName, bytes, mode, retainUntil);
+        }
+
+        @Override
+        public RetentionState retention(String objectName, long generation) {
+            return delegate.retention(objectName, generation);
+        }
+
+        @Override
+        public ListPage listGenerations(String prefix, Optional<String> pageToken, int pageSize) {
+            return delegate.listGenerations(prefix, pageToken, pageSize);
+        }
+
+        @Override
+        public byte[] readGeneration(String objectName, long generation) {
+            return delegate.readGeneration(objectName, generation);
+        }
     }
 }

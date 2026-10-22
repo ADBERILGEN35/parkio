@@ -32,7 +32,8 @@ interface GcsObjectRetentionTransport {
 
     /**
      * Creates a new generation with the given retention. Returns the generation number. Must not
-     * overwrite prior generations in place.
+     * overwrite prior generations in place. A write the provider refuses under its per-object rate
+     * fails with a {@link com.google.cloud.storage.StorageException} of code 429 and writes nothing.
      */
     long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil);
 
