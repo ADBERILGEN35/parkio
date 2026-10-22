@@ -97,7 +97,7 @@ before a live run.
 
 | Finding | Change |
 |---------|--------|
-| A stop of the run (Ctrl-C, deadline, cap) or a failed read-back after a Locked probe was recorded as `lockedMutationAccepted`, so even a refused probe could end in "do not repeat" | A stop is passed on (ABORTED or INTERRUPTED, no violation); any other failed read-back is retried once; a violation needs an observed change, or an accepted Locked change whose state still cannot be read; anything else is an ERROR. A refusal on a target that was absent before the probe is an ERROR. The watchdog exits with the code of the result it wrote |
+| A stop of the run (Ctrl-C, deadline, cap) or a failed read-back after a Locked probe was recorded as `lockedMutationAccepted`, so even a refused probe could end in "do not repeat" | A stop is passed on (ABORTED or INTERRUPTED, no violation); any other failed read-back is retried once; a violation needs an observed change, or an accepted forbidden Locked change whose state still cannot be read; anything else (including K8c's allowed extension) is an ERROR; a stop right after an accepted forbidden change is listed as an unverified Locked change. A refusal on a target that was absent before the probe is an ERROR. The watchdog exits with the code of the result it wrote |
 | K8c took any unchanged answer (0, 408, 5xx) as "shape not applicable" and flagged only a shorter retain-until | K8c is an ERROR unless the extension was applied or the answer was a definite no-op (200 without effect, 400, 403); an outcome that leaves the generation deleted, unlocked or shorter is a violation |
 | S5s required a new sequence, which a later resume path (#365) would fail | S5s requires convergence and that the published checkpoint stays; the sequences consumed are recorded, not required |
 | Cleanup could not run again after it had deleted the lien, nor on a project already `DELETE_REQUESTED` | Cleanup accepts the recorded liens or none (never an unrecorded lien), records the deleted lien, and reports a `DELETE_REQUESTED` project as done without changes |
@@ -106,6 +106,15 @@ before a live run.
 | Two emptiness checks read a failed bucket listing as "no bucket" (found while fixing the above) | The listing is assigned first, so a failure stops cleanup before the service accounts, roles, lien and project |
 | Uncommitted edits to the script would still run | The script must also be unmodified against `N02_APPROVED_SHA` |
 | The stub test piped the call log into `grep -q` under pipefail; the writer's EPIPE failed checks at random | Checks read the log whole; 20 repeated runs gave identical results |
+
+### 4.5 After the re-review of d38fb46a (all three approved; minors fixed before pinning)
+
+| Finding | Change |
+|---------|--------|
+| An unreadable state after K8c's accepted, allowed extension counted as a forbidden Locked change (exit 5) | Only an accepted forbidden change can be a violation when its state cannot be read; after K8c it is an ERROR |
+| A stop right after an accepted forbidden change ended as an ordinary stop | Listed under `unverifiedLockedChanges` and printed in the summary (exit code 3); inspected before any repeat |
+| `provision` could run after cleanup had started and re-create what it deleted; a late lien could only be recorded by rerunning `provision` | Cleanup records its start before the first deletion and `provision` then refuses; `record-liens` records a single project-deletion lien of this project after the owner's review and confirmation |
+| The CI evidence minimum for the stub test was 40 while it runs over 100 checks | Minimum 90 |
 
 ## 5. Cases
 
@@ -151,9 +160,11 @@ A refusal counts only with an explicit refusal code (403 for deletes and inserts
 patches, whose positive controls K6, G3, G4 and K8c use the same request shapes) **and** an unchanged
 generation that existed before the probe; an accepted answer that changes nothing, or any other code, is an
 ERROR, never a pass. Any observed change of a Locked generation, whatever the provider answered, or an accepted
-change whose state cannot be read back even after a retry, stops the run at once (`lockedMutationAccepted`,
+forbidden change whose state cannot be read back even after a retry, stops the run at once (`lockedMutationAccepted`,
 exit code 5) and the operation is not repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
-A stop of the run, or a refused probe whose state cannot be read, is never a violation.
+A stop of the run, or a refused probe whose state cannot be read, is never a violation; a stop right after
+an accepted forbidden change is listed under `unverifiedLockedChanges` (exit code 3), and that generation is
+inspected before the operation is repeated.
 
 ## 6. Harness
 
@@ -184,7 +195,7 @@ A stop of the run, or a refused probe whose state cannot be read, is never a vio
 - Result: `result.json` written exactly once — at the end, after an internal error (`ERROR`), from a
   shutdown hook (`INTERRUPTED`) or from the watchdog (`ABORTED`) — with the source SHA/tree and build-input
   status, client and endpoint description, the bucket snapshot incl. project number, identities, per-case
-  evidence and operations, per-criterion status, the checkpoint facts, violations, budget, list-price cost
+  evidence and operations, per-criterion status, the checkpoint facts, violations, unverified Locked changes, budget, list-price cost
   and the cleanup inventory (unanswered writes as `generation: unknown`). Plus the synthetic `bundle.json`
   and `SHA256SUMS` over all files. Provider messages are sanitized; library logging goes to stderr at INFO
   (Google libraries at WARN); the synthetic HMAC key exists only in memory.
@@ -194,13 +205,13 @@ A stop of the run, or a refused probe whose state cannot be read, is never a vio
 - Verdict: PASS only when every PREFLIGHT and ASSERTION case passed and nothing stopped the run;
   MEASUREMENT cases record a fact; DIAGNOSTIC cases never count. Exit codes: 0 PASS, 1 FAIL, 2 refused,
   3 ABORTED/INTERRUPTED, 4 ERROR, 5 FAIL with a safety violation. `countsFor483` is true only for a live PASS.
-- Local tests (not evidence): `GcsAcceptanceToolTest` (39: offline sequence with headroom, one case per
+- Local tests (not evidence): `GcsAcceptanceToolTest` (40: offline sequence with headroom, one case per
   modelled provider defect (19), not-applicable addressed PATCH, concealment, every cap, harness error, stop
-  while blocked, a stop never hides a violation, a stop or failed read-back during a Locked probe, a refusal on
-  an absent generation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what
+  while blocked, a stop never hides a violation, a stop or failed read-back during a Locked probe or after K8c,
+  a refusal on an absent generation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what
   the real client sends, resend, generation-addressed PATCH, gate, keyless credentials),
-  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (94, a fake gcloud that
-  behaves like 590.0.0, with lost responses, failures in mid-command and a missing lien). Mutation records:
+  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (105, a fake gcloud that
+  behaves like 590.0.0, with lost responses, failures in mid-command, a missing or late lien). Mutation records:
   agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
@@ -347,14 +358,15 @@ scripts/n02-gcs-acceptance-op.sh run            # >= 7 min after provision; agai
 scripts/n02-gcs-acceptance-op.sh forget-credentials   # right after the last run
 ```
 
-`provision`, `verify`, `run` and `cleanup` run only from a checkout at `N02_APPROVED_SHA` whose copy of the
-script is unmodified, and log it; `preflight` and `cleanup-status` (read-only) and `forget-credentials`
+`provision`, `verify`, `run`, `record-liens` and `cleanup` run only from a checkout at `N02_APPROVED_SHA` whose
+copy of the script is unmodified, and log it; `preflight` and `cleanup-status` (read-only) and `forget-credentials`
 (local) run anywhere. `provision` refuses without the confirmation, with an unopened billing account, or when
 the project ID exists without its own record; it marks the creation before the call, and after a failure it
 adopts the project it started to create (labels match, created after the marker) or resumes on the recorded
 project (same number, billing account and operator), creating only what is missing, waiting 60 s after new
 service accounts and retrying roles and bindings. If no project-deletion lien appears within 5 min it records
-that and stops: the owner decides (`N02_ACCEPT_NO_LIEN=1` goes on; a rerun looks again). `run` refuses IAM
+that and stops: the owner decides (`N02_ACCEPT_NO_LIEN=1` goes on; a rerun looks again; once the lien shows,
+`N02_CONFIRM=record-liens-parkio-n02-accept-5c2c7f-<project number> … record-liens` records it after review). `run` refuses IAM
 bindings younger than 7 minutes, liens that differ from the recorded baseline, a lien recorded as absent
 without the owner's decision, ADC that is not a user login with this quota project, and a third counted
 attempt.
@@ -382,7 +394,10 @@ attempt.
   restriction `resourcemanager.projects.delete`), and the project **by its number**. A refused or interrupted
   cleanup can be run again: a lien it already deleted is not required again, and a project already
   `DELETE_REQUESTED` is reported as done without changes. A project whose creation was started but not
-  recorded is adopted under the same rule as in `provision`. It revokes nothing.
+  recorded is adopted under the same rule as in `provision`. Once cleanup has deleted anything, `provision`
+  refuses (it would re-create what cleanup deleted); a lien that appears late stops cleanup at the lien step and
+  is recorded with `record-liens` (exactly one project-deletion lien of this project, after review). It revokes
+  nothing.
 - Record in #483: verdict, `SHA256SUMS`, the empty listings, bucket and project deletion, lien status.
 
 ## 8. Findings for #365 (the live run confirms or refutes)
