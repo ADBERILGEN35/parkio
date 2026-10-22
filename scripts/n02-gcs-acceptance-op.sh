@@ -9,18 +9,22 @@
 #   preflight        read-only: tools, credential isolation, account, billing accounts, project ID
 #   provision        create the project, link billing, enable APIs, buckets, service accounts,
 #                    custom roles and bindings; records identities and the lien baseline. A rerun
-#                    after a failure resumes on the recorded project and creates only what is missing
+#                    after a failure resumes on the recorded project (or adopts the project whose
+#                    creation it started) and creates only what is missing
 #   verify           read-only: the provisioned configuration, IAM policies and lien match the record
 #   run              one harness attempt (at most two counted)
 #   cleanup-status   read-only: earliest cleanup time and what still exists
 #   cleanup          after the retain-until: delete objects, buckets, service accounts, roles, the
-#                    Object Retention Lock lien and the project, each after identity checks
+#                    Object Retention Lock lien and the project, each after identity checks; it can
+#                    be run again after a refusal or an interruption
 #   forget-credentials  delete the operation's own gcloud configuration directory (no revocation)
 #
-# provision, verify, run and cleanup run only from a checkout at N02_APPROVED_SHA. Destructive
-# commands also need N02_CONFIRM: provision "provision-<project>", cleanup
-# "cleanup-<project>-<project number>". No command revokes OAuth tokens: Google revokes the whole
-# grant of a client, which would also sign the account out of gcloud/ADC on other machines.
+# provision, verify, run and cleanup run only from a checkout at N02_APPROVED_SHA whose copy of this
+# script is unmodified. Destructive commands also need N02_CONFIRM: provision "provision-<project>",
+# cleanup "cleanup-<project>-<project number>". Google places the project-deletion lien at best effort;
+# if none appears, provision records that and stops, and going on needs the owner's N02_ACCEPT_NO_LIEN=1.
+# No command revokes OAuth tokens: Google revokes the whole grant of a client, which would also sign
+# the account out of gcloud/ADC on other machines.
 set -euo pipefail
 
 readonly PROJECT_ID="parkio-n02-accept-5c2c7f"
@@ -112,12 +116,15 @@ require_isolation() {
   [ -z "${project}" ] || die "the operation's configuration has core/project=${project}; it must stay unset"
 }
 
-# The checkout is the approved commit (prints the repository root).
+# The checkout is the approved commit and this script is unmodified (prints the repository root;
+# the harness itself refuses a live run from changed build inputs).
 require_approved_checkout() {
   local sha="${N02_APPROVED_SHA:-}" root
   [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || die "N02_APPROVED_SHA must be the approved full commit SHA"
   root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
   [ "$(git -C "${root}" rev-parse HEAD)" = "${sha}" ] || die "checkout is not ${sha}"
+  git -C "${root}" diff --quiet HEAD -- scripts/n02-gcs-acceptance-op.sh \
+    || die "scripts/n02-gcs-acceptance-op.sh differs from ${sha}"
   echo "${root}"
 }
 
@@ -134,9 +141,11 @@ record() { mkdir -p "${STATE}"; printf '%s\n' "$2" > "$(state_file "$1")"; }
 log_command() { mkdir -p "${STATE}"; printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$1" "${N02_APPROVED_SHA:-}" >> "$(state_file commands.tsv)"; }
 
 describe_project() { g projects describe "${PROJECT_ID}" --format=json; }
+describe_project_to() { describe_project > "$1"; }
 
-# The project is the one provisioned here: same ID, number and creation time, ACTIVE, labelled.
-require_project_identity() {
+# The project is the one provisioned here: same ID, number, creation time and labels. Prints its
+# lifecycle state.
+project_state() {
   local number created file
   number="$(recorded project-number)"
   created="$(recorded project-create-time)"
@@ -146,9 +155,36 @@ require_project_identity() {
   [ "$(json "${file}" 'd["projectId"]')" = "${PROJECT_ID}" ] || die "project ID differs"
   [ "$(json "${file}" 'd["projectNumber"]')" = "${number}" ] || die "project number differs from the recorded ${number}"
   [ "$(json "${file}" 'd.get("createTime", "")')" = "${created}" ] || die "project creation time differs"
-  [ "$(json "${file}" 'd.get("lifecycleState", "")')" = "ACTIVE" ] || die "project is not ACTIVE"
   [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] || die "project label parkio-purpose missing"
   [ "$(json "${file}" 'd.get("labels", {}).get("parkio-issue", "")')" = "483" ] || die "project label parkio-issue missing"
+  json "${file}" 'd.get("lifecycleState", "")'
+  rm -f "${file}"
+}
+
+require_project_identity() {
+  local state
+  state="$(project_state)" || exit 1
+  [ "${state}" = ACTIVE ] || die "project is not ACTIVE (${state})"
+}
+
+# A project whose creation started here but was never recorded (the create call or the describe
+# after it failed) is adopted only when its labels match and it was created after the marker.
+adopt_created_project() {
+  local marker file created
+  marker="$(recorded project-creating)"
+  [ -n "${marker}" ] || die "no provisioning record in ${STATE}"
+  file="$(mktemp)"
+  retry describe_project_to "${file}" \
+    || die "cannot describe ${PROJECT_ID}, whose creation started at $(date -u -d "@${marker}" +%FT%TZ); if no project was created, remove $(state_file project-creating) to start again"
+  [ "$(json "${file}" 'd["projectId"]')" = "${PROJECT_ID}" ] || die "project ID differs"
+  [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] \
+    && [ "$(json "${file}" 'd.get("labels", {}).get("parkio-issue", "")')" = "483" ] \
+    || die "${PROJECT_ID} exists but is not the one created here (labels)"
+  created="$(json "${file}" 'd.get("createTime", "")')"
+  [ -n "${created}" ] && [ "$(date -u -d "${created}" +%s)" -ge $(( marker - 300 )) ] \
+    || die "${PROJECT_ID} was created before this operation started creating it"
+  record project-number "$(json "${file}" 'd["projectNumber"]')"
+  record project-create-time "${created}"
   rm -f "${file}"
 }
 
@@ -200,19 +236,45 @@ print(max(found))' "${file}")"
   echo "${value}"
 }
 
-# The project's liens are those recorded after Object Retention Lock was enabled.
 lien_signature() {
   json "$1" "sorted(l['name'] + '|' + l.get('parent', '') + '|' + l.get('origin', '') + '|' + l.get('reason', '') + '|' + ','.join(l.get('restrictions', [])) for l in d)"
 }
 
+# Writes the project's liens to a file as a JSON list (an empty listing is no lien).
+liens_to() {
+  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "$1" || die "cannot list the liens of ${PROJECT_ID}"
+  [ -n "$(tr -d '[:space:]' < "$1")" ] || echo '[]' > "$1"
+}
+
+# verify and run: the project's liens are those recorded after Object Retention Lock was enabled.
+# A lien recorded as absent (Google places it at best effort) needs the owner's N02_ACCEPT_NO_LIEN=1.
 require_lien_baseline() {
   local file
-  file="$(mktemp)"
   [ -s "$(state_file liens-after-orl.json)" ] || die "no lien baseline"
-  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
+  if [ -e "$(state_file lien-absent)" ] && [ "${N02_ACCEPT_NO_LIEN:-}" != 1 ]; then
+    die "no project-deletion lien was recorded; the owner decides (rerun provision to look again, or N02_ACCEPT_NO_LIEN=1)"
+  fi
+  file="$(mktemp)"
+  liens_to "${file}"
   [ "$(lien_signature "${file}")" = "$(lien_signature "$(state_file liens-after-orl.json)")" ] \
     || die "the project's liens differ from the recorded baseline"
   rm -f "${file}"
+}
+
+# cleanup: the live liens (in a file) are the recorded baseline or none: deleted by an earlier
+# cleanup, removed by Google or never placed. An unrecorded lien is never accepted; without a
+# baseline the project may hold neither a lien nor the Object Retention Lock bucket.
+require_cleanup_liens() {
+  local file="$1" present="$2" baseline
+  baseline="$(state_file liens-after-orl.json)"
+  if [ ! -s "${baseline}" ]; then
+    if grep -qx "${BUCKET}" <<<"${present}"; then
+      die "no lien baseline while gs://${BUCKET} exists; rerun provision to record it"
+    fi
+    [ "$(json "${file}" 'len(d)')" = "0" ] || die "the project has liens but no lien baseline was recorded"
+  elif [ "$(json "${file}" 'len(d)')" != "0" ]; then
+    [ "$(lien_signature "${file}")" = "$(lien_signature "${baseline}")" ] || die "the project's liens differ from the recorded baseline"
+  fi
 }
 
 cmd_preflight() {
@@ -237,10 +299,16 @@ cmd_provision() {
   [ "${N02_CONFIRM:-}" = "provision-${PROJECT_ID}" ] || die "N02_CONFIRM must be provision-${PROJECT_ID}"
   local billing="${N02_BILLING_ACCOUNT:-}"
   [[ "${billing}" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]] || die "N02_BILLING_ACCOUNT must look like XXXXXX-XXXXXX-XXXXXX"
-  local account file name role bucket created_any polls
+  local account file name role bucket created_any polls found present baseline
   account="$(active_account)"
   file="$(mktemp)"
 
+  if [ -z "$(recorded project-number)" ] && [ -n "$(recorded project-creating)" ]; then
+    say "adopting the project whose creation started here"
+    [ "$(recorded billing-account)" = "${billing}" ] || die "the recorded billing account differs"
+    [ "$(recorded operator)" = "${account}" ] || die "the recorded operator account differs"
+    adopt_created_project
+  fi
   if [ -n "$(recorded project-number)" ]; then
     say "resuming on the recorded project"
     require_project_identity
@@ -254,14 +322,14 @@ cmd_provision() {
       die "${PROJECT_ID} already exists; nothing was changed"
     fi
     log_command provision
+    record operator "${account}"
+    record billing-account "${billing}"
+    # Marked first, so that a lost answer cannot leave a project this operation does not know.
+    record project-creating "$(date -u +%s)"
     say "project"
     g projects create "${PROJECT_ID}" --name="${PROJECT_NAME}" --labels="parkio-purpose=n02-gcs-acceptance,parkio-issue=483" \
       --no-enable-cloud-apis
-    describe_project > "${file}"
-    record project-number "$(json "${file}" 'd["projectNumber"]')"
-    record project-create-time "$(json "${file}" 'd["createTime"]')"
-    record operator "${account}"
-    record billing-account "${billing}"
+    adopt_created_project
     require_project_identity
   fi
 
@@ -279,13 +347,14 @@ cmd_provision() {
   g services enable ${APIS} --project="${PROJECT_ID}"
 
   say "buckets"
-  if ! project_buckets | grep -qx "${BUCKET}"; then
+  present="$(project_buckets)"
+  if ! grep -qx "${BUCKET}" <<<"${present}"; then
     g storage buckets create "gs://${BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
       --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
       --soft-delete-duration=0 --enable-per-object-retention
     sleep "${N02_BUCKET_SPACING_SECONDS:-3}"
   fi
-  if ! project_buckets | grep -qx "${CONTROL_BUCKET}"; then
+  if ! grep -qx "${CONTROL_BUCKET}" <<<"${present}"; then
     g storage buckets create "gs://${CONTROL_BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
       --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
       --soft-delete-duration=0
@@ -293,18 +362,29 @@ cmd_provision() {
   g storage buckets update "gs://${BUCKET}" --versioning --update-labels="${LABELS}"
   g storage buckets update "gs://${CONTROL_BUCKET}" --versioning --update-labels="${LABELS}"
 
-  if [ ! -s "$(state_file liens-after-orl.json)" ]; then
+  baseline="$(state_file liens-after-orl.json)"
+  if [ ! -s "${baseline}" ] || [ -e "$(state_file lien-absent)" ]; then
     say "Object Retention Lock lien (best effort; waits up to 5 min)"
+    # A lien already missed once is looked for once more, not waited for again.
     polls=0
+    [ ! -e "$(state_file lien-absent)" ] || polls=19
     while :; do
-      g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
-      [ -n "$(tr -d '[:space:]' < "${file}")" ] || echo '[]' > "${file}"
-      [ "$(json "${file}" "len([l for l in d if 'resourcemanager.projects.delete' in l.get('restrictions', [])])")" = "0" ] || break
+      liens_to "${file}"
+      found="$(json "${file}" "len([l for l in d if 'resourcemanager.projects.delete' in l.get('restrictions', [])])")"
+      [ "${found}" = "0" ] || break
       polls=$((polls + 1))
-      [ "${polls}" -lt 20 ] || die "no project-deletion lien appeared within 5 min of enabling Object Retention Lock"
+      [ "${polls}" -lt 20 ] || break
       sleep "${LIEN_POLL_SECONDS}"
     done
-    cp "${file}" "$(state_file liens-after-orl.json)"
+    if [ "${found}" != "0" ]; then
+      cp "${file}" "${baseline}"
+      rm -f "$(state_file lien-absent)"
+    else
+      echo '[]' > "${baseline}"
+      record lien-absent "$(date -u +%s)"
+      [ "${N02_ACCEPT_NO_LIEN:-}" = 1 ] || die "no project-deletion lien appeared within 5 min of enabling Object Retention Lock (recorded as absent); the owner decides: rerun provision to look again, go on with N02_ACCEPT_NO_LIEN=1, or clean up"
+      say "WARNING: no project-deletion lien; going on as the owner decided (N02_ACCEPT_NO_LIEN=1)"
+    fi
   fi
 
   say "service accounts (no keys)"
@@ -466,32 +546,51 @@ earliest_cleanup() {
 
 cmd_cleanup_status() {
   require_isolation
-  require_project_identity
-  local earliest now bucket
+  local earliest now bucket state present file
+  state="$(project_state)"
+  say "project ${PROJECT_ID} ($(recorded project-number)) is ${state}"
+  [ "${state}" = ACTIVE ] || return 0
   earliest="$(earliest_cleanup)"
   now="$(date -u +%s)"
   say "earliest full cleanup $(date -u -d "@${earliest}" +%FT%TZ) (now $(date -u -d "@${now}" +%FT%TZ))"
-  for bucket in $(project_buckets); do
+  present="$(project_buckets)"
+  for bucket in ${present}; do
     say "gs://${bucket}: $(generations_in "${bucket}") generations, latest retain-until still set $(date -u -d "@$(latest_retention_in "${bucket}")" +%FT%TZ)"
   done
+  file="$(mktemp)"
+  liens_to "${file}"
+  say "liens: $(json "${file}" 'len(d)'); recorded after Object Retention Lock: $(json "$(state_file liens-after-orl.json)" 'len(d)' 2>/dev/null || echo none)"
+  rm -f "${file}"
 }
 
 cmd_cleanup() {
   require_isolation
   require_approved_checkout > /dev/null
-  require_project_identity
-  local number earliest now file bucket name role lien present baseline
+  local number earliest now file bucket name role lien present remaining state
+  if [ -z "$(recorded project-number)" ] && [ -n "$(recorded project-creating)" ]; then
+    say "adopting the project whose creation started here"
+    adopt_created_project
+  fi
   number="$(recorded project-number)"
+  [ -n "${number}" ] || die "no provisioning record in ${STATE}"
   [ "${N02_CONFIRM:-}" = "cleanup-${PROJECT_ID}-${number}" ] || die "N02_CONFIRM must be cleanup-${PROJECT_ID}-${number}"
+  state="$(project_state)"
+  if [ "${state}" = DELETE_REQUESTED ]; then
+    [ -n "$(recorded cleaned-at)" ] || record cleaned-at "$(date -u +%s)"
+    say "done: ${PROJECT_ID} (${number}) is already DELETE_REQUESTED; nothing was changed"
+    return 0
+  fi
+  [ "${state}" = ACTIVE ] || die "project is not ACTIVE (${state})"
   earliest="$(earliest_cleanup)"
   now="$(date -u +%s)"
   [ "${now}" -ge "${earliest}" ] || die "too early: wait until $(date -u -d "@${earliest}" +%FT%TZ)"
   file="$(mktemp)"
   log_command cleanup
 
-  say "the project's liens are the recorded baseline, and only the approved buckets exist"
-  require_lien_baseline
+  say "the project's liens are the recorded baseline or none, and only the approved buckets exist"
   present="$(project_buckets)"
+  liens_to "${file}"
+  require_cleanup_liens "${file}" "${present}"
   for bucket in ${present}; do
     [ "${bucket}" = "${BUCKET}" ] || [ "${bucket}" = "${CONTROL_BUCKET}" ] || die "the project holds other buckets"
   done
@@ -509,7 +608,9 @@ cmd_cleanup() {
     [ "$(generations_in "${bucket}")" = "0" ] || die "gs://${bucket} is not empty"
     g storage buckets delete "gs://${bucket}"
   done
-  [ -z "$(project_buckets)" ] || die "buckets remain in ${PROJECT_ID}; the lien and the project stay"
+  # Assigned first: a failed listing stops here instead of reading as "no bucket".
+  remaining="$(project_buckets)"
+  [ -z "${remaining}" ] || die "buckets remain in ${PROJECT_ID}; the lien and the project stay"
 
   say "service accounts and roles of this operation"
   for name in ${ACCOUNTS}; do
@@ -525,25 +626,24 @@ cmd_cleanup() {
   done
 
   say "Object Retention Lock lien: only the one recorded after the bucket was created"
-  baseline="$(state_file liens-after-orl.json)"
-  [ -s "${baseline}" ] || die "no lien baseline"
-  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
-  [ -n "$(tr -d '[:space:]' < "${file}")" ] || echo '[]' > "${file}"
-  [ "$(json "${file}" "len(d)")" -le 1 ] || die "the project carries more than one lien"
-  if [ "$(json "${file}" 'len(d)')" = "1" ]; then
+  liens_to "${file}"
+  if [ "$(json "${file}" 'len(d)')" != "0" ]; then
+    require_cleanup_liens "${file}" ""
+    [ "$(json "${file}" 'len(d)')" = "1" ] || die "the project carries more than one lien"
     lien="$(json "${file}" 'd[0]["name"]')"
-    [ "$(lien_signature "${file}")" = "$(lien_signature "${baseline}")" ] || die "the lien ${lien} differs from the recorded baseline"
     case "$(json "${file}" 'd[0].get("parent", "")')" in
       "projects/${number}"|"projects/${PROJECT_ID}") ;;
       *) die "the lien belongs to another project" ;;
     esac
     [ "$(json "${file}" 'd[0].get("restrictions", [])')" = '["resourcemanager.projects.delete"]' ] || die "the lien restricts more than project deletion"
     g alpha resource-manager liens delete "${lien#liens/}"
+    record lien-deleted "${lien}"
   fi
 
   say "project, by its recorded number"
   require_project_identity
-  [ -z "$(project_buckets)" ] || die "buckets remain in ${PROJECT_ID}"
+  remaining="$(project_buckets)"
+  [ -z "${remaining}" ] || die "buckets remain in ${PROJECT_ID}"
   g projects delete "${number}" --quiet
   describe_project > "${file}"
   [ "$(json "${file}" 'd.get("lifecycleState", "")')" = "DELETE_REQUESTED" ] || die "the project is not DELETE_REQUESTED"
