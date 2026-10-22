@@ -93,6 +93,20 @@ before a live run.
 | Retry convergence only covered the resumable path | S5s: a lost response after the checkpoint object committed; the next call takes a new sequence and the frontier covers both |
 | L5 inserts bypassed the write ledger; a forced verdict could hide a violation; the endpoint lookup made one ungated request | Fixed; library versions recorded |
 
+### 4.4 After the re-review of 94f45371
+
+| Finding | Change |
+|---------|--------|
+| A stop of the run (Ctrl-C, deadline, cap) or a failed read-back after a Locked probe was recorded as `lockedMutationAccepted`, so even a refused probe could end in "do not repeat" | A stop is passed on (ABORTED or INTERRUPTED, no violation); any other failed read-back is retried once; a violation needs an observed change, or an accepted Locked change whose state still cannot be read; anything else is an ERROR. A refusal on a target that was absent before the probe is an ERROR. The watchdog exits with the code of the result it wrote |
+| K8c took any unchanged answer (0, 408, 5xx) as "shape not applicable" and flagged only a shorter retain-until | K8c is an ERROR unless the extension was applied or the answer was a definite no-op (200 without effect, 400, 403); an outcome that leaves the generation deleted, unlocked or shorter is a violation |
+| S5s required a new sequence, which a later resume path (#365) would fail | S5s requires convergence and that the published checkpoint stays; the sequences consumed are recorded, not required |
+| Cleanup could not run again after it had deleted the lien, nor on a project already `DELETE_REQUESTED` | Cleanup accepts the recorded liens or none (never an unrecorded lien), records the deleted lien, and reports a `DELETE_REQUESTED` project as done without changes |
+| No lien within 5 min, or a stop before the buckets, left a project the script could neither use nor delete | `provision` records a missing lien and stops for the owner's decision (`N02_ACCEPT_NO_LIEN=1`, also needed by `verify` and `run`; a rerun looks again); without a baseline, `cleanup` proceeds only when the project holds neither a lien nor the lock bucket |
+| A failure between the project creation and its record left a project the script did not know | The creation is marked before the call; `provision` and `cleanup` adopt the project only when its labels match and it was created after the marker |
+| Two emptiness checks read a failed bucket listing as "no bucket" (found while fixing the above) | The listing is assigned first, so a failure stops cleanup before the service accounts, roles, lien and project |
+| Uncommitted edits to the script would still run | The script must also be unmodified against `N02_APPROVED_SHA` |
+| The stub test piped the call log into `grep -q` under pipefail; the writer's EPIPE failed checks at random | Checks read the log whole; 20 repeated runs gave identical results |
+
 ## 5. Cases
 
 Live evidence unless marked. Every write and read uses the adapter; probes are raw client calls.
@@ -116,7 +130,7 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | S4 | writer | Response lost **after** the provider committed the record: not durable before the frontier covers it; the retry settles on that generation without a second write |
 | S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier) |
 | S5r | writer | Retry convergence: after a failed S5, unpaced retries must converge; after a passing S5, the response to the next reservation marker is lost after commit and the next call must fill that reservation; no gap, no abandoned reservation |
-| S5s | writer | After a passing S5: the response to the checkpoint object itself is lost after commit (no resume path, #365 finding 3); the next call takes a new sequence, the frontier covers both, sequences consumed recorded |
+| S5s | writer | After a passing S5: the response to the checkpoint object itself is lost after commit (no resume path, #365 finding 3); the next call converges, the published checkpoint stays and the frontier covers both; the sequences consumed are recorded (today a new one; not a requirement) |
 | S5b | writer | Diagnostic, only after a failed S5: one call with writes to one name spaced 1.1 s. Never counts as a pass |
 | S6 | writer | A further record converges under the per-object limit; frontier history recorded |
 | V1 | reader | Local verifier over the live store: ACCEPT_ISOLATED, no gaps, no abandoned reservations, boundary = highest sequence (local verifier, live bytes) |
@@ -128,17 +142,18 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | K1–K5 | probe-admin | Locked: shorten, remove, switch to Unlocked, delete live, delete noncurrent — all refused, state unchanged |
 | K6 | probe-admin | Positive control: Locked retain-until extended by 60 s |
 | K7 | probe-admin | A record the store published under COMPLIANCE cannot be deleted |
-| K8c | probe-admin | Measurement and positive control for K8/K9: a PATCH addressed to the noncurrent Locked generation extends its retention by 60 s |
+| K8c | probe-admin | Measurement and positive control for K8/K9: a PATCH addressed to the noncurrent Locked generation extends its retention by 60 s. "Not applicable" only on a definite no-op (200 without effect, 400, 403); any other answer is an ERROR; deleted, unlocked or shorter is a violation |
 | K8, K9 | probe-admin | A PATCH addressed to the noncurrent Locked generation cannot shorten or remove its retention. If K8c showed the provider does not apply addressed retention changes, K8/K9 are measurements that still require an unchanged generation |
 | G1–G4 | probe-admin | GOVERNANCE: delete refused; shorten without override refused; with override shortened, removed, then deleted |
 | G5 | probe-admin, writer | Positive control for L3: after the admin removes GOVERNANCE retention, the writer deletes the generation |
 
 A refusal counts only with an explicit refusal code (403 for deletes and inserts; 400 or 403 for retention
 patches, whose positive controls K6, G3, G4 and K8c use the same request shapes) **and** an unchanged
-generation; an accepted answer that changes nothing, or any other code, is an ERROR, never a pass. Any change
-of a Locked generation (or a state that cannot be read back), whatever the provider answered, stops the run at
-once (`lockedMutationAccepted`, exit code 5) and the operation is not repeated (contingency route C,
-`n02-gcs-evidence-store-compatibility.md`).
+generation that existed before the probe; an accepted answer that changes nothing, or any other code, is an
+ERROR, never a pass. Any observed change of a Locked generation, whatever the provider answered, or an accepted
+change whose state cannot be read back even after a retry, stops the run at once (`lockedMutationAccepted`,
+exit code 5) and the operation is not repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
+A stop of the run, or a refused probe whose state cannot be read, is never a violation.
 
 ## 6. Harness
 
@@ -179,12 +194,14 @@ once (`lockedMutationAccepted`, exit code 5) and the operation is not repeated (
 - Verdict: PASS only when every PREFLIGHT and ASSERTION case passed and nothing stopped the run;
   MEASUREMENT cases record a fact; DIAGNOSTIC cases never count. Exit codes: 0 PASS, 1 FAIL, 2 refused,
   3 ABORTED/INTERRUPTED, 4 ERROR, 5 FAIL with a safety violation. `countsFor483` is true only for a live PASS.
-- Local tests (not evidence): `GcsAcceptanceToolTest` (31: offline sequence with headroom, one case per
-  modelled provider defect (17), not-applicable addressed PATCH, concealment, every cap, harness error, stop
-  while blocked, a stop never hides a violation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what the
-  real client sends, resend, generation-addressed PATCH, gate, keyless credentials),
-  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (60, a fake gcloud that
-  behaves like 590.0.0). Mutation records: agent-tools evidence of #483.
+- Local tests (not evidence): `GcsAcceptanceToolTest` (39: offline sequence with headroom, one case per
+  modelled provider defect (19), not-applicable addressed PATCH, concealment, every cap, harness error, stop
+  while blocked, a stop never hides a violation, a stop or failed read-back during a Locked probe, a refusal on
+  an absent generation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what
+  the real client sends, resend, generation-addressed PATCH, gate, keyless credentials),
+  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (94, a fake gcloud that
+  behaves like 590.0.0, with lost responses, failures in mid-command and a missing lien). Mutation records:
+  agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
 
@@ -273,11 +290,11 @@ HMAC key generated in memory per run). Never production evidence, trust document
 
 | Per run | Cap | Offline plan |
 |---------|-----|--------------|
-| Logical operations | 1,500 | 942 (487 Class A, 410 Class B charged; 46 refused or throttled) |
-| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 942 plus a few token requests |
+| Logical operations | 1,500 | 948 (488 Class A, 412 Class B charged; 49 refused or throttled; the 8-writer race varies by a few) |
+| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 948 plus a few token requests |
 | Generations that may exist | 360 | 258 (229 GOVERNANCE, 26 COMPLIANCE, 3 unanswered) |
 | COMPLIANCE generations that may exist | 40 | 29 |
-| Wall clock | 45 min | ≈ 4.7 min of waits plus request latency |
+| Wall clock | 45 min | ≈ 4.8 min of waits plus request latency |
 
 At most **two attempts** under this approval. An attempt counts once it has sent a write; an attempt that
 stops in the preflight (nothing written) does not count, and after three such stops the operator reports
@@ -293,15 +310,17 @@ instead of retrying. A second attempt only after a diagnosed failure.
   retained through the last probe with more than an hour of margin, and the irreversible window is short.
 - Irreversible: Object Retention Lock can never be disabled on the test bucket; nobody (project owner
   included) can shorten, remove or delete a Locked generation before its retain-until; while the
-  best-effort lien exists the project cannot be deleted; retained objects are billed until deleted.
+  best-effort lien exists the project cannot be deleted; retained objects are billed until deleted. If no
+  lien appears within 5 min, `provision` records that and stops; going on (`N02_ACCEPT_NO_LIEN=1`) is the
+  owner's decision.
 
 ### 7.8 Cost and stop rule
 
 List prices read 2026-10-22, europe-west4 regional Standard: Class A $0.005 / 1,000, Class B
 $0.0004 / 1,000, storage $0.020 / GiB-month, egress $0.12 / GiB, deletes free, 4xx/5xx generally not charged.
 
-- Planned run: 487 × A + 410 × B ≈ $0.0026; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
-  ≈ **$0.003 per run**. At the caps (1,800 requests, all Class A, ≈ 150 MiB egress) ≈ $0.03 per run, two runs
+- Planned run: 488 × A + 412 × B ≈ $0.0026; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
+  ≈ **$0.003 per run**. At the caps (1,800 requests, all Class A, ≈ 176 MiB egress) ≈ $0.03 per run, two runs
   ≈ $0.06.
 - Stop rule (Cloud Billing cannot cap spend and its data lags by hours): the harness caps bound each
   run. Before a second attempt and before cleanup, check the latest billing report at gross cost (credits
@@ -328,12 +347,17 @@ scripts/n02-gcs-acceptance-op.sh run            # >= 7 min after provision; agai
 scripts/n02-gcs-acceptance-op.sh forget-credentials   # right after the last run
 ```
 
-Every command except `preflight` runs only from a checkout at `N02_APPROVED_SHA` and logs it. `provision`
-refuses without the confirmation, with an unopened billing account, or when the project ID exists without
-its own record; after a failure it resumes on the recorded project (same number, billing account and
-operator) and creates only what is missing, waiting 60 s after new service accounts and retrying roles and
-bindings. `run` refuses IAM bindings younger than 7 minutes, liens that differ from the recorded baseline,
-ADC that is not a user login with this quota project, and a third counted attempt.
+`provision`, `verify`, `run` and `cleanup` run only from a checkout at `N02_APPROVED_SHA` whose copy of the
+script is unmodified, and log it; `preflight` and `cleanup-status` (read-only) and `forget-credentials`
+(local) run anywhere. `provision` refuses without the confirmation, with an unopened billing account, or when
+the project ID exists without its own record; it marks the creation before the call, and after a failure it
+adopts the project it started to create (labels match, created after the marker) or resumes on the recorded
+project (same number, billing account and operator), creating only what is missing, waiting 60 s after new
+service accounts and retrying roles and bindings. If no project-deletion lien appears within 5 min it records
+that and stops: the owner decides (`N02_ACCEPT_NO_LIEN=1` goes on; a rerun looks again). `run` refuses IAM
+bindings younger than 7 minutes, liens that differ from the recorded baseline, a lien recorded as absent
+without the owner's decision, ADC that is not a user login with this quota project, and a third counted
+attempt.
 
 ### 7.10 Cleanup, ownership and latest time
 
@@ -348,13 +372,17 @@ ADC that is not a user login with this quota project, and a third counted attemp
   `scripts/n02-gcs-acceptance-op.sh cleanup-status`, then
   `N02_CONFIRM=cleanup-parkio-n02-accept-5c2c7f-<project number> scripts/n02-gcs-acceptance-op.sh cleanup`,
   then `scripts/n02-gcs-acceptance-op.sh forget-credentials`.
-- `cleanup-status` is read-only. `cleanup` needs that confirmation and, before deleting anything, checks: project ID, recorded number and creation time, ACTIVE,
-  labels; liens equal to the recorded baseline; only the two approved buckets (from a successful listing), each
-  in this project and labelled, with no generation still retained. It then deletes all generations (only when
-  some exist) and both buckets, requires the project's bucket listing to be empty, deletes the 4 service
-  accounts and the 6 roles, then the lien only when it is the single lien identical to the baseline (parent
-  `projects/<number>` or `projects/<id>`, restriction `resourcemanager.projects.delete`), and the project **by
-  its number**. A refused or interrupted cleanup can be run again. It revokes nothing.
+- `cleanup-status` is read-only. `cleanup` needs that confirmation and, before deleting anything, checks:
+  project ID, recorded number and creation time, labels, ACTIVE; liens equal to the recorded baseline or none
+  (an unrecorded lien is never accepted; without a baseline, neither a lien nor the lock bucket may exist);
+  only the two approved buckets (from a successful listing), each in this project and labelled, with no
+  generation still retained. It then deletes all generations (only when some exist) and both buckets,
+  requires a successful, empty bucket listing, deletes the 4 service accounts and the 6 roles, then the lien
+  only when it is the single lien identical to the baseline (parent `projects/<number>` or `projects/<id>`,
+  restriction `resourcemanager.projects.delete`), and the project **by its number**. A refused or interrupted
+  cleanup can be run again: a lien it already deleted is not required again, and a project already
+  `DELETE_REQUESTED` is reported as done without changes. A project whose creation was started but not
+  recorded is adopted under the same rule as in `provision`. It revokes nothing.
 - Record in #483: verdict, `SHA256SUMS`, the empty listings, bucket and project deletion, lien status.
 
 ## 8. Findings for #365 (the live run confirms or refutes)
