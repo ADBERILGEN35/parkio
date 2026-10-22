@@ -106,6 +106,8 @@ final class GcsAcceptanceLedger {
     private long chargedClassB;
     private String abortReason;
     private String currentCase = "-";
+    private String lockedProbeTarget;
+    private String lockedProbeOperation;
     private Instant latestRequestedRetainUntil;
     private long requestedWrites;
     private long nextAttempt;
@@ -311,8 +313,35 @@ final class GcsAcceptanceLedger {
         journal("unverified-locked-change", Map.of("target", target, "detail", sanitize(detail)));
     }
 
+    /**
+     * A forbidden change of Locked retention is about to be sent. The journal names it first; until its
+     * answer is seen, a result written meanwhile (shutdown hook, watchdog) lists the target as unverified,
+     * and a probe that never got an answer stays listed.
+     */
+    synchronized void lockedProbeRequested(String target, String operation) {
+        if (lockedProbeTarget != null) {
+            unverifiedLockedChanges.putIfAbsent(lockedProbeTarget, lockedProbeOperation + " got no answer");
+        }
+        lockedProbeTarget = target;
+        lockedProbeOperation = operation;
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("case", currentCase);
+        fields.put("target", target);
+        fields.put("operation", operation);
+        journal("locked-probe-requested", fields);
+    }
+
+    synchronized void lockedProbeAnswered() {
+        lockedProbeTarget = null;
+        lockedProbeOperation = null;
+    }
+
     synchronized Map<String, String> unverifiedLockedChanges() {
-        return Map.copyOf(unverifiedLockedChanges);
+        Map<String, String> all = new TreeMap<>(unverifiedLockedChanges);
+        if (lockedProbeTarget != null) {
+            all.putIfAbsent(lockedProbeTarget, lockedProbeOperation + " was sent and had no answer when this was written");
+        }
+        return Map.copyOf(all);
     }
 
     /** Records a retention change about to be sent (an extension can move the cleanup time). */

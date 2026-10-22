@@ -267,19 +267,43 @@ class GcsAcceptanceToolTest {
     @Test
     void anUnreadableStateAfterTheAllowedK8cExtensionIsInconclusive() {
         OfflineGcsAcceptanceProvider offline = offline(Set.of());
+
+        Outcome outcome = run(failingReadsAfterAddressedPatch(offline, false), offline.clock()).execute();
+
+        assertThat(status(outcome, "K8c")).isEqualTo("ERROR");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(outcome.verdict()).isEqualTo("FAIL");
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(1);
+    }
+
+    @Test
+    void anUnreadableStateAfterAnAddressedPatchK8cShowedToBeANoOpIsInconclusive() {
+        OfflineGcsAcceptanceProvider offline = offline(Set.of(Defect.GENERATION_PATCH_IGNORED));
+
+        Outcome outcome = run(failingReadsAfterAddressedPatch(offline, true), offline.clock()).execute();
+
+        assertThat(status(outcome, "K8")).isEqualTo("ERROR");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
+        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(1);
+    }
+
+    /** Fails the next two generation reads after the first addressed PATCH: K8c's without override, K8's with. */
+    private static GcsAcceptanceProvider failingReadsAfterAddressedPatch(OfflineGcsAcceptanceProvider offline,
+                                                                       boolean override) {
         AtomicBoolean armed = new AtomicBoolean();
         AtomicInteger failReads = new AtomicInteger();
-        GcsAcceptanceProvider flaky = new DelegatingProvider(offline) {
+        return new DelegatingProvider(offline) {
             @Override
             public RetentionProbe probe(Identity identity) {
                 return new DelegatingProbe(super.probe(identity)) {
                     @Override
                     public ProbeOutcome setRetentionOfGeneration(String bucket, String name, long generation,
                                                                  EvidenceRetentionMode mode, Instant retainUntil,
-                                                                 boolean override) {
+                                                                 boolean withOverride) {
                         ProbeOutcome outcome = super.setRetentionOfGeneration(bucket, name, generation, mode,
-                                retainUntil, override);
-                        if (identity == Identity.PROBE_ADMIN && !override && armed.compareAndSet(false, true)) {
+                                retainUntil, withOverride);
+                        if (identity == Identity.PROBE_ADMIN && withOverride == override
+                                && armed.compareAndSet(false, true)) {
                             failReads.set(2);
                         }
                         return outcome;
@@ -295,13 +319,6 @@ class GcsAcceptanceToolTest {
                 };
             }
         };
-
-        Outcome outcome = run(flaky, offline.clock()).execute();
-
-        assertThat(status(outcome, "K8c")).isEqualTo("ERROR");
-        assertThat(map(outcome.document().get("violations"))).isEmpty();
-        assertThat(outcome.verdict()).isEqualTo("FAIL");
-        assertThat(GcsAcceptanceTool.exitCode(outcome)).isEqualTo(1);
     }
 
     /** Fails the next generation reads after the first Locked PATCH with override, which is K1's. */
@@ -481,6 +498,57 @@ class GcsAcceptanceToolTest {
                 .anyMatch(line -> line.contains("\"event\":\"stopped\""))
                 .anyMatch(line -> line.contains("\"event\":\"finish\""));
         assertThat(Files.readAllLines(out.resolve("SHA256SUMS"))).hasSize(3);
+    }
+
+    @Test
+    void aResultWrittenWhileALockedProbeIsInFlightListsItAsUnverified() throws Exception {
+        OfflineGcsAcceptanceProvider offline = offline(Set.of());
+        CountDownLatch inFlight = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        GcsAcceptanceProvider stalling = new DelegatingProvider(offline) {
+            @Override
+            public RetentionProbe probe(Identity identity) {
+                return new DelegatingProbe(super.probe(identity)) {
+                    @Override
+                    public ProbeOutcome setRetention(String bucket, String name, long liveGeneration,
+                                                     EvidenceRetentionMode mode, Instant retainUntil, boolean override) {
+                        if (identity == Identity.PROBE_ADMIN && inFlight.getCount() > 0) {
+                            inFlight.countDown();
+                            try {
+                                release.await(30, TimeUnit.SECONDS);
+                            } catch (InterruptedException ex) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                        return super.setRetention(bucket, name, liveGeneration, mode, retainUntil, override);
+                    }
+                };
+            }
+        };
+        Run run = run(stalling, offline.clock());
+        Path out = temp.resolve("in-flight");
+        Files.createDirectories(out);
+        Recorder recorder = Recorder.start(run, out, "result.json", null, Duration.ofMillis(200));
+        Thread main = new Thread(() -> {
+            try {
+                recorder.finish(run.execute());
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        });
+        main.start();
+        assertThat(inFlight.await(30, TimeUnit.SECONDS)).isTrue();
+
+        recorder.stop(run, "INTERRUPTED", "test stop");
+        release.countDown();
+        main.join(30_000);
+
+        Map<String, Object> result = map(JSON.readValue(out.resolve("result.json").toFile(), Map.class));
+        assertThat(result.get("verdict")).isEqualTo("INTERRUPTED");
+        assertThat(map(result.get("violations"))).isEmpty();
+        assertThat(map(result.get("unverifiedLockedChanges"))).hasSize(1);
+        assertThat(Files.readAllLines(out.resolve(GcsAcceptanceJournal.FILE)))
+                .anyMatch(line -> line.contains("\"event\":\"locked-probe-requested\"") && line.contains("\"case\":\"K1\""));
     }
 
     @Test

@@ -1584,11 +1584,19 @@ final class GcsAcceptanceCases {
     private void refusedUnchanged(Identity identity, Gen target, Map<String, Object> ev, String operation, Probe probe,
                                   boolean applicable) throws InterruptedException {
         GenerationState before = state(target);
+        // A refusal is required only where the change would take effect (not after K8c showed a no-op).
+        boolean lockedProbe = applicable && before.mode() == EvidenceRetentionMode.COMPLIANCE;
+        if (lockedProbe) {
+            ledger.lockedProbeRequested(target.name() + "#" + target.generation(), operation);
+        }
         ProbeOutcome outcome = mutate(identity, operation, p -> probe.attempt(p, target));
+        if (lockedProbe) {
+            ledger.lockedProbeAnswered();
+        }
         ev.put("target", target.name() + "#" + target.generation());
         ev.put("before", state(before));
         ev.put("outcome", outcome(outcome));
-        GenerationState after = readBack(target, before, outcome, operation, true, ev);
+        GenerationState after = readBack(target, before, outcome, operation, applicable, ev);
         ev.put("after", state(after));
         boolean unchanged = before.exists() == after.exists() && before.mode() == after.mode()
                 && Objects.equals(before.retainUntil(), after.retainUntil());
@@ -1624,7 +1632,8 @@ final class GcsAcceptanceCases {
      * The generation after a probe. A stopping run is passed on (nothing is known about the target, so it is
      * no violation); any other read failure is retried once. If the state still cannot be read, an accepted
      * forbidden change of a Locked generation is a violation (the provider claims to have made it); an
-     * allowed change (K8c's extension) or a refused probe is inconclusive.
+     * allowed change (K8c's extension), an addressed PATCH K8c showed to be a no-op, or a refused probe is
+     * inconclusive.
      */
     private GenerationState readBack(Gen target, GenerationState before, ProbeOutcome outcome, String operation,
                                      boolean forbidden, Map<String, Object> ev) {
