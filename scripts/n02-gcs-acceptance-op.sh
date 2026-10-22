@@ -8,15 +8,17 @@
 #
 #   preflight        read-only: tools, credential isolation, account, billing accounts, project ID
 #   provision        create the project, link billing, enable APIs, buckets, service accounts,
-#                    custom roles and bindings; records identities and the lien baseline
-#   verify           read-only: the provisioned configuration and IAM policies match the approval
-#   run              one harness attempt from a clean checkout of N02_APPROVED_SHA (at most two)
+#                    custom roles and bindings; records identities and the lien baseline. A rerun
+#                    after a failure resumes on the recorded project and creates only what is missing
+#   verify           read-only: the provisioned configuration, IAM policies and lien match the record
+#   run              one harness attempt (at most two counted)
 #   cleanup-status   read-only: earliest cleanup time and what still exists
 #   cleanup          after the retain-until: delete objects, buckets, service accounts, roles, the
 #                    Object Retention Lock lien and the project, each after identity checks
 #   forget-credentials  delete the operation's own gcloud configuration directory (no revocation)
 #
-# Destructive commands need N02_CONFIRM: provision "provision-<project>", cleanup
+# provision, verify, run and cleanup run only from a checkout at N02_APPROVED_SHA. Destructive
+# commands also need N02_CONFIRM: provision "provision-<project>", cleanup
 # "cleanup-<project>-<project number>". No command revokes OAuth tokens: Google revokes the whole
 # grant of a client, which would also sign the account out of gcloud/ADC on other machines.
 set -euo pipefail
@@ -62,6 +64,9 @@ EOF
 GCLOUD="${N02_GCLOUD:-gcloud}"
 STATE="${N02_STATE_DIR:-${HOME}/parkio-n02-483/state}"
 CONFIG_DIR="${HOME}/.config/gcloud-parkio-n02-483"
+SA_SETTLE_SECONDS="${N02_SA_SETTLE_SECONDS:-60}"
+RETRY_SECONDS="${N02_RETRY_SECONDS:-15}"
+LIEN_POLL_SECONDS="${N02_LIEN_POLL_SECONDS:-15}"
 
 die() { echo "STOP: $*" >&2; exit 1; }
 say() { echo "== $*"; }
@@ -75,39 +80,45 @@ v=eval(sys.argv[2], {"__builtins__": {"len": len, "sorted": sorted, "set": set, 
 print(json.dumps(v) if isinstance(v, (dict, list, bool)) or v is None else v)' "$1" "$2"
 }
 
-# The latest retainUntilTime anywhere in a JSON listing, as epoch seconds (0 when none).
-latest_retain_until() {
-  python3 -I -c 'import json,sys,datetime
-found=[0]
-def walk(v):
-    if isinstance(v, dict):
-        for k, x in v.items():
-            if k in ("retainUntilTime", "retain_until_time") and isinstance(x, str):
-                found.append(int(datetime.datetime.fromisoformat(x.replace("Z", "+00:00")).timestamp()))
-            walk(x)
-    elif isinstance(v, list):
-        for x in v:
-            walk(x)
-walk(json.load(open(sys.argv[1], encoding="utf-8")))
-print(max(found))' "$1"
-}
-
 g() { "${GCLOUD}" "$@"; }
+
+# Runs a command up to 10 times, RETRY_SECONDS apart (IAM changes propagate with a delay).
+retry() {
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if "$@"; then
+      return 0
+    fi
+    [ "${attempt}" = 10 ] || sleep "${RETRY_SECONDS}"
+  done
+  return 1
+}
 
 # Every command runs in the operation's own configuration; inherited settings are refused, not reused.
 require_isolation() {
   [ "${CLOUDSDK_CONFIG:-}" = "${CONFIG_DIR}" ] || die "CLOUDSDK_CONFIG must be ${CONFIG_DIR}"
   [ -d "${CONFIG_DIR}" ] || die "${CONFIG_DIR} does not exist"
   local variable
-  for variable in GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_QUOTA_PROJECT CLOUDSDK_CORE_PROJECT \
-      CLOUDSDK_CORE_ACCOUNT CLOUDSDK_ACTIVE_CONFIG_NAME CLOUDSDK_BILLING_QUOTA_PROJECT GOOGLE_SDK_JAVA_LOGGING; do
+  for variable in GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_QUOTA_PROJECT GOOGLE_SDK_JAVA_LOGGING; do
     [ -z "${!variable:-}" ] || die "${variable} must be unset"
+  done
+  for variable in $(compgen -e | grep '^CLOUDSDK_' || true); do
+    [ "${variable}" = CLOUDSDK_CONFIG ] || die "${variable} must be unset (gcloud environment overrides change identity or endpoints)"
   done
   command -v python3 >/dev/null || die "python3 is required"
   g version --format=json > /dev/null || die "${GCLOUD} does not run"
   local project
   project="$(g config list --format=json | json /dev/stdin 'd.get("core", {}).get("project", "")')"
   [ -z "${project}" ] || die "the operation's configuration has core/project=${project}; it must stay unset"
+}
+
+# The checkout is the approved commit (prints the repository root).
+require_approved_checkout() {
+  local sha="${N02_APPROVED_SHA:-}" root
+  [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || die "N02_APPROVED_SHA must be the approved full commit SHA"
+  root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+  [ "$(git -C "${root}" rev-parse HEAD)" = "${sha}" ] || die "checkout is not ${sha}"
+  echo "${root}"
 }
 
 active_account() {
@@ -120,6 +131,7 @@ active_account() {
 state_file() { echo "${STATE}/$1"; }
 recorded() { cat "$(state_file "$1")" 2>/dev/null || true; }
 record() { mkdir -p "${STATE}"; printf '%s\n' "$2" > "$(state_file "$1")"; }
+log_command() { mkdir -p "${STATE}"; printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$1" "${N02_APPROVED_SHA:-}" >> "$(state_file commands.tsv)"; }
 
 describe_project() { g projects describe "${PROJECT_ID}" --format=json; }
 
@@ -137,6 +149,69 @@ require_project_identity() {
   [ "$(json "${file}" 'd.get("lifecycleState", "")')" = "ACTIVE" ] || die "project is not ACTIVE"
   [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] || die "project label parkio-purpose missing"
   [ "$(json "${file}" 'd.get("labels", {}).get("parkio-issue", "")')" = "483" ] || die "project label parkio-issue missing"
+  rm -f "${file}"
+}
+
+# Names of the buckets the project holds, one per line, from a successful listing only.
+project_buckets() {
+  local file names
+  file="$(mktemp)"
+  g storage buckets list --project="${PROJECT_ID}" --raw --format=json > "${file}" || { rm -f "${file}"; die "cannot list the buckets of ${PROJECT_ID}"; }
+  [ -n "$(tr -d '[:space:]' < "${file}")" ] || echo '[]' > "${file}"
+  names="$(json "${file}" '"\n".join(sorted(b["name"] for b in d))')"
+  rm -f "${file}"
+  echo "${names}"
+}
+
+# Object generations in a bucket. A recursive listing also yields the bucket and prefixes; only
+# cloud_object entries count, and an empty listing is no generation.
+generations_in() {
+  local file count
+  file="$(mktemp)"
+  g storage ls --all-versions --recursive --json "gs://$1" > "${file}" || { rm -f "${file}"; die "cannot list gs://$1"; }
+  count="$(python3 -I -c 'import json,sys
+t=open(sys.argv[1], encoding="utf-8").read().strip()
+print(sum(1 for r in (json.loads(t) if t else []) if r.get("type") == "cloud_object"))' "${file}")"
+  rm -f "${file}"
+  [[ "${count}" =~ ^[0-9]+$ ]] || die "cannot count the generations of gs://$1"
+  echo "${count}"
+}
+
+# The latest retainUntilTime still set on any generation in a bucket, as epoch seconds (0 when none).
+latest_retention_in() {
+  local file value
+  file="$(mktemp)"
+  g storage ls --all-versions --recursive --json "gs://$1" > "${file}" || { rm -f "${file}"; die "cannot list gs://$1"; }
+  value="$(python3 -I -c 'import json,sys,datetime
+found=[0]
+def walk(v):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k in ("retainUntilTime", "retain_until_time") and isinstance(x, str):
+                found.append(int(datetime.datetime.fromisoformat(x.replace("Z", "+00:00")).timestamp()))
+            walk(x)
+    elif isinstance(v, list):
+        for x in v:
+            walk(x)
+t=open(sys.argv[1], encoding="utf-8").read().strip()
+walk(json.loads(t) if t else [])
+print(max(found))' "${file}")"
+  rm -f "${file}"
+  echo "${value}"
+}
+
+# The project's liens are those recorded after Object Retention Lock was enabled.
+lien_signature() {
+  json "$1" "sorted(l['name'] + '|' + l.get('parent', '') + '|' + l.get('origin', '') + '|' + l.get('reason', '') + '|' + ','.join(l.get('restrictions', [])) for l in d)"
+}
+
+require_lien_baseline() {
+  local file
+  file="$(mktemp)"
+  [ -s "$(state_file liens-after-orl.json)" ] || die "no lien baseline"
+  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
+  [ "$(lien_signature "${file}")" = "$(lien_signature "$(state_file liens-after-orl.json)")" ] \
+    || die "the project's liens differ from the recorded baseline"
   rm -f "${file}"
 }
 
@@ -158,32 +233,44 @@ cmd_preflight() {
 
 cmd_provision() {
   require_isolation
+  require_approved_checkout > /dev/null
   [ "${N02_CONFIRM:-}" = "provision-${PROJECT_ID}" ] || die "N02_CONFIRM must be provision-${PROJECT_ID}"
   local billing="${N02_BILLING_ACCOUNT:-}"
   [[ "${billing}" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]] || die "N02_BILLING_ACCOUNT must look like XXXXXX-XXXXXX-XXXXXX"
-  [ -z "$(recorded project-number)" ] || die "${STATE} already records a provisioned project"
-  local account file
+  local account file name role bucket created_any polls
   account="$(active_account)"
   file="$(mktemp)"
-  g billing accounts describe "${billing}" --format=json > "${file}"
-  [ "$(json "${file}" 'd.get("open", False)')" = "true" ] || die "billing account ${billing} is not open"
-  if g projects describe "${PROJECT_ID}" --format=json > /dev/null 2>&1; then
-    die "${PROJECT_ID} already exists; nothing was changed"
+
+  if [ -n "$(recorded project-number)" ]; then
+    say "resuming on the recorded project"
+    require_project_identity
+    [ "$(recorded billing-account)" = "${billing}" ] || die "the recorded billing account differs"
+    [ "$(recorded operator)" = "${account}" ] || die "the recorded operator account differs"
+    log_command "provision (resume)"
+  else
+    g billing accounts describe "${billing}" --format=json > "${file}"
+    [ "$(json "${file}" 'd.get("open", False)')" = "true" ] || die "billing account ${billing} is not open"
+    if g projects describe "${PROJECT_ID}" --format=json > /dev/null 2>&1; then
+      die "${PROJECT_ID} already exists; nothing was changed"
+    fi
+    log_command provision
+    say "project"
+    g projects create "${PROJECT_ID}" --name="${PROJECT_NAME}" --labels="parkio-purpose=n02-gcs-acceptance,parkio-issue=483" \
+      --no-enable-cloud-apis
+    describe_project > "${file}"
+    record project-number "$(json "${file}" 'd["projectNumber"]')"
+    record project-create-time "$(json "${file}" 'd["createTime"]')"
+    record operator "${account}"
+    record billing-account "${billing}"
+    require_project_identity
   fi
 
-  say "project"
-  g projects create "${PROJECT_ID}" --name="${PROJECT_NAME}" --labels="parkio-purpose=n02-gcs-acceptance,parkio-issue=483" \
-    --no-enable-cloud-apis
-  describe_project > "${file}"
-  record project-number "$(json "${file}" 'd["projectNumber"]')"
-  record project-create-time "$(json "${file}" 'd["createTime"]')"
-  record operator "${account}"
-  record billing-account "${billing}"
-  require_project_identity
-
   say "billing"
-  g billing projects link "${PROJECT_ID}" --billing-account="${billing}"
   g billing projects describe "${PROJECT_ID}" --format=json > "${file}"
+  if [ "$(json "${file}" 'd.get("billingEnabled", False)')" != "true" ]; then
+    g billing projects link "${PROJECT_ID}" --billing-account="${billing}"
+    g billing projects describe "${PROJECT_ID}" --format=json > "${file}"
+  fi
   [ "$(json "${file}" 'd.get("billingEnabled", False)')" = "true" ] || die "billing is not enabled"
   [ "$(json "${file}" 'd.get("billingAccountName", "")')" = "billingAccounts/${billing}" ] || die "billing account differs"
 
@@ -192,57 +279,87 @@ cmd_provision() {
   g services enable ${APIS} --project="${PROJECT_ID}"
 
   say "buckets"
-  g storage buckets create "gs://${BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
-    --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
-    --soft-delete-duration=0 --enable-per-object-retention
-  sleep "${N02_BUCKET_SPACING_SECONDS:-3}"
-  g storage buckets create "gs://${CONTROL_BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
-    --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
-    --soft-delete-duration=0
+  if ! project_buckets | grep -qx "${BUCKET}"; then
+    g storage buckets create "gs://${BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
+      --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
+      --soft-delete-duration=0 --enable-per-object-retention
+    sleep "${N02_BUCKET_SPACING_SECONDS:-3}"
+  fi
+  if ! project_buckets | grep -qx "${CONTROL_BUCKET}"; then
+    g storage buckets create "gs://${CONTROL_BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
+      --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
+      --soft-delete-duration=0
+  fi
   g storage buckets update "gs://${BUCKET}" --versioning --update-labels="${LABELS}"
   g storage buckets update "gs://${CONTROL_BUCKET}" --versioning --update-labels="${LABELS}"
-  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "$(state_file liens-after-orl.json)"
+
+  if [ ! -s "$(state_file liens-after-orl.json)" ]; then
+    say "Object Retention Lock lien (best effort; waits up to 5 min)"
+    polls=0
+    while :; do
+      g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
+      [ -n "$(tr -d '[:space:]' < "${file}")" ] || echo '[]' > "${file}"
+      [ "$(json "${file}" "len([l for l in d if 'resourcemanager.projects.delete' in l.get('restrictions', [])])")" = "0" ] || break
+      polls=$((polls + 1))
+      [ "${polls}" -lt 20 ] || die "no project-deletion lien appeared within 5 min of enabling Object Retention Lock"
+      sleep "${LIEN_POLL_SECONDS}"
+    done
+    cp "${file}" "$(state_file liens-after-orl.json)"
+  fi
 
   say "service accounts (no keys)"
-  local name role bucket
+  created_any=0
   for name in ${ACCOUNTS}; do
-    g iam service-accounts create "${name}" --project="${PROJECT_ID}" --display-name="N-02 #483 ${name} (no keys)"
+    if ! g iam service-accounts describe "$(sa_email "${name}")" --project="${PROJECT_ID}" --format=json > /dev/null 2>&1; then
+      g iam service-accounts create "${name}" --project="${PROJECT_ID}" --display-name="N-02 #483 ${name} (no keys)"
+      created_any=1
+    fi
   done
   for name in ${ACCOUNTS}; do
-    local tries=0
-    until g iam service-accounts describe "$(sa_email "${name}")" --project="${PROJECT_ID}" --format=json > /dev/null 2>&1; do
-      tries=$((tries + 1)); [ "${tries}" -le 30 ] || die "service account ${name} did not appear"
-      sleep "${N02_POLL_SECONDS:-10}"
-    done
+    retry g iam service-accounts describe "$(sa_email "${name}")" --project="${PROJECT_ID}" --format=json > /dev/null \
+      || die "service account ${name} did not appear"
   done
+  # Google: "you might need to wait for 60 seconds or more before you use the service account".
+  [ "${created_any}" = 0 ] || sleep "${SA_SETTLE_SECONDS}"
 
   say "custom roles"
   for role in ${ROLE_IDS}; do
-    g iam roles create "${role}" --project="${PROJECT_ID}" --title="N-02 #483 ${role}" --stage=GA \
-      --permissions="$(role_permissions "${role}")"
+    if ! g iam roles describe "${role}" --project="${PROJECT_ID}" --format=json > "${file}" 2>/dev/null; then
+      retry g iam roles create "${role}" --project="${PROJECT_ID}" --title="N-02 #483 ${role}" --stage=GA \
+        --permissions="$(role_permissions "${role}")" || die "role ${role} could not be created"
+    elif [ "$(json "${file}" 'd.get("deleted", False)')" = "true" ]; then
+      die "role ${role} exists in the deleted state; it is not reused"
+    fi
   done
 
-  say "bindings"
+  say "bindings (adding an existing binding changes nothing)"
   while read -r bucket name role; do
-    g storage buckets add-iam-policy-binding "gs://${bucket}" --member="serviceAccount:$(sa_email "${name}")" \
-      --role="projects/${PROJECT_ID}/roles/${role}"
+    retry g storage buckets add-iam-policy-binding "gs://${bucket}" --member="serviceAccount:$(sa_email "${name}")" \
+      --role="projects/${PROJECT_ID}/roles/${role}" || die "binding ${name} on ${bucket} failed"
   done < <(bucket_bindings)
   for name in ${ACCOUNTS}; do
-    g iam service-accounts add-iam-policy-binding "$(sa_email "${name}")" --project="${PROJECT_ID}" \
-      --member="user:${account}" --role="projects/${PROJECT_ID}/roles/n02TokenMinter"
+    retry g iam service-accounts add-iam-policy-binding "$(sa_email "${name}")" --project="${PROJECT_ID}" \
+      --member="user:${account}" --role="projects/${PROJECT_ID}/roles/n02TokenMinter" \
+      || die "token binding on ${name} failed"
   done
   record iam-bound-at "$(date -u +%s)"
   rm -f "${file}"
-  cmd_verify
+  verify_provisioned
   say "provisioned; wait ${IAM_SETTLE_SECONDS} s for IAM propagation, then log in ADC and use: run"
 }
 
 cmd_verify() {
   require_isolation
+  require_approved_checkout > /dev/null
+  verify_provisioned
+}
+
+verify_provisioned() {
   require_project_identity
   local file number bucket name role
   number="$(recorded project-number)"
   file="$(mktemp)"
+  [ "$(project_buckets)" = "$(printf '%s\n%s' "${CONTROL_BUCKET}" "${BUCKET}")" ] || die "the project's buckets differ from the approved two"
   for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
     g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}"
     [ "$(json "${file}" 'str(d.get("projectNumber", ""))')" = "${number}" ] || die "${bucket} is in another project"
@@ -275,17 +392,17 @@ cmd_verify() {
     g iam roles describe "${role}" --project="${PROJECT_ID}" --format=json > "${file}"
     [ "$(json "${file}" "','.join(sorted(d.get('includedPermissions', [])))")" = "$(role_permissions "${role}")" ] || die "${role} permissions differ"
   done
+  require_lien_baseline
   rm -f "${file}"
-  say "verified: ${PROJECT_ID} (${number}), gs://${BUCKET}, gs://${CONTROL_BUCKET}, ${ROLE_IDS// /, }"
+  say "verified: ${PROJECT_ID} (${number}), gs://${BUCKET}, gs://${CONTROL_BUCKET}, ${ROLE_IDS// /, }, lien as recorded"
 }
 
 cmd_run() {
   require_isolation
+  local root attempts n out adc bound rc stamp
+  root="$(require_approved_checkout)"
   require_project_identity
-  local sha="${N02_APPROVED_SHA:-}" root attempts n out adc bound rc stamp
-  [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || die "N02_APPROVED_SHA must be the approved full commit SHA"
-  root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
-  [ "$(git -C "${root}" rev-parse HEAD)" = "${sha}" ] || die "checkout is not ${sha}"
+  require_lien_baseline
   bound="$(recorded iam-bound-at)"
   [ -n "${bound}" ] && [ $(( $(date -u +%s) - bound )) -ge "${IAM_SETTLE_SECONDS}" ] || die "IAM bindings are younger than ${IAM_SETTLE_SECONDS} s"
   adc="${CONFIG_DIR}/application_default_credentials.json"
@@ -299,6 +416,7 @@ cmd_run() {
     || die "three attempts stopped in the preflight; report before trying again"
   n=$((attempts + 1))
   out="${STATE}/runs/attempt-${n}"
+  log_command "run attempt-${n}"
   record "runs/attempt-${n}.started" "$(date -u +%s)"
   (
     export N02_GCS_PROJECT="${PROJECT_ID}" N02_GCS_PROJECT_NUMBER="$(recorded project-number)" \
@@ -323,35 +441,27 @@ cmd_run() {
 }
 
 # Earliest full cleanup: the latest retain-until any attempt may have requested, plus a clock margin.
+# Without result.json the harness's own bound from run.json is used; without either, the attempt start.
 earliest_cleanup() {
   local latest=0 started value dir
   for started in "${STATE}"/runs/attempt-*.started; do
     [ -f "${started}" ] || continue
     dir="${started%.started}"
+    value=""
     if [ -f "${dir}/result.json" ]; then
       value="$(json "${dir}/result.json" 'd["budget"]["latestRetainUntil"] or ""')"
-      if [ -n "${value}" ]; then
-        value="$(date -u -d "${value}" +%s)"
-      else
-        value=$(( $(cat "${started}") + RUN_RETENTION_BOUND_SECONDS ))
-      fi
+    fi
+    if [ -z "${value}" ] && [ -f "${dir}/run.json" ]; then
+      value="$(json "${dir}/run.json" 'd["run"]["latestRetainUntilBound"] or ""')"
+    fi
+    if [ -n "${value}" ]; then
+      value="$(date -u -d "${value}" +%s)"
     else
       value=$(( $(cat "${started}") + RUN_RETENTION_BOUND_SECONDS ))
     fi
     [ "${value}" -le "${latest}" ] || latest="${value}"
   done
   echo $(( latest + CLEANUP_MARGIN_SECONDS ))
-}
-
-# The latest retain-until still set on any generation in a bucket (0 when none).
-latest_retention_in() {
-  local file value
-  file="$(mktemp)"
-  g storage ls --all-versions --recursive --json "gs://$1" > "${file}"
-  [ -s "${file}" ] || echo '[]' > "${file}"
-  value="$(latest_retain_until "${file}")"
-  rm -f "${file}"
-  echo "${value}"
 }
 
 cmd_cleanup_status() {
@@ -361,41 +471,45 @@ cmd_cleanup_status() {
   earliest="$(earliest_cleanup)"
   now="$(date -u +%s)"
   say "earliest full cleanup $(date -u -d "@${earliest}" +%FT%TZ) (now $(date -u -d "@${now}" +%FT%TZ))"
-  for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
-    if g storage buckets describe "gs://${bucket}" --format=json > /dev/null 2>&1; then
-      say "gs://${bucket}: latest retain-until still set $(date -u -d "@$(latest_retention_in "${bucket}")" +%FT%TZ)"
-    else
-      say "gs://${bucket}: gone"
-    fi
+  for bucket in $(project_buckets); do
+    say "gs://${bucket}: $(generations_in "${bucket}") generations, latest retain-until still set $(date -u -d "@$(latest_retention_in "${bucket}")" +%FT%TZ)"
   done
 }
 
 cmd_cleanup() {
   require_isolation
+  require_approved_checkout > /dev/null
   require_project_identity
-  local number earliest now file bucket name role lien
+  local number earliest now file bucket name role lien present baseline
   number="$(recorded project-number)"
   [ "${N02_CONFIRM:-}" = "cleanup-${PROJECT_ID}-${number}" ] || die "N02_CONFIRM must be cleanup-${PROJECT_ID}-${number}"
   earliest="$(earliest_cleanup)"
   now="$(date -u +%s)"
   [ "${now}" -ge "${earliest}" ] || die "too early: wait until $(date -u -d "@${earliest}" +%FT%TZ)"
   file="$(mktemp)"
+  log_command cleanup
 
-  say "only the approved buckets exist in the project"
-  g storage buckets list --project="${PROJECT_ID}" --raw --format=json > "${file}"
-  [ "$(json "${file}" "sorted(set(b['name'] for b in d) - {'${BUCKET}', '${CONTROL_BUCKET}'})")" = "[]" ] || die "the project holds other buckets"
-
-  for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
-    g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}" 2>/dev/null || { say "gs://${bucket} already gone"; continue; }
+  say "the project's liens are the recorded baseline, and only the approved buckets exist"
+  require_lien_baseline
+  present="$(project_buckets)"
+  for bucket in ${present}; do
+    [ "${bucket}" = "${BUCKET}" ] || [ "${bucket}" = "${CONTROL_BUCKET}" ] || die "the project holds other buckets"
+  done
+  # Every check passes for every bucket before anything is deleted.
+  for bucket in ${present}; do
+    g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}" || die "cannot describe gs://${bucket}"
     [ "$(json "${file}" 'str(d.get("projectNumber", ""))')" = "${number}" ] || die "${bucket} is in another project"
     [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] || die "${bucket} labels differ"
     [ "$(latest_retention_in "${bucket}")" -lt "${now}" ] || die "gs://${bucket} still holds retained generations"
-    if [ -n "$(g storage ls --all-versions --recursive "gs://${bucket}")" ]; then
+  done
+  for bucket in ${present}; do
+    if [ "$(generations_in "${bucket}")" -gt 0 ]; then
       g storage rm --all-versions "gs://${bucket}/**"
     fi
-    [ -z "$(g storage ls --all-versions --recursive "gs://${bucket}")" ] || die "gs://${bucket} is not empty"
+    [ "$(generations_in "${bucket}")" = "0" ] || die "gs://${bucket} is not empty"
     g storage buckets delete "gs://${bucket}"
   done
+  [ -z "$(project_buckets)" ] || die "buckets remain in ${PROJECT_ID}; the lien and the project stay"
 
   say "service accounts and roles of this operation"
   for name in ${ACCOUNTS}; do
@@ -411,22 +525,25 @@ cmd_cleanup() {
   done
 
   say "Object Retention Lock lien: only the one recorded after the bucket was created"
-  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
-  local baseline
   baseline="$(state_file liens-after-orl.json)"
-  [ -f "${baseline}" ] || die "no lien baseline"
+  [ -s "${baseline}" ] || die "no lien baseline"
+  g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "${file}"
+  [ -n "$(tr -d '[:space:]' < "${file}")" ] || echo '[]' > "${file}"
   [ "$(json "${file}" "len(d)")" -le 1 ] || die "the project carries more than one lien"
   if [ "$(json "${file}" 'len(d)')" = "1" ]; then
     lien="$(json "${file}" 'd[0]["name"]')"
-    [ "$(json "${baseline}" "[l['name'] for l in d]")" = "[\"${lien}\"]" ] || die "the lien ${lien} is not the recorded one"
-    [ "$(json "${file}" 'd[0].get("parent", "")')" = "projects/${number}" ] || die "the lien belongs to another project"
+    [ "$(lien_signature "${file}")" = "$(lien_signature "${baseline}")" ] || die "the lien ${lien} differs from the recorded baseline"
+    case "$(json "${file}" 'd[0].get("parent", "")')" in
+      "projects/${number}"|"projects/${PROJECT_ID}") ;;
+      *) die "the lien belongs to another project" ;;
+    esac
     [ "$(json "${file}" 'd[0].get("restrictions", [])')" = '["resourcemanager.projects.delete"]' ] || die "the lien restricts more than project deletion"
-    [ "$(json "${file}" 'd[0].get("origin", "") + "|" + d[0].get("reason", "")')" = "$(json "${baseline}" 'd[0].get("origin", "") + "|" + d[0].get("reason", "")')" ] || die "the lien origin or reason changed"
     g alpha resource-manager liens delete "${lien#liens/}"
   fi
 
   say "project, by its recorded number"
   require_project_identity
+  [ -z "$(project_buckets)" ] || die "buckets remain in ${PROJECT_ID}"
   g projects delete "${number}" --quiet
   describe_project > "${file}"
   [ "$(json "${file}" 'd.get("lifecycleState", "")')" = "DELETE_REQUESTED" ] || die "the project is not DELETE_REQUESTED"

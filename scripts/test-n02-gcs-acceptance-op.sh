@@ -49,6 +49,12 @@ def flag(name, default=None):
 
 words = [a for a in args if not a.startswith("--")]
 key = " ".join(words[:3])
+# Knob: fail the next N calls that start with a prefix (an IAM change not yet propagated, a lost call).
+for prefix, remaining in list(s.get("fail", {}).items()):
+    if remaining > 0 and " ".join(words).startswith(prefix):
+        s["fail"][prefix] = remaining - 1
+        save()
+        fail("simulated failure of " + prefix)
 
 if words[:1] == ["version"]:
     out({"Google Cloud SDK": "590.0.0"})
@@ -102,7 +108,7 @@ if words[:3] == ["storage", "buckets", "update"]:
     save(); out({})
 if words[:3] == ["storage", "buckets", "describe"]:
     name = words[3][5:]
-    if name not in s["buckets"]:
+    if name not in s["buckets"] or name in s.get("describe_fail", []):
         fail("NotFound")
     b = {k: v for k, v in s["buckets"][name].items() if k not in ("objects", "bindings")}
     if not b["objectRetention"]:
@@ -111,7 +117,10 @@ if words[:3] == ["storage", "buckets", "describe"]:
 if words[:3] == ["storage", "buckets", "list"]:
     out([{"name": n} for n in s["buckets"]])
 if words[:3] == ["storage", "buckets", "add-iam-policy-binding"]:
-    s["buckets"][words[3][5:]]["bindings"].append({"role": flag("role"), "members": [flag("member")]}); save(); out({})
+    binding = {"role": flag("role"), "members": [flag("member")]}
+    if binding not in s["buckets"][words[3][5:]]["bindings"]:
+        s["buckets"][words[3][5:]]["bindings"].append(binding)
+    save(); out({})
 if words[:3] == ["storage", "buckets", "get-iam-policy"]:
     out({"bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:" + P]}]
          + s["buckets"][words[3][5:]]["bindings"]})
@@ -119,18 +128,31 @@ if words[:3] == ["storage", "buckets", "delete"]:
     name = words[3][5:]
     if s["buckets"][name]["objects"]:
         fail("bucket not empty")
-    del s["buckets"][name]; save(); out({})
+    if not s.get("delete_noop"):
+        del s["buckets"][name]
+    save(); out({})
 if words[:2] == ["storage", "ls"]:
+    # Like gcloud 590: a recursive listing of a bucket URL also yields the bucket itself (a "gs://B/:"
+    # header in plain output, a cloud_bucket entry in JSON); an empty non-recursive JSON listing is "\n".
     b = s["buckets"][words[2][5:]]
     if "--json" in args:
-        out([{"url": "gs://%s/%s#%d" % (b["name"], o["name"], o["generation"]),
-              "metadata": {"retention": {"mode": "Locked", "retainUntilTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(o["until"]))}}}
-             for o in b["objects"]])
+        items = [{"url": "gs://%s/%s#%d" % (b["name"], o["name"], o["generation"]), "type": "cloud_object",
+                  "metadata": {"retention": {"mode": "Locked", "retainUntilTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(o["until"]))}}}
+                 for o in b["objects"]]
+        if "--recursive" in args:
+            items.insert(0, {"url": "gs://%s/" % b["name"], "type": "cloud_bucket", "metadata": {"name": b["name"]}})
+        if not items:
+            print(); sys.exit(0)
+        out(items)
+    if "--recursive" in args:
+        print("gs://%s/:" % b["name"])
     for o in b["objects"]:
         print("gs://%s/%s#%d" % (b["name"], o["name"], o["generation"]))
     sys.exit(0)
 if words[:2] == ["storage", "rm"]:
     b = s["buckets"][words[2][5:words[2].index("/**")]]
+    if not b["objects"] and "--recursive" not in args:
+        fail("The following URLs matched no objects or files: " + words[2])
     if any(o["until"] > now for o in b["objects"]):
         fail("Object is subject to object retention")
     b["objects"] = []; save(); out({})
@@ -141,7 +163,10 @@ if words[:3] == ["iam", "service-accounts", "describe"]:
         fail("NOT_FOUND")
     out({"email": words[3]})
 if words[:3] == ["iam", "service-accounts", "add-iam-policy-binding"]:
-    s["accounts"][words[3]]["bindings"].append({"role": flag("role"), "members": [flag("member")]}); save(); out({})
+    binding = {"role": flag("role"), "members": [flag("member")]}
+    if binding not in s["accounts"][words[3]]["bindings"]:
+        s["accounts"][words[3]]["bindings"].append(binding)
+    save(); out({})
 if words[:3] == ["iam", "service-accounts", "get-iam-policy"]:
     out({"bindings": s["accounts"][words[3]]["bindings"]})
 if words[:4] == ["iam", "service-accounts", "keys", "list"]:
@@ -157,6 +182,8 @@ if words[:3] == ["iam", "roles", "describe"]:
 if words[:3] == ["iam", "roles", "delete"]:
     s["roles"][words[3]]["deleted"] = True; save(); out({})
 if words[:4] == ["alpha", "resource-manager", "liens", "list"]:
+    if s.get("lien_delay"):
+        s["lien_delay"] -= 1; save(); out([])
     out(s["liens"])
 if words[:4] == ["alpha", "resource-manager", "liens", "delete"]:
     s["liens"] = [l for l in s["liens"] if l["name"] != "liens/" + words[4]]; save(); out({})
@@ -177,9 +204,11 @@ reset() {
   mkdir -p "${HOME}/.config/gcloud-parkio-n02-483"
   export CLOUDSDK_CONFIG="${HOME}/.config/gcloud-parkio-n02-483"
   export FAKE_STATE="${HOME}/fake-cloud.json" FAKE_LOG="${HOME}/calls.log"
-  export N02_GCLOUD="${WORK}/bin/gcloud" N02_STATE_DIR="${HOME}/state" N02_POLL_SECONDS=0 N02_BUCKET_SPACING_SECONDS=0
+  export N02_GCLOUD="${WORK}/bin/gcloud" N02_STATE_DIR="${HOME}/state" N02_POLL_SECONDS=0 N02_BUCKET_SPACING_SECONDS=0 \
+    N02_SA_SETTLE_SECONDS=0 N02_RETRY_SECONDS=0 N02_LIEN_POLL_SECONDS=0
+  export N02_APPROVED_SHA="$(git -C "${ROOT}" rev-parse HEAD)"
   : > "${FAKE_LOG}"
-  unset N02_CONFIRM N02_BILLING_ACCOUNT N02_APPROVED_SHA N02_GRADLE GOOGLE_APPLICATION_CREDENTIALS CLOUDSDK_CORE_PROJECT || true
+  unset N02_CONFIRM N02_BILLING_ACCOUNT N02_GRADLE GOOGLE_APPLICATION_CREDENTIALS CLOUDSDK_CORE_PROJECT || true
 }
 calls() { python3 -I -c 'import json,sys; [print(" ".join(json.loads(l)["args"])) for l in open(sys.argv[1])]' "${FAKE_LOG}"; }
 fake() { python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); exec(sys.argv[2]); json.dump(s, open(sys.argv[1], "w"))' "${FAKE_STATE}" "$1"; }
@@ -202,6 +231,7 @@ reset isolation
 expect_stop "refuses another CLOUDSDK_CONFIG" "CLOUDSDK_CONFIG must be" env CLOUDSDK_CONFIG="${HOME}/.config/gcloud" bash "${OP}" preflight
 expect_stop "refuses an inherited key file" "GOOGLE_APPLICATION_CREDENTIALS must be unset" env GOOGLE_APPLICATION_CREDENTIALS=/tmp/key.json bash "${OP}" preflight
 expect_stop "refuses an inherited project" "CLOUDSDK_CORE_PROJECT must be unset" env CLOUDSDK_CORE_PROJECT=other bash "${OP}" preflight
+expect_stop "refuses any other gcloud override" "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT must be unset" env CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=x@y bash "${OP}" preflight
 echo '{"core_project": "other-project"}' > "${FAKE_STATE}"
 expect_stop "refuses a configured core/project" "core/project=other-project" bash "${OP}" preflight
 rm -f "${FAKE_STATE}"
@@ -211,6 +241,7 @@ if bash "${OP}" preflight > "${HOME}/preflight.out" 2>&1 && grep -q "not visible
 # --- provision ------------------------------------------------------------------------------------
 reset provision-guards
 expect_stop "provision needs the confirmation" "N02_CONFIRM must be provision-" env N02_BILLING_ACCOUNT=ABCDEF-123456-7890AB bash "${OP}" provision
+expect_stop "provision runs only from the approved commit" "checkout is not" env N02_APPROVED_SHA="$(printf 'e%.0s' {1..40})" N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=ABCDEF-123456-7890AB bash "${OP}" provision
 expect_stop "provision rejects a wrong confirmation" "N02_CONFIRM must be provision-" env N02_CONFIRM=provision-other N02_BILLING_ACCOUNT=ABCDEF-123456-7890AB bash "${OP}" provision
 expect_stop "provision rejects a malformed billing account" "N02_BILLING_ACCOUNT must look like" env N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=123 bash "${OP}" provision
 echo '{"billing_open": false}' > "${FAKE_STATE}"
@@ -237,10 +268,35 @@ for f in project-number project-create-time operator billing-account liens-after
   [ -s "${N02_STATE_DIR}/${f}" ] || bad "state ${f} not recorded"
 done
 [ "$(cat "${N02_STATE_DIR}/project-number")" = "123456789012" ] && ok "project number recorded" || bad "project number"
-expect_stop "provision refuses a second time" "already records a provisioned project" provision
+creates_before="$(calls | grep -c -E '^(projects create|storage buckets create|iam (service-accounts|roles) create)')"
+if provision > "${HOME}/again.out" 2>&1 && grep -q "resuming on the recorded project" "${HOME}/again.out" \
+    && [ "$(calls | grep -c -E '^(projects create|storage buckets create|iam (service-accounts|roles) create)')" = "${creates_before}" ]; then
+  ok "a second provision resumes and creates nothing"
+else bad "second provision: $(tail -3 "${HOME}/again.out")"; fi
 if bash "${OP}" verify > /dev/null 2>&1; then ok "verify passes on the provisioned state"; else bad "verify failed"; fi
 fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["bindings"].append({"role": "roles/storage.admin", "members": ["serviceAccount:n02-reader@parkio-n02-accept-5c2c7f.iam.gserviceaccount.com"]})'
 expect_stop "verify catches an extra bucket grant" "binding of n02-reader" bash "${OP}" verify
+fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["bindings"].pop()'
+fake 's["liens"].append({"name": "liens/extra", "parent": "projects/123456789012", "origin": "x", "reason": "y", "restrictions": ["resourcemanager.projects.delete"]})'
+expect_stop "verify catches a lien that differs from the baseline" "liens differ from the recorded baseline" bash "${OP}" verify
+
+reset provision-resume
+echo '{"fail": {"storage buckets add-iam-policy-binding gs://parkio-n02-orl-accept-20261022-5c2c7f": 25}, "lien_delay": 2}' > "${FAKE_STATE}"
+expect_stop "a persistent binding failure stops provisioning" "binding n02-writer on" provision
+creates_before="$(calls | grep -c '^projects create' || true)"
+fake 's["fail"] = {}'
+expect_stop "resume refuses another billing account" "recorded billing account differs" \
+  env N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=ABCDEF-123456-000000 bash "${OP}" provision
+fake 's["project"]["projectNumber"] = "999999999999"'
+writes_before="$(writes)"
+expect_stop "resume refuses a project that is not the recorded one" "project number differs" provision
+[ "$(writes)" = "${writes_before}" ] && ok "a refused resume changes nothing" || bad "a refused resume wrote: $(calls | tail -3)"
+fake 's["project"]["projectNumber"] = "123456789012"'
+if provision > "${HOME}/resume.out" 2>&1 && grep -q "resuming on the recorded project" "${HOME}/resume.out"; then ok "provision resumes on the recorded project"; else bad "resume: $(tail -3 "${HOME}/resume.out")"; fi
+[ "$(calls | grep -c '^projects create')" = "${creates_before}" ] && [ "$(calls | grep -c '^storage buckets create')" = "2" ] \
+  && [ "$(calls | grep -c '^iam service-accounts create')" = "4" ] && ok "resume creates nothing twice" || bad "resume duplicated creations"
+[ "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "${N02_STATE_DIR}/liens-after-orl.json")" = "1" ] \
+  && ok "the late lien is recorded after polling" || bad "lien baseline"
 
 # --- run ------------------------------------------------------------------------------------------
 reset run
@@ -262,7 +318,7 @@ exit "${FAKE_RUN_EXIT:-0}"
 SH
 chmod +x "${WORK}/bin/fake-gradle"
 export N02_GRADLE="${WORK}/bin/fake-gradle"
-expect_stop "run needs the approved SHA" "N02_APPROVED_SHA must be" bash "${OP}" run
+expect_stop "run needs the approved SHA" "N02_APPROVED_SHA must be" env -u N02_APPROVED_SHA bash "${OP}" run
 expect_stop "run refuses another checkout" "checkout is not" env N02_APPROVED_SHA="$(printf 'f%.0s' {1..40})" bash "${OP}" run
 expect_stop "run waits for IAM propagation" "younger than" env N02_APPROVED_SHA="${SHA}" bash "${OP}" run
 echo "$(( $(date -u +%s) - 1000 ))" > "${N02_STATE_DIR}/iam-bound-at"
@@ -291,6 +347,10 @@ future="$(date -u -d '+1 hour' +%FT%TZ)"
 echo "{\"budget\":{\"latestRetainUntil\":\"${future}\"}}" > "${N02_STATE_DIR}/runs/attempt-1/result.json"
 expect_stop "cleanup needs the confirmation with the project number" "N02_CONFIRM must be cleanup-" env N02_CONFIRM=cleanup-parkio-n02-accept-5c2c7f bash "${OP}" cleanup
 expect_stop "cleanup waits for the latest retain-until" "too early" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+rm "${N02_STATE_DIR}/runs/attempt-1/result.json"
+echo "{\"run\":{\"latestRetainUntilBound\":\"${future}\"}}" > "${N02_STATE_DIR}/runs/attempt-1/run.json"
+expect_stop "without a result the bound in run.json decides" "too early" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+rm "${N02_STATE_DIR}/runs/attempt-1/run.json"
 echo "{\"budget\":{\"latestRetainUntil\":\"$(date -u -d '-1 hour' +%FT%TZ)\"}}" > "${N02_STATE_DIR}/runs/attempt-1/result.json"
 fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["objects"] = [{"name": "runs/x/a.json", "generation": 1, "until": int(__import__("time").time()) + 600}]'
 expect_stop "cleanup refuses while a generation is retained" "still holds retained generations" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
@@ -303,12 +363,20 @@ fake 's["project"]["labels"] = {"parkio-purpose": "n02-gcs-acceptance", "parkio-
 expect_stop "cleanup refuses a project with other buckets" "holds other buckets" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
 fake 'del s["buckets"]["someone-elses-bucket"]; s["liens"].append({"name": "liens/other", "parent": "projects/123456789012", "origin": "someone", "reason": "keep", "restrictions": ["resourcemanager.projects.delete"]})'
 before_destructive="$(writes)"
-expect_stop "cleanup refuses an unknown lien" "more than one lien" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+expect_stop "cleanup refuses an unknown lien" "liens differ from the recorded baseline" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
 fake 's["liens"] = [l for l in s["liens"] if l["name"] != "liens/other"]'
 fake 's["liens"][0]["reason"] = "changed"'
-expect_stop "cleanup refuses a lien that differs from the baseline" "origin or reason changed" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+expect_stop "cleanup refuses a lien that differs from the baseline" "liens differ from the recorded baseline" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+if [ "$(writes)" = "${before_destructive}" ]; then ok "refused cleanups deleted nothing"; else bad "a refused cleanup deleted something: $(calls | tail -5)"; fi
 fake 's["liens"][0]["reason"] = "Object retention is enabled on a bucket"'
-if N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup > "${HOME}/cleanup.out" 2>&1; then ok "cleanup completes"; else bad "cleanup: $(tail -5 "${HOME}/cleanup.out")"; fi
+expect_stop "cleanup runs only from the approved commit" "checkout is not" env N02_APPROVED_SHA="$(printf 'e%.0s' {1..40})" N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+fake 's["describe_fail"] = ["parkio-n02-noorl-ctrl-20261022-5c2c7f"]'
+expect_stop "a failed bucket describe is not treated as gone" "cannot describe gs://parkio-n02-noorl-ctrl" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+fake 's["describe_fail"] = []; s["delete_noop"] = True'
+expect_stop "the lien and project stay while a bucket remains" "buckets remain in parkio-n02-accept-5c2c7f" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+if calls | grep -q -E '^(alpha resource-manager liens delete|projects delete)'; then bad "lien or project deleted with a bucket left"; else ok "nothing past the buckets was deleted"; fi
+fake 's["delete_noop"] = False'
+if N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup > "${HOME}/cleanup.out" 2>&1; then ok "cleanup completes (buckets already emptied by the previous attempt)"; else bad "cleanup: $(tail -5 "${HOME}/cleanup.out")"; fi
 if calls | grep -q '^projects delete 123456789012 '; then ok "project deleted by its recorded number"; else bad "project not deleted by number"; fi
 if calls | grep -q -E '^(auth |config set)'; then bad "cleanup touched credentials"; else ok "cleanup revokes nothing"; fi
 python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); assert s["project"]["lifecycleState"] == "DELETE_REQUESTED" and not s["buckets"] and not s["accounts"] and not s["liens"] and all(r["deleted"] for r in s["roles"].values())' "${FAKE_STATE}" \
