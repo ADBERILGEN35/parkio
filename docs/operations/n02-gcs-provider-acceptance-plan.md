@@ -116,6 +116,15 @@ before a live run.
 | `provision` could run after cleanup had started and re-create what it deleted; a late lien could only be recorded by rerunning `provision` | Cleanup records its start before the first deletion and `provision` then refuses; `record-liens` records a single project-deletion lien of this project after the owner's review and confirmation |
 | The CI evidence minimum for the stub test was 40 while it runs over 100 checks | Minimum 90 |
 
+### 4.6 After the final verification of 1b6345c9 (all three approved; nits fixed before pinning)
+
+| Finding | Change |
+|---------|--------|
+| With addressed patches shown to be no-ops (K8c), K8/K9 still treated an accepted answer with an unreadable state as a forbidden change | In that mode an unreadable state is an ERROR |
+| A forbidden probe still in flight when a stop wrote the result left no trace (the journal closes and a later answer is dropped) | Each forbidden Locked probe is journaled before it is sent; until its answer is seen, a result written meanwhile lists the target under `unverifiedLockedChanges`, and a probe that never got an answer stays listed |
+| `record-liens` was not bound to the lien the owner reviewed; `cleanup-status` printed only counts | `cleanup-status` prints each lien in full; the confirmation names the lien: `record-liens-<project>-<number>-<lien id>` |
+| `run` did not refuse after cleanup had started | It refuses |
+
 ## 5. Cases
 
 Live evidence unless marked. Every write and read uses the adapter; probes are raw client calls.
@@ -163,8 +172,8 @@ ERROR, never a pass. Any observed change of a Locked generation, whatever the pr
 forbidden change whose state cannot be read back even after a retry, stops the run at once (`lockedMutationAccepted`,
 exit code 5) and the operation is not repeated (contingency route C, `n02-gcs-evidence-store-compatibility.md`).
 A stop of the run, or a refused probe whose state cannot be read, is never a violation; a stop right after
-an accepted forbidden change is listed under `unverifiedLockedChanges` (exit code 3), and that generation is
-inspected before the operation is repeated.
+an accepted forbidden change, or a forbidden probe still unanswered when a stop writes the result, is listed under
+`unverifiedLockedChanges` (exit code 3), and that generation is inspected before the operation is repeated.
 
 ## 6. Harness
 
@@ -205,13 +214,14 @@ inspected before the operation is repeated.
 - Verdict: PASS only when every PREFLIGHT and ASSERTION case passed and nothing stopped the run;
   MEASUREMENT cases record a fact; DIAGNOSTIC cases never count. Exit codes: 0 PASS, 1 FAIL, 2 refused,
   3 ABORTED/INTERRUPTED, 4 ERROR, 5 FAIL with a safety violation. `countsFor483` is true only for a live PASS.
-- Local tests (not evidence): `GcsAcceptanceToolTest` (40: offline sequence with headroom, one case per
+- Local tests (not evidence): `GcsAcceptanceToolTest` (42: offline sequence with headroom, one case per
   modelled provider defect (19), not-applicable addressed PATCH, concealment, every cap, harness error, stop
-  while blocked, a stop never hides a violation, a stop or failed read-back during a Locked probe or after K8c,
-  a refusal on an absent generation, inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (12: what
-  the real client sends, resend, generation-addressed PATCH, gate, keyless credentials),
-  `GcsObjectRetentionBucketTest` (13) and `scripts/test-n02-gcs-acceptance-op.sh` (105, a fake gcloud that
-  behaves like 590.0.0, with lost responses, failures in mid-command, a missing or late lien). Mutation records:
+  while blocked, a stop never hides a violation; a stop, an unanswered probe or a failed read-back during a
+  Locked probe, after K8c or after a no-op addressed PATCH; a refusal on an absent generation; inventory,
+  secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (13: what the real client sends, resend,
+  generation-addressed PATCH, storage and token gate, keyless credentials), `GcsObjectRetentionBucketTest` (13)
+  and `scripts/test-n02-gcs-acceptance-op.sh` (108, a fake gcloud that behaves like 590.0.0, with lost
+  responses, failures in mid-command, a missing or late lien). Mutation records:
   agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
@@ -366,10 +376,11 @@ adopts the project it started to create (labels match, created after the marker)
 project (same number, billing account and operator), creating only what is missing, waiting 60 s after new
 service accounts and retrying roles and bindings. If no project-deletion lien appears within 5 min it records
 that and stops: the owner decides (`N02_ACCEPT_NO_LIEN=1` goes on; a rerun looks again; once the lien shows,
-`N02_CONFIRM=record-liens-parkio-n02-accept-5c2c7f-<project number> … record-liens` records it after review). `run` refuses IAM
+`cleanup-status` shows it in full and `N02_CONFIRM=record-liens-parkio-n02-accept-5c2c7f-<project number>-<lien id>
+… record-liens` records that reviewed lien). `run` refuses IAM
 bindings younger than 7 minutes, liens that differ from the recorded baseline, a lien recorded as absent
-without the owner's decision, ADC that is not a user login with this quota project, and a third counted
-attempt.
+without the owner's decision, ADC that is not a user login with this quota project, a third counted attempt,
+and any attempt once cleanup has started.
 
 ### 7.10 Cleanup, ownership and latest time
 
@@ -396,7 +407,8 @@ attempt.
   `DELETE_REQUESTED` is reported as done without changes. A project whose creation was started but not
   recorded is adopted under the same rule as in `provision`. Once cleanup has deleted anything, `provision`
   refuses (it would re-create what cleanup deleted); a lien that appears late stops cleanup at the lien step and
-  is recorded with `record-liens` (exactly one project-deletion lien of this project, after review). It revokes
+  is recorded with `record-liens` (exactly one project-deletion lien of this project; the confirmation names the
+  lien `cleanup-status` showed). It revokes
   nothing.
 - Record in #483: verdict, `SHA256SUMS`, the empty listings, bucket and project deletion, lien status.
 
