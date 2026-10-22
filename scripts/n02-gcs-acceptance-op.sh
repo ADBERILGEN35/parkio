@@ -13,15 +13,19 @@
 #                    creation it started) and creates only what is missing
 #   verify           read-only: the provisioned configuration, IAM policies and lien match the record
 #   run              one harness attempt (at most two counted)
+#   record-liens     after the owner reviewed it, records the project's single project-deletion lien
+#                    as the baseline: a lien Google placed late. Writes local state only
 #   cleanup-status   read-only: earliest cleanup time and what still exists
 #   cleanup          after the retain-until: delete objects, buckets, service accounts, roles, the
 #                    Object Retention Lock lien and the project, each after identity checks; it can
-#                    be run again after a refusal or an interruption
+#                    be run again after a refusal or an interruption. Once it has deleted anything,
+#                    provision refuses (it would re-create what cleanup deleted)
 #   forget-credentials  delete the operation's own gcloud configuration directory (no revocation)
 #
-# provision, verify, run and cleanup run only from a checkout at N02_APPROVED_SHA whose copy of this
-# script is unmodified. Destructive commands also need N02_CONFIRM: provision "provision-<project>",
-# cleanup "cleanup-<project>-<project number>". Google places the project-deletion lien at best effort;
+# provision, verify, run, record-liens and cleanup run only from a checkout at N02_APPROVED_SHA whose
+# copy of this script is unmodified. Changing commands also need N02_CONFIRM: provision
+# "provision-<project>", record-liens "record-liens-<project>-<project number>", cleanup
+# "cleanup-<project>-<project number>". Google places the project-deletion lien at best effort;
 # if none appears, provision records that and stops, and going on needs the owner's N02_ACCEPT_NO_LIEN=1.
 # No command revokes OAuth tokens: Google revokes the whole grant of a client, which would also sign
 # the account out of gcloud/ADC on other machines.
@@ -252,12 +256,12 @@ require_lien_baseline() {
   local file
   [ -s "$(state_file liens-after-orl.json)" ] || die "no lien baseline"
   if [ -e "$(state_file lien-absent)" ] && [ "${N02_ACCEPT_NO_LIEN:-}" != 1 ]; then
-    die "no project-deletion lien was recorded; the owner decides (rerun provision to look again, or N02_ACCEPT_NO_LIEN=1)"
+    die "no project-deletion lien was recorded; the owner decides (record-liens once it appears, or N02_ACCEPT_NO_LIEN=1)"
   fi
   file="$(mktemp)"
   liens_to "${file}"
   [ "$(lien_signature "${file}")" = "$(lien_signature "$(state_file liens-after-orl.json)")" ] \
-    || die "the project's liens differ from the recorded baseline"
+    || die "the project's liens differ from the recorded baseline (review them; record-liens records a late lien)"
   rm -f "${file}"
 }
 
@@ -269,11 +273,12 @@ require_cleanup_liens() {
   baseline="$(state_file liens-after-orl.json)"
   if [ ! -s "${baseline}" ]; then
     if grep -qx "${BUCKET}" <<<"${present}"; then
-      die "no lien baseline while gs://${BUCKET} exists; rerun provision to record it"
+      die "no lien baseline while gs://${BUCKET} exists; rerun provision, or record-liens once the lien shows"
     fi
     [ "$(json "${file}" 'len(d)')" = "0" ] || die "the project has liens but no lien baseline was recorded"
   elif [ "$(json "${file}" 'len(d)')" != "0" ]; then
-    [ "$(lien_signature "${file}")" = "$(lien_signature "${baseline}")" ] || die "the project's liens differ from the recorded baseline"
+    [ "$(lien_signature "${file}")" = "$(lien_signature "${baseline}")" ] \
+      || die "the project's liens differ from the recorded baseline (review them; record-liens records a late lien)"
   fi
 }
 
@@ -296,6 +301,8 @@ cmd_preflight() {
 cmd_provision() {
   require_isolation
   require_approved_checkout > /dev/null
+  [ ! -e "$(state_file cleanup-started)" ] \
+    || die "cleanup has started; provision would re-create what it deleted (a late lien: record-liens)"
   [ "${N02_CONFIRM:-}" = "provision-${PROJECT_ID}" ] || die "N02_CONFIRM must be provision-${PROJECT_ID}"
   local billing="${N02_BILLING_ACCOUNT:-}"
   [[ "${billing}" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]] || die "N02_BILLING_ACCOUNT must look like XXXXXX-XXXXXX-XXXXXX"
@@ -601,6 +608,8 @@ cmd_cleanup() {
     [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] || die "${bucket} labels differ"
     [ "$(latest_retention_in "${bucket}")" -lt "${now}" ] || die "gs://${bucket} still holds retained generations"
   done
+  # From here on provision refuses: it would re-create what cleanup deletes.
+  [ -e "$(state_file cleanup-started)" ] || record cleanup-started "$(date -u +%s)"
   for bucket in ${present}; do
     if [ "$(generations_in "${bucket}")" -gt 0 ]; then
       g storage rm --all-versions "gs://${bucket}/**"
@@ -652,6 +661,33 @@ cmd_cleanup() {
   say "done: ${PROJECT_ID} (${number}) is DELETE_REQUESTED; billing stops; no credentials were revoked"
 }
 
+# A lien Google placed late (after a lien recorded as absent, or none recorded before a stop): after the
+# owner reviewed it, the single project-deletion lien of this project becomes the baseline.
+cmd_record_liens() {
+  require_isolation
+  require_approved_checkout > /dev/null
+  local number file count lien
+  number="$(recorded project-number)"
+  [ -n "${number}" ] || die "no provisioning record in ${STATE}"
+  [ "${N02_CONFIRM:-}" = "record-liens-${PROJECT_ID}-${number}" ] || die "N02_CONFIRM must be record-liens-${PROJECT_ID}-${number}"
+  require_project_identity
+  file="$(mktemp)"
+  liens_to "${file}"
+  count="$(json "${file}" 'len(d)')"
+  [ "${count}" = "1" ] || die "the project carries ${count} liens; record-liens records exactly one, review them by hand"
+  lien="$(json "${file}" 'd[0]["name"]')"
+  case "$(json "${file}" 'd[0].get("parent", "")')" in
+    "projects/${number}"|"projects/${PROJECT_ID}") ;;
+    *) die "the lien ${lien} belongs to another project" ;;
+  esac
+  [ "$(json "${file}" 'd[0].get("restrictions", [])')" = '["resourcemanager.projects.delete"]' ] \
+    || die "the lien ${lien} restricts more than project deletion"
+  log_command record-liens
+  cp "${file}" "$(state_file liens-after-orl.json)"
+  rm -f "$(state_file lien-absent)" "${file}"
+  say "recorded ${lien} as the lien baseline"
+}
+
 cmd_forget_credentials() {
   [ "${CLOUDSDK_CONFIG:-}" = "${CONFIG_DIR}" ] || die "CLOUDSDK_CONFIG must be ${CONFIG_DIR}"
   [ -d "${CONFIG_DIR}" ] || { say "nothing to remove"; return 0; }
@@ -665,8 +701,9 @@ case "${1:-}" in
   provision) cmd_provision ;;
   verify) cmd_verify ;;
   run) cmd_run ;;
+  record-liens) cmd_record_liens ;;
   cleanup-status) cmd_cleanup_status ;;
   cleanup) cmd_cleanup ;;
   forget-credentials) cmd_forget_credentials ;;
-  *) echo "usage: $0 preflight|provision|verify|run|cleanup-status|cleanup|forget-credentials" >&2; exit 2 ;;
+  *) echo "usage: $0 preflight|provision|verify|run|record-liens|cleanup-status|cleanup|forget-credentials" >&2; exit 2 ;;
 esac

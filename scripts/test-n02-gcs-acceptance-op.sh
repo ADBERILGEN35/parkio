@@ -162,6 +162,9 @@ if words[:3] == ["storage", "buckets", "delete"]:
         # Knob lien_with_bucket: Google might remove its lien with the last such bucket (undocumented).
         if s.get("lien_with_bucket") and s["buckets"][name]["objectRetention"]:
             s["liens"] = []
+        # Knob lien_after_bucket_delete: a lien Google places late shows up in the middle of the cleanup.
+        if s.get("lien_after_bucket_delete") and s["buckets"][name]["objectRetention"] and ORL_LIEN not in s["liens"]:
+            s["liens"].append(dict(ORL_LIEN))
         del s["buckets"][name]
     save(); out({})
 if words[:2] == ["storage", "ls"]:
@@ -388,6 +391,35 @@ if N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup > "${HOME}/cleanup.out" 2>&1 &&
     && [ "$(cloud 's["project"]["lifecycleState"]')" = "DELETE_REQUESTED" ]; then
   ok "cleanup completes when no lien was ever placed"
 else bad "cleanup without a lien: $(tail -3 "${HOME}/cleanup.out")"; fi
+
+# --- a lien that appears during cleanup -----------------------------------------------------------
+reset late-lien
+echo '{"lien_never": true}' > "${FAKE_STATE}"
+N02_ACCEPT_NO_LIEN=1 provision > /dev/null 2>&1 || true
+fake 's["lien_never"] = False; s["lien_after_bucket_delete"] = True'
+expect_stop "a lien appearing during cleanup stops it at the lien step" "record-liens records a late lien" env N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup
+[ -s "${N02_STATE_DIR}/cleanup-started" ] && [ "$(cloud 'len(s["buckets"])')" = "0" ] && ok "the started cleanup is recorded" || bad "cleanup-started not recorded"
+expect_stop "provision refuses once cleanup has started" "cleanup has started" env N02_ACCEPT_NO_LIEN=1 \
+  N02_CONFIRM=provision-parkio-n02-accept-5c2c7f N02_BILLING_ACCOUNT=ABCDEF-123456-7890AB bash "${OP}" provision
+[ "$(cloud 'len(s["buckets"]) + len(s["accounts"])')" = "0" ] && ok "a refused provision re-created nothing" || bad "provision re-created resources"
+RECORD="record-liens-parkio-n02-accept-5c2c7f-123456789012"
+expect_stop "record-liens needs its confirmation" "N02_CONFIRM must be record-liens-" bash "${OP}" record-liens
+fake 's["liens"].append({"name": "liens/other", "parent": "projects/123456789012", "origin": "someone", "reason": "keep", "restrictions": ["resourcemanager.projects.delete"]})'
+expect_stop "record-liens refuses more than one lien" "records exactly one" env N02_CONFIRM="${RECORD}" bash "${OP}" record-liens
+fake 's["liens"] = [l for l in s["liens"] if l["name"] != "liens/other"]; s["liens"][0]["parent"] = "projects/999999999999"'
+expect_stop "record-liens refuses a lien of another project" "belongs to another project" env N02_CONFIRM="${RECORD}" bash "${OP}" record-liens
+fake 's["liens"][0]["parent"] = "projects/123456789012"; s["liens"][0]["restrictions"] = ["resourcemanager.projects.delete", "resourcemanager.projects.move"]'
+expect_stop "record-liens refuses a lien that restricts more" "restricts more than project deletion" env N02_CONFIRM="${RECORD}" bash "${OP}" record-liens
+fake 's["liens"][0]["restrictions"] = ["resourcemanager.projects.delete"]'
+[ -e "${N02_STATE_DIR}/lien-absent" ] && [ "$(cat "${N02_STATE_DIR}/liens-after-orl.json")" = "[]" ] && ok "refused record-liens changed nothing" || bad "a refused record-liens wrote the baseline"
+if N02_CONFIRM="${RECORD}" bash "${OP}" record-liens > "${HOME}/record.out" 2>&1 && [ ! -e "${N02_STATE_DIR}/lien-absent" ] \
+    && [ "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "${N02_STATE_DIR}/liens-after-orl.json")" = "1" ]; then
+  ok "record-liens records the late lien"
+else bad "record-liens: $(tail -3 "${HOME}/record.out")"; fi
+if N02_CONFIRM="${CONFIRM}" bash "${OP}" cleanup > "${HOME}/cleanup.out" 2>&1 && called '^alpha resource-manager liens delete' \
+    && [ "$(cloud 's["project"]["lifecycleState"]')" = "DELETE_REQUESTED" ]; then
+  ok "cleanup completes after the late lien was recorded"
+else bad "cleanup after record-liens: $(tail -3 "${HOME}/cleanup.out")"; fi
 
 # --- cleanup after an early stop ------------------------------------------------------------------
 reset abandon-early
