@@ -122,8 +122,8 @@ class WorkerLockError(RuntimeError):
 def close_store_on_sigterm() -> None:
     """For the relay entrypoints: `systemctl stop` sends SIGTERM, which by default ends Python without
     running `finally`. Unwinding instead closes the store, so SQLite checkpoints the WAL, removes its side
-    files, and the textfile export reports the relay as stopped (#488). Delivery state is left as a crash
-    at that point would leave it. A second SIGTERM kills at once."""
+    files, and the textfile export reports the relay as stopped (#488). A transition the stop cuts short is
+    rolled back (release_worker_lock, close), as after a crash. A second SIGTERM kills at once."""
 
     def _exit(signum: int, frame: Any) -> None:
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -242,6 +242,11 @@ class DeliveryStore:
 
     def release_worker_lock(self, worker_id: str) -> None:
         with self._lock:
+            # Every method commits before it returns, so a transaction still open here is a transition
+            # that a stop (SIGTERM) or an error cut short. Roll it back, as a crash would, instead of
+            # committing half of it with the release.
+            if self._conn.in_transaction:
+                self._conn.rollback()
             self._conn.execute(
                 "DELETE FROM worker_lock WHERE id=1 AND worker_id=?", (worker_id,)
             )
