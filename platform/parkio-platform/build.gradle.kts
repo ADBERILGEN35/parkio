@@ -28,6 +28,9 @@ dependencies {
         // CVEs are fixed in 1.11.4. Every service gets kafka-clients through this platform, so this one
         // constraint moves all of them. Drop it once kafka-clients itself requires >= 1.11.4.
         api("at.yawk.lz4:lz4-java:1.11.4")
+        // kafka-clients pins snappy-java 1.1.10.5 (runtime): CVE-2026-108106 and CVE-2026-93451 (both HIGH, #501)
+        // are fixed in 1.1.10.9. Drop it once kafka-clients itself requires >= 1.1.10.9.
+        api("org.xerial.snappy:snappy-java:1.1.10.9")
     }
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
