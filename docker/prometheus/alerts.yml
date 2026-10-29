@@ -866,8 +866,8 @@ groups:
           severity: warning
           service: slack-biz
         annotations:
-          summary: "Slack biz relay is not running"
-          description: "No relay process has held the Slack biz delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+          summary: "No Slack biz relay process is running"
+          description: "Neither Slack biz relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
 
       - alert: NrBudgetGateExhausted

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -174,8 +175,7 @@ class TextfileExportTimerTest(unittest.TestCase):
             self.assertGreater(int(match.group(1)), 1_700_000_000)
 
 
-    def _export(self, data_dir: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, Path]:
-        out = tmp_path / "textfile" / "parkio_slack_biz.prom"
+    def _env(self, data_dir: Path, tmp_path: Path) -> dict[str, str]:
         (tmp_path / "inbox").mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env.update(
@@ -188,12 +188,16 @@ class TextfileExportTimerTest(unittest.TestCase):
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
         )
+        return env
+
+    def _export(self, data_dir: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, Path]:
+        out = tmp_path / "textfile" / "parkio_slack_biz.prom"
         proc = subprocess.run(
             [sys.executable, str(EXPORT), "--output", str(out)],
             check=False,
             capture_output=True,
             text=True,
-            env=env,
+            env=self._env(data_dir, tmp_path),
             cwd=str(ROOT),
         )
         return proc, out
@@ -254,6 +258,49 @@ class TextfileExportTimerTest(unittest.TestCase):
         body = out.read_text(encoding="utf-8")
         self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
         self.assertIn("parkio_slack_biz_relay_db_open 1", body)
+
+
+    def test_a_relay_stopped_with_sigterm_is_reported_as_stopped(self) -> None:
+        """systemctl stop sends SIGTERM. Each relay entrypoint must still close the store, so the WAL
+        side files go and the export reads parkio_slack_biz_relay_db_open 0 (#488 review)."""
+        for script, args in (
+            ("worker.py", ["--loop", "--interval", "0.2", "--worker-id", "sigterm-test"]),
+            ("consume_waitlist.py", ["--loop", "--interval", "0.2"]),
+        ):
+            with self.subTest(script=script):
+                tmp_path = self._tmp()
+                data_dir = tmp_path / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                db_path = data_dir / "slack_biz.sqlite3"
+                _seed_store(db_path)
+                relay = subprocess.Popen(
+                    [sys.executable, str(ROOT / "scripts/slack_biz" / script), *args],
+                    env=self._env(data_dir, tmp_path),
+                    cwd=str(ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                self.addCleanup(relay.stderr.close)
+                self.addCleanup(relay.kill)
+                deadline = time.time() + 30
+                while not Path(f"{db_path}-wal").exists():
+                    if relay.poll() is not None:  # read stderr only once the relay has exited
+                        self.fail(f"{script} exited early: {relay.stderr.read()}")
+                    if time.time() > deadline:
+                        self.fail(f"{script} never opened the store")
+                    time.sleep(0.05)
+
+                relay.send_signal(signal.SIGTERM)
+
+                code = relay.wait(timeout=30)
+                self.assertEqual(code, 0, relay.stderr.read())
+                self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+                proc, out = self._export(data_dir, tmp_path)
+                self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+                body = out.read_text(encoding="utf-8")
+                self.assertIn("parkio_slack_biz_relay_db_open 0", body)
+                self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
 
 
 if __name__ == "__main__":

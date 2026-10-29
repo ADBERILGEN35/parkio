@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sqlite3
 import threading
 import time
@@ -118,6 +119,19 @@ class WorkerLockError(RuntimeError):
     """Raised when a second worker attempts to claim the exclusive lock."""
 
 
+def close_store_on_sigterm() -> None:
+    """For the relay entrypoints: `systemctl stop` sends SIGTERM, which by default ends Python without
+    running `finally`. Unwinding instead closes the store, so SQLite checkpoints the WAL, removes its side
+    files, and the textfile export reports the relay as stopped (#488). Delivery state is left as a crash
+    at that point would leave it. A second SIGTERM kills at once."""
+
+    def _exit(signum: int, frame: Any) -> None:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _exit)
+
+
 class DeliveryStore:
     """Thread-safe SQLite store for queue + dedup + DLT + single-worker lock."""
 
@@ -143,14 +157,16 @@ class DeliveryStore:
             # ReadOnlyPaths=/var/lib/parkio/slack-biz stays compatible (no WAL/schema writes).
             if not self.db_path.is_file():
                 raise FileNotFoundError(f"delivery db absent for readonly open: {self.db_path}")
-            # A relay process keeps the WAL side files while it has the database open; the last
-            # close checkpoints the WAL into the main file and deletes them. Without them a mode=ro
-            # reader has to create -shm, which a read-only directory forbids (G-06, #488). Nothing
-            # writes the main file then, so it is read as immutable.
+            # A relay process keeps the WAL side files while it has the database open; its clean
+            # close checkpoints the WAL into the main file and deletes them (a crash or SIGKILL leaves
+            # them). Without them a mode=ro reader has to create -shm, which a read-only directory
+            # forbids (G-06, #488). Nothing writes the main file at that moment, so it is read as
+            # immutable; a relay starting mid-read can at worst fail this one export run.
+            resolved = self.db_path.resolve()
             self.relay_db_open = any(
-                Path(f"{self.db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
+                Path(f"{resolved}{suffix}").exists() for suffix in ("-wal", "-shm")
             )
-            uri = f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            uri = f"file:{resolved.as_posix()}?mode=ro"
             if not self.relay_db_open:
                 uri += "&immutable=1"
             self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)

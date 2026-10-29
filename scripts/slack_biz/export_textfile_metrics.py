@@ -40,7 +40,7 @@ def render(store: DeliveryStore, when: int | None = None) -> str:
     ]
     if store.relay_db_open is not None:  # known for read-only opens, the exporter's case
         lines += [
-            "# HELP parkio_slack_biz_relay_db_open 1 while a relay process holds the delivery DB open (WAL side files present)",
+            "# HELP parkio_slack_biz_relay_db_open 1 while the delivery DB WAL side files exist: a relay holds it open, or the last one crashed",
             "# TYPE parkio_slack_biz_relay_db_open gauge",
             f"parkio_slack_biz_relay_db_open {int(store.relay_db_open)}",
         ]
@@ -91,13 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         readonly=True,
     )
     try:
-        out = Path(args.output)
         body = render(store)
-        atomic_write(out, body)
-        print(f"wrote {out}")
-        return 0
     finally:
+        # Close before writing: a reader still open when the last relay closes keeps that close
+        # from checkpointing, and the side files (relay_db_open 1) would then outlive the relay.
         store.close()
+    out = Path(args.output)
+    atomic_write(out, body)
+    print(f"wrote {out}")
+    return 0
 
 
 if __name__ == "__main__":
