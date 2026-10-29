@@ -146,7 +146,7 @@ Rollback: revert the merge commit on `api`. Nothing was installed.
 
 ```bash
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-DEST=/home/civo/parkio-fu1-rollback/$STAMP
+DEST="$HOME/parkio-fu1-rollback/$STAMP"
 mkdir -p "$DEST"
 for f in \
   scripts/backup-databases.sh \
