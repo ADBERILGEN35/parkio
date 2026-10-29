@@ -1,8 +1,9 @@
 # Parkio app release pins (U13, CL-F11): the six app services.
-# #419 current pins: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Current pins: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655 (#469, #470, #472, #475, #476, #478).
+# One record per service (digest kind, config digest, rollback): docs/releases/pin-evidence-<service>-fdce6ba00373.md.
 # Digest kind for each pin: platform manifest linux/amd64 (compose pin uses registry
 # manifest digest @sha256; image id below is the config digest from publish).
-# Rollback targets are the previous live registry pins (see per-service #419 records).
+# Rollback targets are the previous pins: the #419 records below (each evidence file's rollback row).
 # ONLY the six app services' image references. Do not broaden.
 # Applied via docker/compose.production.files (after the GMP pins, before the auth/web pins).
 #

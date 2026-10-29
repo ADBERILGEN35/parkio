@@ -6,5 +6,7 @@
 | candidate_images_run | `39465850756` |
 | candidate_publish_run | `39470264655` |
 | new_pin | `ghcr.io/adberilgen35/parkio/gamification-service@sha256:b1c0903e36540e0c8004458dedd58ad6b051b91b371dc57fb204212545a053f1` |
+| digest_kind | platform manifest, linux/amd64 (`candidate-publish.yml` refuses a multi-platform index; config digest = image id) |
 | rollback | `ghcr.io/adberilgen35/parkio/gamification-service@sha256:cfb33e0e34db279a021ae63e45d1699b957d8d4968dd83b14438671c64bb7bf7` |
+| config_digest | `sha256:f2ea89e131377f022daebe01d525f432df82e3f1874cb5970270977e83060dc1` |
 | provenance | cosign verify-attestation PASS |
