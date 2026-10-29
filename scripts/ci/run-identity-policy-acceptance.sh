@@ -81,7 +81,9 @@ i=0
 for identity in "${refused[@]}"; do
   i=$((i + 1))
   verify "refused$i" "$identity"
-  if [ "$verify_ec" -ne 0 ] && grep -q 'none of the expected identities matched' "refused$i.out"; then
+  # cosign prints the same message for a wrong issuer, so require this leaf's subject with the right issuer.
+  if [ "$verify_ec" -ne 0 ] && grep -q 'none of the expected identities matched' "refused$i.out" \
+      && grep -qF "got subjects [$identity] with issuer $issuer" "refused$i.out"; then
     echo "PASS refused: $identity"
   else
     echo "::error::identity not refused for its identity (exit $verify_ec): $identity" >&2

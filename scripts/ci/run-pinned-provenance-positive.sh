@@ -9,30 +9,37 @@ cd "$ROOT"
 source scripts/lib/cosign-pin.env
 command -v cosign >/dev/null 2>&1 || { echo "::error::cosign missing" >&2; exit 2; }
 
-# Later files override earlier ones, as Compose merges them.
+# Later files override earlier ones, as Compose merges them. Every *-service image the merge ends
+# with must be a digest pin; anything else (or an image line this parser cannot read) fails here.
 refs="$(python3 - <<'PY'
 import re
+import sys
 from pathlib import Path
 files = [line.strip() for line in Path("docker/compose.production.files").read_text().splitlines()
          if line.strip() and not line.lstrip().startswith("#")]
-pinned = {}
+final = {}
 for name in files:
     top = service = None
     for line in Path(name).read_text().splitlines():
         if re.match(r"^[A-Za-z]", line):
             top, service = line.split(":", 1)[0], None
             continue
-        m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
+        m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*(?:#.*)?$", line)
         if m:
             service = m.group(1)
             continue
-        m = re.match(r"^    image:\s*(\S+@sha256:[0-9a-f]{64})\s*$", line)
+        m = re.match(r"^    image:\s*(.*?)\s*$", line)
         if m and top == "services" and service and service.endswith("-service"):
-            pinned[service] = m.group(1)
-for service in sorted(pinned):
-    print(pinned[service])
+            final[service] = re.sub(r"\s+#.*$", "", m.group(1)).strip().strip("'\"")
+bad = {s: v for s, v in final.items() if not re.fullmatch(r"\S+@sha256:[0-9a-f]{64}", v)}
+for service, value in sorted(bad.items()):
+    print(f"::error::{service}: the production file set does not end with a digest pin: {value}", file=sys.stderr)
+if bad:
+    sys.exit(1)
+for service in sorted(final):
+    print(final[service])
 PY
-)"
+)" || exit 1
 [ -n "$refs" ] || { echo "::error::no digest-pinned *-service image in the production file set" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
