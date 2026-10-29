@@ -858,6 +858,18 @@ groups:
           description: "No parkio_slack_biz_textfile_last_success_unixtime series for >15m. Install/enable parkio-slack-biz-textfile-export.timer or repair the textfile collector path."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbiztextfileabsent"
 
+      - alert: SlackBizRelayStopped
+        # The textfile export stays fresh while the relay is stopped (#488), so the stop is named here.
+        expr: parkio_slack_biz_relay_db_open == 0
+        for: 15m
+        labels:
+          severity: warning
+          service: slack-biz
+        annotations:
+          summary: "Slack biz relay is not running"
+          description: "No relay process has held the Slack biz delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+          runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
+
       - alert: NrBudgetGateExhausted
         # Textfile probe from export_gate_probe_textfile.py (not blackbox). Series is absent
         # when the NR pilot/gate is not running, so this alert stays quiet then. HTTP 507

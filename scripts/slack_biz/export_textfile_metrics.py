@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Export slack_biz JSON metrics to a Prometheus textfile for node-exporter.
 
-Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows, and
-parkio_slack_biz_textfile_last_success_unixtime so alerts can scrape real
-series and detect a missing/stale exporter. Does not invent counters from
-absent data.
+Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows,
+parkio_slack_biz_relay_db_open and parkio_slack_biz_textfile_last_success_unixtime
+so alerts can scrape real series and detect a stopped relay or a missing/stale
+exporter. Does not invent counters from absent data.
 """
 from __future__ import annotations
 
@@ -37,6 +37,14 @@ def render(store: DeliveryStore, when: int | None = None) -> str:
         "# HELP parkio_slack_biz_dlt_rows Slack biz dead-letter table depth",
         "# TYPE parkio_slack_biz_dlt_rows gauge",
         f"parkio_slack_biz_dlt_rows {dlt_rows}",
+    ]
+    if store.relay_db_open is not None:  # known for read-only opens, the exporter's case
+        lines += [
+            "# HELP parkio_slack_biz_relay_db_open 1 while a relay process holds the delivery DB open (WAL side files present)",
+            "# TYPE parkio_slack_biz_relay_db_open gauge",
+            f"parkio_slack_biz_relay_db_open {int(store.relay_db_open)}",
+        ]
+    lines += [
         "# HELP parkio_slack_biz_textfile_last_success_unixtime Unix time of last successful textfile export",
         "# TYPE parkio_slack_biz_textfile_last_success_unixtime gauge",
         f"parkio_slack_biz_textfile_last_success_unixtime {stamp}",

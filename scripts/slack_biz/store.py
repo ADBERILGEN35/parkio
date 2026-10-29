@@ -136,12 +136,23 @@ class DeliveryStore:
         self.lease_seconds = lease_seconds
         self.worker_stale_seconds = worker_stale_seconds
         self._lock = threading.RLock()
+        # Read-only opens only: whether a relay process holds the database open.
+        self.relay_db_open: bool | None = None
         if readonly:
             # Metrics exporters must open the delivery DB read-only so systemd
             # ReadOnlyPaths=/var/lib/parkio/slack-biz stays compatible (no WAL/schema writes).
             if not self.db_path.is_file():
                 raise FileNotFoundError(f"delivery db absent for readonly open: {self.db_path}")
+            # A relay process keeps the WAL side files while it has the database open; the last
+            # close checkpoints the WAL into the main file and deletes them. Without them a mode=ro
+            # reader has to create -shm, which a read-only directory forbids (G-06, #488). Nothing
+            # writes the main file then, so it is read as immutable.
+            self.relay_db_open = any(
+                Path(f"{self.db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
+            )
             uri = f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            if not self.relay_db_open:
+                uri += "&immutable=1"
             self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             return
