@@ -12,7 +12,7 @@
 
 ### 1.1 Verified runtime (SSH, `StrictHostKeyChecking=yes`)
 
-Probed `2026-09-22T06:54:27Z` as `civo@api.parkio.dev` on host `parkio-civo-prod`  
+Probed `2026-09-22T06:54:27Z` on the production host `parkio-civo-prod` (owner access)  
 Evidence: `runtime-image-identities.txt`
 
 | Service | Running identity | Status |

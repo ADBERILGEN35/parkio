@@ -72,7 +72,7 @@ justified for this single-VM topology.
 
 | Vantage | Observed IPv4 | IPv6 |
 |---------|---------------|------|
-| Developer machine | `95.70.149.10` (TR residential) | present |
+| Developer workstation | personal address, not recorded (TR residential) | present |
 | Hosted-beta host | `20.199.17.76` | none (IPv4-only NIC/PIP) |
 | `parking-service` container | `20.199.17.76` | none |
 

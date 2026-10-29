@@ -436,7 +436,7 @@ architecture note `docs/architecture/PARKING-SESSION-HISTORY-DELETION-UI.md`.
 
 - Sprint 01 source committed in reviewable commits on `master` (parking, analytics, mobile, smoke).
 - Local unit/integration/typecheck gates for affected packages passed before commit.
-- Azure VM `api.parkio.dev` (20.199.17.76) accepts SSH on port 22, but this operator workstation
+- Azure VM `api.parkio.dev` accepts SSH on port 22, but this operator workstation
   has no authorized public key / Azure CLI / self-hosted `parkio-beta` runner /
   `docker/.env.azure-hosted-beta`, so immutable image deploy and post-deploy smoke were not executed.
 - Previous hosted DELETE HTTP 500 root cause: deployed HEAD lacked `@DeleteMapping`;
