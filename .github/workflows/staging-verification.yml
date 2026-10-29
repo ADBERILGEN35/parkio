@@ -103,7 +103,7 @@ jobs:
       # The build toolchain is Java 21 without auto-provisioning, and Gradle 8.11.1 cannot run on
       # the runner image's default JDK (25 on ubuntu-26.04, #486).
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
