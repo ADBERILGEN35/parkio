@@ -14,6 +14,10 @@
    regard to case, as GitHub's expressions do, and in dot or index syntax (`inputs['x']`,
    `github['head_ref']`, `toJSON(github.event)`). Values laundered through `env.*`,
    `steps.*.outputs` or `needs.*.outputs` are not traced.
+3. A job that runs the Gradle wrapper in a step's `run:` has an `actions/setup-java` step before
+   it. Without one Gradle runs on the runner image's default JDK; ubuntu-26.04 ships 25, which
+   Gradle 8.11.1 cannot run on (G-04, #486). Making the wrapper executable (`chmod +x gradlew`)
+   and comment lines do not count as running it; scripts called from a step are not traced.
 
 Usage: check_workflow_security.py [workflow ...]   (default: .github/workflows/*.yml and *.yaml)
 Exit 1 lists every problem as file: job: step: reason.
@@ -40,6 +44,10 @@ UNTRUSTED = re.compile(
     r"|(?<![.\w])github\s*\.\s*\*"
     r"|(?<![.\w])github\s*(?:\.|\[)\s*['\"]?\s*(?:event|head_ref)\b",
     re.I)
+# The wrapper as a command word: `./gradlew`, `../gradlew`, `gradlew.bat`. A chmod and its operands
+# are removed first, so `chmod +x gradlew && ./gradlew build` still counts.
+GRADLE_WRAPPER = re.compile(r"(?<![\w-])(?:[\w.$/{}-]*/)?gradlew(?:\.bat)?(?![\w.-])")
+CHMOD = re.compile(r"\bchmod\b[^;&|\n]*")
 
 
 def action_problem(uses: str) -> str | None:
@@ -58,6 +66,15 @@ def script_problems(text: str) -> list[str]:
         if UNTRUSTED.search(expression):
             found.append(f"${{{{ {expression} }}}} is substituted into the script; pass it through env:")
     return found
+
+
+def runs_gradle(script: str) -> bool:
+    for line in script.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        if GRADLE_WRAPPER.search(CHMOD.sub("", line)):
+            return True
+    return False
 
 
 def default_shell(holder: dict) -> object:
@@ -80,12 +97,16 @@ def check_workflow(name: str, workflow: dict) -> list[str]:
             problem = action_problem(job["uses"])
             if problem:
                 problems.append(f"{name}: {job_id}: {problem}")
+        java_set_up = False
         for index, step in enumerate(job.get("steps") or []):
             label = f"{name}: {job_id}: step {index + 1} ({step.get('name') or step.get('uses') or 'run'})"
             if isinstance(step.get("uses"), str):
                 problem = action_problem(step["uses"])
                 if problem:
                     problems.append(f"{label}: {problem}")
+                java_set_up = java_set_up or step["uses"].split("@")[0].strip().lower() == "actions/setup-java"
+            if isinstance(step.get("run"), str) and runs_gradle(step["run"]) and not java_set_up:
+                problems.append(f"{label}: runs gradlew without an earlier actions/setup-java step in this job")
             for key in ("run", "shell"):
                 if isinstance(step.get(key), str):
                     problems.extend(f"{label}: {key}: {problem}" for problem in script_problems(step[key]))
@@ -107,7 +128,7 @@ def main(argv: list[str]) -> int:
         print("Workflow security check FAILED:\n  " + "\n  ".join(problems))
         return 1
     print(f"Workflow security check passed: {len(paths)} workflow(s); third-party actions pinned, "
-          "no input or event field substituted into a script.")
+          "no input or event field substituted into a script, Java set up before every Gradle step.")
     return 0
 
 
