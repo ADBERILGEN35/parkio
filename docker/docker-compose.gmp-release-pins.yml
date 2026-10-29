@@ -1,7 +1,8 @@
 # Parkio GMP release pins — hosted-beta (gateway / media / parking).
-# #419 current pins (media + parking): source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Current pins (gateway, media, parking): source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655 (#473, #474, #477).
+# One record per service (digest kind, config digest, rollback): docs/releases/pin-evidence-<service>-fdce6ba00373.md.
 # Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
-# gateway pin unchanged in #419.
+# The #419 records below are the previous pins (rollback targets); #419 left the gateway pin unchanged.
 # ONLY gateway/media/parking image references. Do not broaden.
 # Applied via docker/compose.production.files (before auth/web pins).
 # Release order: gateway, then web, then auth; media and parking after auth. Roll back in reverse.

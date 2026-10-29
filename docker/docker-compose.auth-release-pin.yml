@@ -1,5 +1,7 @@
 # Parkio hosted-beta auth release pin.
-# #419 current pin: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Current pin: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655 (#471).
+# Record (digest kind, config digest, rollback): docs/releases/pin-evidence-auth-service-fdce6ba00373.md.
+# The #419 record below is the previous pin (rollback target).
 # Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
 # Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY in the host env (preflight refuses without it).
 # Applied via docker/compose.production.files (after GMP pins, with web pin).

@@ -6,7 +6,9 @@
 | candidate_images_run | [39465850756](https://github.com/ADBERILGEN35/parkio/actions/runs/39465850756) |
 | candidate_publish_run | [39470264655](https://github.com/ADBERILGEN35/parkio/actions/runs/39470264655) |
 | new_pin | `ghcr.io/adberilgen35/parkio/gateway-service@sha256:dd4b33f468909c4f771fd5d0bb632a27380421611ae0c85bb90d414b8d41d719` |
+| digest_kind | platform manifest, linux/amd64 (`candidate-publish.yml` refuses a multi-platform index; config digest = image id) |
 | rollback | `ghcr.io/adberilgen35/parkio/gateway-service@sha256:ff21f4a6dbcd6baba9b2a69527a2d6006016c4d00e5390e1bce01b94e86cf026` |
 | config_digest | `sha256:be354b41f6003374915d91df4208ce69fbc26cadd46baef034d6a08a169784c1` |
 | provenance | cosign verify-attestation PASS |
-| gateway_hold | YES — do not merge/deploy while hold stands |
+| merge | merged into `api` by #473 as `4dcc1f56` (a source change; it starts no deployment) |
+| deploy | not deployed: on 2026-10-29T10:05Z (read-only check) the production gateway container still ran `ghcr.io/adberilgen35/parkio/gateway-service@sha256:655219f54f2eb58558dbe01efcc043d2e3f8222bebb483c4b6879a53d8743872` (created 2026-10-14); deploying this pin needs separate owner authorization |
