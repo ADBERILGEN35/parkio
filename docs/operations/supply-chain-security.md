@@ -186,7 +186,13 @@ Deploy provenance for every `*-service` image requires `cosign verify-attestatio
 
 - `--type https://slsa.dev/provenance/v1`
 - `--certificate-oidc-issuer https://token.actions.githubusercontent.com`
-- `--certificate-identity-regexp` matching `ADBERILGEN35/parkio` workflow identities
+- `--certificate-identity-regexp` `PARKIO_PROVENANCE_IDENTITY_REGEXP`: exactly
+  `https://github.com/ADBERILGEN35/parkio/.github/workflows/candidate-publish.yml@refs/heads/api`
+  (anchored, dots escaped; G-07 / #489). Attestations from any other workflow, branch or ref are refused.
+
+The publish-time verify in `candidate-publish.yml` and the deploy gate
+(`scripts/lib/deploy-image-provenance.sh`) read the issuer and identity from `scripts/lib/cosign-pin.env`;
+an environment value does not override them at deploy time.
 
 `scripts/preflight-hosted-beta.sh` refuses a missing cosign or a `GitVersion` that is not
 **exactly** equal to `PARKIO_COSIGN_VERSION` in `scripts/lib/cosign-pin.env`.
@@ -214,4 +220,9 @@ Positive provenance acceptance (a real attested digest) is performed in `candida
 immediately after `cosign attest`. Until that publish has run for a digest, treat positive
 acceptance as **NOT EXECUTED**. Optional operator re-check: workflow
 `Candidate provenance positive` (`workflow_dispatch` only).
+
+When the pin file, the gate or these scripts change, the PR workflow `Candidate provenance acceptance`
+also runs `scripts/ci/run-identity-policy-acceptance.sh` (offline synthetic certificates: only the
+publishing identity verifies) and `scripts/ci/run-pinned-provenance-positive.sh` (every `*-service`
+image pinned in `docker/compose.production.files` must verify under the pinned identity).
 
