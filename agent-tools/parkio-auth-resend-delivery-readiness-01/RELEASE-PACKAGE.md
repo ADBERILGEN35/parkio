@@ -45,7 +45,7 @@ Evidence: `prod-readonly-probe-v3.txt`, `prod-readonly-probe-db-v2.txt`
 
 ### Access limitations (honest)
 
-- SSH to `civo@api.parkio.dev` works for docker inspect / exec / public HTTP probes.
+- SSH to the production host (owner access) works for docker inspect / exec / public HTTP probes.
 - Auth DB user is `parkio_auth` (not `parkio`); early probes failed until that was corrected.
 - Resend dashboard domain status, API key permissions, and inbox delivery were **not** inspected (no Resend console access in this task; no real send authorized).
 - Do **not** assume gateway waitlist Resend config proves auth sender/domain readiness. Auth uses `PARKIO_EMAIL_*` / `verify@parkio.dev`; waitlist uses `PARKIO_WAITLIST_*` / typically `info@parkio.dev`.

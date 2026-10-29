@@ -1,6 +1,6 @@
 # parkio-civo-prod — read-only facts (2026-09-22)
 
-Collected over SSH as `civo` with read-only commands only: `docker ps/inspect`,
+Collected over SSH on the production host (owner access) with read-only commands only: `docker ps/inspect`,
 `docker exec … cat /app/app.jar` streamed to an in-memory zip reader, `psql`
 SELECT statements, `git status/log`, `df`, `getent`, `systemctl list-unit-files`.
 No container was started, stopped or recreated. No file was written, no

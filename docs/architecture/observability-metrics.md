@@ -557,7 +557,7 @@ always-firing `Watchdog` heartbeat to an external dead-man's switch
 reach them via SSH tunnel:
 
 ```bash
-ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vps
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 <user>@<host>
 ```
 
 To test routing without creating an outage, temporarily lower a warning threshold in a local

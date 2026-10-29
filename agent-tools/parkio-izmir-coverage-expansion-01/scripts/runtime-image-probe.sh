@@ -23,7 +23,7 @@ echo "==== WEB IMAGE ===="
 docker image inspect "$WID" --format 'Id={{.Id}} RepoTags={{json .RepoTags}} RepoDigests={{json .RepoDigests}}'
 
 echo "==== COMPOSE PINS ===="
-PIN=$(find /home/civo /opt /srv -name 'docker-compose.gmp-release-pins.yml' 2>/dev/null | head -1 || true)
+PIN=$(find "$HOME" /opt /srv -name 'docker-compose.gmp-release-pins.yml' 2>/dev/null | head -1 || true)
 if [ -n "${PIN:-}" ]; then
   echo "PIN_FILE=$PIN"
   grep -nE 'parking-service|^\s+web:|gateway-service' -A3 "$PIN" | head -80

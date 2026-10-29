@@ -29,7 +29,7 @@ Compose overrides: deploy-artifacts/docker-compose.hosted-beta-rc7-20260727.yml 
 
 Attempt timestamp (UTC): 2026-07-27T14:30:00Z
 
-SSH to parkio@api.parkio.dev, ubuntu@api.parkio.dev, azureuser@api.parkio.dev failed: Permission denied (publickey). Tried ~/.ssh/id_ed25519. Azure CLI not installed. docker/.env.azure-hosted-beta missing locally.
+SSH to the hosted-beta VM (`api.parkio.dev`) with three logins failed: Permission denied (publickey). Tried ~/.ssh/id_ed25519. Azure CLI not installed. docker/.env.azure-hosted-beta missing locally.
 
 Remote probes: GET https://api.parkio.dev/actuator/health -> 200 UP; GET https://api.parkio.dev/actuator/info -> 200 empty.
 
