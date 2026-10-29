@@ -111,6 +111,31 @@ class ScriptInjection(unittest.TestCase):
         self.assertEqual(check.check_workflow("w.yml", workflow(data_step)), [])
 
 
+class GradleNeedsSetupJava(unittest.TestCase):
+    SETUP_JAVA = {"uses": "actions/setup-java@v4", "with": {"distribution": "temurin", "java-version": "21"}}
+
+    def test_a_job_running_gradlew_needs_setup_java_first(self):
+        # Without it Gradle runs on the runner's default JDK; ubuntu-26.04 ships 25, which Gradle 8.11.1
+        # cannot run on (#486).
+        problems = check.check_workflow("w.yml", workflow({"uses": "actions/checkout@v4"}, {"run": "./gradlew build"}))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("runs gradlew without an earlier actions/setup-java step", problems[0])
+        self.assertEqual(check.check_workflow("w.yml", workflow(self.SETUP_JAVA, {"run": "./gradlew build"})), [])
+
+    def test_setup_java_after_the_gradle_step_is_too_late(self):
+        problems = check.check_workflow("w.yml", workflow({"run": "./gradlew build"}, self.SETUP_JAVA))
+        self.assertEqual(len(problems), 1)
+
+    def test_every_form_of_running_the_wrapper_counts(self):
+        for script in ("./gradlew build", "gradlew.bat build", "chmod +x gradlew && ./gradlew build",
+                       "set -e\n  ./gradlew :a:test \\\n    --tests X", "(cd x; ../gradlew test)"):
+            self.assertEqual(len(check.check_workflow("w.yml", workflow({"run": script}))), 1, script)
+
+    def test_making_the_wrapper_executable_is_not_running_it(self):
+        for script in ("chmod +x gradlew", "chmod +x ./gradlew scripts/*.sh", "# ./gradlew build runs in a script"):
+            self.assertEqual(check.check_workflow("w.yml", workflow({"run": script})), [], script)
+
+
 class Repository(unittest.TestCase):
     def test_every_repository_workflow_passes(self):
         self.assertEqual(check.main([]), 0)

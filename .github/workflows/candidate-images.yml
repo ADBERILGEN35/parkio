@@ -459,7 +459,8 @@ jobs:
     name: Web suites against the candidate web image (a11y, CX-F11)
     needs: [resolve, build_web]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 cannot install chromium on ubuntu-26.04 (ubuntu-latest since 2026-10-19, #506).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       SHA12: ${{ needs.resolve.outputs.sha12 }}
