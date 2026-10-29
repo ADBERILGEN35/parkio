@@ -2,12 +2,16 @@
 """Unit tests for scripts/ci/compose_image_identity.py with a recording fake docker."""
 from __future__ import annotations
 
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import compose_image_identity as identity  # noqa: E402
@@ -248,6 +252,206 @@ class ProbeTest(unittest.TestCase):
             self.assertEqual(context_seen[0], context_seen[1])
             self.assertEqual(len(context_seen), 3)
             self.assertTrue((root / "out" / "probe-build-first.log").is_file())
+
+
+FIVE_BUILT = {
+    "name": "parkio-ci-1-1",
+    "services": {
+        **{name: {"build": {"context": ".."}} for name in ("e-service", "a-service", "d-service", "b-service", "c-service")},
+        "postgres-auth": {"image": "postgis/postgis:16"},
+    },
+}
+COMPOSE = ["--env-file", "docker/.env.ci", "-f", "docker/docker-compose.yml", "-f", "docker/docker-compose.apps.yml"]
+BUILD = ["compose", *COMPOSE, "--progress=plain", "build", "--build-arg", f"IMAGE_REVISION={SHA}"]
+
+
+class FakeBuilder:
+    """Records every build call and the tick it was given; batch N (1-based) exits with codes[N], default 0."""
+
+    def __init__(self, codes=None):
+        self.codes = codes or {}
+        self.calls = []
+        self.ticks = []
+
+    def __call__(self, args, tick):
+        self.calls.append(list(args))
+        self.ticks.append(tick)
+        return self.codes.get(len(self.calls), 0)
+
+
+class BuildTest(unittest.TestCase):
+    def setUp(self):
+        self.diags = []
+
+    def diag(self):
+        self.diags.append(len(self.diags))
+
+    def test_builds_every_built_service_two_at_a_time_with_the_revision(self):
+        builder = FakeBuilder()
+
+        with redirect_stdout(io.StringIO()):
+            code, message = identity.build(FIVE_BUILT, COMPOSE, SHA, 2, self.diag, builder)
+
+        self.assertEqual(code, 0, message)
+        self.assertEqual(builder.calls, [BUILD + ["a-service", "b-service"], BUILD + ["c-service", "d-service"],
+                                         BUILD + ["e-service"]])
+        # Logged before the first batch and after each batch; the builder ticks the same logger meanwhile.
+        self.assertEqual(len(self.diags), 4)
+        self.assertTrue(all(tick == self.diag for tick in builder.ticks))
+        self.assertIn("built 5 image(s), at most 2 at a time", message)
+
+    def test_batch_size_one_builds_one_service_at_a_time(self):
+        builder = FakeBuilder()
+
+        with redirect_stdout(io.StringIO()):
+            code, _ = identity.build(FIVE_BUILT, COMPOSE, SHA, 1, self.diag, builder)
+
+        self.assertEqual(code, 0)
+        self.assertEqual([call[len(BUILD):] for call in builder.calls],
+                         [["a-service"], ["b-service"], ["c-service"], ["d-service"], ["e-service"]])
+
+    def test_a_failed_batch_stops_the_build(self):
+        builder = FakeBuilder(codes={2: 17})
+
+        with redirect_stdout(io.StringIO()):
+            code, message = identity.build(FIVE_BUILT, COMPOSE, SHA, 2, self.diag, builder)
+
+        self.assertEqual(code, 1)
+        self.assertIn("building c-service d-service exited with 17", message)
+        self.assertEqual(len(builder.calls), 2)
+        self.assertEqual(len(self.diags), 3)
+
+    def test_a_model_without_builds_fails_before_building(self):
+        builder = FakeBuilder()
+        model = {"name": "parkio-ci-1-1", "services": {"postgres-auth": {"image": "postgis/postgis:16"}}}
+
+        code, message = identity.build(model, COMPOSE, SHA, 2, self.diag, builder)
+
+        self.assertEqual(code, 1)
+        self.assertIn("the model builds no service", message)
+        self.assertEqual(builder.calls, [])
+        self.assertEqual(self.diags, [])
+
+
+class RunnerDiagTest(unittest.TestCase):
+    def test_runtime_validation_format(self):
+        line = identity.runner_diag()
+
+        self.assertRegex(line, r"^runner-diag utc=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ nproc=\d+ ")
+        self.assertRegex(line, r" disk_avail_kB=\d+$")
+        if Path("/proc/meminfo").exists():
+            self.assertRegex(line, r" load=[^ ]+ mem_available_kB=\d+ mem_total_kB=\d+ ")
+
+
+class StubDocker:
+    """A `docker` executable first on PATH: it appends its arguments to calls.log, writes a marker line to stdout
+    and one to stderr when $STUB_MARK is set, sleeps, and exits with $STUB_EXIT."""
+
+    def __init__(self, tmp: Path, sleep: str = "0"):
+        self.dir = tmp / "bin"
+        self.dir.mkdir()
+        self.log = tmp / "calls.log"
+        stub = self.dir / "docker"
+        stub.write_text(f'#!/bin/sh\necho "$*" >> "{self.log}"\n'
+                        'if [ -n "${STUB_MARK:-}" ]; then echo "stub stdout"; echo "stub stderr" >&2; fi\n'
+                        f'sleep {sleep}\nexit "${{STUB_EXIT:-0}}"\n')
+        stub.chmod(0o755)
+
+    def env(self, exit_code: int = 0, mark: bool = False) -> dict:
+        return {"PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}", "STUB_EXIT": str(exit_code),
+                "STUB_MARK": "1" if mark else ""}
+
+    def calls(self) -> list:
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+
+class StreamingRunnerTest(unittest.TestCase):
+    def test_ticks_while_docker_runs_and_returns_its_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docker = StubDocker(Path(tmp), sleep="0.5")
+            ticks = []
+
+            with mock.patch.dict(os.environ, docker.env(exit_code=3)):
+                code = identity.run_docker_streaming(["compose", "build", "x-service"], lambda: ticks.append(1),
+                                                     every=0.1)
+
+            self.assertEqual(code, 3)
+            self.assertGreaterEqual(len(ticks), 2)
+            self.assertEqual(docker.calls(), ["compose build x-service"])
+
+    def test_docker_output_goes_to_the_job_log(self):
+        # A child interpreter, so that the stub's output reaches pipes this test can read.
+        child = ("import sys; sys.path.insert(0, sys.argv[1]); import compose_image_identity as identity; "
+                 "sys.exit(identity.run_docker_streaming(['compose', 'build'], lambda: None))")
+        with tempfile.TemporaryDirectory() as tmp:
+            docker = StubDocker(Path(tmp))
+
+            done = subprocess.run([sys.executable, "-c", child, str(Path(__file__).resolve().parent)],
+                                  env={**os.environ, **docker.env(mark=True)}, capture_output=True, text=True, timeout=60)
+
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("stub stdout", done.stdout)
+            self.assertIn("stub stderr", done.stderr)
+
+
+class BuildMainTest(unittest.TestCase):
+    def run_main(self, argv, exit_code=0):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docker = StubDocker(root)
+            model = root / "model.json"
+            model.write_text(json.dumps(MODEL))
+            diag = root / "out" / "runner-diag.txt"
+            argv = [str(model) if arg == "MODEL" else str(diag) if arg == "DIAG" else arg for arg in argv]
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, docker.env(exit_code)), redirect_stdout(out), redirect_stderr(err):
+                try:
+                    code = identity.main(argv)
+                except SystemExit as stop:
+                    code = f"usage error {stop.code}"
+            return code, docker.calls(), diag.read_text().splitlines() if diag.exists() else [], out.getvalue()
+
+    def test_builds_with_the_compose_arguments_after_the_separator_and_logs_diagnostics(self):
+        code, calls, diag, out = self.run_main(
+            ["build", "MODEL", "--revision", SHA, "--diag-out", "DIAG", "--", "--env-file", "e", "-f", "c.yml"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [f"compose --env-file e -f c.yml --progress=plain build --build-arg IMAGE_REVISION={SHA} "
+                                 "auth-service user-service"])
+        self.assertEqual(len(diag), 2)
+        self.assertTrue(all(line.startswith("runner-diag utc=") for line in diag))
+        self.assertIn(diag[0], out)
+
+    def test_the_batch_size_option_bounds_each_build(self):
+        code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--batch-size", "1", "--", "-f", "c.yml"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual([call.split()[-1] for call in calls], ["auth-service", "user-service"])
+        self.assertEqual(len(calls), 2)
+
+    def test_only_the_first_separator_ends_the_script_arguments(self):
+        code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--", "-f", "c.yml", "--", "x"])
+
+        self.assertEqual(code, 0)
+        self.assertTrue(calls[0].startswith("compose -f c.yml -- x --progress=plain build "), calls)
+
+    def test_a_failing_build_fails(self):
+        code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--batch-size", "1", "--", "-f", "c.yml"],
+                                          exit_code=1)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1)
+
+    def test_usage_errors_build_nothing(self):
+        for argv in (["build", "MODEL", "--revision", SHA],
+                     ["build", "MODEL", "--revision", SHA, "--"],
+                     ["build", "MODEL", "--revision", SHA, "--batch-size", "0", "--", "-f", "c.yml"],
+                     ["build", "MODEL", "--", "-f", "c.yml"],
+                     ["verify", "MODEL", "--", "-f", "c.yml"]):
+            with self.subTest(argv=argv):
+                code, calls, _, _ = self.run_main(argv)
+                self.assertEqual(code, "usage error 2")
+                self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
