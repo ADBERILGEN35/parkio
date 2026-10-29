@@ -347,6 +347,29 @@ class TimeoutTests(RelayCase):
 
 
 class CrashRestartTests(RelayCase):
+    def test_stopping_mid_transition_commits_nothing_partial(self) -> None:
+        """A SIGTERM can stop the worker between two writes of one transition (#505 review). Releasing
+        the worker lock on the way out must roll that open transaction back, as a crash would, not
+        commit half of it."""
+        event_id = self.enqueue()
+        w = self.worker(acquire_lock=True)
+        with self.store._lock:  # noqa: SLF001 — the first write of an interrupted transition
+            self.store._conn.execute(
+                "INSERT INTO dlt(event_id, dedup_key, reason, payload_json, created_at) "
+                "VALUES (?, 'partial', 'interrupted', '{}', ?)",
+                (event_id, time.time()),
+            )
+        w.close()
+        probe = self._open_store()
+        try:
+            with probe._lock:  # noqa: SLF001
+                dlt = probe._conn.execute("SELECT COUNT(*) AS c FROM dlt").fetchone()["c"]
+                held = probe._conn.execute("SELECT COUNT(*) AS c FROM worker_lock").fetchone()["c"]
+        finally:
+            probe.close()
+        self.assertEqual(dlt, 0, "a half-done transition was committed")
+        self.assertEqual(held, 0, "the worker lock was not released")
+
     def test_worker_process_survives_malformed_response(self) -> None:
         self.slack.script = ["malformed"]
         poisoned = self.enqueue()

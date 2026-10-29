@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Export slack_biz JSON metrics to a Prometheus textfile for node-exporter.
 
-Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows, and
-parkio_slack_biz_textfile_last_success_unixtime so alerts can scrape real
-series and detect a missing/stale exporter. Does not invent counters from
-absent data.
+Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows,
+parkio_slack_biz_relay_db_open and parkio_slack_biz_textfile_last_success_unixtime
+so alerts can scrape real series and detect a stopped relay or a missing/stale
+exporter. Does not invent counters from absent data.
 """
 from __future__ import annotations
 
@@ -37,6 +37,14 @@ def render(store: DeliveryStore, when: int | None = None) -> str:
         "# HELP parkio_slack_biz_dlt_rows Slack biz dead-letter table depth",
         "# TYPE parkio_slack_biz_dlt_rows gauge",
         f"parkio_slack_biz_dlt_rows {dlt_rows}",
+    ]
+    if store.relay_db_open is not None:  # known for read-only opens, the exporter's case
+        lines += [
+            "# HELP parkio_slack_biz_relay_db_open 1 while the delivery DB WAL side files exist: a relay holds it open, or the last one crashed",
+            "# TYPE parkio_slack_biz_relay_db_open gauge",
+            f"parkio_slack_biz_relay_db_open {int(store.relay_db_open)}",
+        ]
+    lines += [
         "# HELP parkio_slack_biz_textfile_last_success_unixtime Unix time of last successful textfile export",
         "# TYPE parkio_slack_biz_textfile_last_success_unixtime gauge",
         f"parkio_slack_biz_textfile_last_success_unixtime {stamp}",
@@ -83,13 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         readonly=True,
     )
     try:
-        out = Path(args.output)
         body = render(store)
-        atomic_write(out, body)
-        print(f"wrote {out}")
-        return 0
     finally:
+        # Close before writing: a reader still open when the last relay closes keeps that close
+        # from checkpointing, and the side files (relay_db_open 1) would then outlive the relay.
         store.close()
+    out = Path(args.output)
+    atomic_write(out, body)
+    print(f"wrote {out}")
+    return 0
 
 
 if __name__ == "__main__":

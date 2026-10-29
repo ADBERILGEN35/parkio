@@ -15,7 +15,7 @@ if str(_ROOT.parent) not in sys.path:
 
 from slack_biz.config import load_config  # noqa: E402
 from slack_biz.delivery import DeliveryWorker  # noqa: E402
-from slack_biz.store import DeliveryStore, WorkerLockError  # noqa: E402
+from slack_biz.store import DeliveryStore, WorkerLockError, close_store_on_sigterm  # noqa: E402
 from slack_biz.transport import SlackWebhookTransport  # noqa: E402
 
 
@@ -156,4 +156,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    close_store_on_sigterm()
     raise SystemExit(main())

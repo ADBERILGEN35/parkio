@@ -20,6 +20,8 @@ tests:
         values: "0x40"
       - series: 'parkio_slack_biz_textfile_last_success_unixtime'
         values: "0+60x40"
+      - series: 'parkio_slack_biz_relay_db_open'
+        values: "1x40"
       - series: 'parkio_nr_budget_gate_probe_success'
         values: "1x40"
     alert_rule_test:
@@ -45,7 +47,33 @@ tests:
         alertname: SlackBizTextfileAbsent
         exp_alerts: []
       - eval_time: 35m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+      - eval_time: 35m
         alertname: NrBudgetGateExhausted
+        exp_alerts: []
+
+  - name: slack biz relay stopped fires after 15m and resolves when the relay runs again
+    interval: 1m
+    input_series:
+      - series: 'parkio_slack_biz_relay_db_open'
+        values: "0x30 1x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SlackBizRelayStopped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: slack-biz
+            exp_annotations:
+              summary: "No Slack biz relay process is running"
+              description: "Neither Slack biz relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
+      - eval_time: 38m
+        alertname: SlackBizRelayStopped
         exp_alerts: []
 
   - name: waitlist pending fires then resolves

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -171,6 +173,134 @@ class TextfileExportTimerTest(unittest.TestCase):
             )
             self.assertIsNotNone(match)
             self.assertGreater(int(match.group(1)), 1_700_000_000)
+
+
+    def _env(self, data_dir: Path, tmp_path: Path) -> dict[str, str]:
+        (tmp_path / "inbox").mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env.update(
+            {
+                "PARKIO_SLACK_BIZ_DATA_DIR": str(data_dir),
+                "PARKIO_SLACK_BIZ_ENVIRONMENT": "unit-test",
+                "PARKIO_SLACK_BIZ_ENABLED": "false",
+                "PARKIO_SLACK_BIZ_WAITLIST_INBOX": str(tmp_path / "inbox"),
+                "PARKIO_SLACK_BIZ_TRUSTED_PRODUCERS": "gateway-waitlist-outbox",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }
+        )
+        return env
+
+    def _export(self, data_dir: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, Path]:
+        out = tmp_path / "textfile" / "parkio_slack_biz.prom"
+        proc = subprocess.run(
+            [sys.executable, str(EXPORT), "--output", str(out)],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self._env(data_dir, tmp_path),
+            cwd=str(ROOT),
+        )
+        return proc, out
+
+    def _tmp(self) -> Path:
+        # Cleanups run last-in first-out, so a later chmod back to 0755 runs before this removal.
+        tmp_path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp_path)
+        return tmp_path
+
+    def _make_read_only(self, data_dir: Path) -> None:
+        """chmod 0555 stands in for the unit's ReadOnlyPaths; root would ignore it."""
+        os.chmod(data_dir, 0o555)
+        self.addCleanup(os.chmod, data_dir, 0o755)
+        probe = data_dir / ".write-probe"
+        try:
+            probe.touch()
+        except PermissionError:
+            return
+        probe.unlink()
+        self.skipTest("needs a non-root user: root ignores the read-only directory mode")
+
+    def test_export_still_publishes_when_the_relay_stopped(self) -> None:
+        """G-06 (#488): the last relay close removes the WAL side files, and a mode=ro reader under a
+        read-only directory cannot create -shm. The export must still publish the counts, with the
+        stopped relay visible as parkio_slack_biz_relay_db_open 0."""
+        tmp_path = self._tmp()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _seed_store(data_dir / "slack_biz.sqlite3")
+        self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+        self._make_read_only(data_dir)
+
+        proc, out = self._export(data_dir, tmp_path)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+        assert_mode_0644(out)
+        body = out.read_text(encoding="utf-8")
+        self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
+        self.assertIn("parkio_slack_biz_dlt_rows 3", body)
+        self.assertIn("parkio_slack_biz_relay_db_open 0", body)
+        self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+
+    def test_export_reports_the_relay_holding_the_db_open(self) -> None:
+        tmp_path = self._tmp()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        db_path = data_dir / "slack_biz.sqlite3"
+        _seed_store(db_path)
+        relay = DeliveryStore(db_path)
+        self.addCleanup(relay.close)
+        self.assertTrue(Path(f"{db_path}-wal").exists())
+        self._make_read_only(data_dir)
+
+        proc, out = self._export(data_dir, tmp_path)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+        body = out.read_text(encoding="utf-8")
+        self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
+        self.assertIn("parkio_slack_biz_relay_db_open 1", body)
+
+
+    def test_a_relay_stopped_with_sigterm_is_reported_as_stopped(self) -> None:
+        """systemctl stop sends SIGTERM. Each relay entrypoint must still close the store, so the WAL
+        side files go and the export reads parkio_slack_biz_relay_db_open 0 (#488 review)."""
+        for script, args in (
+            ("worker.py", ["--loop", "--interval", "0.2", "--worker-id", "sigterm-test"]),
+            ("consume_waitlist.py", ["--loop", "--interval", "0.2"]),
+        ):
+            with self.subTest(script=script):
+                tmp_path = self._tmp()
+                data_dir = tmp_path / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                db_path = data_dir / "slack_biz.sqlite3"
+                _seed_store(db_path)
+                relay = subprocess.Popen(
+                    [sys.executable, str(ROOT / "scripts/slack_biz" / script), *args],
+                    env=self._env(data_dir, tmp_path),
+                    cwd=str(ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                self.addCleanup(relay.stderr.close)
+                self.addCleanup(relay.kill)
+                deadline = time.time() + 30
+                while not Path(f"{db_path}-wal").exists():
+                    if relay.poll() is not None:  # read stderr only once the relay has exited
+                        self.fail(f"{script} exited early: {relay.stderr.read()}")
+                    if time.time() > deadline:
+                        self.fail(f"{script} never opened the store")
+                    time.sleep(0.05)
+
+                relay.send_signal(signal.SIGTERM)
+
+                code = relay.wait(timeout=30)
+                self.assertEqual(code, 0, relay.stderr.read())
+                self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+                proc, out = self._export(data_dir, tmp_path)
+                self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+                body = out.read_text(encoding="utf-8")
+                self.assertIn("parkio_slack_biz_relay_db_open 0", body)
+                self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
 
 
 if __name__ == "__main__":
