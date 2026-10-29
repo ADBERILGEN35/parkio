@@ -158,7 +158,9 @@ jobs:
     name: Build ${{ matrix.service }}
     needs: resolve
     if: github.event_name == 'workflow_dispatch' && needs.resolve.outputs.services_selected == 'true'
-    runs-on: ubuntu-latest
+    # Image identity checks expect the overlay2 store (image id = config digest); ubuntu-26.04 runners
+    # use the containerd store. Same environment as the last green build and publish (#508).
+    runs-on: ubuntu-24.04
     timeout-minutes: 70
     permissions:
       contents: read
@@ -198,7 +200,9 @@ jobs:
     name: Candidate web image
     needs: resolve
     if: github.event_name == 'workflow_dispatch' && needs.resolve.outputs.web_selected == 'true'
-    runs-on: ubuntu-latest
+    # Image identity checks expect the overlay2 store (image id = config digest); ubuntu-26.04 runners
+    # use the containerd store. Same environment as the last green build and publish (#508).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # WEB_MAPTILER_KEY lives on the `release` environment (release.yml, job images). The key is
     # baked into the public bundle, so this is not a server secret; release.yml says the same.
@@ -261,7 +265,9 @@ jobs:
     name: Full stack acceptance (candidate images)
     needs: [resolve, build, build_web]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
-    runs-on: ubuntu-latest
+    # Image identity checks expect the overlay2 store (image id = config digest); ubuntu-26.04 runners
+    # use the containerd store. Same environment as the last green build and publish (#508).
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -370,7 +376,9 @@ jobs:
     name: Auth+gateway artifact acceptance (U03, 22 checks)
     needs: [resolve, build]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
-    runs-on: ubuntu-latest
+    # Image identity checks expect the overlay2 store (image id = config digest); ubuntu-26.04 runners
+    # use the containerd store. Same environment as the last green build and publish (#508).
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       SHA12: ${{ needs.resolve.outputs.sha12 }}
@@ -451,7 +459,8 @@ jobs:
     name: Web suites against the candidate web image (a11y, CX-F11)
     needs: [resolve, build_web]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.acceptance && needs.resolve.outputs.all_selected == 'true' }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 cannot install chromium on ubuntu-26.04 (ubuntu-latest since 2026-10-19, #506).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       SHA12: ${{ needs.resolve.outputs.sha12 }}

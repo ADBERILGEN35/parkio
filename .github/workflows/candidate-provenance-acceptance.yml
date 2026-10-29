@@ -1,6 +1,7 @@
 # B-02 / #461 — PR negative + contract checks for the deploy provenance gate.
-# Positive verification of a freshly attested digest is NOT performed here.
-# Mandatory positive verify runs in candidate-publish.yml immediately after attest.
+# G-07 / #489: the identity policy is also checked offline against other workflow, branch and ref
+# identities, and the *-service images already pinned for production must verify under it.
+# A freshly attested digest is verified in candidate-publish.yml immediately after attest.
 # Optional operator re-verify: candidate-provenance-positive.yml (workflow_dispatch only).
 name: Candidate provenance acceptance
 
@@ -11,9 +12,14 @@ on:
       - ".github/workflows/candidate-provenance-acceptance.yml"
       - ".github/workflows/candidate-provenance-positive.yml"
       - "scripts/lib/deploy-image-provenance.sh"
+      - "scripts/parkio-prod-compose.sh"
+      - "docker/compose.production.files"
+      - "docker/docker-compose.*release-pin*.yml"
       - "scripts/lib/cosign-pin.env"
       - "scripts/ci/generate-candidate-slsa-predicate.py"
       - "scripts/ci/run-negative-provenance-acceptance.sh"
+      - "scripts/ci/run-identity-policy-acceptance.sh"
+      - "scripts/ci/run-pinned-provenance-positive.sh"
       - "scripts/ci/fixtures/provenance-negative-digest.env"
       - "scripts/ci/test_generate_candidate_slsa_predicate.py"
       - "scripts/preflight-hosted-beta.sh"
@@ -60,6 +66,45 @@ jobs:
 
       - name: Negative — controlled unattested digest
         run: bash scripts/ci/run-negative-provenance-acceptance.sh
+
+      - name: Negative — other workflow, branch and ref identities (offline certificates)
+        run: bash scripts/ci/run-identity-policy-acceptance.sh
+
+  positive-pinned-images:
+    name: Real cosign verifies the pinned application images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Positive — every pinned *-service image verifies under the pinned identity
+        run: bash scripts/ci/run-pinned-provenance-positive.sh
+
+  deploy-gate-contract:
+    name: Deploy provenance gate (stubbed docker and cosign)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Was listed in the path filter above but run by no workflow before #489.
+      - name: Stub-driven deploy gate regression
+        run: bash scripts/test-deploy-image-provenance.sh
 
   predicate-contract:
     name: Candidate SLSA predicate field contract

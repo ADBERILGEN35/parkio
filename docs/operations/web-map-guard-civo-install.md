@@ -43,7 +43,7 @@ not a Windows checkout of `text=auto` files.
 
 | File | Action | Post-image SHA-256 | Mode after copy |
 |---|---|---|---|
-| `scripts/parkio-prod-compose.sh` | replace | `08492bc5ea9a8a2047ac9835212298998c042166b6ead6ae94262e7942b7e97a` | preserve live (`civo:civo` `775` observed) |
+| `scripts/parkio-prod-compose.sh` | replace | `08492bc5ea9a8a2047ac9835212298998c042166b6ead6ae94262e7942b7e97a` | preserve live (the deploy user's owner and group, `775` observed) |
 | `scripts/guard-web-synthetic-map-deploy.sh` | new | `e38a6cabdee35c78e003a22315423996db556a397259e6b5fc45dca622f37f7b` | `0644` (invoked via `bash`) |
 | `scripts/lib/web-map-guard.sh` | new | `ed2d13474aa473a3341c704837bd9c90f71e9661cdb877d1246caa42f5149a68` | `0644`, owner of `scripts/lib/` |
 | `scripts/lib/web_bundle_map_config.py` | new | `c02c4d4f13a2c20588f6f34cf7cdb85040b15dbd8acd433bdcba7e8acc17bf68` | `0644`, owner of `scripts/lib/` |

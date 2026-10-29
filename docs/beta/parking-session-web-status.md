@@ -57,7 +57,7 @@ This section records the 2026-07-25 operator attempt. It is **not** rewritten as
 | Deployed Map/Profile/keys markers for Parking Session Web | **Absent** (`ParkedCar`, `parkingHistory`, `sessionsRoot`, etc. not found) |
 | Local production build markers (then) | **Present** (`ParkedCar`, `parkingHistory`, `parking-history`, `sessionsRoot`, `activeSession`) |
 | Unauthenticated session routes | `GET/DELETE …/sessions/active|history|{id}` → **401** (routes exist; not 404) |
-| SSH `*@20.199.17.76` | **Permission denied (publickey)** for azureuser/parkio/ubuntu/admin |
+| SSH to the hosted-beta VM | **Permission denied (publickey)** for every login tried |
 | Azure CLI (`az`) | Not available on this workstation |
 
 **Mismatch (2026-07-25):** live web UI did **not** include Parking Session Web markers. Deploy could not proceed without a real azure-hosted-beta env file and VM access.
@@ -92,7 +92,7 @@ This section records the 2026-07-25 operator attempt. It is **not** rewritten as
 
 ### Blockers (ordered) — updated for current source
 
-1. No authorized SSH (or Azure CLI / runner) to the hosted-beta VM (`20.199.17.76`).
+1. No authorized SSH (or Azure CLI / runner) to the hosted-beta VM.
 2. No `docker/.env.azure-hosted-beta` on this workstation (secrets live on-VM per runbook).
 3. ~~Web PR1–PR6 uncommitted~~ — **resolved in source** (Web WP-07.2 committed on `master` / `decision`). Source commit is no longer the blocker.
 4. After deploy: run `./scripts/smoke-parking-session-hosted-beta.sh` to exit 0 on an immutable `sha-<gitsha>` image that includes Parking Session Web + deletion APIs/analytics. Prior DELETE HTTP 500 must be cleared before `HOSTED_BETA_COMPLETE`. R27 remains **FAIL** until then.

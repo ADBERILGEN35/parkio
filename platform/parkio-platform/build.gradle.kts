@@ -28,6 +28,12 @@ dependencies {
         // CVEs are fixed in 1.11.4. Every service gets kafka-clients through this platform, so this one
         // constraint moves all of them. Drop it once kafka-clients itself requires >= 1.11.4.
         api("at.yawk.lz4:lz4-java:1.11.4")
+        // kafka-clients pins snappy-java 1.1.10.5 (runtime): CVE-2026-108106 and CVE-2026-93451 (both HIGH, #501)
+        // are fixed in 1.1.10.9. Drop it once kafka-clients itself requires >= 1.1.10.9.
+        api("org.xerial.snappy:snappy-java:1.1.10.9")
+        // The GCS client (auth) and the MinIO client (media) pull guava 33.5.0/33.4.8: CVE-2026-102554 (HIGH, #501)
+        // is fixed in 33.7.2. A constraint adds no dependency to the services that have no guava.
+        api("com.google.guava:guava:33.7.2-jre")
     }
     api("com.fasterxml.jackson.core:jackson-databind")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")

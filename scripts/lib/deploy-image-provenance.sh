@@ -9,9 +9,10 @@
 # Policy (owner-approved trust roots for Parkio application images):
 #   - Every service image must be digest-pinned (@sha256:<64 hex>).
 #   - Services that also declare build must set an explicit pull_policy.
-#   - Application services (name *-service) require cosign attestation from
-#     https://token.actions.githubusercontent.com with identity matching
-#     PARKIO_PROVENANCE_IDENTITY_REGEXP.
+#   - Application services (name *-service) require cosign attestation from the issuer
+#     PARKIO_PROVENANCE_OIDC_ISSUER with identity matching PARKIO_PROVENANCE_IDENTITY_REGEXP,
+#     both read from cosign-pin.env next to this file (the publish-time verify uses the same
+#     file). Values already in the environment do not override them (G-07, #489).
 #   - Infrastructure and mirrored images (postgres, redis, minio, ...) are digest-only.
 #   - Web is skipped here: the stronger map guard owns verification + pull_policy: never.
 #
@@ -21,8 +22,9 @@
 # Cosign is invoked as `cosign` on PATH so tests can stub it.
 
 PARKIO_IMAGE_PROVENANCE_BREAK_GLASS_TOKEN="I_ACCEPT_UNVERIFIED_IMAGE_PROVENANCE"
-PARKIO_PROVENANCE_OIDC_ISSUER="${PARKIO_PROVENANCE_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
-PARKIO_PROVENANCE_IDENTITY_REGEXP="${PARKIO_PROVENANCE_IDENTITY_REGEXP:-https://github.com/ADBERILGEN35/parkio/.github/workflows/.*}"
+unset PARKIO_PROVENANCE_OIDC_ISSUER PARKIO_PROVENANCE_IDENTITY_REGEXP
+# shellcheck source=cosign-pin.env
+. "$(dirname "${BASH_SOURCE[0]}")/cosign-pin.env"
 
 parkio_deploy_image_provenance_skip_requested() {
   local v="${PARKIO_SKIP_IMAGE_PROVENANCE:-}"
@@ -50,6 +52,10 @@ parkio_deploy_image_provenance_check() {
     return 0
   fi
   if [ "$skip_rc" -eq 2 ]; then
+    return 1
+  fi
+  if [ -z "${PARKIO_PROVENANCE_OIDC_ISSUER:-}" ] || [ -z "${PARKIO_PROVENANCE_IDENTITY_REGEXP:-}" ]; then
+    echo "ERROR: image provenance: issuer or identity missing from cosign-pin.env (refusing)" >&2
     return 1
   fi
 
