@@ -23,7 +23,7 @@ if str(_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(_ROOT.parent))
 
 from slack_biz.config import load_config  # noqa: E402
-from slack_biz.store import DeliveryStore  # noqa: E402
+from slack_biz.store import DeliveryStore, close_store_on_sigterm  # noqa: E402
 from slack_biz.waitlist_inbox import WaitlistInboxConsumer  # noqa: E402
 
 PRUNE_EVERY_SECONDS = 600
@@ -69,4 +69,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    close_store_on_sigterm()
     raise SystemExit(main())

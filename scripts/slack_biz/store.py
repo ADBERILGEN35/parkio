@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sqlite3
 import threading
 import time
@@ -118,6 +119,19 @@ class WorkerLockError(RuntimeError):
     """Raised when a second worker attempts to claim the exclusive lock."""
 
 
+def close_store_on_sigterm() -> None:
+    """For the relay entrypoints: `systemctl stop` sends SIGTERM, which by default ends Python without
+    running `finally`. Unwinding instead closes the store, so SQLite checkpoints the WAL, removes its side
+    files, and the textfile export reports the relay as stopped (#488). A transition the stop cuts short is
+    rolled back (release_worker_lock, close), as after a crash. A second SIGTERM kills at once."""
+
+    def _exit(signum: int, frame: Any) -> None:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _exit)
+
+
 class DeliveryStore:
     """Thread-safe SQLite store for queue + dedup + DLT + single-worker lock."""
 
@@ -136,12 +150,25 @@ class DeliveryStore:
         self.lease_seconds = lease_seconds
         self.worker_stale_seconds = worker_stale_seconds
         self._lock = threading.RLock()
+        # Read-only opens only: whether a relay process holds the database open.
+        self.relay_db_open: bool | None = None
         if readonly:
             # Metrics exporters must open the delivery DB read-only so systemd
             # ReadOnlyPaths=/var/lib/parkio/slack-biz stays compatible (no WAL/schema writes).
             if not self.db_path.is_file():
                 raise FileNotFoundError(f"delivery db absent for readonly open: {self.db_path}")
-            uri = f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            # A relay process keeps the WAL side files while it has the database open; its clean
+            # close checkpoints the WAL into the main file and deletes them (a crash or SIGKILL leaves
+            # them). Without them a mode=ro reader has to create -shm, which a read-only directory
+            # forbids (G-06, #488). Nothing writes the main file at that moment, so it is read as
+            # immutable; a relay starting mid-read can at worst fail this one export run.
+            resolved = self.db_path.resolve()
+            self.relay_db_open = any(
+                Path(f"{resolved}{suffix}").exists() for suffix in ("-wal", "-shm")
+            )
+            uri = f"file:{resolved.as_posix()}?mode=ro"
+            if not self.relay_db_open:
+                uri += "&immutable=1"
             self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             return
@@ -215,6 +242,11 @@ class DeliveryStore:
 
     def release_worker_lock(self, worker_id: str) -> None:
         with self._lock:
+            # Every method commits before it returns, so a transaction still open here is a transition
+            # that a stop (SIGTERM) or an error cut short. Roll it back, as a crash would, instead of
+            # committing half of it with the release.
+            if self._conn.in_transaction:
+                self._conn.rollback()
             self._conn.execute(
                 "DELETE FROM worker_lock WHERE id=1 AND worker_id=?", (worker_id,)
             )

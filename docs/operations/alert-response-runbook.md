@@ -162,6 +162,10 @@ Slack biz DLT table depth increased. Inspect `--list-dlt`; redrive or archive. D
 
 No `parkio_slack_biz_textfile_last_success_unixtime` series. Install/enable the textfile-export timer; without it SlackBizDeliveryUnknown / SlackBizDltGrowth stay blind.
 
+## SlackBizRelayStopped
+
+`parkio_slack_biz_relay_db_open` has been 0 for 15 minutes: neither `parkio-slack-biz-worker` nor `parkio-slack-biz-waitlist-consumer` holds the delivery DB open, and the last one closed cleanly (a stop, an error exit). The textfile export keeps publishing the counts from the checkpointed database (#488). Check `systemctl status parkio-slack-biz-worker parkio-slack-biz-waitlist-consumer` and their journals; start them once the cause is fixed. Queued events wait in the delivery DB until then. Not covered: a relay killed by SIGKILL or a crash leaves the WAL side files, so the gauge stays 1 until a relay opens and closes the DB again; `Restart=on-failure` restarts crashes. Only one of the two processes stopped also stays at 1.
+
 ## NrBudgetGateExhausted
 
 Textfile probe of NR budget-gate `/health` reported failure (HTTP 507 exhaustion or probe error while the gate container is running). Silent when the NR pilot/gate is absent. Check `/stats`. Do not edit `budget_gate.py` without coordinating #104. Host timer: `parkio-nr-gate-probe.timer`.
