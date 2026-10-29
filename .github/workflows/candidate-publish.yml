@@ -44,7 +44,9 @@ concurrency:
 jobs:
   publish:
     name: Verify and push the accepted candidates
-    runs-on: ubuntu-latest
+    # Image identity checks expect the overlay2 store (image id = config digest); ubuntu-26.04 runners
+    # use the containerd store. Same environment as the last green build and publish (#508).
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: candidate-publication
     if: ${{ vars.PARKIO_CANDIDATE_PUBLISH_APPROVED_SHA == inputs.source_sha }}
