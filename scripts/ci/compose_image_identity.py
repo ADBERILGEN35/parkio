@@ -9,12 +9,14 @@ nothing. What this script adds is a bounded build and identity:
   build MODEL.json --revision SHA [--batch-size N] [--diag-out FILE] -- COMPOSE_ARGS...
       COMPOSE_ARGS are the arguments that rendered MODEL.json. It builds every service that the model
       builds, N at a time (default 2), with
-      `docker compose COMPOSE_ARGS build --progress=plain --build-arg IMAGE_REVISION=SHA SERVICE...`,
+      `docker compose COMPOSE_ARGS --progress=plain build --build-arg IMAGE_REVISION=SHA SERVICE...`,
       and stops at the first failed batch. A single `docker compose build` starts all ten Gradle image
       builds at once; on a 4 vCPU / 16 GiB hosted runner they need more memory than the runner has,
       and the runner loses the job (#510; runtime validation bounds its builds for the same reason).
       It logs the runner's load, available memory and free disk before the first batch, every 30
-      seconds while a batch builds and after each batch, to the job log and to --diag-out.
+      seconds while a batch builds and after each batch, to the job log and to --diag-out. Keep FILE
+      outside the build context: every service Dockerfile copies the whole repository, so a file that
+      grows during the build would change the inputs of the later batches.
 
   record MODEL.json --out RECORD.json --override OVERRIDE.json [--expect-revision SHA]
       MODEL.json is `docker compose config --format json`. For every service that the model builds,
@@ -124,7 +126,7 @@ def build(model: dict, compose_args: list, revision: str, batch_size: int, diag:
     for start in range(0, len(services), batch_size):
         batch = services[start:start + batch_size]
         print(f"{PREFIX}: building {' '.join(batch)} ({start + len(batch)} of {len(services)})", flush=True)
-        code = run(["compose", *compose_args, "build", "--progress=plain",
+        code = run(["compose", *compose_args, "--progress=plain", "build",
                     "--build-arg", f"IMAGE_REVISION={revision}", *batch], diag)
         diag()
         if code != 0:

@@ -133,7 +133,7 @@ jobs:
           revision="$(git rev-parse HEAD)"
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES config --format json >"$RUNNER_TEMP/compose-model.json"
           python3 scripts/ci/compose_image_identity.py build "$RUNNER_TEMP/compose-model.json" \
-            --revision "$revision" --batch-size 2 --diag-out benchmarks/reports/runner-diag.txt \
+            --revision "$revision" --batch-size 2 --diag-out "$RUNNER_TEMP/runner-diag.txt" \
             -- --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES
           python3 scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
             --expect-revision "$revision" --out benchmarks/reports/image-identity.json \
@@ -251,6 +251,8 @@ jobs:
         run: |
           set +e
           mkdir -p benchmarks/reports
+          # Written outside the build context while the images built (compose_image_identity.py build).
+          cp "$RUNNER_TEMP/runner-diag.txt" benchmarks/reports/
           docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps > benchmarks/reports/performance-compose-ps.txt
           mkdir -p benchmarks/reports/container-logs
           for cid in $(docker compose --env-file "$COMPOSE_ENV_FILE" $COMPOSE_FILES ps -q); do

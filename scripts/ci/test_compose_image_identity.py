@@ -262,7 +262,7 @@ FIVE_BUILT = {
     },
 }
 COMPOSE = ["--env-file", "docker/.env.ci", "-f", "docker/docker-compose.yml", "-f", "docker/docker-compose.apps.yml"]
-BUILD = ["compose", *COMPOSE, "build", "--progress=plain", "--build-arg", f"IMAGE_REVISION={SHA}"]
+BUILD = ["compose", *COMPOSE, "--progress=plain", "build", "--build-arg", f"IMAGE_REVISION={SHA}"]
 
 
 class FakeBuilder:
@@ -344,18 +344,22 @@ class RunnerDiagTest(unittest.TestCase):
 
 
 class StubDocker:
-    """A `docker` executable first on PATH: it appends its arguments to calls.log, sleeps, and exits with $STUB_EXIT."""
+    """A `docker` executable first on PATH: it appends its arguments to calls.log, writes a marker line to stdout
+    and one to stderr when $STUB_MARK is set, sleeps, and exits with $STUB_EXIT."""
 
     def __init__(self, tmp: Path, sleep: str = "0"):
         self.dir = tmp / "bin"
         self.dir.mkdir()
         self.log = tmp / "calls.log"
         stub = self.dir / "docker"
-        stub.write_text(f'#!/bin/sh\necho "$*" >> "{self.log}"\nsleep {sleep}\nexit "${{STUB_EXIT:-0}}"\n')
+        stub.write_text(f'#!/bin/sh\necho "$*" >> "{self.log}"\n'
+                        'if [ -n "${STUB_MARK:-}" ]; then echo "stub stdout"; echo "stub stderr" >&2; fi\n'
+                        f'sleep {sleep}\nexit "${{STUB_EXIT:-0}}"\n')
         stub.chmod(0o755)
 
-    def env(self, exit_code: int = 0) -> dict:
-        return {"PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}", "STUB_EXIT": str(exit_code)}
+    def env(self, exit_code: int = 0, mark: bool = False) -> dict:
+        return {"PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}", "STUB_EXIT": str(exit_code),
+                "STUB_MARK": "1" if mark else ""}
 
     def calls(self) -> list:
         return self.log.read_text().splitlines() if self.log.exists() else []
@@ -374,6 +378,20 @@ class StreamingRunnerTest(unittest.TestCase):
             self.assertEqual(code, 3)
             self.assertGreaterEqual(len(ticks), 2)
             self.assertEqual(docker.calls(), ["compose build x-service"])
+
+    def test_docker_output_goes_to_the_job_log(self):
+        # A child interpreter, so that the stub's output reaches pipes this test can read.
+        child = ("import sys; sys.path.insert(0, sys.argv[1]); import compose_image_identity as identity; "
+                 "sys.exit(identity.run_docker_streaming(['compose', 'build'], lambda: None))")
+        with tempfile.TemporaryDirectory() as tmp:
+            docker = StubDocker(Path(tmp))
+
+            done = subprocess.run([sys.executable, "-c", child, str(Path(__file__).resolve().parent)],
+                                  env={**os.environ, **docker.env(mark=True)}, capture_output=True, text=True, timeout=60)
+
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("stub stdout", done.stdout)
+            self.assertIn("stub stderr", done.stderr)
 
 
 class BuildMainTest(unittest.TestCase):
@@ -398,11 +416,24 @@ class BuildMainTest(unittest.TestCase):
             ["build", "MODEL", "--revision", SHA, "--diag-out", "DIAG", "--", "--env-file", "e", "-f", "c.yml"])
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [f"compose --env-file e -f c.yml build --progress=plain --build-arg IMAGE_REVISION={SHA} "
+        self.assertEqual(calls, [f"compose --env-file e -f c.yml --progress=plain build --build-arg IMAGE_REVISION={SHA} "
                                  "auth-service user-service"])
         self.assertEqual(len(diag), 2)
         self.assertTrue(all(line.startswith("runner-diag utc=") for line in diag))
         self.assertIn(diag[0], out)
+
+    def test_the_batch_size_option_bounds_each_build(self):
+        code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--batch-size", "1", "--", "-f", "c.yml"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual([call.split()[-1] for call in calls], ["auth-service", "user-service"])
+        self.assertEqual(len(calls), 2)
+
+    def test_only_the_first_separator_ends_the_script_arguments(self):
+        code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--", "-f", "c.yml", "--", "x"])
+
+        self.assertEqual(code, 0)
+        self.assertTrue(calls[0].startswith("compose -f c.yml -- x --progress=plain build "), calls)
 
     def test_a_failing_build_fails(self):
         code, calls, _, _ = self.run_main(["build", "MODEL", "--revision", SHA, "--batch-size", "1", "--", "-f", "c.yml"],
