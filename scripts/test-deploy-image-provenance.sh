@@ -26,6 +26,7 @@ mkdir -p "$BIN" "$STATE/images" "$WORK/tree/scripts/lib" "$WORK/tree/docker" "$W
 # Minimal production-like tree for the wrapper
 cp scripts/parkio-prod-compose.sh "$WORK/tree/scripts/"
 cp scripts/lib/deploy-image-provenance.sh \
+   scripts/lib/cosign-pin.env \
    scripts/lib/prod-compose-overlays.sh \
    scripts/lib/prod-nonroot-volume-gate.sh \
    scripts/lib/web-map-guard.sh \
@@ -284,6 +285,23 @@ else
   sed 's/^/  | /' "$WORK/out" "$WORK/err" | tail -30
 fi
 
+# --- Case 5b: cosign gets the pinned issuer and identity; the environment cannot widen them (#489) ---
+write_model gateway-service "$APP_IMG" never - \
+            redis "$INFRA_IMG" never -
+rm -rf "$STATE/images"; mkdir -p "$STATE/images"
+have_image "$APP_IMG"
+have_image "$INFRA_IMG"
+PIN_ISSUER="$(. scripts/lib/cosign-pin.env && printf '%s' "$PARKIO_PROVENANCE_OIDC_ISSUER")"
+PIN_IDENTITY="$(. scripts/lib/cosign-pin.env && printf '%s' "$PARKIO_PROVENANCE_IDENTITY_REGEXP")"
+PARKIO_PROVENANCE_IDENTITY_REGEXP='.*' PARKIO_PROVENANCE_OIDC_ISSUER='https://issuer.invalid' run_up
+want="--certificate-oidc-issuer $PIN_ISSUER --certificate-identity-regexp $PIN_IDENTITY $APP_IMG"
+if [ "$(ups)" = "1" ] && grep -Fq -- "$want" "$STATE/cosign.log"; then
+  ok "gate passes the cosign-pin.env issuer and identity; an environment value does not override them"
+else
+  bad "gate passes the cosign-pin.env issuer and identity (ups=$(ups))"
+  sed 's/^/  | /' "$STATE/cosign.log" "$WORK/err" | tail -20
+fi
+
 # --- Case 6: build+image without pull_policy refuses ---
 write_model gateway-service "$APP_IMG" - build \
             redis "$INFRA_IMG" never -
@@ -366,12 +384,11 @@ else
 fi
 
 echo "=== B-02 gate args match cosign-pin.env ==="
+# Case 5b checks the issuer and identity the gate hands to cosign; the predicate type is a literal there.
 # shellcheck source=scripts/lib/cosign-pin.env
 source scripts/lib/cosign-pin.env
-grep -Fq "https://slsa.dev/provenance/v1" scripts/lib/deploy-image-provenance.sh
-grep -Fq "$PARKIO_PROVENANCE_OIDC_ISSUER" scripts/lib/deploy-image-provenance.sh
-grep -Fq "$PARKIO_PROVENANCE_IDENTITY_REGEXP" scripts/lib/deploy-image-provenance.sh
-ok "cosign-pin.env identity matches deploy gate"
+grep -Fq "$PARKIO_PROVENANCE_PREDICATE_TYPE" scripts/lib/deploy-image-provenance.sh
+ok "cosign-pin.env predicate type matches deploy gate"
 
 echo
 echo "Results: pass=$pass fail=$fail"
