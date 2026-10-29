@@ -4,7 +4,17 @@
 The runtime, chaos and performance workflows build their service images and then start the stack.
 No build cache is shared between jobs or workflows: they run concurrently, and every service
 Dockerfile copies the whole repository before its Gradle build, so a shared cache would gain almost
-nothing. What this script adds is identity:
+nothing. What this script adds is a bounded build and identity:
+
+  build MODEL.json --revision SHA [--batch-size N] [--diag-out FILE] -- COMPOSE_ARGS...
+      COMPOSE_ARGS are the arguments that rendered MODEL.json. It builds every service that the model
+      builds, N at a time (default 2), with
+      `docker compose COMPOSE_ARGS build --progress=plain --build-arg IMAGE_REVISION=SHA SERVICE...`,
+      and stops at the first failed batch. A single `docker compose build` starts all ten Gradle image
+      builds at once; on a 4 vCPU / 16 GiB hosted runner they need more memory than the runner has,
+      and the runner loses the job (#510; runtime validation bounds its builds for the same reason).
+      It logs the runner's load, available memory and free disk before the first batch, every 30
+      seconds while a batch builds and after each batch, to the job log and to --diag-out.
 
   record MODEL.json --out RECORD.json --override OVERRIDE.json [--expect-revision SHA]
       MODEL.json is `docker compose config --format json`. For every service that the model builds,
@@ -36,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -46,10 +57,22 @@ REVISION = "org.opencontainers.image.revision"
 PREFIX = "compose-image-identity"
 
 Runner = Callable[[list], subprocess.CompletedProcess]
+# (docker arguments, tick) -> exit code; calls tick() periodically while docker runs.
+BuildRunner = Callable[[list, Callable[[], None]], int]
 
 
 def run_docker(args: list) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+
+
+def run_docker_streaming(args: list, tick: Callable[[], None], every: float = 30.0) -> int:
+    """Runs docker with its output in the job log and calls tick() every `every` seconds until it exits."""
+    proc = subprocess.Popen(["docker", *args])
+    while True:
+        try:
+            return proc.wait(timeout=every)
+        except subprocess.TimeoutExpired:
+            tick()
 
 
 def built_services(model: dict) -> dict:
@@ -74,6 +97,39 @@ def inspect_image(ref: str, run: Runner) -> Optional[dict]:
 
 def layers_of(image: dict) -> list:
     return list((image.get("RootFS") or {}).get("Layers") or [])
+
+
+def runner_diag() -> str:
+    """The runner's load, available memory and free disk, in runtime validation's runner-diag format."""
+    fields = [f"utc={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}", f"nproc={os.cpu_count()}"]
+    try:
+        fields.append("load=" + ",".join(Path("/proc/loadavg").read_text().split()))
+        meminfo = {line.split(":")[0]: line.split()[1] for line in Path("/proc/meminfo").read_text().splitlines()
+                   if ":" in line and len(line.split()) > 1}
+        fields += [f"mem_available_kB={meminfo.get('MemAvailable')}", f"mem_total_kB={meminfo.get('MemTotal')}"]
+    except OSError:
+        fields.append("proc=unavailable")
+    disk = os.statvfs("/")
+    fields.append(f"disk_avail_kB={disk.f_bavail * disk.f_frsize // 1024}")
+    return "runner-diag " + " ".join(fields)
+
+
+def build(model: dict, compose_args: list, revision: str, batch_size: int, diag: Callable[[], None],
+          run: BuildRunner = run_docker_streaming) -> tuple:
+    """(exit code, message) after building every service that the model builds, batch_size at a time."""
+    services = list(built_services(model))
+    if not services:
+        return 1, f"{PREFIX}: FAIL: the model builds no service"
+    diag()
+    for start in range(0, len(services), batch_size):
+        batch = services[start:start + batch_size]
+        print(f"{PREFIX}: building {' '.join(batch)} ({start + len(batch)} of {len(services)})", flush=True)
+        code = run(["compose", *compose_args, "build", "--progress=plain",
+                    "--build-arg", f"IMAGE_REVISION={revision}", *batch], diag)
+        diag()
+        if code != 0:
+            return 1, f"{PREFIX}: FAIL: building {' '.join(batch)} exited with {code}"
+    return 0, f"{PREFIX}: built {len(services)} image(s), at most {batch_size} at a time"
 
 
 def record(model: dict, expect_revision: Optional[str], run: Runner = run_docker) -> tuple:
@@ -227,8 +283,18 @@ def probe(dockerfile: Path, context: Path, input_file: Path, revision: str, out:
 
 
 def main(argv: list) -> int:
+    # Everything after the first `--` goes to `docker compose` (build only).
+    compose_args = []
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, compose_args = argv[:cut], argv[cut + 1:]
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
+    bld = sub.add_parser("build")
+    bld.add_argument("model")
+    bld.add_argument("--revision", required=True)
+    bld.add_argument("--batch-size", type=int, default=2)
+    bld.add_argument("--diag-out")
     rec = sub.add_parser("record")
     rec.add_argument("model")
     rec.add_argument("--out", required=True)
@@ -243,15 +309,35 @@ def main(argv: list) -> int:
     prb.add_argument("--revision", default="compose-image-identity-probe")
     prb.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.command == "build":
+        if args.batch_size < 1:
+            parser.error("--batch-size must be at least 1")
+        if not compose_args:
+            parser.error("build needs the Compose arguments that rendered MODEL after --")
+    elif compose_args:
+        parser.error(f"{args.command} takes no arguments after --")
 
     if args.command == "probe":
         return probe(Path(args.dockerfile), Path(args.context), Path(args.input), args.revision, Path(args.out))
     try:
-        data = json.loads(Path(args.model if args.command == "record" else args.record).read_text())
+        data = json.loads(Path(args.record if args.command == "verify" else args.model).read_text())
     except (OSError, ValueError) as error:
         print(f"{PREFIX}: FAIL: cannot read input: {error}", file=sys.stderr)
         return 2
-    if args.command == "record":
+    if args.command == "build":
+        diag_out = Path(args.diag_out) if args.diag_out else None
+        if diag_out:
+            diag_out.parent.mkdir(parents=True, exist_ok=True)
+
+        def diag() -> None:
+            line = runner_diag()
+            print(line, flush=True)
+            if diag_out:
+                with diag_out.open("a") as out:
+                    out.write(line + "\n")
+
+        code, message = build(data, compose_args, args.revision, args.batch_size, diag)
+    elif args.command == "record":
         code, message, rec_data, override = record(data, args.expect_revision)
         if rec_data is not None:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
