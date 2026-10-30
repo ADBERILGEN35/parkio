@@ -43,7 +43,7 @@ class ArtifactCheck(unittest.TestCase):
 
     def fat_jar(self, app: dict[str, bytes], libs: dict[str, dict[str, bytes]]) -> str:
         path = Path(self.tmp.name) / f"app-{len(list(Path(self.tmp.name).iterdir()))}.jar"
-        with zipfile.ZipFile(path, "w") as jar:
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as jar:
             for name, data in app.items():
                 jar.writestr(name, data)
             for name, entries in libs.items():
@@ -93,6 +93,31 @@ class ArtifactCheck(unittest.TestCase):
         self.assertEqual(check.main(["--role", "servlet",
                                      self.servlet(app={"BOOT-INF/classes/X.class": b"text/event-stream"})]), 1)
 
+    def test_bare_internal_names_and_constants_are_findings(self):
+        # A class that implements View or WebHandler stores the bare internal name, not a descriptor.
+        view = self.servlet(app={"BOOT-INF/classes/com/parkio/V.class": b"\x01\x00org/springframework/web/servlet/View\x07"})
+        self.assertIn("servlet-view", self.rules(view, "servlet"))
+        handler = self.gateway(app={"BOOT-INF/classes/com/parkio/gateway/H.class":
+                                    b"\x01\x00org/springframework/web/server/WebHandler\x07"})
+        self.assertIn("custom-handler", self.rules(handler, "gateway"))
+        constant = self.servlet(app={"BOOT-INF/classes/com/parkio/S.class": b"TEXT_EVENT_STREAM"})
+        self.assertIn("sse", self.rules(constant, "servlet"))
+
+    def test_unreadable_jars_exit_2(self):
+        broken = Path(self.tmp.name) / "broken.jar"
+        broken.write_bytes(b"not a zip")
+        self.assertEqual(check.main(["--role", "servlet", str(broken)]), 2)
+        self.assertEqual(check.main(["--role", "servlet", str(Path(self.tmp.name) / "missing.jar")]), 2)
+        # A corrupt deflated entry raises zlib.error, which is neither OSError nor BadZipFile.
+        corrupt = Path(self.servlet(app={"BOOT-INF/classes/C.class": b"x" * 4096}))
+        with zipfile.ZipFile(corrupt) as jar:
+            info = jar.getinfo("BOOT-INF/classes/C.class")
+        data = bytearray(corrupt.read_bytes())
+        start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+        data[start:start + 8] = b"\xff" * 8
+        corrupt.write_bytes(bytes(data))
+        self.assertEqual(check.main(["--role", "servlet", str(corrupt)]), 2)
+
     def test_web_application_type_counts_in_resources_not_classes(self):
         resource = self.servlet(app={"BOOT-INF/classes/application.yml": b"spring:\n  main:\n    web-application-type: reactive\n"})
         self.assertIn("web-application-type", self.rules(resource, "servlet"))
@@ -108,6 +133,13 @@ class ArtifactCheck(unittest.TestCase):
             "a/R.class": b"org/springframework/web/reactive/function/server/RouterFunction",
             "META-INF/additional-spring-configuration-metadata.json": b"text/event-stream"}})
         self.assertEqual(self.rules(allowed, "servlet"), [])
+        # The autoconfigure allowance covers the metadata file only, not its classes.
+        code = self.servlet(libs={"spring-boot-autoconfigure-3.5.15.jar": {"a/S.class": b"text/event-stream"}})
+        self.assertEqual(self.rules(code, "servlet"), ["event-stream"])
+        for rule, needle, allowed_jar in (("server-sent-event", b"org/springframework/http/codec/ServerSentEvent", "spring-web-6.2.19.jar"),
+                                          ("model-and-view", b"org/springframework/web/servlet/ModelAndView", "spring-boot-3.5.15.jar")):
+            self.assertEqual(self.rules(self.servlet(libs={"other-lib-1.0.jar": {"o/X.class": needle}}), "servlet"), [rule])
+            self.assertEqual(self.rules(self.servlet(libs={allowed_jar: {"o/X.class": needle}}), "servlet"), [])
 
     def test_roles_template_engines_and_xsl(self):
         self.assertIn("role", self.rules(self.servlet(libs={"spring-webflux-6.2.19.jar": WEBFLUX_CONTROL}), "servlet"))

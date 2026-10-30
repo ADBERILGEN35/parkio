@@ -43,7 +43,7 @@ ALLOWED_XSL = re.compile(r"^spring-security-config-\d[^/]*\.jar!org/springframew
 # Application entries: any of these is a finding.
 APP_CONSTRUCTS = {
     "xslt-view": rb"org/springframework/web/servlet/view/xslt/|org\.springframework\.web\.servlet\.view\.xslt|XsltView",
-    "servlet-view": rb"org/springframework/web/servlet/(View;|ViewResolver|view/)|org\.springframework\.web\.servlet\.view\.",
+    "servlet-view": rb"org/springframework/web/servlet/(View(?![\w$])|ViewResolver|view/)|org\.springframework\.web\.servlet\.view\.",
     "view-controller": rb"ViewControllerRegistry|UrlFilenameViewController|ParameterizableViewController",
     "model-and-view": rb"org/springframework/web/servlet/ModelAndView",
     "non-rest-controller": rb"Lorg/springframework/stereotype/Controller;",
@@ -51,7 +51,7 @@ APP_CONSTRUCTS = {
     "sse": rb"SseEmitter|ResponseBodyEmitter|StreamingResponseBody|ServerSentEvent|text/event-stream|TEXT_EVENT_STREAM",
     "functional-endpoint": rb"org/springframework/web/reactive/function/server/|org/springframework/web/servlet/function/"
                            rb"|RequestPredicates|toHttpHandler|toWebHandler|RouterFunctionWebHandler",
-    "custom-handler": rb"org/springframework/http/server/reactive/HttpHandler|org/springframework/web/server/WebHandler;",
+    "custom-handler": rb"org/springframework/http/server/reactive/HttpHandler|org/springframework/web/server/WebHandler(?![\w$])",
 }
 # Application resources (not classes): the web application type must not be set. auth-service's recovery
 # command reads the property only to refuse a web server, so classes are covered by the source check instead.
@@ -59,7 +59,9 @@ APP_RESOURCE_CONSTRUCTS = {
     "web-application-type": rb"web-application-type|WEB_APPLICATION_TYPE|webApplicationType",
 }
 
-# Library entries: these needles are allowed only in the jars LIB_ALLOWED names.
+# Library entries: these needles are allowed only in the jars (and entries) LIB_ALLOWED names. The
+# allowances were reviewed for #513 on the 2026-10-30 production jars; re-review them when one of these
+# libraries changes version.
 LIB_NEEDLES = {
     "xslt-view": rb"org/springframework/web/servlet/view/xslt/|org\.springframework\.web\.servlet\.view\.xslt|XsltView",
     "mvc-fragments": rb"org/springframework/web/servlet/view/FragmentsRendering|org\.springframework\.web\.servlet\.view\.FragmentsRendering",
@@ -71,12 +73,15 @@ LIB_NEEDLES = {
     "router-function": rb"org/springframework/web/reactive/function/server/(RouterFunction|RequestPredicates)",
     "functional-handler": rb"toHttpHandler|toWebHandler|RouterFunctionWebHandler",
 }
+ANY_ENTRY = r".*"
 LIB_ALLOWED = {
-    "model-and-view": r"(spring-boot|spring-boot-autoconfigure|spring-boot-actuator-autoconfigure|spring-security-config"
-                      r"|springdoc-openapi-starter-webmvc-api)-\d",
-    "server-sent-event": r"(spring-web|resilience4j-spring-boot3)-\d",
-    "event-stream": r"(spring-web|spring-boot-autoconfigure|netty-codec-http|reactor-netty-http|resilience4j-spring-boot3)-\d",
-    "router-function": r"(spring-boot-autoconfigure|spring-boot-actuator)-\d",
+    "model-and-view": [(r"(spring-boot|spring-boot-autoconfigure|spring-boot-actuator-autoconfigure|spring-security-config"
+                        r"|springdoc-openapi-starter-webmvc-api)-\d", ANY_ENTRY)],
+    "server-sent-event": [(r"(spring-web|resilience4j-spring-boot3)-\d", ANY_ENTRY)],
+    "event-stream": [(r"(spring-web|netty-codec-http|reactor-netty-http|resilience4j-spring-boot3)-\d", ANY_ENTRY),
+                     # A MIME type hint in the configuration metadata, not code.
+                     (r"spring-boot-autoconfigure-\d", r"META-INF/additional-spring-configuration-metadata\.json")],
+    "router-function": [(r"(spring-boot-autoconfigure|spring-boot-actuator)-\d", ANY_ENTRY)],
 }
 
 # The positive control: each of these needles must be found in the framework jar itself.
@@ -145,8 +150,8 @@ def check_jar(path: str, role: str) -> tuple[list[str], list[str]]:
             if skip:
                 continue
             for rule in hits:
-                allowed = LIB_ALLOWED.get(rule)
-                if not (allowed and re.match(allowed, short)):
+                allowed = LIB_ALLOWED.get(rule, [])
+                if not any(re.match(jar, short) and re.fullmatch(entry, name) for jar, entry in allowed):
                     findings.append(f"{short}: {rule}: {name}")
 
     control_failures = []
@@ -166,8 +171,8 @@ def main(argv: list[str]) -> int:
     for path in args.jars:
         try:
             findings, control_failures = check_jar(path, args.role)
-        except (OSError, zipfile.BadZipFile) as error:
-            print(f"{path}: cannot read: {error}")
+        except Exception as error:  # an unreadable or corrupt jar must not read as "findings" (exit 1)
+            print(f"{path}: cannot read: {type(error).__name__}: {error}")
             return 2
         for line in control_failures + findings:
             print(f"{path}: {line}")
