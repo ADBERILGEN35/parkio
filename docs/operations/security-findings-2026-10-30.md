@@ -1,14 +1,18 @@
-# Security CI disposition — 2026-10-30 (proposed renewal of the three Spring Framework exceptions, #513)
+# Security CI disposition — 2026-10-30 (temporary renewal of the three Spring Framework exceptions, #513)
 
-**Status: proposal. Owner decision pending in #513.** Nothing in this record takes effect until the owner accepts the
-risk in #513 and this change is reviewed and merged. Without a decision, the entries expire as recorded today:
-CVE-2026-47884 on 2026-11-05 and CVE-2026-47890 / CVE-2026-47892 on 2026-11-07 (`expired_at` is exclusive).
+**Status: temporary risk acceptance by the repository owner in #513 (2026-10-30). This is not a remediation.** The
+permanent fix is the Spring Boot 4.1 migration, tracked in #515.
 
-Proposed change: the same three entries (same ids, same version-pinned paths), `expired_at: 2026-12-01` (exclusive:
-suppressed through 2026-11-30 UTC), with refreshed evidence references. Maximum duration of this renewal: until
-2026-12-01. Any further renewal needs a new evidence package and a new owner decision, and should not exceed 30 days.
-CVE-2026-14257 is not renewed: on api it no longer matches anything (brace-expansion resolves to 1.1.21) and lapses on
-2026-10-31.
+| | |
+|---|---|
+| Scope | Only the three existing entries, with the same ids and the same version-pinned paths: CVE-2026-47884 (`app/app.jar/BOOT-INF/lib/spring-webmvc-6.2.19.jar`), CVE-2026-47890 (the same spring-webmvc path and `app/app.jar/BOOT-INF/lib/spring-webflux-6.2.19.jar`) and CVE-2026-47892 (the same spring-webflux path). No new id, path, pattern or package type |
+| Expiry | `expired_at: 2026-11-29`. The owner set the absolute ceiling at 2026-11-29, or 30 days after the merge if that is earlier. The merge cannot be earlier than 2026-10-30, so the ceiling applies. `expired_at` is exclusive: Trivy applies the entries until 2026-11-29 00:00 UTC, and from then on the gates report the findings again |
+| Renewal | None is automatic. Anything after the expiry needs a new evidence package and a new owner decision |
+| What it accepts | The documented residual uncertainty for these three CVEs (§4). It does not establish that any other advisory is not applicable |
+| Previous expiry | CVE-2026-47884 on 2026-11-05; CVE-2026-47890 and CVE-2026-47892 on 2026-11-07 |
+
+CVE-2026-14257 is not renewed. On api it no longer matches anything, because brace-expansion resolves to 1.1.21, and it
+lapses on 2026-10-31.
 
 ## Why there is no patch instead
 
@@ -39,29 +43,45 @@ version. The supported fix is the Spring Boot 4 line; the migration is tracked i
 
 No workflow, threshold, scanner version or ignore pattern changes. Only `expired_at` and the statements change.
 
-## Verification (2026-10-29)
+## Verification
 
-- **Official sources.** The three spring.io advisories (published 2026-08-20; history: initial publication only), the
-  vendor fix commits, GHSA, NVD, api.spring.io support and release metadata, GitHub release tags and the Maven Central
-  BOM POMs.
-- **Current source.** `git grep` over `services/*/src/main` at api `399b5dd7`, at the pinned revision `fdce6ba0`, at
-  master `f8973747` and at every revision that runs in production (`971ac1d2`, `504b9cb4`, `4a9ba218`, `f888a81b`).
-  None references any construct named in §1–§3, no service declares a template engine, and no service ships an
-  .xsl/.xslt file. All are on Spring Boot 3.5.15 / Spring Cloud 2025.0.3. This is string absence, not proof by itself.
-- **Exact artifacts.** `/app/app.jar` from the ten Java images of the current pins (source `fdce6ba0`, publish run
-  39470264655) and from the four registry-pinned production images (auth `2091de2e`, gateway `655219f5`, media
-  `62f49d04`, parking `3888df05`). The images were created locally and never started. The analysis is a static scan of
-  class constant pools and resource bytes in the application classes and in every nested jar except spring-webmvc and
-  spring-webflux themselves. It covers internal (slash) and dotted (reflection or configuration) names, with a positive
-  control: the same scan finds the XsltView, FragmentsRendering, SseEmitter, Fragment, `toHttpHandler`, `toWebHandler`
-  and RouterFunctionWebHandler references inside spring-webmvc and spring-webflux.
+- **Official sources, rechecked 2026-10-30.** The three spring.io advisories are unchanged from the 2026-10-29 copies
+  (published 2026-08-20; history: initial publication only). So are their GHSA records (GHSA-pc63-qcmh-9cmg,
+  GHSA-j9f9-w8pj-32f8, GHSA-9qf2-26p9-2q2q: same package ranges, no patched 6.2.x version, last updated 2026-10-05/07)
+  and their NVD records (same status, last-modified date and metrics). The 2026-10-29 package also covered the vendor
+  fix commits, api.spring.io support and release metadata, GitHub release tags and the Maven Central BOM POMs.
+- **Source.** `git grep` over `services/*/src/main` at api `399b5dd7`, at the pinned revision `fdce6ba0`, at master
+  `f8973747` and at every revision that runs in production (`971ac1d2`, `504b9cb4`, `4a9ba218`, `f888a81b`). None
+  references any construct named in §1–§3, no service declares a template engine, and no service ships an .xsl/.xslt
+  file. All are on Spring Boot 3.5.15 / Spring Cloud 2025.0.3. On its own this shows only that the names are absent;
+  the artifact checks below are the main evidence.
+- **Artifacts.** See the table below. For each image, the check reads `/app/app.jar`. It is a static scan of class
+  constant pools and resource bytes in the application classes and in every nested jar except spring-webmvc and
+  spring-webflux themselves, using both internal (slash) and dotted (reflection or configuration) names. A positive
+  control shows the same scan finds the XsltView, FragmentsRendering, SseEmitter, Fragment, `toHttpHandler`,
+  `toWebHandler` and RouterFunctionWebHandler references inside spring-webmvc and spring-webflux.
 - **Scanner.** Security CI run 40917895160 (push, api `399b5dd7`, success, fresh database). The unfiltered report lists
   CVE-2026-47884 and CVE-2026-47890 on spring-webmvc 6.2.19 in the nine servlet images, and CVE-2026-47890 and
   CVE-2026-47892 on spring-webflux 6.2.19 in the gateway. With `.trivyignore.yaml`, the critical and library gates
   report 0 results on all eleven images, so these three entries are the only suppressions in use.
 - **Runtime configuration.** Packaged `application*.yml` and Compose expose only `health,info,prometheus` and set no
   web-application-type, view, template or WebFlux property. A read-only check of the running production containers
-  showed the same exposure and none of those properties.
+  (`docker inspect`, allow-listed non-secret keys only) showed the same exposure and none of those properties.
+
+### Which images were inspected
+
+No image was rebuilt locally for this evidence. A local rebuild would not be byte-identical to the deployed artifact, so
+it would not count as an inspected production image.
+
+| Image set | Services | How `/app/app.jar` was obtained | Inspected |
+|---|---|---|---|
+| Production, registry images | auth (`sha256:2091de2e…`, source `504b9cb4`), gateway (`sha256:655219f5…`, `971ac1d2`), media (`sha256:62f49d04…`, `4a9ba218`), parking (`sha256:3888df05…`, `504b9cb4`) | Pulled from GHCR by the exact digest that the running production container uses (the host runs the containerd image store, where that digest is the image's content address). The jar copied read-only from each running container has the same SHA-256 as the jar in the pulled image | Yes (2026-10-29) |
+| Production, host-built images | user, gamification, notification, moderation, analytics, ai-validation (built on the host at `f888a81b`, no registry digest) | Copied read-only from each running production container (`docker cp <container>:/app/app.jar -`; no exec, nothing written on the host). The SHA-256 of each copy is recorded with the #513 evidence | Yes (2026-10-30) |
+| Candidate pins, not deployed | the ten Java images of the current pins (source `fdce6ba0`, publish run 39470264655) | Pulled from GHCR by digest; a container was created to copy the jar and was never started | Yes (2026-10-29) |
+
+All ten production Java services were inspected: the images running on 2026-10-30. Any image deployed later is covered
+only by the artifact check in §5. The six host-built jars have the same library set (same jar names and versions) and
+the same results as the matching `fdce6ba0` pin images.
 
 ## 1. CVE-2026-47884 — "Spring Framework Improper Path Limitation in XsltView"
 
@@ -72,7 +92,7 @@ No workflow, threshold, scanner version or ignore pattern changes. Only `expired
 | Fix | gh-37029, commit `692dbc91`: `XsltView.getStylesheetSource()` normalizes and checks the stylesheet location. 7.0.9 OSS; 6.2.20 Enterprise Support only |
 | GHSA / NVD | GHSA-pc63-qcmh-9cmg, critical 9.8 (CISA-ADP vector), package spring-webmvc, no patched 6.2.x version |
 | Images | spring-webmvc 6.2.19 in the nine servlet images; not in the gateway |
-| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any scanned image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No `@Controller` (non-REST) exists. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
+| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any inspected image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No `@Controller` (non-REST) exists. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
 
 ## 2. CVE-2026-47890 — "Spring Framework Server Sent Event stream corruption while rendering fragments"
 
@@ -99,34 +119,60 @@ No workflow, threshold, scanner version or ignore pattern changes. Only `expired
 The advisory text says "deployed with DispatcherServlet", while the fix concerns a setup *without DispatcherHandler*. The
 gateway has neither a DispatcherServlet nor a RouterFunctionWebHandler deployment, so the verdict holds under both readings.
 
-## 4. Evidence gaps
+## 4. Residual uncertainty (accepted by the owner)
 
-1. Six production services (user, gamification, notification, moderation, analytics, ai-validation) run images built on
-   the host at `f888a81b`. They have no registry digest, so their jars were not inspected. Evidence for them is
-   source-level (`f888a81b`), the Boot 3.5.15 build and the running containers' configuration. The gap closes when the
-   inspected `fdce6ba0` pins are deployed (a separately authorized release).
-2. The analysis is static. No application context was started, so there is no bean-graph proof. A class created
+1. The analysis is static. No application context was started, so there is no bean-graph proof. A class created
    reflectively from a name built at runtime would not show; no such name appears in any jar.
+2. The checks cover the images running on 2026-10-30 and the `fdce6ba0` pins. A later image is covered only by the
+   artifact check in §5.
 3. The GHSA/NVD severity (CISA-ADP 9.8) still disagrees with the vendor. The scanner keeps reporting CRITICAL until the
    jars change.
 
-## 5. Re-evaluation triggers (any one re-opens the decision; the entry is dropped when its cause is gone)
+On 2026-10-29 the six host-built production images had not been inspected. That gap closed on 2026-10-30 (see the table
+above), and the result did not change.
 
-1. Any SSE or streaming handler, `ModelAndView`/`View`/fragment rendering, any non-REST `@Controller`, XsltView or a
-   ViewResolver.
-2. Any template engine dependency, an .xsl/.xslt resource, or view settings.
-3. Any WebFlux.fn or WebMvc.fn `RouterFunction`/`RequestPredicates`, `toHttpHandler`/`toWebHandler`, or a custom
-   `HttpHandler`/`WebHandler`.
-4. A `spring.main.web-application-type` change, or a move to Spring Cloud Gateway Server MVC.
-5. spring-webflux in a servlet image, or spring-webmvc or a servlet container in the gateway.
-6. A new Java service or image.
-7. Any Spring Framework, Spring Boot or Spring Cloud Gateway change: drop the entries at Framework 7.0.9 or later, or
-   when an OSS 6.2.x fix ships.
-8. Actuator exposure changes that add SSE-capable endpoints, or adding `resilience4j-reactor`.
-9. Advisory updates (a new spring.io history entry, changed GHSA package lists, new NVD/CISA-ADP data or any exploitation
-   report).
-10. A candidate or deployed image whose artifact check (the static scan above) finds any construct of §1–§3.
-11. The expiry, 2026-12-01.
+## 5. Invalidation triggers
+
+Any trigger below stops the exception for the CVEs it concerns. In the change that causes it, remove the affected entry
+(the gates then report the finding) and ask the owner for a new decision in #513 or its successor. Do not widen the
+entries or move their dates instead.
+
+| # | Trigger | How it is detected | Action |
+|---|---|---|---|
+| 1 | Any SSE or streaming handler, `ModelAndView`/`View`/fragment rendering, a non-REST `@Controller`, XsltView or a ViewResolver | Check A below on every change to `services/*/src/main`, in review | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
+| 2 | A template engine dependency, an .xsl/.xslt resource, or view settings | Checks B, C and D in review of build files and resources | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
+| 3 | A WebFlux.fn or WebMvc.fn `RouterFunction`/`RequestPredicates`, `toHttpHandler`/`toWebHandler`, or a custom `HttpHandler`/`WebHandler` | Check E in review | Remove the entry for CVE-2026-47892 |
+| 4 | A `spring.main.web-application-type` setting, or a move to Spring Cloud Gateway Server MVC | Check F in review | Remove all three entries |
+| 5 | spring-webflux in a servlet image, or spring-webmvc or a servlet container in the gateway | The artifact check (`BOOT-INF/lib` listing) and the unfiltered Security CI report, which names the image of each finding | Remove all three entries |
+| 6 | A new Java service or image | Every candidate build. The artifact check runs on its `/app/app.jar` before publication, with the positive control | A failed check is trigger 10 |
+| 7 | Any Spring Framework, Spring Boot or Spring Cloud Gateway change | A version change makes the version-pinned path stop matching, so the scanner reports the new jar on its own. Review of `gradle/libs.versions.toml` and `gradle.properties` catches a Boot or Gateway change on the same Framework version | Drop the entries in the change that reaches Framework 7.0.9 or later (#515) |
+| 8 | Actuator web exposure beyond `health,info,prometheus`, or adding `resilience4j-reactor` | Check G in review; the read-only runtime probe for production | Remove the entry for CVE-2026-47890 |
+| 9 | Advisory updates: a new spring.io history entry, changed GHSA package ranges, new NVD or CISA-ADP data, or an exploitation report | Re-fetch the three spring.io advisories, their GHSA records and NVD records and compare them with the 2026-10-30 copies. Do this on 2026-11-06, 11-13, 11-20 and 11-27, and before any change to these entries | Stop and re-decide if a condition, range or exploitation status changed |
+| 10 | A failed artifact check on a candidate or deployed image | The artifact check (§ Verification), run by whoever builds or deploys the image | Remove the entries that the finding concerns; do not publish or deploy the image under this exception |
+| 11 | The expiry, 2026-11-29 | Automatic: from 2026-11-29 00:00 UTC Trivy reports the findings again and the gates fail | No automatic renewal |
+
+Checks for review. Each must print nothing. Run them from the repository root:
+
+```sh
+# A: SSE, streaming, views, non-REST controllers
+git grep -nE 'SseEmitter|ResponseBodyEmitter|StreamingResponseBody|ServerSentEvent|FragmentsRendering|ModelAndView|XsltView|ViewResolver|text/event-stream|org\.springframework\.web\.(servlet|reactive\.result)\.view|@Controller\b' -- 'services/*/src/main'
+# B: template engines
+git grep -nEi 'thymeleaf|freemarker|mustache|groovy-templates|gg\.jte|pebble' -- 'services/*/build.gradle.kts' gradle/libs.versions.toml buildSrc
+# C: XSL resources
+git ls-files services | grep -Ei '\.xslt?$'
+# D: view and template settings
+git grep -nE 'spring\.(mvc|webflux)\.view|spring\.(thymeleaf|freemarker|mustache)' -- 'services/*/src/main/resources'
+# E: functional endpoints and custom handlers
+git grep -nE 'RouterFunction|RequestPredicates|toHttpHandler|toWebHandler|implements (HttpHandler|WebHandler)\b' -- 'services/*/src/main'
+# F: web application type and Gateway Server MVC
+git grep -nE 'web-application-type|WEB_APPLICATION_TYPE|webApplicationType|gateway-server-mvc|server-webmvc|gateway-mvc' -- 'services/*/src/main/resources' 'services/*/build.gradle.kts' docker gradle buildSrc
+# G: resilience4j-reactor (exposure is checked separately: every include line must be health,info,prometheus)
+git grep -nE 'resilience4j-reactor' -- 'services/*/build.gradle.kts' gradle/libs.versions.toml
+```
+
+On 2026-10-30 every check printed nothing at api `399b5dd7`, at `fdce6ba0` and at every production revision. Check F
+leaves out `services/*/src/main/java` on purpose: auth-service's recovery-replay command reads
+`spring.main.web-application-type` only to refuse to run with a web server.
 
 ## 6. What this does not do
 
@@ -135,6 +181,6 @@ gateway has neither a DispatcherServlet nor a RouterFunctionWebHandler deploymen
 - No change to the unfiltered report step.
 - No change to CVE-2026-14257.
 - No image build, publication or deployment.
-- master carries the same three entries. Its Security CI runs only on master pushes and PRs (the scheduled scans run on
-  api), so a master renewal is a separate, scoped master PR, needed only if a master change is planned before the
-  entries lapse there.
+- It does not remediate the CVEs and does not cover any other advisory. The remediation is #515.
+- master carries the same three entries. They are renewed there only through a separate, scoped master PR with the same
+  ids, paths, expiry and record.
