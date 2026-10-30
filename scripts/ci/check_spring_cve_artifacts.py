@@ -13,8 +13,8 @@ run it on every Java image before it is published or deployed while the exceptio
   2. Application entries (everything outside BOOT-INF/lib: application classes and resources, and the
      loader) reference none of APP_CONSTRUCTS; application resources also none of APP_RESOURCE_CONSTRUCTS.
   3. Library entries (every nested jar except spring-webmvc and spring-webflux, classes and resources)
-     reference LIB_NEEDLES only where LIB_ALLOWED lists the jar. Those are Spring Boot, Spring Web, Spring
-     Security, springdoc, Netty and Resilience4j classes that were reviewed for #513.
+     reference LIB_NEEDLES only where LIB_ALLOWED lists the jar and the entry. Those are Spring Boot, Spring
+     Web, Spring Security, springdoc, Netty and Resilience4j entries that were reviewed for #513.
   4. The only .xsl/.xslt file is spring-security.xsl in spring-security-config.
   5. Positive control: the same needles must be found inside spring-webmvc or spring-webflux itself, or the
      scan would be blind (exit 2).
