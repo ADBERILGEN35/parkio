@@ -34,6 +34,23 @@ function facility(overrides: Partial<MunicipalFacility> = {}): MunicipalFacility
 }
 
 describe('municipalOccupancyPresentation', () => {
+  it.each(['istanbul-ispark-parks', 'izmir-izum-otoparklar'])(
+    'does not promote stale %s values to live', (source) => {
+      expect(municipalOccupancyPresentationKind(facility({
+        contributingSourceKeys: [source], availabilitySource: source,
+        availableSpaces: 17, freshness: 'STALE', availabilityFreshness: 'STALE',
+      }))).toBe('stale_live');
+    },
+  );
+
+  it.each(['UNAVAILABLE', 'INVALID'] as const)(
+    'does not promote numeric values with %s freshness to live', (freshness) => {
+      expect(municipalOccupancyPresentationKind(facility({
+        contributingSourceKeys: ['istanbul-ispark-parks'], availableSpaces: 0,
+        freshness, availabilityFreshness: freshness,
+      }))).not.toBe('live');
+    },
+  );
   it('classifies OSM as static, not broken live feed', () => {
     const kind = municipalOccupancyPresentationKind(facility());
     expect(kind).toBe('static');
