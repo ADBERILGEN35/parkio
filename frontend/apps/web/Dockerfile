@@ -11,6 +11,8 @@ RUN npm install -g npm@11.20.0 --ignore-scripts
 RUN corepack enable
 
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+# pnpm reads every patch in patchedDependencies, even for a filtered install.
+COPY frontend/patches ./patches
 COPY frontend/packages ./packages
 COPY frontend/apps/web ./apps/web
 
