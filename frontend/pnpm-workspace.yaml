@@ -35,7 +35,7 @@ overrides:
   'react-dom': '19.2.3'
   '@types/react': '19.2.17'
   '@types/react-dom': '19.2.3'
-  # SDK 56.0.22 bundledNativeModules.json. The previous 56.0.16 pin contradicted
+  # SDK 56.0.22 bundledNativeModules.json, unchanged in 56.0.24. The previous 56.0.16 pin contradicted
   # both apps/mobile (56.0.17) and the 56.0.16 ledger (~56.0.17). A split
   # 56.0.16/56.0.22 hoist leaves duplicate native modules; both apps stay on 56.
   '@expo/metro-runtime': '56.0.21'
