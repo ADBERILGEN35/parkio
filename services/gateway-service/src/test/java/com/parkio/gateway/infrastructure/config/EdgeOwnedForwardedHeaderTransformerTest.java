@@ -6,7 +6,7 @@ import java.net.InetSocketAddress;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.web.reactive.ReactiveWebServerFactoryAutoConfiguration;
+import org.springframework.boot.reactor.netty.autoconfigure.NettyReactiveWebServerAutoConfiguration;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -32,8 +32,8 @@ class EdgeOwnedForwardedHeaderTransformerTest {
     void aClientSuppliedForwardedHeaderIsDroppedAndTheEdgesAddressWins() {
         ServerHttpRequest transformed = new EdgeOwnedForwardedHeaderTransformer().apply(spoofed());
 
-        assertThat(transformed.getHeaders().containsKey("Forwarded")).isFalse();
-        assertThat(transformed.getHeaders().containsKey("X-Forwarded-For")).isFalse();
+        assertThat(transformed.getHeaders().containsHeader("Forwarded")).isFalse();
+        assertThat(transformed.getHeaders().containsHeader("X-Forwarded-For")).isFalse();
         assertThat(resolver.resolve(transformed)).isEqualTo(CLIENT);
     }
 
@@ -51,7 +51,7 @@ class EdgeOwnedForwardedHeaderTransformerTest {
     @Test
     void replacesSpringBootsTransformerUnderTheFrameworkStrategyOnly() {
         ReactiveWebApplicationContextRunner runner = new ReactiveWebApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(ReactiveWebServerFactoryAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(NettyReactiveWebServerAutoConfiguration.class))
                 .withUserConfiguration(EdgeForwardedHeadersConfig.class);
         runner.withPropertyValues("server.forward-headers-strategy=framework").run(context -> {
             assertThat(context).hasSingleBean(ForwardedHeaderTransformer.class);

@@ -52,7 +52,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -141,7 +141,7 @@ class MediaAccountErasurePostgresMinioIT {
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbc;
     @Autowired @Qualifier("internalMinioClient") private MinioClient minio;
-    @SpyBean private MinioMediaStorageAdapter storage;
+    @MockitoSpyBean private MinioMediaStorageAdapter storage;
 
     @BeforeEach
     void bucket() throws Exception {

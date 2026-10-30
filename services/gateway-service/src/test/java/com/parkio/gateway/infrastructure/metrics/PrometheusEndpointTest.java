@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -14,11 +14,11 @@ import java.time.Duration;
  * Verifies the gateway exposes the Prometheus scrape endpoint (and its custom edge
  * counter) while keeping sensitive actuator endpoints hidden.
  *
- * <p>{@link AutoConfigureObservability} is required because Spring Boot tests disable
+ * <p>{@link AutoConfigureMetrics} is required because Spring Boot tests disable
  * metrics export (and thus the prometheus endpoint) by default.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @ActiveProfiles("test")
 class PrometheusEndpointTest {
 

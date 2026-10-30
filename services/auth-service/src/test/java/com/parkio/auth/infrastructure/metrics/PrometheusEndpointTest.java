@@ -8,8 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -18,11 +18,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * gauges/counters (micrometer-registry-prometheus + management exposure), while the
  * sensitive actuator endpoints stay hidden.
  *
- * <p>{@link AutoConfigureObservability} is required because Spring Boot tests disable
+ * <p>{@link AutoConfigureMetrics} is required because Spring Boot tests disable
  * metrics export (and thus the prometheus endpoint) by default.
  */
 @SpringBootTest
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @AutoConfigureMockMvc
 class PrometheusEndpointTest {
 

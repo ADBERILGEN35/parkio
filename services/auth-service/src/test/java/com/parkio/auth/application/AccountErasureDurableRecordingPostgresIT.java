@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -94,14 +94,14 @@ class AccountErasureDurableRecordingPostgresIT {
         }
     }
 
-    @MockBean private AuthUserRepository users;
-    @MockBean private RefreshTokenRepository refreshTokens;
-    @MockBean private PasswordResetRepository passwordResets;
-    @MockBean private PasswordHasher passwordHasher;
-    @MockBean private OutboxEventAppender outbox;
-    @MockBean private InboxEventRepository inbox;
-    @MockBean private LoginFailureTracker loginFailureTracker;
-    @MockBean private EmailVerificationSender emailVerificationSender;
+    @MockitoBean private AuthUserRepository users;
+    @MockitoBean private RefreshTokenRepository refreshTokens;
+    @MockitoBean private PasswordResetRepository passwordResets;
+    @MockitoBean private PasswordHasher passwordHasher;
+    @MockitoBean private OutboxEventAppender outbox;
+    @MockitoBean private InboxEventRepository inbox;
+    @MockitoBean private LoginFailureTracker loginFailureTracker;
+    @MockitoBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService enabledService;
     @Autowired private InMemoryDurableErasureRecordStore store;

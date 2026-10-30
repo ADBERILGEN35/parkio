@@ -29,9 +29,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -73,22 +73,22 @@ class WaitlistAdminAccessControlIntegrationTest {
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
 
-    @MockBean
+    @MockitoBean
     private WaitlistInterestRepository repository;
 
-    @MockBean
+    @MockitoBean
     private JwtTokenValidator tokenValidator;
 
-    @MockBean
+    @MockitoBean
     private SessionEpochClient sessionEpochClient;
 
-    @MockBean
+    @MockitoBean
     private UserStatusClient userStatusClient;
 
-    @MockBean
+    @MockitoBean
     private WaitlistRateLimiter rateLimiter;
 
-    @MockBean
+    @MockitoBean
     private WaitlistEmailSender emailSender;
 
     @BeforeEach

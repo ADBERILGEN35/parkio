@@ -87,7 +87,8 @@ class MunicipalQualityReportControllerAbsentWhenDisabledTest {
         ResponseEntity<ApiError> response = handler.handleNoResource(
                 new NoResourceFoundException(
                         org.springframework.http.HttpMethod.GET,
-                        "/api/v1/parking/admin/municipal/quality-report"));
+                        "/api/v1/parking/admin/municipal/quality-report",
+                        "api/v1/parking/admin/municipal/quality-report"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).isNotNull();

@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -104,19 +104,19 @@ class EmailDeliveryTransactionalPostgresIT {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @MockBean
+    @MockitoBean
     private LoginFailureTracker loginFailureTracker;
 
-    @MockBean
+    @MockitoBean
     private VerificationResendLimiter verificationResendLimiter;
 
-    @MockBean
+    @MockitoBean
     private PasswordResetLimiter passwordResetLimiter;
 
-    @MockBean
+    @MockitoBean
     private EmailVerificationSender emailVerificationSender;
 
-    @MockBean
+    @MockitoBean
     private PasswordResetEmailSender passwordResetEmailSender;
 
     private final AtomicReference<String> lastVerificationToken = new AtomicReference<>();
