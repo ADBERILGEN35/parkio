@@ -151,6 +151,13 @@ class ArtifactCheck(unittest.TestCase):
         self.assertEqual(self.rules(self.servlet(libs={"spring-security-config-6.5.11.jar": security}), "servlet"), [])
         self.assertIn("xsl", self.rules(self.servlet(libs={"other-1.0.jar": {"x/report.xsl": b"<xsl/>"}}), "servlet"))
 
+    def test_a_jar_without_its_framework_jar_is_a_finding(self):
+        # The positive control needs the framework jar, so the role rule is the guard for thin or re-laid-out jars.
+        thin = self.fat_jar({"BOOT-INF/classes/com/parkio/Api.class": REST_CONTROLLER}, {"spring-web-6.2.19.jar": SPRING_WEB})
+        self.assertIn("role", self.rules(thin, "servlet"))
+        self.assertIn("role", self.rules(thin, "gateway"))
+        self.assertEqual(check.main(["--role", "servlet", thin]), 1)
+
     def test_a_blind_scan_fails_the_control(self):
         blind = self.servlet(webmvc={"org/springframework/web/servlet/DispatcherServlet.class": b"x"})
         findings, control = check.check_jar(blind, "servlet")

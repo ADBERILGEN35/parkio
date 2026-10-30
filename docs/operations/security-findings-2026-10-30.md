@@ -190,20 +190,23 @@ The artifact check, for every Java image before it is published or deployed whil
 run it. The container is created only to copy the jar and is never started:
 
 ```sh
-set -eu
-rm -f app.jar
-cid=$(docker create <image>@sha256:<digest>)
-docker cp "$cid:/app/app.jar" app.jar
-docker rm "$cid"
-sha256sum app.jar   # record it with the result
-python3 scripts/ci/check_spring_cve_artifacts.py --role servlet app.jar   # the gateway: --role gateway
+(
+  set -eu
+  rm -f app.jar
+  cid=$(docker create <image>@sha256:<digest>)
+  trap 'docker rm "$cid" >/dev/null' EXIT
+  docker cp "$cid:/app/app.jar" app.jar
+  sha256sum app.jar   # record it with the result
+  python3 scripts/ci/check_spring_cve_artifacts.py --role servlet app.jar   # the gateway: --role gateway
+)
 ```
 
 Exit 0 means no finding. Exit 1 lists each finding as `<jar>: <rule>: <entry>` (trigger 10). Exit 2 means the jar
 could not be read or the positive control failed, so the check did not run. The library references it allows (Spring
-Boot, Spring Web, Spring Security, springdoc, Netty and Resilience4j classes, and for spring-boot-autoconfigure only its
-configuration metadata) are the ones reviewed for #513 on the 2026-10-30 production jars.
-`scripts/ci/test_check_spring_cve_artifacts.py` exercises the rules with synthetic jars; each of 14 seeded faults in the
+Boot, Spring Web, Spring Security, springdoc, Netty and Resilience4j classes and, for `text/event-stream` in
+spring-boot-autoconfigure, only its configuration metadata) are the ones reviewed for #513 on the 2026-10-30
+production jars.
+`scripts/ci/test_check_spring_cve_artifacts.py` exercises the rules with synthetic jars; each of 16 seeded faults in the
 script (for example a dropped pattern, a widened allowance or a wrong exit code) makes a test fail.
 
 ## 6. What this does not do
