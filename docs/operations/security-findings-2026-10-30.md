@@ -50,16 +50,19 @@ No workflow, threshold, scanner version or ignore pattern changes. Only `expired
   GHSA-j9f9-w8pj-32f8, GHSA-9qf2-26p9-2q2q: same package ranges, no patched 6.2.x version, last updated 2026-10-05/07)
   and their NVD records (same status, last-modified date and metrics). The 2026-10-29 package also covered the vendor
   fix commits, api.spring.io support and release metadata, GitHub release tags and the Maven Central BOM POMs.
-- **Source.** `git grep` over `services/*/src/main` at api `399b5dd7`, at the pinned revision `fdce6ba0`, at master
-  `f8973747` and at every revision that runs in production (`971ac1d2`, `504b9cb4`, `4a9ba218`, `f888a81b`). None
-  references any construct named in §1–§3, no service declares a template engine, and no service ships an .xsl/.xslt
-  file. All are on Spring Boot 3.5.15 / Spring Cloud 2025.0.3. On its own this shows only that the names are absent;
-  the artifact checks below are the main evidence.
+- **Source.** The review checks in §5, run at api `399b5dd7`, at the pinned revision `fdce6ba0`, at master `f8973747`
+  and at every revision that runs in production (`971ac1d2`, `504b9cb4`, `4a9ba218`, `f888a81b`). None references any
+  construct named in §1–§3, no service declares a template engine, and no service ships an .xsl/.xslt file. Their
+  control line found 50 `@RestController` files at each revision (32 at `f8973747`, 49 at `4a9ba218`), so the paths
+  matched the service sources. All are on Spring Boot 3.5.15 / Spring Cloud 2025.0.3. On its own this shows only that
+  the names are absent; the artifact checks below are the main evidence.
 - **Artifacts.** See the table below. For each image, the check reads `/app/app.jar`. It is a static scan of class
   constant pools and resource bytes in the application classes and in every nested jar except spring-webmvc and
   spring-webflux themselves, using both internal (slash) and dotted (reflection or configuration) names. A positive
   control shows the same scan finds the XsltView, FragmentsRendering, SseEmitter, Fragment, `toHttpHandler`,
-  `toWebHandler` and RouterFunctionWebHandler references inside spring-webmvc and spring-webflux.
+  `toWebHandler` and RouterFunctionWebHandler references inside spring-webmvc and spring-webflux. The same rules are
+  now in `scripts/ci/check_spring_cve_artifacts.py` (§5, trigger 10). On 2026-10-30 it reported no finding, and a
+  passing control, for all ten production jars.
 - **Scanner.** Security CI run 40917895160 (push, api `399b5dd7`, success, fresh database). The unfiltered report lists
   CVE-2026-47884 and CVE-2026-47890 on spring-webmvc 6.2.19 in the nine servlet images, and CVE-2026-47890 and
   CVE-2026-47892 on spring-webflux 6.2.19 in the gateway. With `.trivyignore.yaml`, the critical and library gates
@@ -92,7 +95,7 @@ the same results as the matching `fdce6ba0` pin images.
 | Fix | gh-37029, commit `692dbc91`: `XsltView.getStylesheetSource()` normalizes and checks the stylesheet location. 7.0.9 OSS; 6.2.20 Enterprise Support only |
 | GHSA / NVD | GHSA-pc63-qcmh-9cmg, critical 9.8 (CISA-ADP vector), package spring-webmvc, no patched 6.2.x version |
 | Images | spring-webmvc 6.2.19 in the nine servlet images; not in the gateway |
-| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any inspected image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No `@Controller` (non-REST) exists. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
+| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any inspected image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No application class is a non-REST `@Controller`. The only `@Controller` classes come from libraries: Spring Boot's BasicErrorController and ManagementErrorEndpoint, and springdoc's Swagger UI controllers. They return explicit view names (the `error` view) or redirects, none of them is XsltView, and none streams SSE. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
 
 ## 2. CVE-2026-47890 — "Spring Framework Server Sent Event stream corruption while rendering fragments"
 
@@ -124,7 +127,7 @@ gateway has neither a DispatcherServlet nor a RouterFunctionWebHandler deploymen
 1. The analysis is static. No application context was started, so there is no bean-graph proof. A class created
    reflectively from a name built at runtime would not show; no such name appears in any jar.
 2. The checks cover the images running on 2026-10-30 and the `fdce6ba0` pins. A later image is covered only by the
-   artifact check in §5.
+   artifact check in §5, which CI does not run: it is a manual step before publication or deployment.
 3. The GHSA/NVD severity (CISA-ADP 9.8) still disagrees with the vendor. The scanner keeps reporting CRITICAL until the
    jars change.
 
@@ -139,40 +142,63 @@ entries or move their dates instead.
 
 | # | Trigger | How it is detected | Action |
 |---|---|---|---|
-| 1 | Any SSE or streaming handler, `ModelAndView`/`View`/fragment rendering, a non-REST `@Controller`, XsltView or a ViewResolver | Check A below on every change to `services/*/src/main`, in review | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
-| 2 | A template engine dependency, an .xsl/.xslt resource, or view settings | Checks B, C and D in review of build files and resources | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
+| 1 | Any SSE or streaming handler, `ModelAndView`/`View`/fragment rendering, a view controller, a non-REST `@Controller`, XsltView or a ViewResolver | Check A below on every change to `services/*/src/main`, in review | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
+| 2 | A template engine dependency, an .xsl/.xslt resource, or view settings | Checks B, C and D in review of build files, resources and Compose files | Remove the entries for CVE-2026-47884 and CVE-2026-47890 |
 | 3 | A WebFlux.fn or WebMvc.fn `RouterFunction`/`RequestPredicates`, `toHttpHandler`/`toWebHandler`, or a custom `HttpHandler`/`WebHandler` | Check E in review | Remove the entry for CVE-2026-47892 |
 | 4 | A `spring.main.web-application-type` setting, or a move to Spring Cloud Gateway Server MVC | Check F in review | Remove all three entries |
-| 5 | spring-webflux in a servlet image, or spring-webmvc or a servlet container in the gateway | The artifact check (`BOOT-INF/lib` listing) and the unfiltered Security CI report, which names the image of each finding | Remove all three entries |
-| 6 | A new Java service or image | Every candidate build. The artifact check runs on its `/app/app.jar` before publication, with the positive control | A failed check is trigger 10 |
-| 7 | Any Spring Framework, Spring Boot or Spring Cloud Gateway change | A version change makes the version-pinned path stop matching, so the scanner reports the new jar on its own. Review of `gradle/libs.versions.toml` and `gradle.properties` catches a Boot or Gateway change on the same Framework version | Drop the entries in the change that reaches Framework 7.0.9 or later (#515) |
-| 8 | Actuator web exposure beyond `health,info,prometheus`, or adding `resilience4j-reactor` | Check G in review; the read-only runtime probe for production | Remove the entry for CVE-2026-47890 |
+| 5 | spring-webflux in a servlet image, or spring-webmvc or a servlet container in the gateway | The artifact check (its role rule). The ignore paths are not tied to an image, so the gates would not show this on their own; the unfiltered Security CI report does name the image of each finding | Remove all three entries |
+| 6 | A new Java service or image | The artifact check, run by hand on the image's `/app/app.jar` before it is published or deployed (CI does not run it) | A finding is trigger 10 |
+| 7 | Any Spring Framework, Spring Boot or Spring Cloud Gateway change | A Framework version change makes the version-pinned path stop matching, so the scanner reports the new jar on its own. A Boot or Gateway change on the same Framework version shows in review of `gradle/libs.versions.toml` and `gradle.properties` | On Framework 7.0.9 or later (#515): drop the entries in that change. On the same Framework version: run checks A–H and the artifact check on the new images; remove the entries if any of them reports something |
+| 8 | Actuator web exposure beyond `health,info,prometheus`, or adding Resilience4j reactor support | Checks G and H in review; the read-only runtime probe for production | Remove the entry for CVE-2026-47890 |
 | 9 | Advisory updates: a new spring.io history entry, changed GHSA package ranges, new NVD or CISA-ADP data, or an exploitation report | Re-fetch the three spring.io advisories, their GHSA records and NVD records and compare them with the 2026-10-30 copies. Do this on 2026-11-06, 11-13, 11-20 and 11-27, and before any change to these entries | Stop and re-decide if a condition, range or exploitation status changed |
-| 10 | A failed artifact check on a candidate or deployed image | The artifact check (§ Verification), run by whoever builds or deploys the image | Remove the entries that the finding concerns; do not publish or deploy the image under this exception |
+| 10 | A failed artifact check on a candidate or deployed image | `scripts/ci/check_spring_cve_artifacts.py` (below), run by whoever builds or deploys the image | Exit 1: remove the entries that the finding concerns, and do not publish or deploy the image under this exception. Exit 2: the check did not run; fix it before publishing |
 | 11 | The expiry, 2026-11-29 | Automatic: from 2026-11-29 00:00 UTC Trivy reports the findings again and the gates fail | No automatic renewal |
 
-Checks for review. Each must print nothing. Run them from the repository root:
+Checks for review. Run them from the repository root. The control must print a number above 0; every other check
+must print nothing. A pathspec without `:(glob)` would match no file and stay silent, so keep the control.
 
 ```sh
-# A: SSE, streaming, views, non-REST controllers
-git grep -nE 'SseEmitter|ResponseBodyEmitter|StreamingResponseBody|ServerSentEvent|FragmentsRendering|ModelAndView|XsltView|ViewResolver|text/event-stream|org\.springframework\.web\.(servlet|reactive\.result)\.view|@Controller\b' -- 'services/*/src/main'
+# Control: must print a number above 0, or the pathspecs match nothing
+git grep -l '@RestController' -- ':(glob)services/*/src/main/**' | wc -l
+# A: SSE, streaming, views, view controllers, non-REST controllers
+git grep -nE 'SseEmitter|ResponseBodyEmitter|StreamingResponseBody|ServerSentEvent|FragmentsRendering|ModelAndView|XsltView|ViewResolver|text/event-stream|TEXT_EVENT_STREAM|org\.springframework\.web\.servlet\.View\b|org\.springframework\.web\.(servlet|reactive\.result)\.view|ViewControllerRegistry|addViewControllers|UrlFilenameViewController|ParameterizableViewController|@Controller\b' -- ':(glob)services/*/src/main/**'
 # B: template engines
-git grep -nEi 'thymeleaf|freemarker|mustache|groovy-templates|gg\.jte|pebble' -- 'services/*/build.gradle.kts' gradle/libs.versions.toml buildSrc
+git grep -nEi 'thymeleaf|freemarker|mustache|groovy-templates|gg\.jte|pebble|jasper|jstl|servlet\.jsp|velocity|handlebars' -- build.gradle.kts ':(glob)services/*/build.gradle.kts' gradle/libs.versions.toml buildSrc
 # C: XSL resources
-git ls-files services | grep -Ei '\.xslt?$'
+git ls-files -- ':(glob)services/**' | grep -Ei '\.xslt?$'
 # D: view and template settings
-git grep -nE 'spring\.(mvc|webflux)\.view|spring\.(thymeleaf|freemarker|mustache)' -- 'services/*/src/main/resources'
+git grep -nE 'spring\.(mvc|webflux)\.view|spring\.(thymeleaf|freemarker|mustache)|^\s*(view|thymeleaf|freemarker|mustache|groovy):' -- ':(glob)services/*/src/main/resources/**'
+git grep -nE 'SPRING_(MVC_VIEW|WEBFLUX_VIEW|THYMELEAF|FREEMARKER|MUSTACHE|GROOVY_TEMPLATE)' -- 'docker/*.yml'
 # E: functional endpoints and custom handlers
-git grep -nE 'RouterFunction|RequestPredicates|toHttpHandler|toWebHandler|implements (HttpHandler|WebHandler)\b' -- 'services/*/src/main'
+git grep -nE 'RouterFunction|RequestPredicates|toHttpHandler|toWebHandler|implements (HttpHandler|WebHandler)\b' -- ':(glob)services/*/src/main/**'
 # F: web application type and Gateway Server MVC
-git grep -nE 'web-application-type|WEB_APPLICATION_TYPE|webApplicationType|gateway-server-mvc|server-webmvc|gateway-mvc' -- 'services/*/src/main/resources' 'services/*/build.gradle.kts' docker gradle buildSrc
-# G: resilience4j-reactor (exposure is checked separately: every include line must be health,info,prometheus)
-git grep -nE 'resilience4j-reactor' -- 'services/*/build.gradle.kts' gradle/libs.versions.toml
+git grep -nE 'web-application-type|WEB_APPLICATION_TYPE|webApplicationType|gateway-server-mvc|server-webmvc|gateway-mvc' -- ':(glob)services/*/src/main/resources/**' ':(glob)services/*/build.gradle.kts' docker gradle buildSrc
+git grep -nE 'WebApplicationType\.(SERVLET|REACTIVE)|setWebApplicationType' -- ':(glob)services/*/src/main/**'
+# G: Resilience4j reactor support
+git grep -nE 'resilience4j-reactor|circuitbreaker-reactor' -- build.gradle.kts ':(glob)services/*/build.gradle.kts' gradle/libs.versions.toml
+# H: actuator web exposure other than health,info,prometheus
+git grep -nE 'exposure\.include|EXPOSURE_INCLUDE|^\s+include:' -- ':(glob)services/*/src/main/resources/**' 'docker/*.yml' | grep -vE '(include:|EXPOSURE_INCLUDE:?)\s*health,info,prometheus\s*$'
 ```
 
-On 2026-10-30 every check printed nothing at api `399b5dd7`, at `fdce6ba0` and at every production revision. Check F
-leaves out `services/*/src/main/java` on purpose: auth-service's recovery-replay command reads
-`spring.main.web-application-type` only to refuse to run with a web server.
+On 2026-10-30 the checks printed nothing, and the control printed 50 (32 at master `f8973747`, 49 at `4a9ba218`), at
+api `399b5dd7`, at `fdce6ba0`, at master and at every production revision. A throwaway edit adding SSE, a template
+engine, an .xsl file, a RouterFunction, nested `view:` settings, a web application type and a wider exposure made
+the matching checks print it. The first check F leaves out `services/*/src/main/java` on purpose: auth-service's
+recovery-replay command reads `spring.main.web-application-type` only to refuse to run with a web server.
+
+The artifact check, for every Java image before it is published or deployed while these entries exist. CI does not
+run it. The container is created only to copy the jar and is never started:
+
+```sh
+docker create --name spring-cve-check <image>@sha256:<digest>
+docker cp spring-cve-check:/app/app.jar ./app.jar && docker rm spring-cve-check
+python3 scripts/ci/check_spring_cve_artifacts.py --role servlet ./app.jar   # the gateway: --role gateway
+```
+
+Exit 0 means no finding. Exit 1 lists each finding as `<jar>: <rule>: <entry>` (trigger 10). Exit 2 means the jar
+could not be read or the positive control failed, so the check did not run. The library references it allows (Spring
+Boot, Spring Web, Spring Security, springdoc, Netty and Resilience4j classes) are the ones reviewed for #513.
+`scripts/ci/test_check_spring_cve_artifacts.py` covers each rule with synthetic jars.
 
 ## 6. What this does not do
 
@@ -181,6 +207,8 @@ leaves out `services/*/src/main/java` on purpose: auth-service's recovery-replay
 - No change to the unfiltered report step.
 - No change to CVE-2026-14257.
 - No image build, publication or deployment.
+- It adds `scripts/ci/check_spring_cve_artifacts.py` and its unit test for the manual artifact check in §5. No workflow
+  runs them.
 - It does not remediate the CVEs and does not cover any other advisory. The remediation is #515.
 - master carries the same three entries. They are renewed there only through a separate, scoped master PR with the same
   ids, paths, expiry and record.
