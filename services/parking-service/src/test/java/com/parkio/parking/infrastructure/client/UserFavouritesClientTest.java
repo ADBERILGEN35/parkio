@@ -57,7 +57,7 @@ class UserFavouritesClientTest {
 
     private UserFavouritesClient client() {
         return new UserFavouritesClient(
-                RestClient.builder(),
+                Jackson2RestClientBuilder.builder(),
                 new RankingMetrics(new SimpleMeterRegistry()),
                 "http://localhost:" + server.getAddress().getPort(),
                 SECRET,

@@ -1,5 +1,6 @@
 package com.parkio.parking.infrastructure.geocoding;
 
+import com.parkio.parking.infrastructure.client.Jackson2RestClientBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.parkio.parking.application.geocoding.GeocodeResult;
@@ -60,7 +61,7 @@ class NominatimGeocodingProviderTest {
         props.getProvider().setBaseUrl("http://localhost:" + server.getAddress().getPort());
         props.getProvider().setConnectTimeout(Duration.ofSeconds(1));
         props.getProvider().setReadTimeout(Duration.ofSeconds(2));
-        return new NominatimGeocodingProvider(RestClient.builder(), props);
+        return new NominatimGeocodingProvider(Jackson2RestClientBuilder.builder(), props);
     }
 
     @Test

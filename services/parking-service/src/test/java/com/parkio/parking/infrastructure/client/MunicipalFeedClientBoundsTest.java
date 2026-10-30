@@ -58,27 +58,27 @@ class MunicipalFeedClientBoundsTest {
                 Arguments.of(new Source("izum", (p, baseUrl) -> {
                     configure(baseUrl, p.getIzum()::setBaseUrl, p.getIzum()::setPath, p.getIzum()::setMaxRetries,
                             p.getIzum()::setMaxResponseSize);
-                    return new IzumParkingClient(RestClient.builder(), p)::fetch;
+                    return new IzumParkingClient(Jackson2RestClientBuilder.builder(), p)::fetch;
                 })),
                 Arguments.of(new Source("ispark", (p, baseUrl) -> {
                     configure(baseUrl, p.getIspark()::setBaseUrl, p.getIspark()::setPath, p.getIspark()::setMaxRetries,
                             p.getIspark()::setMaxResponseSize);
-                    return new IsparkParkingClient(RestClient.builder(), p)::fetch;
+                    return new IsparkParkingClient(Jackson2RestClientBuilder.builder(), p)::fetch;
                 })),
                 Arguments.of(new Source("anpark", (p, baseUrl) -> {
                     configure(baseUrl, p.getAnpark()::setBaseUrl, p.getAnpark()::setPath, p.getAnpark()::setMaxRetries,
                             p.getAnpark()::setMaxResponseSize);
-                    return new AnparkParkingClient(RestClient.builder(), p)::fetch;
+                    return new AnparkParkingClient(Jackson2RestClientBuilder.builder(), p)::fetch;
                 })),
                 Arguments.of(new Source("konya", (p, baseUrl) -> {
                     configure(baseUrl, p.getKonya()::setBaseUrl, p.getKonya()::setPath, p.getKonya()::setMaxRetries,
                             p.getKonya()::setMaxResponseSize);
-                    return new KonyaParkingClient(RestClient.builder(), MAPPER, p)::fetch;
+                    return new KonyaParkingClient(Jackson2RestClientBuilder.builder(), MAPPER, p)::fetch;
                 })),
                 Arguments.of(new Source("kayseri", (p, baseUrl) -> {
                     configure(baseUrl, p.getKayseri()::setBaseUrl, p.getKayseri()::setPath, p.getKayseri()::setMaxRetries,
                             p.getKayseri()::setMaxResponseSize);
-                    return new KayseriParkingClient(RestClient.builder(), MAPPER, p)::fetch;
+                    return new KayseriParkingClient(Jackson2RestClientBuilder.builder(), MAPPER, p)::fetch;
                 })));
     }
 
@@ -103,7 +103,7 @@ class MunicipalFeedClientBoundsTest {
         properties.getIzum().setReadTimeout(Duration.ofSeconds(2));
         properties.getIzum().setMaxRetries(2);
         properties.getIzum().setMaxResponseTime(Duration.ofMillis(500));
-        IzumParkingClient client = new IzumParkingClient(RestClient.builder(), properties);
+        IzumParkingClient client = new IzumParkingClient(Jackson2RestClientBuilder.builder(), properties);
 
         long started = System.nanoTime();
         assertThatThrownBy(client::fetch)
