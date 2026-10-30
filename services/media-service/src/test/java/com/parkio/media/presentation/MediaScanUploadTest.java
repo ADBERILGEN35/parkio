@@ -103,6 +103,33 @@ class MediaScanUploadTest {
                 .andExpect(jsonPath("$.code").value("MEDIA_SCAN_UNAVAILABLE"));
 
         assertThat(counter("media_scan_failed_total")).isEqualTo(before + 1);
+        org.mockito.Mockito.verifyNoInteractions(storage);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM media_files", Long.class)).isZero();
+    }
+
+    @Test
+    void actualTcpScanTimeoutNeverStoresOrCreatesReadyMedia() throws Exception {
+        try (var server = new java.net.ServerSocket(0);
+             var peers = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var realScanner = new com.parkio.media.infrastructure.scanner.ClamavMediaScanner(
+                    "127.0.0.1", server.getLocalPort(), java.time.Duration.ofMillis(200),
+                    java.time.Duration.ofMillis(200));
+            var peer = peers.submit(() -> {
+                try (var socket = server.accept()) {
+                    socket.setSoTimeout(2000);
+                    var input = new java.io.DataInputStream(socket.getInputStream());
+                    input.readNBytes(10);
+                    for (int n; (n = input.readInt()) != 0;) input.readNBytes(n);
+                    return input.read(); // actual scanner must close on its deadline
+                }
+            });
+            when(scanner.scan(any(byte[].class))).thenAnswer(call -> realScanner.scan(call.getArgument(0)));
+            mockMvc.perform(upload()).andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("MEDIA_SCAN_UNAVAILABLE"));
+            assertThat(peer.get(2, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(-1);
+            org.mockito.Mockito.verifyNoInteractions(storage);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM media_files", Long.class)).isZero();
+        }
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder upload() {

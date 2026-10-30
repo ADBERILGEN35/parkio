@@ -22,6 +22,16 @@ This service follows clean architecture. Source lives under
 
 ## Responsibilities
 
+ClamAV scans have a monotonic total deadline equal to the configured connect plus
+read timeouts (defaults: 2s + 10s). Connect retains its own shorter bound; writes
+and reads share the remaining total budget. Nonblocking NIO closes the channel and
+selector on timeout/interruption; it starts no supporting executor. At most 16
+scans per scanner instance are admitted, with immediate fail-closed rejection on
+saturation. The configured clamd hostname is resolved at bean construction;
+recreate the bean/restart the service after an address change. Upload still holds
+its transaction and owner fence while scanning, but scan I/O cannot hold them
+beyond this budget. Storage/decode and database lock waits have separate bounds.
+
 media-service owns **image upload metadata, file validation, storage object keys,
 checksums and duplicate detection**. It does not own parking-spot business logic and
 does not perform AI image analysis (that is advisory, in another service).
