@@ -5,8 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
@@ -17,9 +18,10 @@ import org.springframework.test.web.reactive.server.WebTestClient;
  * the gateway that Caddy relayed a request. Caddy marks every request it relays to the gateway with
  * {@code X-Parkio-Edge-Relay}, which survives; Prometheus scrapes the gateway directly without it.
  */
+@AutoConfigureWebTestClient
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "server.forward-headers-strategy=framework")
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @ActiveProfiles("test")
 class PrometheusEndpointForwardedHeadersTest {
 

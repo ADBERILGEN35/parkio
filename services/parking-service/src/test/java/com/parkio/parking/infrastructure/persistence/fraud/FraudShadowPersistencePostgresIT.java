@@ -88,7 +88,7 @@ class FraudShadowPersistencePostgresIT {
         registry.add("parkio.lifecycle.calibration.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
     }
 
     @Autowired

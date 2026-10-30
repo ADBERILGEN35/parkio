@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -114,8 +114,8 @@ class MediaUploadErasureRaceIT {
     @Autowired private IdempotencyService idempotency;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbc;
-    @SpyBean private MediaErasureJobStore jobs;
-    @SpyBean private MinioMediaStorageAdapter storage;
+    @MockitoSpyBean private MediaErasureJobStore jobs;
+    @MockitoSpyBean private MinioMediaStorageAdapter storage;
 
     private final MinioClient minio = MediaErasureFixture.minioClient(minioEndpoint(), ACCESS_KEY, SECRET_KEY);
     private final ExecutorService pool = Executors.newCachedThreadPool();

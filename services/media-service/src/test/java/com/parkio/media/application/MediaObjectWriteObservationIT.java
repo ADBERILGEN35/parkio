@@ -21,7 +21,7 @@ import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,7 +38,7 @@ class MediaObjectWriteObservationIT extends DelayedObjectWriteITSupport {
 
     private static final String BUCKET = "parkio-media-write-observation-it";
 
-    @SpyBean private MediaStoragePort storage;
+    @MockitoSpyBean private MediaStoragePort storage;
     @Autowired private MediaErasureJobStore jobs;
     @Autowired private ErasureAckOutbox ackOutbox;
     @Autowired private PlatformTransactionManager transactionManager;

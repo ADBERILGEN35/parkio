@@ -38,9 +38,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -105,10 +106,10 @@ class CookieCsrfGuardHttpIntegrationTest {
     @Autowired
     private RoleJpaRepository roles;
 
-    @MockBean
+    @MockitoBean
     private LoginFailureTracker loginFailureTracker;
 
-    @MockBean
+    @MockitoBean
     private EmailVerificationSender emailVerificationSender;
 
     @BeforeEach
@@ -178,6 +179,13 @@ class CookieCsrfGuardHttpIntegrationTest {
         assertThat(xsrf).isNotNull();
         assertThat(xsrf.getValue()).isEqualTo(token);
         assertThat(refresh).isNotNull();
+        // The raw Set-Cookie headers are what a real server sends. Framework 7 replaces headers copied from a
+        // ResponseEntity with setHeader, which would drop the XSRF-TOKEN header while MockMvc's cookie list
+        // above still showed it (#515).
+        assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+                .anySatisfy(header -> assertThat(header).startsWith("XSRF-TOKEN=" + token + ";"))
+                .filteredOn(header -> header.startsWith("parkio_refresh="))
+                .hasSize(2);
         mockMvc.perform(post("/api/v1/auth/refresh-token")
                         .header("X-Gateway-Auth", GATEWAY_SECRET)
                         .header("Origin", ALLOWED_ORIGIN)

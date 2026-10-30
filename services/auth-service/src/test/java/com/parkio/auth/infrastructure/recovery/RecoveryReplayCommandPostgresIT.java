@@ -83,7 +83,7 @@ class RecoveryReplayCommandPostgresIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.participants", () -> String.join(",", PARTICIPANTS));
         registry.add("parkio.privacy.account-erasure.restore-replay.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.recovery-replay.poll-interval", () -> "PT0.1S");
