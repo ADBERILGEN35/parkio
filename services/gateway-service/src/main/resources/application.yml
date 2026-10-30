@@ -1,4 +1,8 @@
 ﻿spring:
+  # Jackson 2 stays the WebFlux JSON mapper on Spring Boot 4 (spring-boot-jackson2).
+  http:
+    codecs:
+      preferred-json-mapper: jackson2
   application:
     name: gateway-service
   data:
@@ -25,191 +29,195 @@
     locations: classpath:db/migration
   cloud:
     gateway:
-      # Global downstream HTTP client budgets for routed services. Per-route
-      # user-status/session-epoch clients retain their own PT2S budgets under
-      # parkio.gateway.*. Route-specific long operations remain BASELINING_REQUIRED
-      # until measured (see docs/operations/gateway-timeout-governance.md).
-      httpclient:
-        connect-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_CONNECT_TIMEOUT:2000}
-        response-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_RESPONSE_TIMEOUT:30s}
-      # Downstream URIs are externalized; defaults target local dev ports. In a
-      # container/orchestrated environment these resolve to service DNS names.
-      #
-      # Every route carries a RequestRateLimiter filter (Redis token bucket, keyed by
-      # authenticated userId else client IP â€” see RateLimitConfig). Per-tier limits
-      # are env-overridable; defaults are conservative (ai-context/07):
-      #   auth login/register   strict   â€” credential-stuffing / enumeration defence
-      #   media upload          stricter â€” expensive writes
-      #   parking create/verify/claim  moderate
-      #   general authenticated APIs   broader
-      routes:
-        # --- Anonymous public explore: exact GET-only paths, conservative IP limit ---
-        - id: public-explore
-          uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
-          predicates:
-            - Path=/api/v1/public/explore/facilities
-            - Method=GET
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@publicExploreIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_PUBLIC_EXPLORE_REPLENISH:1}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_PUBLIC_EXPLORE_BURST:5}
-        # --- Anonymous public destination geocoding (R6G-A): exact GET, IP limit ---
-        # Separate bucket from public-explore so search does not starve facility discovery.
-        # Same conservative tier (1/s burst 5). Provider stays server-side (ADR-014).
-        - id: public-geocoding
-          uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
-          predicates:
-            - Path=/api/v1/public/geocoding/search
-            - Method=GET
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@publicGeocodingIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_PUBLIC_GEOCODING_REPLENISH:1}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_PUBLIC_GEOCODING_BURST:5}
-        # --- Auth (mixed public/protected): strict limit -------------------------
-        - id: auth-service
-          uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
-          predicates:
-            - Path=/api/v1/auth/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_AUTH_REPLENISH:5}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_AUTH_BURST:10}
-        - id: account-erasure
-          uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
-          predicates:
-            - Path=/api/v1/account/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_AUTH_REPLENISH:5}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_AUTH_BURST:10}
-        # --- Administration API (auth-service; ADMIN/SUPER_ADMIN at edge) --------
-        - id: auth-admin
-          uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
-          predicates:
-            - Path=/api/v1/admin/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_ADMIN_REPLENISH:20}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_ADMIN_BURST:40}
-        # --- User profile: broad authenticated limit -----------------------------
-        - id: user-service
-          uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
-          predicates:
-            - Path=/api/v1/users/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
-        # --- Saved places (user-service; WP-SPA-03) ------------------------------
-        - id: places-service
-          uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
-          predicates:
-            - Path=/api/v1/places/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:40}
-        # --- Parking (create/verify/claim): moderate limit -----------------------
-        - id: parking-service
-          uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
-          predicates:
-            - Path=/api/v1/parking/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_PARKING_REPLENISH:10}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_PARKING_BURST:20}
-        # --- Geocoding (place text -> coordinates): typeahead-friendly limit ------
-        # Implemented inside parking-service (ADR-014) but routed on its own path so it
-        # carries a DEDICATED rate-limit tier, independent of the parking create/verify
-        # budget. Authenticated like every non-auth route (not on the public allow-list).
-        - id: geocoding-service
-          uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
-          predicates:
-            - Path=/api/v1/geocoding/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_GEOCODING_REPLENISH:5}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_GEOCODING_BURST:10}
-        # --- Media upload: stricter limit ----------------------------------------
-        - id: media-service
-          uri: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}
-          predicates:
-            - Path=/api/v1/media/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_MEDIA_REPLENISH:2}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_MEDIA_BURST:5}
-        # --- General authenticated APIs: broad limit -----------------------------
-        - id: gamification-service
-          uri: ${PARKIO_GAMIFICATION_SERVICE_URI:http://localhost:8085}
-          predicates:
-            - Path=/api/v1/gamification/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
-        - id: notification-service
-          uri: ${PARKIO_NOTIFICATION_SERVICE_URI:http://localhost:8086}
-          predicates:
-            - Path=/api/v1/notifications/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
-        - id: moderation-service
-          uri: ${PARKIO_MODERATION_SERVICE_URI:http://localhost:8087}
-          predicates:
-            - Path=/api/v1/moderation/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
-        - id: ai-validation-service
-          uri: ${PARKIO_AI_VALIDATION_SERVICE_URI:http://localhost:8088}
-          predicates:
-            - Path=/api/v1/ai-validations/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
-        - id: analytics-service
-          uri: ${PARKIO_ANALYTICS_SERVICE_URI:http://localhost:8089}
-          predicates:
-            - Path=/api/v1/analytics/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@userOrIpKeyResolver}"
-                redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
-                redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+      # Spring Cloud Gateway 5 reads its WebFlux server settings only under this prefix;
+      # the former spring.cloud.gateway.* keys are no longer bound.
+      server:
+        webflux:
+          # Global downstream HTTP client budgets for routed services. Per-route
+          # user-status/session-epoch clients retain their own PT2S budgets under
+          # parkio.gateway.*. Route-specific long operations remain BASELINING_REQUIRED
+          # until measured (see docs/operations/gateway-timeout-governance.md).
+          httpclient:
+            connect-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_CONNECT_TIMEOUT:2000}
+            response-timeout: ${PARKIO_GATEWAY_DOWNSTREAM_RESPONSE_TIMEOUT:30s}
+          # Downstream URIs are externalized; defaults target local dev ports. In a
+          # container/orchestrated environment these resolve to service DNS names.
+          #
+          # Every route carries a RequestRateLimiter filter (Redis token bucket, keyed by
+          # authenticated userId else client IP â€” see RateLimitConfig). Per-tier limits
+          # are env-overridable; defaults are conservative (ai-context/07):
+          #   auth login/register   strict   â€” credential-stuffing / enumeration defence
+          #   media upload          stricter â€” expensive writes
+          #   parking create/verify/claim  moderate
+          #   general authenticated APIs   broader
+          routes:
+            # --- Anonymous public explore: exact GET-only paths, conservative IP limit ---
+            - id: public-explore
+              uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/public/explore/facilities
+                - Method=GET
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@publicExploreIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_PUBLIC_EXPLORE_REPLENISH:1}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_PUBLIC_EXPLORE_BURST:5}
+            # --- Anonymous public destination geocoding (R6G-A): exact GET, IP limit ---
+            # Separate bucket from public-explore so search does not starve facility discovery.
+            # Same conservative tier (1/s burst 5). Provider stays server-side (ADR-014).
+            - id: public-geocoding
+              uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/public/geocoding/search
+                - Method=GET
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@publicGeocodingIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_PUBLIC_GEOCODING_REPLENISH:1}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_PUBLIC_GEOCODING_BURST:5}
+            # --- Auth (mixed public/protected): strict limit -------------------------
+            - id: auth-service
+              uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/auth/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_AUTH_REPLENISH:5}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_AUTH_BURST:10}
+            - id: account-erasure
+              uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/account/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_AUTH_REPLENISH:5}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_AUTH_BURST:10}
+            # --- Administration API (auth-service; ADMIN/SUPER_ADMIN at edge) --------
+            - id: auth-admin
+              uri: ${PARKIO_AUTH_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/admin/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_ADMIN_REPLENISH:20}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_ADMIN_BURST:40}
+            # --- User profile: broad authenticated limit -----------------------------
+            - id: user-service
+              uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/users/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+            # --- Saved places (user-service; WP-SPA-03) ------------------------------
+            - id: places-service
+              uri: ${PARKIO_USER_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/places/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:40}
+            # --- Parking (create/verify/claim): moderate limit -----------------------
+            - id: parking-service
+              uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/parking/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_PARKING_REPLENISH:10}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_PARKING_BURST:20}
+            # --- Geocoding (place text -> coordinates): typeahead-friendly limit ------
+            # Implemented inside parking-service (ADR-014) but routed on its own path so it
+            # carries a DEDICATED rate-limit tier, independent of the parking create/verify
+            # budget. Authenticated like every non-auth route (not on the public allow-list).
+            - id: geocoding-service
+              uri: ${PARKIO_PARKING_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/geocoding/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_GEOCODING_REPLENISH:5}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_GEOCODING_BURST:10}
+            # --- Media upload: stricter limit ----------------------------------------
+            - id: media-service
+              uri: ${PARKIO_MEDIA_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/media/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_MEDIA_REPLENISH:2}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_MEDIA_BURST:5}
+            # --- General authenticated APIs: broad limit -----------------------------
+            - id: gamification-service
+              uri: ${PARKIO_GAMIFICATION_SERVICE_URI:http://localhost:8085}
+              predicates:
+                - Path=/api/v1/gamification/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+            - id: notification-service
+              uri: ${PARKIO_NOTIFICATION_SERVICE_URI:http://localhost:8086}
+              predicates:
+                - Path=/api/v1/notifications/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+            - id: moderation-service
+              uri: ${PARKIO_MODERATION_SERVICE_URI:http://localhost:8087}
+              predicates:
+                - Path=/api/v1/moderation/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+            - id: ai-validation-service
+              uri: ${PARKIO_AI_VALIDATION_SERVICE_URI:http://localhost:8088}
+              predicates:
+                - Path=/api/v1/ai-validations/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
+            - id: analytics-service
+              uri: ${PARKIO_ANALYTICS_SERVICE_URI:http://localhost:8089}
+              predicates:
+                - Path=/api/v1/analytics/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrIpKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${PARKIO_RL_DEFAULT_REPLENISH:30}
+                    redis-rate-limiter.burstCapacity: ${PARKIO_RL_DEFAULT_BURST:60}
 
 server:
   port: ${SERVER_PORT:8080}

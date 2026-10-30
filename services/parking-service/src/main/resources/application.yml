@@ -48,12 +48,18 @@ spring:
     admin:
       # Missing broker at startup must not fail the context.
       fail-fast: false
-  jackson:
+  # Jackson 2 (com.fasterxml.jackson) stays the application and HTTP mapper on Spring Boot 4 through
+  # spring-boot-jackson2; its settings live under spring.jackson2 (the Spring Boot 3 spring.jackson keys).
+  jackson2:
     # Event compatibility (event-contracts.md): tolerate unknown fields, ISO-8601 instants.
     deserialization:
       fail-on-unknown-properties: false
     serialization:
       write-dates-as-timestamps: false
+  http:
+    converters:
+      # Spring MVC keeps serializing with the Jackson 2 mapper above.
+      preferred-json-mapper: jackson2
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parkio_parking}
     username: ${SPRING_DATASOURCE_USERNAME:parkio_parking}
