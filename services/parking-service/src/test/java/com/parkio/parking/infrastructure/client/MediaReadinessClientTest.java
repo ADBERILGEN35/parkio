@@ -64,7 +64,7 @@ class MediaReadinessClientTest {
     }
 
     private MediaReadinessClient client() {
-        return new MediaReadinessClient(RestClient.builder(),
+        return new MediaReadinessClient(Jackson2RestClientBuilder.builder(),
                 "http://localhost:" + server.getAddress().getPort(),
                 SECRET, Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
@@ -121,7 +121,7 @@ class MediaReadinessClientTest {
     void unreachableMediaServiceFailsClosedAsMediaAccessUnavailable() {
         int port = server.getAddress().getPort();
         server.stop(0);
-        MediaReadinessClient client = new MediaReadinessClient(RestClient.builder(),
+        MediaReadinessClient client = new MediaReadinessClient(Jackson2RestClientBuilder.builder(),
                 "http://localhost:" + port, SECRET, Duration.ofMillis(250), Duration.ofMillis(250));
 
         assertThatThrownBy(() -> client.ensureMediaReady(UUID.randomUUID(), UUID.randomUUID()))

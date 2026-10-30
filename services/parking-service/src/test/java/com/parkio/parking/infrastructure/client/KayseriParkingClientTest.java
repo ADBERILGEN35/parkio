@@ -18,7 +18,7 @@ class KayseriParkingClientTest {
     void setUp() {
         MunicipalSourceProperties properties = new MunicipalSourceProperties();
         properties.getKayseri().setMaxRecords(100);
-        client = new KayseriParkingClient(RestClient.builder(), mapper, properties);
+        client = new KayseriParkingClient(Jackson2RestClientBuilder.builder(), mapper, properties);
     }
 
     @Test

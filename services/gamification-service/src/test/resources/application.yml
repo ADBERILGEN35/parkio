@@ -3,6 +3,10 @@
 # (no Docker / Testcontainers required) per ai-context/08. The seeded rule rows
 # that Flyway provides in production are supplied directly by the unit-test fakes.
 spring:
+  # Same JSON mapper as production (main application.yml), which this file replaces on the test classpath.
+  http:
+    converters:
+      preferred-json-mapper: jackson2
   datasource:
     url: jdbc:h2:mem:gamificationdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
@@ -45,4 +49,6 @@ parkio:
 # Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
 management:
   tracing:
-    enabled: false
+    # Spring Boot 4 name (management.tracing.enabled is no longer bound).
+    export:
+      enabled: false

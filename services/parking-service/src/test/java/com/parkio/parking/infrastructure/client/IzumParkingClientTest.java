@@ -68,6 +68,6 @@ class IzumParkingClientTest {
         properties.getIzum().setConnectTimeout(Duration.ofSeconds(2));
         properties.getIzum().setReadTimeout(Duration.ofSeconds(2));
         properties.getIzum().setMaxRetries(maxRetries);
-        return new IzumParkingClient(RestClient.builder(), properties);
+        return new IzumParkingClient(Jackson2RestClientBuilder.builder(), properties);
     }
 }

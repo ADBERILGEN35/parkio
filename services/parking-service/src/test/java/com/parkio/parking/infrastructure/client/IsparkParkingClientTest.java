@@ -70,6 +70,6 @@ class IsparkParkingClientTest {
         properties.getIspark().setConnectTimeout(Duration.ofSeconds(2));
         properties.getIspark().setReadTimeout(Duration.ofSeconds(2));
         properties.getIspark().setMaxRetries(maxRetries);
-        return new IsparkParkingClient(RestClient.builder(), properties);
+        return new IsparkParkingClient(Jackson2RestClientBuilder.builder(), properties);
     }
 }
