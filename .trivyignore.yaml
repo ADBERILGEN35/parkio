@@ -5,6 +5,8 @@
 # Full disposition: docs/operations/security-findings-2026-07-25.md
 # CVE-2026-47884: docs/operations/security-findings-2026-10-06.md; CVE-2026-47890 and
 # CVE-2026-47892: docs/operations/security-findings-2026-10-08.md.
+# Temporary renewal of the three Spring entries to 2026-11-29 (#513, owner acceptance 2026-10-30; no automatic
+# renewal; permanent fix #515): docs/operations/security-findings-2026-10-30.md.
 vulnerabilities:
   - id: CVE-2026-14257
     paths:
@@ -26,22 +28,31 @@ vulnerabilities:
     statement: >-
       spring-webmvc 6.2.19 (GHSA-pc63-qcmh-9cmg, "Improper Path Limitation in XsltView") in the
       app.jar of the nine servlet services: auth, user, parking, media, moderation, gamification,
-      notification, analytics and ai-validation. Spring rates it MEDIUM
-      (https://spring.io/security/cve-2026-47884); GHSA and Trivy rate it CRITICAL (CVSS 9.8).
-      It needs XsltView, a "/**" mapping that renders views, and no explicit view name. At
-      master 67c187e8 (as at api 520acbfd) no service source references XsltView, XsltViewResolver, a ViewResolver,
-      configureViewResolvers, ModelAndView or TransformerFactory. No service ships a template
-      engine, no service's source or resources contain an .xsl/.xslt file, and every controller
-      is a @RestController. The only shipped .xsl (spring-security.xsl in auth-service's
-      spring-security-config jar) is not used as a view. In each shipped app.jar, only
-      spring-webmvc itself references the XsltView classes. Spring Boot does not
-      auto-configure XsltView. There is no OSS 6.2.x fix: 6.2.20 is Enterprise Support only,
-      and the OSS fix, 7.0.9, needs Spring Framework 7 / Spring Boot 4.
-      The path pins version 6.2.19, so any other spring-webmvc version reports again.
-      Owner: Parkio release engineering. Remediation: the Spring Framework 7 migration (a
-      separate decision), or an OSS 6.2.x fix if one ships (none expected: 6.2.x OSS support
-      ended 2026-06-30).
-    expired_at: 2026-11-05
+      notification, analytics and ai-validation. Spring rates it MEDIUM (CVSS 3.1 5.8,
+      https://spring.io/security/cve-2026-47884); GHSA and Trivy rate it CRITICAL (the CISA-ADP 9.8
+      vector). It needs XsltView, a "/**" mapping that renders views, and no explicit view name; the
+      fix (gh-37029) changes only XsltView.getStylesheetSource. Renewal evidence (#513, 2026-10-29
+      and 2026-10-30): no service source at api 399b5dd7, at the pinned revision fdce6ba0 or at any
+      revision running in production references XsltView, XsltViewResolver, a ViewResolver,
+      ModelAndView or TransformerFactory, and every controller is a @RestController. In the app.jar
+      of all nine production servlet services (auth, media and parking from their exact registry
+      digests; user, gamification, notification, moderation, analytics and ai-validation copied
+      read-only from the running containers) and of the nine fdce6ba0 pinned servlet images, no
+      class or resource outside spring-webmvc references or names the XsltView package (positive
+      control: spring-webmvc itself), no template engine is on the classpath, and the only shipped
+      .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view.
+      Spring Boot does not auto-configure XsltView. There is no OSS 6.2.x fix: 6.2.20 is Enterprise
+      Support only, 6.2.x and Spring Boot 3.5.x OSS support ended 2026-06-30, and the OSS fix, 7.0.9,
+      needs Spring Framework 7 / Spring Boot 4 (permanent fix: #515). The path pins version 6.2.19,
+      so any other spring-webmvc version reports again. Owner: repository owner, temporary risk
+      acceptance in #513 on 2026-10-30, ending 2026-11-29 with no automatic renewal. Record and
+      invalidation triggers (with their checks): docs/operations/security-findings-2026-10-30.md.
+      Remove this entry on: XsltView, a ViewResolver, view rendering or a non-REST @Controller; a
+      template engine, view settings or an .xsl/.xslt resource; a web-application-type change;
+      spring-webmvc in the gateway; a failed artifact check on a candidate or deployed image; any
+      advisory update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or
+      later; the expiry below.
+    expired_at: 2026-11-29
   - id: CVE-2026-47890
     paths:
       - "app/app.jar/BOOT-INF/lib/spring-webmvc-6.2.19.jar"
@@ -50,21 +61,28 @@ vulnerabilities:
       Spring Framework 6.2.19 (Spring Boot 3.5.15), "Server Sent Event stream corruption while rendering
       fragments" (https://spring.io/security/cve-2026-47890). Vendor conditions, all required: the application
       uses Spring MVC or WebFlux, sends view fragments to clients over Server-Sent Events, and the attacker
-      controls data streamed to other users. Not met in any image of the accepted candidate (run 37788374271,
-      source 843ae7cb): independent verification of the exact image artifacts found no SSE endpoint and no
-      view-fragment rendering; every application controller is a @RestController; no template engine on any
-      classpath and no application-defined View or ViewResolver; the application classes reference no
-      SseEmitter, ResponseBodyEmitter, StreamingResponseBody, ServerSentEvent, FragmentsRendering, ModelAndView,
-      View or text/event-stream. Spring rates it LOW (CVSS 3.1 2.6, AV:N/AC:H/PR:L/UI:R/S:U/C:N/I:L/A:N); GHSA
-      copies the CISA-ADP vector (9.8) and Trivy follows GHSA, hence CRITICAL. OSS fix only in Spring Framework
-      7.0.9 (Spring Boot 4); 6.2.20 is enterprise-only. Owner: repository owner, decision 2026-10-08 (narrow,
-      evidence-based; not an extension of CVE-2026-47884). Record: docs/operations/security-findings-2026-10-08.md.
-      Re-evaluate or drop on: any SSE or streaming handler, ModelAndView/View/fragment rendering or non-REST
-      @Controller; a template engine or view settings; spring-webflux in a servlet image; a new Java image (this
-      file applies to every image); any Spring Framework, Spring Boot or Spring Cloud Gateway change (drop at
-      7.0.9 or an OSS 6.2.x fix); actuator or resilience4j-reactor changes that add SSE endpoints; advisory
-      updates; the expiry below.
-    expired_at: 2026-11-07
+      controls data streamed to other users. The fix (gh-37061) changes only the SSE escaping of rendered view
+      fragments. Renewal evidence (#513, 2026-10-29 and 2026-10-30), on the app.jar of all ten production Java
+      services (auth, gateway, media and parking from their exact registry digests; the six host-built images
+      copied read-only from the running containers) and of the ten fdce6ba0 pinned images: the application
+      classes reference no SseEmitter, ResponseBodyEmitter, StreamingResponseBody, ServerSentEvent,
+      FragmentsRendering, Fragment, ModelAndView, View, ViewResolver or text/event-stream; no class outside
+      spring-webmvc and spring-webflux references FragmentsRendering, Fragment, SseEmitter or ResponseBodyEmitter
+      (positive control: those two jars); every application controller is a @RestController; no template engine
+      is on any classpath; the only SSE producers on any classpath are the Resilience4j circuit-breaker event
+      streams (ai-validation, parking), which stream JSON, not view fragments, and actuator web exposure is
+      health,info,prometheus in the images and in the running production containers; no servlet image carries
+      spring-webflux. Spring rates it LOW (CVSS 3.1 2.6, AV:N/AC:H/PR:L/UI:R/S:U/C:N/I:L/A:N); GHSA copies the
+      CISA-ADP vector (9.8) and Trivy follows GHSA, hence CRITICAL. OSS fix only in Spring Framework 7.0.9
+      (Spring Boot 4, permanent fix: #515); 6.2.20 is enterprise-only. Owner: repository owner, temporary risk
+      acceptance in #513 on 2026-10-30, ending 2026-11-29 with no automatic renewal. Record and invalidation
+      triggers (with their checks): docs/operations/security-findings-2026-10-30.md. Remove this entry on: any
+      SSE or streaming handler, ModelAndView/View/fragment rendering or non-REST @Controller; a template engine or
+      view settings; spring-webflux in a servlet image; actuator exposure beyond health,info,prometheus or
+      resilience4j-reactor; a web-application-type change; a failed artifact check on a candidate or deployed
+      image; any advisory update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or
+      later; the expiry below.
+    expired_at: 2026-11-29
   - id: CVE-2026-47892
     paths:
       - "app/app.jar/BOOT-INF/lib/spring-webflux-6.2.19.jar"
@@ -72,17 +90,23 @@ vulnerabilities:
       Spring Framework 6.2.19, "Header Predicate Bypass in WebFlux Functional Endpoints"
       (https://spring.io/security/cve-2026-47892): "A WebFlux application using functional endpoints and deployed
       with DispatcherServlet may be vulnerable to a header predicate bypass in a pre-flight request." The upstream
-      fix (gh-37024) concerns functional endpoints served without DispatcherHandler. Only the gateway image carries
-      spring-webflux. Independent verification of the exact candidate gateway artifact (run 37788374271, source
-      843ae7cb): Spring Cloud Gateway on reactor-netty; no DispatcherServlet, servlet container or spring-webmvc
-      on the classpath; no WebFlux functional endpoints (RouterFunction/RequestPredicates); nothing deploys a
-      RouterFunction through RouterFunctions.toHttpHandler/toWebHandler; requests are dispatched by
-      DispatcherHandler and CORS pre-flight is handled by CorsWebFilter. Spring rates it MEDIUM (CVSS 3.1 4.8,
-      AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N); GHSA copies the CISA-ADP 9.8 vector, hence Trivy CRITICAL. OSS fix only
-      in Spring Framework 7.0.9. Owner: repository owner, decision 2026-10-08 (narrow, evidence-based). Record:
-      docs/operations/security-findings-2026-10-08.md. Re-evaluate or drop on: any RouterFunction or
-      RequestPredicates, toHttpHandler/toWebHandler, or custom HttpHandler/WebHandler; a web-application-type
-      change; a move to Spring Cloud Gateway Server MVC or spring-webmvc/a servlet container in the gateway;
-      spring-webflux in any other image; a new Java image; any Spring Framework or Spring Cloud Gateway change;
-      advisory updates; the expiry below.
-    expired_at: 2026-11-07
+      fix (gh-37024) changes only RouterFunctions' RouterFunctionWebHandler, which serves functional endpoints
+      without DispatcherHandler (RouterFunctions.toHttpHandler/toWebHandler). Only the gateway image carries
+      spring-webflux. Renewal evidence (#513, 2026-10-29 and 2026-10-30), on the production gateway (exact
+      registry digest, source 971ac1d2; its jar equals the jar in the running container) and the fdce6ba0 pinned
+      gateway: Spring Cloud Gateway 4.3.5 on reactor-netty; no DispatcherServlet, servlet container or
+      spring-webmvc on the classpath; the application classes reference no RouterFunction, RequestPredicates,
+      HttpHandler or WebHandler; no class or resource outside spring-webflux references toHttpHandler,
+      toWebHandler or RouterFunctionWebHandler (positive control: spring-webflux itself); the other RouterFunction
+      users on the classpath are Spring Boot classes (error handler, welcome page, actuator mappings) dispatched
+      by DispatcherHandler; CORS pre-flight is handled by the application's CorsWebFilter. Spring rates it MEDIUM
+      (CVSS 3.1 4.8, AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N); GHSA copies the CISA-ADP 9.8 vector, hence Trivy
+      CRITICAL. OSS fix only in Spring Framework 7.0.9 (permanent fix: #515). Owner: repository owner, temporary
+      risk acceptance in #513 on 2026-10-30, ending 2026-11-29 with no automatic renewal. Record and invalidation
+      triggers (with their checks): docs/operations/security-findings-2026-10-30.md. Remove this entry on: any
+      RouterFunction or RequestPredicates, toHttpHandler/toWebHandler, or custom HttpHandler/WebHandler; a
+      web-application-type change; a move to Spring Cloud Gateway Server MVC or spring-webmvc/a servlet
+      container in the gateway; spring-webflux in any other image; a failed artifact check on a candidate or
+      deployed image; any advisory update that changes the conditions or ranges; the move to Spring Framework
+      7.0.9 or later; the expiry below.
+    expired_at: 2026-11-29
