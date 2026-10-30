@@ -59,6 +59,7 @@ class AccountErasureHandlerTest {
     @Mock private PendingUserStatusEventJpaRepository pendingStatus;
     @Mock private ErasedUserTombstoneJpaRepository tombstones;
     @Mock private ErasureAckOutbox ackOutbox;
+    @Mock private com.parkio.user.application.port.UserOwnerFence ownerFence;
 
     private AccountErasureHandler handler;
 
@@ -68,7 +69,7 @@ class AccountErasureHandlerTest {
                 profiles, savedPlaces, favouriteParking, favouriteDestinations,
                 recentDestinations, recentParking, preferences, vehicles, trustProfiles,
                 trustHistory, pendingStatus, tombstones, ackOutbox,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), ownerFence);
     }
 
     @Test

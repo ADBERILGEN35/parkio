@@ -14,6 +14,7 @@ import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.event.UserRestoredEvent;
 import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.port.InboxEventRepository;
+import com.parkio.user.application.port.UserOwnerFence;
 import com.parkio.user.application.port.OutboxEventAppender;
 import com.parkio.user.application.port.PendingUserStatusEventRepository;
 import com.parkio.user.application.port.UserPreferenceRepository;
@@ -79,6 +80,7 @@ public class UserApplicationService {
     private final SmartReturnMetrics smartReturnMetrics;
     private final SavedPlaceApplicationService savedPlaces;
     private final ErasedUserTombstoneJpaRepository erasureTombstones;
+    private final UserOwnerFence ownerFence;
 
     public UserApplicationService(UserProfileRepository profiles,
                                   UserPreferenceRepository preferences,
@@ -91,7 +93,7 @@ public class UserApplicationService {
                                   Clock clock,
                                   SmartReturnMetrics smartReturnMetrics) {
         this(profiles, preferences, vehicles, trustProfiles, trustHistory, outbox, inbox,
-                pendingStatusEvents, clock, smartReturnMetrics, null, null);
+                pendingStatusEvents, clock, smartReturnMetrics, null, null, null);
     }
 
     @Autowired
@@ -106,7 +108,8 @@ public class UserApplicationService {
                                   Clock clock,
                                   SmartReturnMetrics smartReturnMetrics,
                                   SavedPlaceApplicationService savedPlaces,
-                                  ErasedUserTombstoneJpaRepository erasureTombstones) {
+                                  ErasedUserTombstoneJpaRepository erasureTombstones,
+                                  UserOwnerFence ownerFence) {
         this.profiles = profiles;
         this.preferences = preferences;
         this.vehicles = vehicles;
@@ -119,6 +122,7 @@ public class UserApplicationService {
         this.smartReturnMetrics = smartReturnMetrics;
         this.savedPlaces = savedPlaces;
         this.erasureTombstones = erasureTombstones;
+        this.ownerFence = ownerFence;
     }
 
     /**
@@ -129,7 +133,7 @@ public class UserApplicationService {
      * provisioned after a suspension starts {@code SUSPENDED}, not {@code ACTIVE}.
      */
     public UserProfile createProfile(CreateProfileCommand command) {
-        if (erasureTombstones != null && erasureTombstones.existsById(command.authUserId())) {
+        if (!admitWrite(command.authUserId())) {
             throw new UserException(UserErrorCode.PROFILE_NOT_FOUND);
         }
         if (profiles.existsByAuthUserId(command.authUserId())) {
@@ -164,7 +168,7 @@ public class UserApplicationService {
         if (!claimEvent(event.eventId(), UserRegisteredEvent.TYPE)) {
             return; // already processed; skip redelivery
         }
-        if (erasureTombstones != null && erasureTombstones.existsById(event.userId())) {
+        if (!admitWrite(event.userId())) {
             return;
         }
         if (!profiles.existsByAuthUserId(event.userId())) {
@@ -278,6 +282,9 @@ public class UserApplicationService {
      * yet; snapshots are absolute and versioned, so a later event brings the projection up to date.
      */
     private Optional<UUID> profileIdFor(UUID authUserId, UUID eventId) {
+        if (!admitWrite(authUserId)) {
+            return Optional.empty();
+        }
         Optional<UserProfile> profile = profiles.findByAuthUserId(authUserId);
         if (profile.isEmpty()) {
             log.warn("Skipping gamification event {} for not-yet-provisioned user {}", eventId, authUserId);
@@ -294,6 +301,9 @@ public class UserApplicationService {
      */
     private void applyOrParkStatusEvent(UUID eventId, UUID authUserId, UserStatus targetStatus,
                                         Instant occurredAt, UUID caseId) {
+        if (!admitWrite(authUserId)) {
+            return;
+        }
         Optional<UserProfile> existing = profiles.findByAuthUserId(authUserId);
         if (existing.isPresent()) {
             UserProfile profile = existing.get();
@@ -509,7 +519,18 @@ public class UserApplicationService {
         return PublicProfileView.of(profile, requireTrustProfile(profile.id()));
     }
 
+    private boolean admitWrite(UUID authUserId) {
+        if (ownerFence != null) {
+            return ownerFence.admitWrite(authUserId);
+        }
+        // Framework-free constructor is used only by unit tests.
+        return erasureTombstones == null || !erasureTombstones.existsById(authUserId);
+    }
+
     private UserProfile requireProfile(UUID authUserId) {
+        if (!admitWrite(authUserId)) {
+            throw new UserException(UserErrorCode.PROFILE_NOT_FOUND);
+        }
         return profiles.findByAuthUserId(authUserId)
                 .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
     }
