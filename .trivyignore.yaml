@@ -34,7 +34,7 @@ vulnerabilities:
       fix (gh-37029) changes only XsltView.getStylesheetSource. Renewal evidence (#513, 2026-10-29
       and 2026-10-30): no service source at api 399b5dd7, at the pinned revision fdce6ba0 or at any
       revision running in production references XsltView, XsltViewResolver, a ViewResolver,
-      ModelAndView or TransformerFactory, and every controller is a @RestController. In the app.jar
+      ModelAndView or TransformerFactory, and every application controller is a @RestController. In the app.jar
       of all nine production servlet services (auth, media and parking from their exact registry
       digests; user, gamification, notification, moderation, analytics and ai-validation copied
       read-only from the running containers) and of the nine fdce6ba0 pinned servlet images, no
@@ -49,9 +49,9 @@ vulnerabilities:
       invalidation triggers (with their checks): docs/operations/security-findings-2026-10-30.md.
       Remove this entry on: XsltView, a ViewResolver, view rendering or a non-REST @Controller; a
       template engine, view settings or an .xsl/.xslt resource; a web-application-type change;
-      spring-webmvc in the gateway; a failed artifact check on a candidate or deployed image; any
-      advisory update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or
-      later; the expiry below.
+      spring-webmvc in the gateway; a failed artifact check on a candidate or deployed image; a
+      Spring Boot change that fails the record's checks; any advisory update that changes the
+      conditions or ranges; the move to Spring Framework 7.0.9 or later; the expiry below.
     expired_at: 2026-11-29
   - id: CVE-2026-47890
     paths:
@@ -79,9 +79,10 @@ vulnerabilities:
       triggers (with their checks): docs/operations/security-findings-2026-10-30.md. Remove this entry on: any
       SSE or streaming handler, ModelAndView/View/fragment rendering or non-REST @Controller; a template engine or
       view settings; spring-webflux in a servlet image; actuator exposure beyond health,info,prometheus or
-      resilience4j-reactor; a web-application-type change; a failed artifact check on a candidate or deployed
-      image; any advisory update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or
-      later; the expiry below.
+      Resilience4j reactor support; a web-application-type change; a failed artifact check on a candidate or
+      deployed image; a Spring Boot or Spring Cloud Gateway change that fails the record's checks; any advisory
+      update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or later; the expiry
+      below.
     expired_at: 2026-11-29
   - id: CVE-2026-47892
     paths:
@@ -107,6 +108,7 @@ vulnerabilities:
       RouterFunction or RequestPredicates, toHttpHandler/toWebHandler, or custom HttpHandler/WebHandler; a
       web-application-type change; a move to Spring Cloud Gateway Server MVC or spring-webmvc/a servlet
       container in the gateway; spring-webflux in any other image; a failed artifact check on a candidate or
-      deployed image; any advisory update that changes the conditions or ranges; the move to Spring Framework
-      7.0.9 or later; the expiry below.
+      deployed image; a Spring Boot or Spring Cloud Gateway change that fails the record's checks; any advisory
+      update that changes the conditions or ranges; the move to Spring Framework 7.0.9 or later; the expiry
+      below.
     expired_at: 2026-11-29
