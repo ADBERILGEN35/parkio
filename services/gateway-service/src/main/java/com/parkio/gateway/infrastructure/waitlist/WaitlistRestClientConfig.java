@@ -12,14 +12,15 @@ public class WaitlistRestClientConfig {
     /**
      * JSON goes through the application's Jackson 2 mapper, like every other HTTP path of the gateway
      * (spring.http.codecs.preferred-json-mapper=jackson2). Spring Framework 7's plain RestClient.builder()
-     * would pick Jackson 3 whenever it is on the classpath. Only the JSON converter is replaced, the way
-     * Spring Boot configures its own builder; the other default converters stay as they are.
+     * would pick Jackson 3 whenever it is on the classpath. As in Spring Boot's own builder, the defaults are
+     * registered first (without registerDefaults() the client would lose the String, byte[] and Resource
+     * converters) and only the JSON converter is replaced.
      */
     @Bean
     @SuppressWarnings("removal")
     RestClient.Builder waitlistRestClientBuilder(ObjectMapper objectMapper) {
         return RestClient.builder()
-                .configureMessageConverters(converters ->
-                        converters.withJsonConverter(new MappingJackson2HttpMessageConverter(objectMapper)));
+                .configureMessageConverters(converters -> converters.registerDefaults()
+                        .withJsonConverter(new MappingJackson2HttpMessageConverter(objectMapper)));
     }
 }

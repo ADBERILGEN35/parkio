@@ -17,6 +17,7 @@ public final class Jackson2RestClientBuilder {
     @SuppressWarnings("removal")
     public static RestClient.Builder builder() {
         return RestClient.builder()
-                .configureMessageConverters(converters -> converters.withJsonConverter(new MappingJackson2HttpMessageConverter()));
+                .configureMessageConverters(converters -> converters.registerDefaults()
+                        .withJsonConverter(new MappingJackson2HttpMessageConverter()));
     }
 }
