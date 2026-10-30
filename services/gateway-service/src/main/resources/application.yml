@@ -257,11 +257,15 @@ management:
     enabled: ${PARKIO_TRACING_ENABLED:true}
     sampling:
       probability: ${PARKIO_TRACING_SAMPLING_PROBABILITY:1.0}
-  otlp:
+  # Spring Boot 4 binds the OTLP span endpoint only under management.opentelemetry.tracing.export.otlp
+  # (management.otlp.tracing.endpoint is no longer bound).
+  opentelemetry:
     tracing:
-      # OTLP/HTTP span export to Tempo. The localhost default is for IDE-only dev; the
-      # docker-compose apps overlay sets this to http://tempo:4318/v1/traces.
-      endpoint: ${PARKIO_TRACING_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        otlp:
+          # OTLP/HTTP span export to Tempo. The localhost default is for IDE-only dev; the
+          # docker-compose apps overlay sets this to http://tempo:4318/v1/traces.
+          endpoint: ${PARKIO_TRACING_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 
 info:

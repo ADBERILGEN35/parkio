@@ -80,7 +80,7 @@ class AccountErasureDurableRecordingPostgresIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.durable-recording-enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.participants", () -> "user");

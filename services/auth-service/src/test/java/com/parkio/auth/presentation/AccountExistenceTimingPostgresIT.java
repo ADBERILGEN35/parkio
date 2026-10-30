@@ -95,7 +95,7 @@ class AccountExistenceTimingPostgresIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.security.email-verification.log-token", () -> "false");
         registry.add("parkio.security.password-reset.log-token", () -> "false");
     }
