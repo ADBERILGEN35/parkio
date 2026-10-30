@@ -178,8 +178,13 @@ public class PushDeliveryWorker {
             deviceTokens.save(deviceToken);
             log.info("Deactivated invalid device token id={}", deviceToken.id());
         }
-        boolean willRetry = attempt.attemptCount() + 1 < maxAttempts;
-        attempt.recordFailure(reason, maxAttempts, baseBackoff, clock.instant());
+        // Unknown acceptance must not create another delivery. FAILED + this reason
+        // means unresolved outcome, not proof that the provider rejected the message.
+        boolean terminal = ExpoPushNotificationSender.FAILURE_OUTCOME_UNKNOWN.equals(reason)
+                || ExpoPushNotificationSender.FAILURE_CONFIGURATION.equals(reason)
+                || ExpoPushNotificationSender.FAILURE_INVALID_DEVICE_TOKEN.equals(reason);
+        boolean willRetry = !terminal && attempt.attemptCount() + 1 < maxAttempts;
+        attempt.recordFailure(reason, terminal ? 1 : maxAttempts, baseBackoff, clock.instant());
         attempts.save(attempt);
         workerFailure.increment();
         if (willRetry && attempt.status() == DeliveryStatus.PENDING) {

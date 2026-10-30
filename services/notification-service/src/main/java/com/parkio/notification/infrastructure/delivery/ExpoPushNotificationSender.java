@@ -1,6 +1,7 @@
 package com.parkio.notification.infrastructure.delivery;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.parkio.notification.application.port.PushMessage;
 import com.parkio.notification.application.port.PushNotificationSender;
@@ -28,6 +29,8 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
     static final String FAILURE_INVALID_DEVICE_TOKEN = "INVALID_DEVICE_TOKEN";
     static final String FAILURE_PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE";
     static final String FAILURE_PROVIDER_REJECTED = "PROVIDER_REJECTED";
+    static final String FAILURE_OUTCOME_UNKNOWN = "PROVIDER_OUTCOME_UNKNOWN";
+    static final String FAILURE_CONFIGURATION = "PROVIDER_CONFIGURATION_ERROR";
 
     private static final Logger log = LoggerFactory.getLogger(ExpoPushNotificationSender.class);
 
@@ -52,37 +55,53 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
                     .body(ExpoPushRequest.of(message, defaultChannelId))
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, httpResponse) -> {
-                        throw new ExpoPushException("Expo push API rejected request with status "
-                                + httpResponse.getStatusCode());
+                        throw new ExpoPushException(httpResponse.getStatusCode().value());
                     })
                     .body(ExpoPushResponse.class);
-            if (response == null || response.data() == null || response.data().isEmpty()) {
-                metrics.providerUnavailable();
-                return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
+            if (response == null || response.data() == null || response.data().size() != 1
+                    || response.data().getFirst() == null) {
+                return unknownOutcome();
             }
             ExpoTicket ticket = response.data().getFirst();
             if ("ok".equalsIgnoreCase(ticket.status())) {
+                if (ticket.id() == null || ticket.id().isBlank()) {
+                    return unknownOutcome();
+                }
                 metrics.sent();
-                return PushSendResult.sent(ticket.id() == null ? "expo-ok" : ticket.id());
+                return PushSendResult.sent(ticket.id());
+            }
+            if (!"error".equalsIgnoreCase(ticket.status())) {
+                return unknownOutcome();
             }
             if (isInvalidToken(ticket)) {
                 metrics.invalidToken();
                 return PushSendResult.failed(FAILURE_INVALID_DEVICE_TOKEN);
             }
             metrics.failed();
-            // Log only the machine-readable code: ticket.message() is free text that
-            // embeds the device token ("ExponentPushToken[...] is not a registered...").
-            log.warn("Expo push ticket error: {}", errorCode(ticket) == null ? "UNKNOWN" : errorCode(ticket));
+            if ("InvalidCredentials".equals(errorCode(ticket))
+                    || "UNAUTHORIZED".equals(errorCode(ticket))
+                    || "MismatchSenderId".equals(errorCode(ticket))) {
+                return PushSendResult.failed(FAILURE_CONFIGURATION);
+            }
+            // Neither provider prose nor arbitrary details.error values are safe to log.
+            log.warn("Expo rejected push ticket");
             return PushSendResult.failed(FAILURE_PROVIDER_REJECTED);
         } catch (ExpoPushException ex) {
             metrics.providerUnavailable();
-            log.warn("Expo push provider unavailable: {}", ex.getMessage());
-            return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
+            log.warn("Expo push HTTP failure: {}", ex.status);
+            return PushSendResult.failed(ex.status == 401 || ex.status == 403
+                    ? FAILURE_CONFIGURATION : FAILURE_PROVIDER_UNAVAILABLE);
         } catch (RestClientException ex) {
             metrics.providerUnavailable();
             log.warn("Expo push network failure: {}", ex.getClass().getSimpleName());
-            return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
+            // A timeout, reset or unreadable response cannot prove Expo did not enqueue it.
+            return PushSendResult.failed(FAILURE_OUTCOME_UNKNOWN);
         }
+    }
+
+    private PushSendResult unknownOutcome() {
+        metrics.providerUnavailable();
+        return PushSendResult.failed(FAILURE_OUTCOME_UNKNOWN);
     }
 
     /**
@@ -104,8 +123,7 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
     }
 
     private static boolean isInvalidTokenCode(String value) {
-        return "DeviceNotRegistered".equalsIgnoreCase(value)
-                || "InvalidCredentials".equalsIgnoreCase(value);
+        return "DeviceNotRegistered".equalsIgnoreCase(value);
     }
 
     private record ExpoPushRequest(
@@ -130,7 +148,8 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ExpoPushResponse(List<ExpoTicket> data) {
+    private record ExpoPushResponse(
+            @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<ExpoTicket> data) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -143,8 +162,9 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
     }
 
     private static final class ExpoPushException extends RuntimeException {
-        private ExpoPushException(String message) {
-            super(message);
+        private final int status;
+        private ExpoPushException(int status) {
+            this.status = status;
         }
     }
 }
