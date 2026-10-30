@@ -44,6 +44,9 @@ spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-star
 # each tested technology has a test starter.
 spring-boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
 spring-boot-starter-kafka = { module = "org.springframework.boot:spring-boot-starter-kafka" }
+# The auto-configured RestClient.Builder and WebClient.Builder beans moved to their own modules.
+spring-boot-starter-restclient = { module = "org.springframework.boot:spring-boot-starter-restclient" }
+spring-boot-starter-webclient = { module = "org.springframework.boot:spring-boot-starter-webclient" }
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
 spring-boot-starter-webflux-test = { module = "org.springframework.boot:spring-boot-starter-webflux-test" }
 spring-boot-starter-data-jpa-test = { module = "org.springframework.boot:spring-boot-starter-data-jpa-test" }

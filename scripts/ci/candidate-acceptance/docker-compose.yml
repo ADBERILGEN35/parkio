@@ -67,6 +67,8 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "127.0.0.1:1"
       MANAGEMENT_HEALTH_KAFKA_ENABLED: "false"
       MANAGEMENT_TRACING_ENABLED: "false"
+      # Spring Boot 4 name of the same switch (images from either line run here).
+      MANAGEMENT_TRACING_EXPORT_ENABLED: "false"
       PARKIO_TRACING_ENABLED: "false"
       PARKIO_OPENAPI_ENABLED: "false"
       PARKIO_GATEWAY_INTERNAL_SECRET: disposable-gateway-internal-secret-u03u04
@@ -113,6 +115,8 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       MANAGEMENT_TRACING_ENABLED: "false"
+      # Spring Boot 4 name of the same switch (images from either line run here).
+      MANAGEMENT_TRACING_EXPORT_ENABLED: "false"
       PARKIO_TRACING_ENABLED: "false"
       PARKIO_OPENAPI_ENABLED: "false"
       PARKIO_GATEWAY_INTERNAL_SECRET: disposable-gateway-internal-secret-u03u04

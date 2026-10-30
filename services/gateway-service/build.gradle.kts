@@ -12,6 +12,8 @@ dependencies {
     implementation(libs.spring.cloud.gateway)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.jackson2)
+    implementation(libs.spring.boot.starter.restclient)
+    implementation(libs.spring.boot.starter.webclient)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)
     // Distributed tracing: export OTLP spans to Tempo (Micrometer Observation -> OpenTelemetry).

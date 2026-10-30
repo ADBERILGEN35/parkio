@@ -97,6 +97,8 @@ services:
       SPRING_DATA_REDIS_PORT: "6379"
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       MANAGEMENT_TRACING_ENABLED: "false"
+      # Spring Boot 4 name of the same switch (images from either line run here).
+      MANAGEMENT_TRACING_EXPORT_ENABLED: "false"
       PARKIO_ENVIRONMENT: e2e
       PARKIO_GATEWAY_INTERNAL_SECRET: e2e-only-internal-secret-0123456789abcdef
       PARKIO_WAITLIST_HASH_SECRET: ${E2E_HASH_SECRET:-e2e-only-waitlist-hash-secret-0123456789ab}
