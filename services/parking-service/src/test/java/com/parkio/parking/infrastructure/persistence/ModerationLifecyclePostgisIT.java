@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -94,7 +94,7 @@ class ModerationLifecyclePostgisIT {
     private JdbcTemplate jdbc;
 
     /** Media readiness is a cross-service HTTP call; the lifecycle under test is local. */
-    @MockBean
+    @MockitoBean
     private MediaReadinessPort mediaReadiness;
 
     @BeforeEach

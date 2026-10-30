@@ -35,7 +35,7 @@ import org.junit.jupiter.params.provider.FieldSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -88,10 +88,10 @@ class AccountErasureParticipantContractPostgresIT {
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
     }
 
-    @MockBean private PasswordHasher passwordHasher;
-    @MockBean private OutboxEventAppender outbox;
-    @MockBean private LoginFailureTracker loginFailureTracker;
-    @MockBean private EmailVerificationSender emailVerificationSender;
+    @MockitoBean private PasswordHasher passwordHasher;
+    @MockitoBean private OutboxEventAppender outbox;
+    @MockitoBean private LoginFailureTracker loginFailureTracker;
+    @MockitoBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService erasure;
     @Autowired private ErasureAckKafkaConsumer consumer;

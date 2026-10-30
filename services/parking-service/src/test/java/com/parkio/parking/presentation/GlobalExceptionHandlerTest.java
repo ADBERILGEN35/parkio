@@ -27,6 +27,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -113,6 +114,7 @@ class GlobalExceptionHandlerTest {
     void noResourceFoundMapsToNotFound() {
         ResponseEntity<ApiError> response = handler.handleNoResource(
                 new NoResourceFoundException(HttpMethod.POST,
+                        "/api/v1/parking/municipal/sources/osm-geofabrik-turkey/import",
                         "api/v1/parking/municipal/sources/osm-geofabrik-turkey/import"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -145,7 +147,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void malformedBodyMapsTo400() {
         ResponseEntity<ApiError> response = handler.handleBadRequest(
-                new HttpMessageNotReadableException("JSON parse error: secret"));
+                new HttpMessageNotReadableException("JSON parse error: secret", new MockHttpInputMessage(new byte[0])));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
@@ -203,7 +205,7 @@ class GlobalExceptionHandlerTest {
         // Standalone MockMvc returns empty 404 for unmapped paths; exercise the handler
         // path that ConditionalOnProperty absences hit in a full DispatcherServlet.
         ResponseEntity<ApiError> response = handler.handleNoResource(
-                new NoResourceFoundException(HttpMethod.GET, "api/v1/parking/does-not-exist"));
+                new NoResourceFoundException(HttpMethod.GET, "/api/v1/parking/does-not-exist", "api/v1/parking/does-not-exist"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody().code()).isEqualTo("NOT_FOUND");
     }
