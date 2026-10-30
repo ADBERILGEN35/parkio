@@ -95,7 +95,7 @@ the same results as the matching `fdce6ba0` pin images.
 | Fix | gh-37029, commit `692dbc91`: `XsltView.getStylesheetSource()` normalizes and checks the stylesheet location. 7.0.9 OSS; 6.2.20 Enterprise Support only |
 | GHSA / NVD | GHSA-pc63-qcmh-9cmg, critical 9.8 (CISA-ADP vector), package spring-webmvc, no patched 6.2.x version |
 | Images | spring-webmvc 6.2.19 in the nine servlet images; not in the gateway |
-| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any inspected image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No application class is a non-REST `@Controller`. The only `@Controller` classes come from libraries: Spring Boot's BasicErrorController and ManagementErrorEndpoint, and springdoc's Swagger UI controllers. They return explicit view names (the `error` view) or redirects, none of them is XsltView, and none streams SSE. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
+| Applicability | **Not applicable (static, exact artifacts).** No class or resource outside spring-webmvc references or names the XsltView package in any inspected image. The application classes reference no View, ViewResolver, ViewControllerRegistry or UrlFilenameViewController. No application class is a non-REST `@Controller`. The only `@Controller` classes come from libraries: Spring Boot's BasicErrorController and ManagementErrorEndpoint, and springdoc's Swagger UI controllers. BasicErrorController renders the explicit `error` view, ManagementErrorEndpoint returns a JSON body and the Swagger UI controllers redirect; spring-boot-autoconfigure's GraphQlRSocketController is inactive without Spring GraphQL and RSocket. None of them uses XsltView and none streams SSE. No template engine is on the classpath. The only shipped .xsl is spring-security.xsl in auth-service's spring-security-config jar, which is not a view. Spring Boot does not auto-configure XsltView |
 
 ## 2. CVE-2026-47890 — "Spring Framework Server Sent Event stream corruption while rendering fragments"
 
@@ -148,7 +148,7 @@ entries or move their dates instead.
 | 4 | A `spring.main.web-application-type` setting, or a move to Spring Cloud Gateway Server MVC | Check F in review | Remove all three entries |
 | 5 | spring-webflux in a servlet image, or spring-webmvc or a servlet container in the gateway | The artifact check (its role rule). The ignore paths are not tied to an image, so the gates would not show this on their own; the unfiltered Security CI report does name the image of each finding | Remove all three entries |
 | 6 | A new Java service or image | The artifact check, run by hand on the image's `/app/app.jar` before it is published or deployed (CI does not run it) | A finding is trigger 10 |
-| 7 | Any Spring Framework, Spring Boot or Spring Cloud Gateway change | A Framework version change makes the version-pinned path stop matching, so the scanner reports the new jar on its own. A Boot or Gateway change on the same Framework version shows in review of `gradle/libs.versions.toml` and `gradle.properties` | On Framework 7.0.9 or later (#515): drop the entries in that change. On the same Framework version: run checks A–H and the artifact check on the new images; remove the entries if any of them reports something |
+| 7 | Any Spring Framework, Spring Boot or Spring Cloud Gateway change | A Framework version change makes the version-pinned path stop matching, so the scanner reports the new jar on its own. A Boot or Gateway change on the same Framework version shows in review of `gradle/libs.versions.toml` and `gradle.properties` | On Framework 7.0.9 or later (#515): drop the entries in that change. On the same Framework version: run checks A–H and the artifact check on the new images, and re-review the script's library allowances (`LIB_ALLOWED`) for every library whose version changed; remove the entries if anything reports a construct |
 | 8 | Actuator web exposure beyond `health,info,prometheus`, or adding Resilience4j reactor support | Checks G and H in review; the read-only runtime probe for production | Remove the entry for CVE-2026-47890 |
 | 9 | Advisory updates: a new spring.io history entry, changed GHSA package ranges, new NVD or CISA-ADP data, or an exploitation report | Re-fetch the three spring.io advisories, their GHSA records and NVD records and compare them with the 2026-10-30 copies. Do this on 2026-11-06, 11-13, 11-20 and 11-27, and before any change to these entries | Stop and re-decide if a condition, range or exploitation status changed |
 | 10 | A failed artifact check on a candidate or deployed image | `scripts/ci/check_spring_cve_artifacts.py` (below), run by whoever builds or deploys the image | Exit 1: remove the entries that the finding concerns, and do not publish or deploy the image under this exception. Exit 2: the check did not run; fix it before publishing |
@@ -167,7 +167,7 @@ git grep -nEi 'thymeleaf|freemarker|mustache|groovy-templates|gg\.jte|pebble|jas
 # C: XSL resources
 git ls-files -- ':(glob)services/**' | grep -Ei '\.xslt?$'
 # D: view and template settings
-git grep -nE 'spring\.(mvc|webflux)\.view|spring\.(thymeleaf|freemarker|mustache)|^\s*(view|thymeleaf|freemarker|mustache|groovy):' -- ':(glob)services/*/src/main/resources/**'
+git grep -nE 'spring\.(mvc|webflux)\.view|spring\.(thymeleaf|freemarker|mustache)|(^|[[:space:].])(view|thymeleaf|freemarker|mustache|groovy)[.:]' -- ':(glob)services/*/src/main/resources/**'
 git grep -nE 'SPRING_(MVC_VIEW|WEBFLUX_VIEW|THYMELEAF|FREEMARKER|MUSTACHE|GROOVY_TEMPLATE)' -- 'docker/*.yml'
 # E: functional endpoints and custom handlers
 git grep -nE 'RouterFunction|RequestPredicates|toHttpHandler|toWebHandler|implements (HttpHandler|WebHandler)\b' -- ':(glob)services/*/src/main/**'
@@ -182,23 +182,29 @@ git grep -nE 'exposure\.include|EXPOSURE_INCLUDE|^\s+include:' -- ':(glob)servic
 
 On 2026-10-30 the checks printed nothing, and the control printed 50 (32 at master `f8973747`, 49 at `4a9ba218`), at
 api `399b5dd7`, at `fdce6ba0`, at master and at every production revision. A throwaway edit adding SSE, a template
-engine, an .xsl file, a RouterFunction, nested `view:` settings, a web application type and a wider exposure made
-the matching checks print it. The first check F leaves out `services/*/src/main/java` on purpose: auth-service's
+engine, an .xsl file, a RouterFunction, nested `view:` and dotted `view.prefix:` settings, a web application type and
+a wider exposure made the matching checks print it. The first check F leaves out `services/*/src/main/java` on purpose: auth-service's
 recovery-replay command reads `spring.main.web-application-type` only to refuse to run with a web server.
 
 The artifact check, for every Java image before it is published or deployed while these entries exist. CI does not
 run it. The container is created only to copy the jar and is never started:
 
 ```sh
-docker create --name spring-cve-check <image>@sha256:<digest>
-docker cp spring-cve-check:/app/app.jar ./app.jar && docker rm spring-cve-check
-python3 scripts/ci/check_spring_cve_artifacts.py --role servlet ./app.jar   # the gateway: --role gateway
+set -eu
+rm -f app.jar
+cid=$(docker create <image>@sha256:<digest>)
+docker cp "$cid:/app/app.jar" app.jar
+docker rm "$cid"
+sha256sum app.jar   # record it with the result
+python3 scripts/ci/check_spring_cve_artifacts.py --role servlet app.jar   # the gateway: --role gateway
 ```
 
 Exit 0 means no finding. Exit 1 lists each finding as `<jar>: <rule>: <entry>` (trigger 10). Exit 2 means the jar
 could not be read or the positive control failed, so the check did not run. The library references it allows (Spring
-Boot, Spring Web, Spring Security, springdoc, Netty and Resilience4j classes) are the ones reviewed for #513.
-`scripts/ci/test_check_spring_cve_artifacts.py` covers each rule with synthetic jars.
+Boot, Spring Web, Spring Security, springdoc, Netty and Resilience4j classes, and for spring-boot-autoconfigure only its
+configuration metadata) are the ones reviewed for #513 on the 2026-10-30 production jars.
+`scripts/ci/test_check_spring_cve_artifacts.py` exercises the rules with synthetic jars; each of 14 seeded faults in the
+script (for example a dropped pattern, a widened allowance or a wrong exit code) makes a test fail.
 
 ## 6. What this does not do
 
