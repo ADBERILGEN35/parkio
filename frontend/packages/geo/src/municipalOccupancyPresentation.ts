@@ -1,8 +1,4 @@
 import type { MunicipalFacility, MunicipalOccupancyFreshness } from '@parkio/types';
-import {
-  MUNICIPAL_SOURCE_KEY_IZUM,
-  municipalSourceFamily,
-} from './municipalSourcePresentation';
 
 /** User-facing occupancy presentation class — never expose internal freshness enums raw. */
 export type MunicipalOccupancyPresentationKind =
@@ -21,41 +17,27 @@ export interface MunicipalOccupancySummary {
   invalid: number;
 }
 
-function facilityHasIzum(facility: MunicipalFacility): boolean {
-  const keys = facility.contributingSourceKeys ?? [];
-  if (keys.some((key) => municipalSourceFamily(key) === 'izum')) {
-    return true;
-  }
-  if (facility.availabilitySource === MUNICIPAL_SOURCE_KEY_IZUM) {
-    return true;
-  }
-  return false;
-}
-
 function effectiveFreshness(facility: MunicipalFacility): MunicipalOccupancyFreshness | null {
   return facility.availabilityFreshness ?? facility.freshness;
 }
 
 /**
  * Classify how a municipal facility's occupancy should be presented.
- * OSM (and other non-live sources) → static. İZUM STALE → stale_live (not static).
+ * Freshness takes precedence over retained numeric values, for every provider.
  */
 export function municipalOccupancyPresentationKind(
   facility: MunicipalFacility,
 ): MunicipalOccupancyPresentationKind {
   const freshness = effectiveFreshness(facility);
-  const izum = facilityHasIzum(facility);
-
-  if (facility.availableSpaces != null) {
-    if (freshness === 'AGING') return 'aging';
-    return 'live';
-  }
-
-  if (izum && freshness === 'STALE') {
+  if (freshness === 'STALE') {
     return 'stale_live';
   }
   if (freshness === 'INVALID') {
     return 'invalid';
+  }
+  if (facility.availableSpaces != null) {
+    if (freshness === 'LIVE') return 'live';
+    if (freshness === 'AGING') return 'aging';
   }
   return 'static';
 }

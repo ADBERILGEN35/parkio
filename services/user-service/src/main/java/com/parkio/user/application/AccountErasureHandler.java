@@ -3,6 +3,7 @@ package com.parkio.user.application;
 import com.parkio.user.application.event.UserErasureRequestedEvent;
 import com.parkio.user.application.event.UserErasureRestoreReplayRequestedEvent;
 import com.parkio.user.application.port.ErasureAckOutbox;
+import com.parkio.user.application.port.UserOwnerFence;
 import com.parkio.user.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.user.domain.event.UserErasureRestoreAcknowledgedEvent;
 import com.parkio.user.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
@@ -55,6 +56,7 @@ public class AccountErasureHandler {
     private final ErasedUserTombstoneJpaRepository tombstones;
     private final ErasureAckOutbox ackOutbox;
     private final Clock clock;
+    private final UserOwnerFence ownerFence;
 
     public AccountErasureHandler(
             UserProfileJpaRepository profiles,
@@ -70,7 +72,8 @@ public class AccountErasureHandler {
             PendingUserStatusEventJpaRepository pendingStatus,
             ErasedUserTombstoneJpaRepository tombstones,
             ErasureAckOutbox ackOutbox,
-            Clock clock) {
+            Clock clock,
+            UserOwnerFence ownerFence) {
         this.profiles = profiles;
         this.savedPlaces = savedPlaces;
         this.favouriteParking = favouriteParking;
@@ -85,6 +88,7 @@ public class AccountErasureHandler {
         this.tombstones = tombstones;
         this.ackOutbox = ackOutbox;
         this.clock = clock;
+        this.ownerFence = ownerFence;
     }
 
     @Transactional
@@ -130,6 +134,7 @@ public class AccountErasureHandler {
     }
 
     private void eraseLocal(UUID authUserId) {
+        ownerFence.holdForErasure(authUserId);
         tombstones.save(new ErasedUserTombstoneEntity(authUserId, clock.instant()));
         pendingStatus.deleteByAuthUserId(authUserId);
         Optional<UserProfileEntity> profile = profiles.findByAuthUserId(authUserId);

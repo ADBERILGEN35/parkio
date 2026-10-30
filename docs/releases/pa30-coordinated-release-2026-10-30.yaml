@@ -1,0 +1,83 @@
+schema_version: 1
+status: preparation_only_no_publication_pin_or_deployment_authorized
+base_source: 399b5dd7dad67848d34a22df8a719f8c85f102ff
+base_tree: 1511b5e5a052fbe300c849879a61c57172f8fe0c
+remediation_branch: fix/pa30-scoped-remediation
+fixes:
+  - id: PA30-02
+    issue: 521
+    commit: 4631b5766a5787b942fd01160b4cde9a9efbb483
+    components: [notification-service]
+    acceptance: single_or_array_ticket_id_persisted_no_retry_on_acceptance_or_unknown
+  - id: PA30-03
+    issue: 522
+    commit: f279e78c0ce93985af9be693250984fc81b3c280
+    components: [media-service]
+    acceptance: real_tcp_total_deadline_interrupt_cleanup_and_no_ready_on_timeout
+  - id: PA30-S01
+    issue: 524
+    commit: 262aa86981a62b9f14b60972abe40d18ea72acf8
+    components: [user-service]
+    acceptance: real_postgresql_writer_erasure_ordering_late_events_and_active_controls
+    production_flag: account_erasure_remains_disabled
+  - id: PA30-04
+    issue: 523
+    commit: 54c40fee41b356114eb1a442791cccbfdc9ccfaf
+    components: [geo, web, mobile-v2]
+    acceptance: stale_or_unknown_values_never_presented_as_live_numeric_occupancy
+    live_acceptance: pending_scheduled_ispark_recovery_and_separate_izum_completeness
+source_fixed_changes_to_include:
+  - issues: [498, 501]
+    scope: body_parser_brotli_snappy_guava_security_fixes_already_in_api
+    gate: inspect_resolved_sbom_and_running_artifacts_do_not_assume_old_pins_include_fixes
+  - issues: [356, 357, 358, 359, 360, 361, 362, 372, 379, 382, 384]
+    scope: existing_erasure_fences_privacy_policy_leases_occupancy_and_projection_fixes
+    gate: reconcile_each_participant_and_rollback_compatibility_before_any_erasure_enablement
+coordination:
+  concurrent_owner: [513, 516, 515, 517, 518, 519]
+  forbidden_overlap: [dependencies, lockfiles, migration_build_changes]
+  spring_migration: pending_owner_readiness_and_required_reviews
+  mapper_contract: field_scoped_JsonFormat_annotation_and_actual_application_mapper_tests
+  migration_test_adaptation:
+    - preserve_ExpoApplicationMapperTest_contract_when_Boot_test_slice_packages_change
+    - preserve_UserErasureFencePostgresIT_real_database_barriers
+    - rerun_ClamavMediaScannerDeadlineTest_on_migrated_runtime
+canonical_pins_at_preparation:
+  java_source: fdce6ba003735cf96e75013584e582c7df4c8a91
+  web_source: 3d47791818d68154e098da0513a083194f714def
+  changed_by_this_work: false
+release_gates_in_order:
+  - independent_review_of_exact_pr_head_and_all_repository_required_checks
+  - merge_approved_source_into_api_then_record_immutable_release_sha_and_tree
+  - reconcile_515_516_518_heads_and_scanner_applicability_without_waiving_new_findings
+  - verify_offsite_protection_or_obtain_explicit_owner_release_risk_decision
+  - separately_authorize_candidate_build_acceptance_and_publication
+  - issue_508_real_candidate_identity_acceptance_on_pinned_runner
+  - verify_saved_loaded_published_image_identity_manifest_digest_config_digest_and_source_labels
+  - verify_signature_provenance_workflow_identity_sbom_and_artifact_hashes
+  - prepare_reviewed_digest_pins_and_canonical_compose_config_order_without_applying_them
+  - preserve_previous_images_config_backup_manifests_and_forward_migration_compatibility_for_rollback
+  - obtain_separate_pin_and_deployment_authorization
+  - verify_running_digests_source_labels_health_routes_and_metrics_after_authorized_rollout
+post_deploy_checks:
+  notification:
+    - observe_ticket_id_persistence_and_retry_counters_without_synthetic_real_device_messages
+    - unknown_and_configuration_failures_remain_terminal_valid_tokens_remain_active
+    - ticket_acceptance_is_not_device_delivery_receipt_collection_is_separate_work
+  media:
+    - verify_scanner_configuration_and_readiness_without_stalling_production_clamd
+    - configured_clamd_address_is_resolved_at_bean_creation_recreate_after_address_change
+    - use_disposable_acceptance_for_timeout_infected_and_concurrency_scenarios
+  user:
+    - verify_fence_source_identity_keep_production_erasure_disabled
+    - issue_365_erasure_safe_isolated_recovery_acceptance_is_still_required
+  municipal:
+    - observe_actual_scheduled_ispark_success_and_freshness_without_manual_sync_loop
+    - izum_success_does_not_prove_complete_snapshot_preserve_missing_facilities
+    - verify_web_and_native_release_artifact_versions_separately
+operational_issues_remain_open:
+  - issue: 520
+    condition: remote_backup_objects_manifest_hashes_receipt_and_success_metrics_verified
+  - issue: 523
+    condition: scheduled_live_freshness_and_snapshot_completeness_accepted
+deferred: [google_migration, gcs_live_acceptance, production_erasure_enablement, production_restore]

@@ -150,6 +150,23 @@ or token values.
 Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable}.count`,
 `parkio.notification.delivery.retry.count`, `parkio.notification.delivery.worker.*`.
 
+Expo send accepts either a single ticket or a one-element ticket array. `SENT`
+means **Expo ticket accepted**, not delivery to FCM/APNs or a device; the real ticket
+ID is retained. Missing IDs, malformed/empty responses and transport failures are
+terminal `FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the
+worker does not resend automatically. This trades possible missed notifications
+for avoiding duplicate sends when acceptance cannot be established. HTTP rejection
+and other explicit ticket failures retain bounded backoff; `DeviceNotRegistered`
+is terminal and deactivates the token. Credential/configuration failures are
+terminal `PROVIDER_CONFIGURATION_ERROR` and preserve the token.
+
+Receipt lookup is a **separate API contract** (IDs mapped to receipt objects), not
+implemented by this sender. Credential errors in receipts concern provider setup,
+not token validity. Receipt collection, retention and operator reconciliation of
+unknown outcomes require a separate design; no receipt polling or automatic
+unknown-outcome replay is implied here. See the
+[Expo send/ticket/receipt contract](https://docs.expo.dev/push-notifications/sending-notifications/).
+
 ### Required env vars for a real FCM provider (later)
 
 Real FCM is **not** wired yet. When it is implemented, configure (and inject as secrets —
