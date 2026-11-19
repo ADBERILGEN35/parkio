@@ -68,6 +68,8 @@ class AuthApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-06T12:00:00Z");
     private static final String VALID_PASSWORD = "StrongerPass123";
+    /** Policy-valid, low-entropy new password for the change-password throttle tests (H-06). */
+    private static final String NEW_PASSWORD = "Testtest-testtest-2B";
     private static final Role USER_ROLE =
             new Role(UUID.fromString("00000000-0000-0000-0000-000000000001"), RoleName.USER);
 
@@ -799,14 +801,14 @@ class AuthApplicationServiceTest {
 
         for (int i = 0; i < 4; i++) {
             assertThatThrownBy(() -> service.changePassword(
-                    new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", CLIENT)))
+                    new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD, CLIENT)))
                     .isInstanceOf(AuthException.class)
                     .isNotInstanceOf(LoginLockedException.class)
                     .extracting(e -> ((AuthException) e).errorCode())
                     .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
         }
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", CLIENT)))
+                new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD, CLIENT)))
                 .isInstanceOf(LoginLockedException.class)
                 .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
                 .extracting(e -> ((AuthException) e).errorCode())
@@ -816,7 +818,7 @@ class AuthApplicationServiceTest {
 
         // While the pair waits even the right current password is refused and not counted; nothing changes.
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT)))
+                new ChangePasswordCommand(userId, VALID_PASSWORD, NEW_PASSWORD, CLIENT)))
                 .isInstanceOf(LoginLockedException.class)
                 .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage());
         assertThat(failureCount("change@example.com", CLIENT)).isEqualTo(5);
@@ -829,11 +831,11 @@ class AuthApplicationServiceTest {
         // Once the wait has passed the right current password changes the password as before. It clears this
         // client's pair; the account counter stays, as after a successful login.
         clock.advance(Duration.ofSeconds(31));
-        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT));
+        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, NEW_PASSWORD, CLIENT));
 
         RefreshToken refresh = refreshTokens.findByTokenHash(refreshTokenHasher.hash(session.refreshToken()))
                 .orElseThrow();
-        assertThat(passwordHasher.matches("FreshStrong123", authUsers.findById(userId).orElseThrow().passwordHash()))
+        assertThat(passwordHasher.matches(NEW_PASSWORD, authUsers.findById(userId).orElseThrow().passwordHash()))
                 .isTrue();
         assertThat(refresh.revokedReason()).isEqualTo(RefreshTokenRevocationReason.PASSWORD_CHANGED);
         assertThat(service.sessionEpoch(userId)).isEqualTo(epoch + 1);
@@ -854,7 +856,7 @@ class AuthApplicationServiceTest {
                     .isInstanceOf(AuthException.class)
                     .isNotInstanceOf(LoginLockedException.class);
             assertThatThrownBy(() -> service.changePassword(
-                    new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", OTHER_CLIENT)))
+                    new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD, OTHER_CLIENT)))
                     .isInstanceOf(AuthException.class)
                     .isNotInstanceOf(LoginLockedException.class);
         }
@@ -865,13 +867,13 @@ class AuthApplicationServiceTest {
         assertThatThrownBy(() -> service.login(new LoginCommand("shared@example.com", "wrong-password", OTHER_CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", OTHER_CLIENT)))
+                new ChangePasswordCommand(userId, VALID_PASSWORD, NEW_PASSWORD, OTHER_CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
 
         // After the wait a sixth failure, on change-password, starts the next wait; login honours it.
         clock.advance(Duration.ofSeconds(31));
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", OTHER_CLIENT)))
+                new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD, OTHER_CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
         assertThatThrownBy(() -> service.login(new LoginCommand("shared@example.com", VALID_PASSWORD, OTHER_CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
@@ -894,13 +896,13 @@ class AuthApplicationServiceTest {
         }
 
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", OTHER_CLIENT)))
+                new ChangePasswordCommand(userId, VALID_PASSWORD, NEW_PASSWORD, OTHER_CLIENT)))
                 .isInstanceOf(LoginLockedException.class);
         assertThat(failureCount("tier@example.com", OTHER_CLIENT)).isZero();
 
         // CLIENT logged in successfully, so it is known for the account and only its own pair applies.
-        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT));
-        assertThat(passwordHasher.matches("FreshStrong123", authUsers.findById(userId).orElseThrow().passwordHash()))
+        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, NEW_PASSWORD, CLIENT));
+        assertThat(passwordHasher.matches(NEW_PASSWORD, authUsers.findById(userId).orElseThrow().passwordHash()))
                 .isTrue();
     }
 
@@ -910,10 +912,10 @@ class AuthApplicationServiceTest {
         AuthResult session = registerVerifiedAndLogin("nokey@example.com");
         UUID userId = session.user().id();
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123")))
+                new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD)))
                 .isInstanceOf(AuthException.class);
         assertThatThrownBy(() -> service.changePassword(
-                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", " ")))
+                new ChangePasswordCommand(userId, "wrong-password", NEW_PASSWORD, " ")))
                 .isInstanceOf(AuthException.class);
         assertThatThrownBy(() -> service.login(new LoginCommand("nokey@example.com", "wrong-password", null)))
                 .isInstanceOf(AuthException.class);

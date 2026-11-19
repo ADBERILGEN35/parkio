@@ -53,6 +53,7 @@ class LoginThrottleClientKeyHttpTest {
 
     private static final String GATEWAY_SECRET = "test-only-parkio-gateway-internal-secret-0123456789";
     private static final String PASSWORD = "Testtest-testtest-1A";  // policy-valid, low-entropy test value
+    private static final String NEW_PASSWORD = "Testtest-testtest-2B";  // policy-valid, low-entropy test value
 
     @Autowired
     private MockMvc mockMvc;
@@ -176,7 +177,7 @@ class LoginThrottleClientKeyHttpTest {
         String email = verifiedUser();
 
         MockHttpServletResponse response = postAuthorized("/api/v1/auth/change-password", accessToken(email),
-                "2001:DB8:5:6::7", Map.of("currentPassword", PASSWORD, "newPassword", "FreshStrong123"));
+                "2001:DB8:5:6::7", Map.of("currentPassword", PASSWORD, "newPassword", NEW_PASSWORD));
 
         assertThat(response.getStatus()).isEqualTo(204);
         verify(loginFailureTracker).admit(eq(email), eq("2001:db8:5:6:0:0:0:0/64"), any(Instant.class));
@@ -197,9 +198,9 @@ class LoginThrottleClientKeyHttpTest {
                 .thenReturn(Duration.ofSeconds(30));
 
         MockHttpServletResponse wrong = postAuthorized("/api/v1/auth/change-password", accessToken, "198.51.100.23",
-                Map.of("currentPassword", "Wrong-password-123", "newPassword", "FreshStrong123"));
+                Map.of("currentPassword", "wrong-password", "newPassword", NEW_PASSWORD));
         MockHttpServletResponse throttled = postAuthorized("/api/v1/auth/change-password", accessToken,
-                "198.51.100.24", Map.of("currentPassword", PASSWORD, "newPassword", "FreshStrong123"));
+                "198.51.100.24", Map.of("currentPassword", PASSWORD, "newPassword", NEW_PASSWORD));
 
         assertThat(wrong.getStatus()).isEqualTo(401);
         assertThat(throttled.getStatus()).isEqualTo(401);
