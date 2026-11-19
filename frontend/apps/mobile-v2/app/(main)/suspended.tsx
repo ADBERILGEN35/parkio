@@ -33,9 +33,10 @@ export default function SuspendedScreen() {
         label={t('auth.suspended.signOut')}
         variant="tonal"
         onPress={async () => {
-          // Before signOut, which clears the session the deactivation needs. Best effort: the
-          // next account's registration of this token deactivates it on the server as well.
-          await unregisterPushToken();
+          // Before signOut, which clears the session the deactivation needs. Best effort that never
+          // blocks sign-out: the next account's registration of this token deactivates it on the
+          // server as well.
+          await unregisterPushToken().catch(() => undefined);
           await signOut();
           router.replace('/(onboarding)/welcome');
         }}

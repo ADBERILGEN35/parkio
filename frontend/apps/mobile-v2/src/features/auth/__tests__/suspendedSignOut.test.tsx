@@ -54,4 +54,15 @@ describe('suspended screen sign-out', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/(onboarding)/welcome'));
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
+
+  it('still signs out when releasing the push token fails', async () => {
+    mockUnregisterPushToken.mockRejectedValue(new Error('release failed'));
+    renderWithProviders(<SuspendedScreen />);
+
+    fireEvent.press(screen.getByRole('button', { name: tr['auth.suspended.signOut'] }));
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/(onboarding)/welcome'));
+    expect(mockUnregisterPushToken).toHaveBeenCalledTimes(1);
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
 });
