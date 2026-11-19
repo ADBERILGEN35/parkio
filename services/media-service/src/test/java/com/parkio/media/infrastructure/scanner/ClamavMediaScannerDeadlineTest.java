@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.media.application.port.MediaScannerUnavailableException;
 import java.io.DataInputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
@@ -53,6 +54,34 @@ class ClamavMediaScannerDeadlineTest {
                         .isInstanceOf(MediaScannerUnavailableException.class);
                 assertThat(drained.get(2, TimeUnit.SECONDS)).isEqualTo(-1);
             }
+        }
+    }
+
+    @Test
+    void unresolvableHostDoesNotFailConstructionAndEachScanFailsClosed() {
+        // RFC 6761: names under .invalid never resolve. Startup must not depend on clamd DNS.
+        var scanner = new ClamavMediaScanner("clamd.invalid", 3310, Duration.ofMillis(150), Duration.ofMillis(150));
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> scanner.scan(new byte[1]))
+                    .isInstanceOf(MediaScannerUnavailableException.class);
+        }
+    }
+
+    @Test
+    void configuredHostnameIsResolvedWhenScanning() throws Exception {
+        var loopback = InetAddress.getByName("localhost");
+        try (var server = new ServerSocket(0, 50, loopback); var peers = Executors.newSingleThreadExecutor()) {
+            var scanner = new ClamavMediaScanner("localhost", server.getLocalPort(),
+                    Duration.ofSeconds(2), Duration.ofSeconds(2));
+            var served = peers.submit(() -> {
+                try (var peer = server.accept()) {
+                    drain(peer);
+                    peer.getOutputStream().write("stream: OK\0".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                }
+                return true;
+            });
+            assertThat(scanner.scan(new byte[64]).clean()).isTrue();
+            assertThat(served.get(2, TimeUnit.SECONDS)).isTrue();
         }
     }
 

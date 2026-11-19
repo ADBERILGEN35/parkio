@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -25,8 +26,8 @@ import org.slf4j.LoggerFactory;
  * chunks terminated by a zero-length chunk; clamd replies with {@code stream: OK},
  * {@code stream: <sig> FOUND} or {@code ... ERROR}.
  *
- * <p><b>Fail-closed:</b> any connect/read timeout, I/O error, protocol error or
- * {@code ERROR} reply is surfaced as {@link MediaScannerUnavailableException} so the
+ * <p><b>Fail-closed:</b> an unresolved host, any connect/read timeout, I/O error, protocol
+ * error or {@code ERROR} reply is surfaced as {@link MediaScannerUnavailableException} so the
  * caller rejects the upload rather than serving unscanned bytes.
  */
 public class ClamavMediaScanner implements MediaScanner {
@@ -39,7 +40,6 @@ public class ClamavMediaScanner implements MediaScanner {
 
     private final String host;
     private final int port;
-    private final InetSocketAddress address;
     private final long connectTimeoutNanos;
     private final long readTimeoutNanos;
     private final long totalTimeoutNanos;
@@ -52,11 +52,8 @@ public class ClamavMediaScanner implements MediaScanner {
         this.connectTimeoutNanos = positiveNanos(connectTimeout);
         this.readTimeoutNanos = positiveNanos(readTimeout);
         this.totalTimeoutNanos = Math.addExact(connectTimeoutNanos, readTimeoutNanos);
-        // Resolve configured infrastructure at bean construction, never in a timed scan.
-        this.address = new InetSocketAddress(host, port);
-        if (address.isUnresolved()) {
-            throw new IllegalArgumentException("Cannot resolve configured clamd host");
-        }
+        // Validates host and port without DNS: startup must not depend on clamd being resolvable.
+        InetSocketAddress.createUnresolved(host, port);
     }
 
     @Override
@@ -67,6 +64,14 @@ public class ClamavMediaScanner implements MediaScanner {
             throw new MediaScannerUnavailableException("clamd scan capacity exhausted");
         }
         try (SocketChannel socket = SocketChannel.open(); Selector selector = Selector.open()) {
+            // Resolved per scan through the JVM resolver cache, so a recreated clamd container's
+            // new address is used without a media-service restart. The lookup cannot be
+            // interrupted; its time counts against the connect budget, and no address fails closed.
+            InetSocketAddress address = new InetSocketAddress(host, port);
+            if (address.isUnresolved()) {
+                throw new UnknownHostException("clamd host did not resolve");
+            }
+            remaining(started + connectTimeoutNanos);
             socket.configureBlocking(false);
             SelectionKey key = socket.register(selector, SelectionKey.OP_CONNECT);
             if (!socket.connect(address)) {

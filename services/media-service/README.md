@@ -27,8 +27,11 @@ read timeouts (defaults: 2s + 10s). Connect retains its own shorter bound; write
 and reads share the remaining total budget. Nonblocking NIO closes the channel and
 selector on timeout/interruption; it starts no supporting executor. At most 16
 scans per scanner instance are admitted, with immediate fail-closed rejection on
-saturation. The configured clamd hostname is resolved at bean construction;
-recreate the bean/restart the service after an address change. Upload still holds
+saturation. The clamd hostname is resolved for each scan through the JVM resolver
+cache, so a recreated clamav container's new address is used without restarting
+media-service, and an unresolvable host fails scans closed instead of blocking
+startup. The lookup cannot be interrupted; its time counts against the connect
+budget. Upload still holds
 its transaction and owner fence while scanning, but scan I/O cannot hold them
 beyond this budget. Storage/decode and database lock waits have separate bounds.
 
