@@ -81,8 +81,9 @@ RUN set -e; \
     node apps/web/scripts/verify-bundle-env.mjs ${args}
 
 # ---- runtime stage ----
-# linux/amd64 digest of nginx:1.30.5-alpine3.24 (Hub tag still ships libexpat 2.8.4-r0).
-FROM nginx:1.30.5-alpine3.24@sha256:8f84ed99befc3891b8f329c5c202785278a2cfb7c25107d57fb2a134a3117433 AS runtime
+# linux/amd64 digest of nginx:1.30.7-alpine3.24 (Alpine 3.24.4). nginx 1.30.7 fixes
+# CVE-2026-121810, CVE-2026-123007 and CVE-2026-123633 (CRITICAL in nginx 1.30.5-r1).
+FROM nginx:1.30.7-alpine3.24@sha256:4d1d4ce08432dc7dfe4af762cb224ce6b5273ae878f41e020ea2425d02ea91a4 AS runtime
 
 ARG IMAGE_VERSION=0.0.1-SNAPSHOT
 ARG IMAGE_REVISION=unknown
@@ -97,12 +98,10 @@ LABEL org.opencontainers.image.title="parkio-web" \
       org.opencontainers.image.revision="${IMAGE_REVISION}" \
       org.opencontainers.image.created="${IMAGE_CREATED}"
 
-# CVE-2026-93990: Alpine v3.24 main has expat/libexpat 2.8.5-r0; this nginx
-# digest still installs 2.8.4-r0. CVE-2026-103111: Alpine v3.24 main has pcre2
-# 10.49-r0; this digest still installs 10.48-r0 (nginx links libpcre2). Smallest
-# runtime-layer remediation on the same nginx 1.30.5 / Alpine 3.24 line. Not a
-# framework or base-image bump. CVE-2026-111497 (CRITICAL, #498): Alpine v3.24 has
-# brotli-libs 1.2.1-r0; this digest still installs 1.2.0-r1.
+# Floors for CVE-2026-93990 (libexpat 2.8.5-r0), CVE-2026-103111 (pcre2 10.49-r0; nginx
+# links libpcre2) and CVE-2026-111497 (CRITICAL, #498; brotli-libs 1.2.1-r0). The nginx
+# 1.30.5 digest installed older releases. The 1.30.7 digest already ships libexpat
+# 2.10.0-r0, pcre2 10.49-r0 and brotli-libs 1.2.1-r0; the floors stay as a guard.
 RUN apk add --no-cache --upgrade 'libexpat>=2.8.5-r0' 'pcre2>=10.49-r0' 'brotli-libs>=1.2.1-r0'
 
 # The CSP connect-src is rendered at container start from the deployment's origins (B9):
