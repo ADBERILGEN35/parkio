@@ -41,7 +41,7 @@ source_fixed_changes_to_include:
 coordination:
   concurrent_owner: [513, 516, 515, 517, 518, 519]
   forbidden_overlap: [dependencies, lockfiles, migration_build_changes]
-  spring_migration: pending_owner_readiness_and_required_reviews
+  spring_migration: landed_in_api_via_527_before_this_pr_ExpoApplicationMapperTest_adapted_on_merge
   mapper_contract: field_scoped_JsonFormat_annotation_and_actual_application_mapper_tests
   migration_test_adaptation:
     - preserve_ExpoApplicationMapperTest_contract_when_Boot_test_slice_packages_change
