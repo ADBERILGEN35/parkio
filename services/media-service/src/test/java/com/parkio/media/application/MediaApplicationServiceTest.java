@@ -2,6 +2,7 @@ package com.parkio.media.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.parkio.media.application.command.UploadMediaCommand;
 import com.parkio.media.application.command.SetClaimedRegionCommand;
@@ -50,8 +51,13 @@ import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Behavioural unit tests for {@link MediaApplicationService} using in-memory fake
@@ -72,6 +78,8 @@ class MediaApplicationServiceTest {
     private FakeMediaOwnerFence ownerFence;
     private FakeObjectWriteLedger objectWrites;
     private MediaApplicationService service;
+    private final FakeTransactionManager transactionManager = new FakeTransactionManager();
+    private final TransactionTemplate transactions = new TransactionTemplate(transactionManager);
 
     @BeforeEach
     void setUp() {
@@ -766,10 +774,15 @@ class MediaApplicationServiceTest {
         MediaUploadResult result = service.upload(jpeg(owner, new byte[]{4, 5, 6}));
         String objectKey = mediaFiles.findById(result.mediaId()).orElseThrow().objectKey();
 
+        // A non-owner gets the answer of an unknown id, like on the read paths: no existence probe.
+        Throwable unknownId = catchThrowable(() -> service.delete(UUID.randomUUID(), otherUser));
         assertThatThrownBy(() -> service.delete(result.mediaId(), otherUser))
                 .isInstanceOf(MediaException.class)
+                .hasMessage(unknownId.getMessage())
                 .extracting(e -> ((MediaException) e).errorCode())
-                .isEqualTo(MediaErrorCode.NOT_MEDIA_OWNER);
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+        assertThat(mediaFiles.byId.get(result.mediaId()).status()).isEqualTo(MediaStatus.READY);
+        assertThat(storage.deleteAttempts).isZero();
 
         service.delete(result.mediaId(), owner);
 
@@ -781,6 +794,85 @@ class MediaApplicationServiceTest {
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
                 .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+    }
+
+    @Test
+    void deleteRemovesTheStoredObjectOnlyOnceTheSoftDeleteCommitted() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{61, 61, 61}));
+        String objectKey = mediaFiles.byId.get(uploaded.mediaId()).objectKey();
+
+        transactions.executeWithoutResult(status -> {
+            service.delete(uploaded.mediaId(), owner);
+            assertThat(storage.deleteAttempts).as("storage deletes before the soft delete committed").isZero();
+        });
+
+        assertThat(storage.objects).doesNotContainKey(objectKey);
+        assertThat(storage.deleted).containsExactly(objectKey);
+    }
+
+    @Test
+    void deleteKeepsTheStoredObjectWhenItsTransactionFailsToCommit() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{62, 62, 62}));
+        String objectKey = mediaFiles.byId.get(uploaded.mediaId()).objectKey();
+        transactionManager.commitFailure = new TransactionSystemException("Could not commit JPA transaction");
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(
+                status -> service.delete(uploaded.mediaId(), owner)))
+                .isSameAs(transactionManager.commitFailure);
+
+        // The row stays READY in the database, so its object must stay too.
+        assertThat(storage.objects).containsKey(objectKey);
+        assertThat(storage.deleteAttempts).isZero();
+    }
+
+    @Test
+    void deleteKeepsTheStoredObjectWhenItsTransactionRollsBack() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{63, 63, 63}));
+        String objectKey = mediaFiles.byId.get(uploaded.mediaId()).objectKey();
+        RuntimeException laterFailure = new IllegalStateException("a later step of the transaction failed");
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status -> {
+            service.delete(uploaded.mediaId(), owner);
+            throw laterFailure;
+        })).isSameAs(laterFailure);
+
+        assertThat(storage.objects).containsKey(objectKey);
+        assertThat(storage.deleteAttempts).isZero();
+    }
+
+    @Test
+    void aFailedObjectRemovalDoesNotFailTheCommittedDelete() {
+        UUID owner = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{64, 64, 64}));
+        storage.deleteFailure = new IllegalStateException("store unavailable");
+
+        transactions.executeWithoutResult(status -> service.delete(uploaded.mediaId(), owner));
+
+        // Best effort: the delete stands; the object stays under the owner's key namespace,
+        // where an account erasure still removes it.
+        assertThat(storage.deleteAttempts).isEqualTo(1);
+        assertThat(mediaFiles.byId.get(uploaded.mediaId()).isDeleted()).isTrue();
+    }
+
+    @Test
+    void claimedRegionUpdateByANonOwnerIsAnsweredLikeAnUnknownMedia() {
+        UUID owner = UUID.randomUUID();
+        UUID otherUser = UUID.randomUUID();
+        MediaUploadResult uploaded = service.upload(jpeg(owner, new byte[]{65, 65, 65}));
+        ClaimedRegion region = new ClaimedRegion(0.1, 0.1, 0.5, 0.5);
+
+        Throwable unknownId = catchThrowable(() -> service.setClaimedRegion(
+                new SetClaimedRegionCommand(UUID.randomUUID(), otherUser, region)));
+        assertThatThrownBy(() -> service.setClaimedRegion(
+                new SetClaimedRegionCommand(uploaded.mediaId(), otherUser, region)))
+                .isInstanceOf(MediaException.class)
+                .hasMessage(unknownId.getMessage())
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.MEDIA_NOT_FOUND);
+        assertThat(mediaFiles.byId.get(uploaded.mediaId()).claimedRegion()).isNull();
     }
 
     @Test
@@ -1096,6 +1188,34 @@ class MediaApplicationServiceTest {
                 throw appendFailure;
             }
             events.add(event);
+        }
+    }
+
+    /**
+     * Spring's commit, rollback and synchronization processing without a resource; the commit can
+     * be made to fail, as when the database refuses it.
+     */
+    private static final class FakeTransactionManager extends AbstractPlatformTransactionManager {
+        private RuntimeException commitFailure;
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            if (commitFailure != null) {
+                throw commitFailure;
+            }
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
         }
     }
 }
