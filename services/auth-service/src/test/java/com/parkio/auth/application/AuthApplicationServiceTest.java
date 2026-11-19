@@ -787,6 +787,140 @@ class AuthApplicationServiceTest {
         assertThat(service.sessionEpoch(userId)).isEqualTo(before + 1);
     }
 
+    /**
+     * H-06 (#547): wrong current passwords on change-password meet the login throttle of the account and
+     * client. From the fifth failure the pair waits, answered with the same generic error as a wrong password.
+     */
+    @Test
+    void changePasswordThrottlesWrongCurrentPasswordsLikeFailedLogins() {
+        AuthResult session = registerVerifiedAndLogin("change@example.com");
+        UUID userId = session.user().id();
+        long epoch = service.sessionEpoch(userId);
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> service.changePassword(
+                    new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", CLIENT)))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class)
+                    .extracting(e -> ((AuthException) e).errorCode())
+                    .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", CLIENT)))
+                .isInstanceOf(LoginLockedException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        assertThat(loginFailures.retryAfter("change@example.com", CLIENT, clock.instant()))
+                .isEqualTo(Duration.ofSeconds(30));
+
+        // While the pair waits even the right current password is refused and not counted; nothing changes.
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT)))
+                .isInstanceOf(LoginLockedException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage());
+        assertThat(failureCount("change@example.com", CLIENT)).isEqualTo(5);
+        assertThat(passwordHasher.matches(VALID_PASSWORD, authUsers.findById(userId).orElseThrow().passwordHash()))
+                .isTrue();
+        assertThat(service.sessionEpoch(userId)).isEqualTo(epoch);
+        assertThat(refreshTokens.findByTokenHash(refreshTokenHasher.hash(session.refreshToken())).orElseThrow()
+                .isRevoked()).isFalse();
+
+        // Once the wait has passed the right current password changes the password as before. It clears this
+        // client's pair; the account counter stays, as after a successful login.
+        clock.advance(Duration.ofSeconds(31));
+        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT));
+
+        RefreshToken refresh = refreshTokens.findByTokenHash(refreshTokenHasher.hash(session.refreshToken()))
+                .orElseThrow();
+        assertThat(passwordHasher.matches("FreshStrong123", authUsers.findById(userId).orElseThrow().passwordHash()))
+                .isTrue();
+        assertThat(refresh.revokedReason()).isEqualTo(RefreshTokenRevocationReason.PASSWORD_CHANGED);
+        assertThat(service.sessionEpoch(userId)).isEqualTo(epoch + 1);
+        assertThat(failureCount("change@example.com", CLIENT)).isZero();
+        assertThat(accountFailureCount("change@example.com")).isEqualTo(5);
+    }
+
+    /**
+     * H-06 (#547): login and change-password draw on one budget per account and client, so alternating the
+     * endpoints gives no extra guesses, and a wait started on either one holds the other.
+     */
+    @Test
+    void changePasswordAndLoginFailuresShareOneBudget() {
+        AuthResult session = registerVerifiedAndLogin("shared@example.com");
+        UUID userId = session.user().id();
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand("shared@example.com", "wrong-password", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class);
+            assertThatThrownBy(() -> service.changePassword(
+                    new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", OTHER_CLIENT)))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class);
+        }
+        assertThat(failureCount("shared@example.com", OTHER_CLIENT)).isEqualTo(4);
+        assertThat(accountFailureCount("shared@example.com")).isEqualTo(4);
+
+        // The fifth failure, on login, starts the pair's wait; change-password honours it, even with the right password.
+        assertThatThrownBy(() -> service.login(new LoginCommand("shared@example.com", "wrong-password", OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+
+        // After the wait a sixth failure, on change-password, starts the next wait; login honours it.
+        clock.advance(Duration.ofSeconds(31));
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+        assertThatThrownBy(() -> service.login(new LoginCommand("shared@example.com", VALID_PASSWORD, OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+        assertThat(failureCount("shared@example.com", OTHER_CLIENT)).isEqualTo(6);
+        assertThat(accountFailureCount("shared@example.com")).isEqualTo(6);
+        assertThat(passwordHasher.matches(VALID_PASSWORD, authUsers.findById(userId).orElseThrow().passwordHash()))
+                .isTrue();
+    }
+
+    /** H-06 (#547): the account-wide wait for unknown clients covers change-password; a known client is exempt. */
+    @Test
+    void changePasswordFromAnUnknownClientWaitsForTheAccountTier() {
+        AuthResult session = registerVerifiedAndLogin("tier@example.com");
+        UUID userId = session.user().id();
+        // 50 failures spread over 13 clients: no single client reaches its 5-failure tier.
+        for (int i = 0; i < 50; i++) {
+            String client = "203.0.113." + (10 + i / 4);
+            assertThatThrownBy(() -> service.login(new LoginCommand("tier@example.com", "wrong-password", client)))
+                    .isInstanceOf(AuthException.class);
+        }
+
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", OTHER_CLIENT)))
+                .isInstanceOf(LoginLockedException.class);
+        assertThat(failureCount("tier@example.com", OTHER_CLIENT)).isZero();
+
+        // CLIENT logged in successfully, so it is known for the account and only its own pair applies.
+        service.changePassword(new ChangePasswordCommand(userId, VALID_PASSWORD, "FreshStrong123", CLIENT));
+        assertThat(passwordHasher.matches("FreshStrong123", authUsers.findById(userId).orElseThrow().passwordHash()))
+                .isTrue();
+    }
+
+    /** A change-password without a client key uses the account's shared unknown-client pair, as a login does. */
+    @Test
+    void changePasswordWithoutAClientKeyUsesTheSharedUnknownClient() {
+        AuthResult session = registerVerifiedAndLogin("nokey@example.com");
+        UUID userId = session.user().id();
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123")))
+                .isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.changePassword(
+                new ChangePasswordCommand(userId, "wrong-password", "FreshStrong123", " ")))
+                .isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.login(new LoginCommand("nokey@example.com", "wrong-password", null)))
+                .isInstanceOf(AuthException.class);
+
+        assertThat(failureCount("nokey@example.com", LoginFailureTracker.UNKNOWN_CLIENT)).isEqualTo(3);
+    }
+
     @Test
     void loginRejectsInactiveUser() {
         AuthUser suspended = new AuthUser(UUID.randomUUID(), "banned@example.com",
