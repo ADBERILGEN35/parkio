@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -102,7 +102,7 @@ class MediaBatchLeasePostgresIT {
     @Autowired private MediaFileJpaRepository mediaFiles;
     @Autowired private MediaValidationResultRepository validationResults;
     @Autowired private OutboxEventAppender mediaEvents;
-    @SpyBean private MinioMediaStorageAdapter storage;
+    @MockitoSpyBean private MinioMediaStorageAdapter storage;
 
     private final MinioClient minio = MediaErasureFixture.minioClient(minioEndpoint(), ACCESS_KEY, SECRET_KEY);
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-14T12:00:00Z"));

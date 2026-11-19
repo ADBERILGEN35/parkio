@@ -7,8 +7,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.cloud.gateway.route.RouteDefinition;
 import org.springframework.cloud.gateway.route.RouteDefinitionLocator;
+import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.test.context.ActiveProfiles;
@@ -30,6 +32,12 @@ class GatewayRoutesTest {
 
     @Autowired
     private RouteDefinitionLocator routeDefinitionLocator;
+
+    @Autowired
+    private RouteLocator routeLocator;
+
+    @Autowired
+    private RedisRateLimiter redisRateLimiter;
 
     @Test
     void analyticsAndAiValidationRoutesAreRegistered() {
@@ -64,10 +72,12 @@ class GatewayRoutesTest {
                         .containsExactly("/api/v1/public/explore/facilities"));
         assertThat(route.getFilters()).singleElement().satisfies(filter -> {
             assertThat(filter.getName()).isEqualTo("RequestRateLimiter");
-            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishrate", "1")
-                    .containsEntry("redis-rate-limiter.burstcapacity", "5")
+            // Spring Cloud Gateway 5 keeps the configured key case (4.x lower-cased it).
+            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishRate", "1")
+                    .containsEntry("redis-rate-limiter.burstCapacity", "5")
                     .containsValue("#{@publicExploreIpKeyResolver}");
         });
+        assertEffectiveRateLimit("public-explore", 1, 5);
     }
 
     @Test
@@ -110,10 +120,21 @@ class GatewayRoutesTest {
                         .containsExactly("/api/v1/public/geocoding/search"));
         assertThat(route.getFilters()).singleElement().satisfies(filter -> {
             assertThat(filter.getName()).isEqualTo("RequestRateLimiter");
-            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishrate", "1")
-                    .containsEntry("redis-rate-limiter.burstcapacity", "5")
+            // Spring Cloud Gateway 5 keeps the configured key case (4.x lower-cased it).
+            assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.replenishRate", "1")
+                    .containsEntry("redis-rate-limiter.burstCapacity", "5")
                     .containsValue("#{@publicGeocodingIpKeyResolver}");
         });
+        assertEffectiveRateLimit("public-geocoding", 1, 5);
+    }
+
+    /** Building the routes binds each RequestRateLimiter's args into the rate limiter's per-route config. */
+    private void assertEffectiveRateLimit(String routeId, int replenishRate, int burstCapacity) {
+        routeLocator.getRoutes().collectList().block();
+        RedisRateLimiter.Config config = redisRateLimiter.getConfig().get(routeId);
+        assertThat(config).isNotNull();
+        assertThat(config.getReplenishRate()).isEqualTo(replenishRate);
+        assertThat(config.getBurstCapacity()).isEqualTo(burstCapacity);
     }
 
     @Test

@@ -18,9 +18,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -49,10 +49,10 @@ class MediaScanUploadTest {
     @Autowired
     private MeterRegistry meterRegistry;
 
-    @MockBean
+    @MockitoBean
     private MediaStoragePort storage;
 
-    @MockBean
+    @MockitoBean
     private MediaScanner scanner;
 
     @BeforeEach
@@ -105,7 +105,7 @@ class MediaScanUploadTest {
         assertThat(counter("media_scan_failed_total")).isEqualTo(before + 1);
     }
 
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder upload() {
+    private org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder upload() {
         MockMultipartFile file = new MockMultipartFile("file", "spot.jpg", "image/jpeg", JPEG);
         return multipart("/api/v1/media/upload")
                 .file(file)

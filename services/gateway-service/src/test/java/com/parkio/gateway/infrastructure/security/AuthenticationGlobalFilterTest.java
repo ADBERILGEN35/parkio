@@ -378,7 +378,7 @@ class AuthenticationGlobalFilterTest {
         filter().filter(protectedExchange(token), chain).block();
 
         assertThat(chain.captured().<Long>getAttribute(GatewayHeaders.TOKEN_SESSION_EPOCH_ATTRIBUTE)).isEqualTo(7L);
-        assertThat(chain.captured().getRequest().getHeaders().keySet())
+        assertThat(chain.captured().getRequest().getHeaders().headerNames())
                 .noneMatch(name -> name.toLowerCase(Locale.ROOT).contains("epoch"));
     }
 

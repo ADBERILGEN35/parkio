@@ -38,6 +38,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
 import com.parkio.auth.infrastructure.web.ClientIdentityResolver;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.time.Duration;
@@ -48,6 +49,7 @@ import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseCookie;
@@ -107,7 +109,8 @@ public class AuthController {
     @Operation(summary = "Login with email and password")
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
-                                              HttpServletRequest httpRequest) {
+                                              HttpServletRequest httpRequest,
+                                              HttpServletResponse httpResponse) {
         validateOriginIfPresent(httpRequest);
         AuthResult result;
         try {
@@ -125,12 +128,14 @@ public class AuthController {
             // Native client: refresh token returned in the body for SecureStore; no cookie.
             return ResponseEntity.ok(AuthResponse.fromMobile(result));
         }
-        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result).withCsrfToken(csrfToken(httpRequest)));
+        addRefreshCookies(httpResponse, result);
+        return ResponseEntity.ok(AuthResponse.from(result).withCsrfToken(csrfToken(httpRequest)));
     }
 
     @Operation(summary = "Rotate refresh token")
     @PostMapping("/refresh-token")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request,
+                                                HttpServletResponse response,
                                                 @RequestBody(required = false) MobileTokenRequest body) {
         boolean mobile = isMobileClient(request);
         // Origin enforcement is a CSRF guard for the browser cookie transport. Native
@@ -144,7 +149,8 @@ public class AuthController {
         if (mobile) {
             return ResponseEntity.ok(AuthResponse.fromMobile(result));
         }
-        return withRefreshCookie(ResponseEntity.ok(), result).body(AuthResponse.from(result).withCsrfToken(csrfToken(request)));
+        addRefreshCookies(response, result);
+        return ResponseEntity.ok(AuthResponse.from(result).withCsrfToken(csrfToken(request)));
     }
 
     /**
@@ -192,14 +198,13 @@ public class AuthController {
     @Operation(summary = "Reset password with a reset token")
     @PostMapping("/reset-password")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request,
-                                              HttpServletRequest httpRequest) {
+                                              HttpServletRequest httpRequest,
+                                              HttpServletResponse httpResponse) {
         validateOriginIfPresent(httpRequest);
         authService.resetPassword(new ResetPasswordCommand(
                 request.token(), request.newPassword(), clientIdentity.clientKey(httpRequest)));
-        return ResponseEntity.noContent()
-                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
-                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
-                .build();
+        clearRefreshCookies(httpResponse);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Change the current user's password")
@@ -207,19 +212,19 @@ public class AuthController {
     @PostMapping("/change-password")
     public ResponseEntity<Void> changePassword(@AuthenticationPrincipal AuthPrincipal principal,
                                                @Valid @RequestBody ChangePasswordRequest request,
-                                               HttpServletRequest httpRequest) {
+                                               HttpServletRequest httpRequest,
+                                               HttpServletResponse httpResponse) {
         validateOriginIfPresent(httpRequest);
         authService.changePassword(new ChangePasswordCommand(
                 principal.userId(), request.currentPassword(), request.newPassword()));
-        return ResponseEntity.noContent()
-                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
-                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
-                .build();
+        clearRefreshCookies(httpResponse);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Revoke refresh token (logout)")
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request,
+                                       HttpServletResponse response,
                                        @RequestBody(required = false) MobileTokenRequest body) {
         boolean mobile = isMobileClient(request);
         if (!mobile) {
@@ -231,17 +236,16 @@ public class AuthController {
             // Nothing to clear on native — there is no cookie.
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.noContent()
-                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
-                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
-                .build();
+        clearRefreshCookies(response);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Revoke all sessions (logout everywhere)")
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/logout-all")
     public ResponseEntity<Void> logoutAll(@AuthenticationPrincipal AuthPrincipal principal,
-                                          HttpServletRequest request) {
+                                          HttpServletRequest request,
+                                          HttpServletResponse response) {
         boolean mobile = isMobileClient(request);
         if (!mobile) {
             validateOrigin(request);
@@ -250,10 +254,8 @@ public class AuthController {
         if (mobile) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.noContent()
-                .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
-                .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
-                .build();
+        clearRefreshCookies(response);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Current authenticated user")
@@ -264,9 +266,19 @@ public class AuthController {
         return UserResponse.from(user);
     }
 
-    private ResponseEntity.BodyBuilder withRefreshCookie(ResponseEntity.BodyBuilder builder, AuthResult result) {
-        return builder.header("Set-Cookie", refreshCookie(result, refreshCookie.getPath()).toString())
-                .header("Set-Cookie", refreshCookie(result, refreshCookie.getLogoutPath()).toString());
+    /*
+     * Refresh cookies go straight onto the servlet response, never through ResponseEntity headers: Spring
+     * Framework 7 copies those with setHeader, which drops every Set-Cookie header written earlier in the
+     * request, including the XSRF-TOKEN cookie that CsrfCookieFilter hands out with the web login.
+     */
+    private void addRefreshCookies(HttpServletResponse response, AuthResult result) {
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(result, refreshCookie.getPath()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(result, refreshCookie.getLogoutPath()).toString());
+    }
+
+    private void clearRefreshCookies(HttpServletResponse response) {
+        response.addHeader(HttpHeaders.SET_COOKIE, expiredCookie(refreshCookie.getPath()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, expiredCookie(refreshCookie.getLogoutPath()).toString());
     }
 
     private ResponseCookie refreshCookie(AuthResult result, String path) {

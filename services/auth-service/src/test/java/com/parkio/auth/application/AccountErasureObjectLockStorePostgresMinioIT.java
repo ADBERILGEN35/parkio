@@ -45,7 +45,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -108,7 +108,7 @@ class AccountErasureObjectLockStorePostgresMinioIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.durable-recording-enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.participants", () -> "user");
@@ -131,14 +131,14 @@ class AccountErasureObjectLockStorePostgresMinioIT {
         }
     }
 
-    @MockBean private AuthUserRepository users;
-    @MockBean private RefreshTokenRepository refreshTokens;
-    @MockBean private PasswordResetRepository passwordResets;
-    @MockBean private PasswordHasher passwordHasher;
-    @MockBean private OutboxEventAppender outbox;
-    @MockBean private InboxEventRepository inbox;
-    @MockBean private LoginFailureTracker loginFailureTracker;
-    @MockBean private EmailVerificationSender emailVerificationSender;
+    @MockitoBean private AuthUserRepository users;
+    @MockitoBean private RefreshTokenRepository refreshTokens;
+    @MockitoBean private PasswordResetRepository passwordResets;
+    @MockitoBean private PasswordHasher passwordHasher;
+    @MockitoBean private OutboxEventAppender outbox;
+    @MockitoBean private InboxEventRepository inbox;
+    @MockitoBean private LoginFailureTracker loginFailureTracker;
+    @MockitoBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService service;
     @Autowired private DurableErasureRecordStore store;

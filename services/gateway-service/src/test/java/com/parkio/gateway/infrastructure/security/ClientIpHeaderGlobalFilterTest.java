@@ -73,7 +73,7 @@ class ClientIpHeaderGlobalFilterTest {
                 .build();
         CapturingChain chain = run(request);
 
-        assertThat(chain.captured.getRequest().getHeaders().containsKey(GatewayHeaders.CLIENT_IP)).isFalse();
+        assertThat(chain.captured.getRequest().getHeaders().containsHeader(GatewayHeaders.CLIENT_IP)).isFalse();
     }
 
     /**
@@ -94,7 +94,7 @@ class ClientIpHeaderGlobalFilterTest {
                 .header(GatewayHeaders.CLIENT_IP, "203.0.113.250")
                 .build();
         ServerHttpRequest transformed = new ForwardedHeaderTransformer().apply(request);
-        assertThat(transformed.getHeaders().containsKey("X-Forwarded-For")).isFalse();
+        assertThat(transformed.getHeaders().containsHeader("X-Forwarded-For")).isFalse();
         assertThat(transformed.getRemoteAddress()).isNotNull();
         // The transformer builds an unresolved address from the header: no InetAddress, only the host string.
         assertThat(transformed.getRemoteAddress().isUnresolved()).isTrue();
