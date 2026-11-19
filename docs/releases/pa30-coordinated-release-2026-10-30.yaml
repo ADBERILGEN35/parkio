@@ -3,22 +3,27 @@ status: preparation_only_no_publication_pin_or_deployment_authorized
 base_source: 399b5dd7dad67848d34a22df8a719f8c85f102ff
 base_tree: 1511b5e5a052fbe300c849879a61c57172f8fe0c
 remediation_branch: fix/pa30-scoped-remediation
+# commit/followup_commits are PR #525 branch commits (kept under refs/pull/525/head). The squash
+# merge into api replaces them; release gate 2 records that api merge commit as the source.
 fixes:
   - id: PA30-02
     issue: 521
     commit: 4631b5766a5787b942fd01160b4cde9a9efbb483
+    followup_commits: [28eddd686ccd70b630688ec32b17458883a7c356]
     components: [notification-service]
-    acceptance: single_or_array_ticket_id_persisted_no_retry_on_acceptance_or_unknown
+    acceptance: single_or_array_ticket_id_persisted_no_retry_on_acceptance_or_unknown_connect_failures_keep_bounded_retry
   - id: PA30-03
     issue: 522
     commit: f279e78c0ce93985af9be693250984fc81b3c280
+    followup_commits: [75f68a193a18d99c863ad51a0a17ac6771e8c7f9]
     components: [media-service]
-    acceptance: real_tcp_total_deadline_interrupt_cleanup_and_no_ready_on_timeout
+    acceptance: real_tcp_total_deadline_interrupt_cleanup_and_no_ready_on_timeout_host_resolved_per_scan
   - id: PA30-S01
     issue: 524
     commit: 262aa86981a62b9f14b60972abe40d18ea72acf8
+    followup_commits: [b586c8472ddeb903b518ddf303a3a1f6cac6ce20]
     components: [user-service]
-    acceptance: real_postgresql_writer_erasure_ordering_late_events_and_active_controls
+    acceptance: real_postgresql_writer_first_and_erasure_first_ordering_late_events_and_active_controls
     production_flag: account_erasure_remains_disabled
   - id: PA30-04
     issue: 523
@@ -63,13 +68,15 @@ post_deploy_checks:
   notification:
     - observe_ticket_id_persistence_and_retry_counters_without_synthetic_real_device_messages
     - unknown_and_configuration_failures_remain_terminal_valid_tokens_remain_active
+    - connect_failures_before_transmission_keep_bounded_retry
     - ticket_acceptance_is_not_device_delivery_receipt_collection_is_separate_work
   media:
     - verify_scanner_configuration_and_readiness_without_stalling_production_clamd
-    - configured_clamd_address_is_resolved_at_bean_creation_recreate_after_address_change
+    - clamd_hostname_is_resolved_per_scan_a_recreated_clamav_needs_no_media_restart
     - use_disposable_acceptance_for_timeout_infected_and_concurrency_scenarios
   user:
     - verify_fence_source_identity_keep_production_erasure_disabled
+    - read_the_erasure_flag_from_the_live_runtime_environment_not_the_env_example_template
     - issue_365_erasure_safe_isolated_recovery_acceptance_is_still_required
   municipal:
     - observe_actual_scheduled_ispark_success_and_freshness_without_manual_sync_loop
