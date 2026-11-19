@@ -2,9 +2,10 @@
 """Export slack_biz JSON metrics to a Prometheus textfile for node-exporter.
 
 Writes parkio_slack_biz_delivery_unknown, parkio_slack_biz_dlt_rows,
-parkio_slack_biz_relay_db_open and parkio_slack_biz_textfile_last_success_unixtime
-so alerts can scrape real series and detect a stopped relay or a missing/stale
-exporter. Does not invent counters from absent data.
+parkio_slack_biz_relay_db_open, parkio_slack_biz_worker_heartbeat_age_seconds,
+parkio_slack_biz_delivery_enabled and parkio_slack_biz_textfile_last_success_unixtime
+so alerts can scrape real series and detect a stopped or crashed relay or a
+missing/stale exporter. Does not invent counters from absent data.
 """
 from __future__ import annotations
 
@@ -24,12 +25,21 @@ from slack_biz.config import load_config  # noqa: E402
 from slack_biz.store import DeliveryStore  # noqa: E402
 
 
-def render(store: DeliveryStore, when: int | None = None) -> str:
+def render(store: DeliveryStore, when: float | None = None, *, delivery_enabled: bool) -> str:
+    now = time.time() if when is None else when
     unknown = store.count_by_status("delivery_unknown")
-    with store._lock:  # noqa: SLF001 — intentional for a bounded COUNT
+    with store._lock:  # noqa: SLF001 — intentional for a bounded COUNT and a one-row read
         row = store._conn.execute("SELECT COUNT(*) AS c FROM dlt").fetchone()
         dlt_rows = int(row["c"])
-    stamp = int(time.time() if when is None else when)
+        lock = store._conn.execute("SELECT heartbeat_at FROM worker_lock WHERE id=1").fetchone()
+    # The worker refreshes heartbeat_at on every poll while delivery is enabled and deletes the row
+    # when it stops cleanly. A crash or SIGKILL leaves the last heartbeat behind, so this age keeps
+    # growing where relay_db_open stays 1 (#544). Without a row no worker runs: the age is unbounded.
+    if lock is None:
+        heartbeat_age = "+Inf"
+    else:
+        heartbeat_age = str(max(0, int(now - float(lock["heartbeat_at"]))))
+    stamp = int(now)
     lines = [
         "# HELP parkio_slack_biz_delivery_unknown Slack biz deliveries in delivery_unknown",
         "# TYPE parkio_slack_biz_delivery_unknown gauge",
@@ -40,10 +50,18 @@ def render(store: DeliveryStore, when: int | None = None) -> str:
     ]
     if store.relay_db_open is not None:  # known for read-only opens, the exporter's case
         lines += [
-            "# HELP parkio_slack_biz_relay_db_open 1 while the delivery DB WAL side files exist: a relay holds it open, or the last one crashed",
+            "# HELP parkio_slack_biz_relay_db_open 1 while the delivery DB WAL side files exist: a relay holds it open, or the last one crashed (so 1 does not prove a running relay)",
             "# TYPE parkio_slack_biz_relay_db_open gauge",
             f"parkio_slack_biz_relay_db_open {int(store.relay_db_open)}",
         ]
+    lines += [
+        "# HELP parkio_slack_biz_worker_heartbeat_age_seconds Seconds since the delivery worker last refreshed its lock heartbeat; keeps growing after a crash, +Inf when no worker holds the lock",
+        "# TYPE parkio_slack_biz_worker_heartbeat_age_seconds gauge",
+        f"parkio_slack_biz_worker_heartbeat_age_seconds {heartbeat_age}",
+        "# HELP parkio_slack_biz_delivery_enabled 1 when PARKIO_SLACK_BIZ_ENABLED is on; the worker heartbeats only while delivery is enabled",
+        "# TYPE parkio_slack_biz_delivery_enabled gauge",
+        f"parkio_slack_biz_delivery_enabled {int(delivery_enabled)}",
+    ]
     lines += [
         "# HELP parkio_slack_biz_textfile_last_success_unixtime Unix time of last successful textfile export",
         "# TYPE parkio_slack_biz_textfile_last_success_unixtime gauge",
@@ -91,7 +109,9 @@ def main(argv: list[str] | None = None) -> int:
         readonly=True,
     )
     try:
-        body = render(store)
+        # The export unit loads the non-secret conf only, so it sees the switch but not the webhook. A
+        # worker enabled without a webhook never heartbeats either, and nothing can be delivered then.
+        body = render(store, delivery_enabled=cfg.enabled)
     finally:
         # Close before writing: a reader still open when the last relay closes keeps that close
         # from checkpointing, and the side files (relay_db_open 1) would then outlive the relay.
