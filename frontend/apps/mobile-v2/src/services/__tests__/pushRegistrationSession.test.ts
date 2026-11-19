@@ -5,6 +5,7 @@ import { registerForPushNotifications, unregisterPushToken } from '../pushNotifi
 // jest.mock calls are hoisted above the imports; the factories read these mocks only when called.
 const mockRegisterDeviceToken = jest.fn();
 const mockDeactivateDeviceToken = jest.fn();
+const mockGetExpoPushTokenAsync = jest.fn();
 const mockAddPushTokenListener = jest.fn();
 
 jest.mock('@/services/api', () => ({
@@ -17,7 +18,7 @@ jest.mock('@/services/api', () => ({
 jest.mock('expo-notifications', () => ({
   getPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
   requestPermissionsAsync: async () => ({ granted: true }),
-  getExpoPushTokenAsync: async () => ({ data: 'ExponentPushToken[shared-device]' }),
+  getExpoPushTokenAsync: (...args: unknown[]) => mockGetExpoPushTokenAsync(...args),
   addPushTokenListener: (...args: unknown[]) => mockAddPushTokenListener(...args),
 }));
 
@@ -59,6 +60,7 @@ describe('push registration across sessions', () => {
       return { id: `backend-token-${registered}` };
     });
     mockDeactivateDeviceToken.mockResolvedValue(undefined);
+    mockGetExpoPushTokenAsync.mockResolvedValue({ data: DEVICE_TOKEN });
     mockAddPushTokenListener.mockReturnValue({ remove: jest.fn() });
   });
 
@@ -96,6 +98,45 @@ describe('push registration across sessions', () => {
     signIn('account-b');
     await registerForPushNotifications();
     expect(mockRegisterDeviceToken).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no registration when the session ends while the Expo token is pending', async () => {
+    const expoToken = deferred<{ data: string }>();
+    mockGetExpoPushTokenAsync.mockReturnValueOnce(expoToken.promise);
+    signIn('account-a');
+    const pending = registerForPushNotifications();
+    await waitFor(() => expect(mockGetExpoPushTokenAsync).toHaveBeenCalledTimes(1));
+
+    loseSession();
+    expoToken.resolve({ data: DEVICE_TOKEN });
+
+    await expect(pending).resolves.toBeNull();
+    expect(mockRegisterDeviceToken).not.toHaveBeenCalled();
+  });
+
+  it('keeps the next account registration when the previous session refresh answers late', async () => {
+    let onTokenRefresh!: (token: { data: string }) => void;
+    mockAddPushTokenListener.mockImplementation((listener: (token: { data: string }) => void) => {
+      onTokenRefresh = listener;
+      return { remove: jest.fn() };
+    });
+    signIn('account-a');
+    await registerForPushNotifications();
+    const staleRefresh = deferred<{ id: string }>();
+    mockRegisterDeviceToken.mockReturnValueOnce(staleRefresh.promise);
+    onTokenRefresh({ data: 'ExponentPushToken[rotated]' });
+
+    loseSession();
+    signIn('account-b');
+    const nextRegistration = await registerForPushNotifications();
+    staleRefresh.resolve({ id: 'backend-token-stale' });
+    // Let the stale refresh's completion run.
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(nextRegistration?.backendTokenId).toBe('backend-token-2');
+    expect(await registerForPushNotifications()).toEqual(nextRegistration);
+    await unregisterPushToken();
+    expect(mockDeactivateDeviceToken).toHaveBeenCalledWith('backend-token-2');
   });
 
   it('keeps no token refresh that completes after its session ended', async () => {

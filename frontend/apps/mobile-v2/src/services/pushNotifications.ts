@@ -134,6 +134,9 @@ export async function registerForPushNotifications(): Promise<PushRegistration |
 
     // Throws inside Expo Go on Android (no FCM) — fails soft with a log.
     const expoToken = await Notifications.getExpoPushTokenAsync();
+    // The session ended during the permission or token step: send nothing. Without a session the
+    // POST gets a 401, and its handler would clear the tokens of a sign-in being saved right now.
+    if (!sameSession()) return null;
     const backendTokenId = await registerTokenWithBackend(expoToken.data);
     // The session ended meanwhile: keep nothing, so the next sign-in registers again.
     if (!sameSession()) return null;
