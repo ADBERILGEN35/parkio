@@ -773,11 +773,11 @@ public class ParkingApplicationService {
     }
 
     private void enqueueOutcomeVerificationTrigger(ParkingSpot spot, ParkingSpotVerification verification) {
+        // Exhaustive without a default: a new VerificationResult must fail compilation here.
         OutcomeEvaluationTrigger triggerType = switch (verification.result()) {
             case AVAILABLE -> OutcomeEvaluationTrigger.VERIFICATION_AVAILABLE;
-            case INVALID, ILLEGAL_OR_RISKY -> OutcomeEvaluationTrigger.NEGATIVE_VERIFICATION;
+            case INVALID, ILLEGAL_OR_RISKY, WRONG_VEHICLE_SIZE -> OutcomeEvaluationTrigger.NEGATIVE_VERIFICATION;
             case FILLED -> OutcomeEvaluationTrigger.FILLED_REPORT;
-            default -> throw new IllegalStateException("Unhandled verification result " + verification.result());
         };
         enqueueOutcomeTrigger(spot.id(), triggerType, verification.id(), verification.createdAt());
     }
