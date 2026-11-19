@@ -176,7 +176,7 @@ class BoundedFeedResponsesTest {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(2));
         factory.setReadTimeout(Duration.ofSeconds(2));
-        return RestClient.builder()
+        return Jackson2RestClientBuilder.builder()
                 .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
                 .requestFactory(factory)
                 .requestInterceptor(BoundedFeedResponses.interceptor(maxSize, maxTime))

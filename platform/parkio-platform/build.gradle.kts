@@ -19,16 +19,17 @@ repositories {
 
 dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:${libs.versions.springBoot.get()}"))
-    // The Boot BOM pins a vulnerable Jackson. Services override it through the dependency-management
-    // plugin (jackson-bom.version); this keeps the platform's own classpaths on the same patched release.
+    // Jackson 2 stays pinned to the patched release (jacksonBomVersion). Services pin it through the
+    // dependency-management plugin (jackson-2-bom.version in Spring Boot 4); this keeps the platform's
+    // own classpaths on the same release.
     api(platform("com.fasterxml.jackson:jackson-bom:${project.property("jacksonBomVersion")}"))
     api(libs.kafka.clients)
     constraints {
-        // kafka-clients 3.9.2 pins lz4-java 1.10.1 (runtime): CVE-2026-106451 (HIGH) and five lower lz4-java
+        // kafka-clients 4.2.2 pins lz4-java 1.11.2 (runtime): CVE-2026-106451 (HIGH) and five lower lz4-java
         // CVEs are fixed in 1.11.4. Every service gets kafka-clients through this platform, so this one
         // constraint moves all of them. Drop it once kafka-clients itself requires >= 1.11.4.
         api("at.yawk.lz4:lz4-java:1.11.4")
-        // kafka-clients pins snappy-java 1.1.10.5 (runtime): CVE-2026-108106 and CVE-2026-93451 (both HIGH, #501)
+        // kafka-clients 4.2.2 pins snappy-java 1.1.10.7 (runtime): CVE-2026-108106 and CVE-2026-93451 (both HIGH, #501)
         // are fixed in 1.1.10.9. Drop it once kafka-clients itself requires >= 1.1.10.9.
         api("org.xerial.snappy:snappy-java:1.1.10.9")
         // The GCS client (auth) and the MinIO client (media) pull guava 33.5.0/33.4.8: CVE-2026-102554 (HIGH, #501)

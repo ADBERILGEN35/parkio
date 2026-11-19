@@ -37,9 +37,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -95,7 +95,7 @@ class AccountExistenceTimingPostgresIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.security.email-verification.log-token", () -> "false");
         registry.add("parkio.security.password-reset.log-token", () -> "false");
     }
@@ -105,11 +105,11 @@ class AccountExistenceTimingPostgresIT {
     @Autowired private RoleRepository roleRepository;
     @Autowired private RoleJpaRepository roleEntities;
 
-    @MockBean private LoginFailureTracker loginFailures;
-    @MockBean private VerificationResendLimiter verificationResendLimiter;
-    @MockBean private PasswordResetLimiter passwordResetLimiter;
-    @MockBean private EmailVerificationSender emailVerificationSender;
-    @MockBean private PasswordResetEmailSender passwordResetEmailSender;
+    @MockitoBean private LoginFailureTracker loginFailures;
+    @MockitoBean private VerificationResendLimiter verificationResendLimiter;
+    @MockitoBean private PasswordResetLimiter passwordResetLimiter;
+    @MockitoBean private EmailVerificationSender emailVerificationSender;
+    @MockitoBean private PasswordResetEmailSender passwordResetEmailSender;
 
     private final AtomicInteger verificationsDelivered = new AtomicInteger();
     private final AtomicInteger resetsDelivered = new AtomicInteger();

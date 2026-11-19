@@ -10,7 +10,7 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy;
+import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 
 /**
  * PROD-DEPLOY-01A-R8.5 — establishes the Flyway baseline explicitly on managed PostgreSQL, where
