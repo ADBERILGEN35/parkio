@@ -63,8 +63,7 @@ public class MediaApplicationService {
 
     private static final Map<String, String> EXTENSION_BY_CONTENT_TYPE = Map.of(
             "image/jpeg", ".jpg",
-            "image/png", ".png",
-            "image/webp", ".webp");
+            "image/png", ".png");
 
     private final MediaFileRepository mediaFiles;
     private final MediaValidationResultRepository validationResults;
