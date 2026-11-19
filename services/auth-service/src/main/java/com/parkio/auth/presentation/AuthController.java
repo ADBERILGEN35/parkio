@@ -210,7 +210,8 @@ public class AuthController {
                                                HttpServletRequest httpRequest) {
         validateOriginIfPresent(httpRequest);
         authService.changePassword(new ChangePasswordCommand(
-                principal.userId(), request.currentPassword(), request.newPassword()));
+                principal.userId(), request.currentPassword(), request.newPassword(),
+                clientIdentity.clientKey(httpRequest)));
         return ResponseEntity.noContent()
                 .header("Set-Cookie", expiredCookie(refreshCookie.getPath()).toString())
                 .header("Set-Cookie", expiredCookie(refreshCookie.getLogoutPath()).toString())
