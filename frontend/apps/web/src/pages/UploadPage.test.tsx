@@ -187,22 +187,19 @@ describe('UploadPage', () => {
   });
 
   it('shows the WebP refusal in Turkish too', async () => {
+    // The shared test setup switches back to English after each test.
     await withLocale('tr');
-    try {
-      renderUpload();
-      const user = userEvent.setup({ applyAccept: false });
+    renderUpload();
+    const user = userEvent.setup({ applyAccept: false });
 
-      await user.upload(
-        screen.getByLabelText('Park yeri fotoğrafı'),
-        imageFile('photo.webp', 'image/webp'),
-      );
+    await user.upload(
+      screen.getByLabelText('Park yeri fotoğrafı'),
+      imageFile('photo.webp', 'image/webp'),
+    );
 
-      expect(
-        await screen.findByText('Yalnızca JPEG ve PNG görselleri yüklenebilir'),
-      ).toBeInTheDocument();
-    } finally {
-      await withLocale('en');
-    }
+    expect(
+      await screen.findByText('Yalnızca JPEG ve PNG görselleri yüklenebilir'),
+    ).toBeInTheDocument();
   });
 
   it('requires a photo before advancing past the first step', async () => {
