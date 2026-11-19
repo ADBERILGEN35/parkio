@@ -51,7 +51,6 @@ function publicProfile(userId: string, displayName: string): PublicProfile {
     city: 'İzmir',
     trustBand: 'TRUSTED',
     currentLevel: 3,
-    status: 'ACTIVE',
     memberSince: '2026-01-01T00:00:00Z',
   };
 }
