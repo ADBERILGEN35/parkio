@@ -6,6 +6,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { useT } from '@/i18n/LocaleProvider';
 import { signOut } from '@/services/auth';
+import { unregisterPushToken } from '@/services/pushNotifications';
 import { useTheme } from '@/theme/ThemeProvider';
 
 /** Account-suspended wall (403 ACCOUNT_NOT_ACTIVE). Appeals go through email/web. */
@@ -32,6 +33,9 @@ export default function SuspendedScreen() {
         label={t('auth.suspended.signOut')}
         variant="tonal"
         onPress={async () => {
+          // Before signOut, which clears the session the deactivation needs. Best effort: the
+          // next account's registration of this token deactivates it on the server as well.
+          await unregisterPushToken();
           await signOut();
           router.replace('/(onboarding)/welcome');
         }}
