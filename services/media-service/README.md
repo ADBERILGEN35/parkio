@@ -119,7 +119,9 @@ internal endpoint. See the parking-service README for the full flow.
 
 ### Validation
 
-- Allowed content types: `image/jpeg`, `image/png`, `image/webp`.
+- Allowed content types: `image/jpeg`, `image/png`. WebP is not accepted: the runtime
+  has no WebP decoder for normalization, so it is refused up front (`415
+  UNSUPPORTED_MEDIA_TYPE`) and the clients do not offer it.
 - Max file size configurable (`parkio.media.max-file-size`, default 10MB); empty
   files rejected.
 - Object keys are **generated** (`media/{ownerUserId}/{uuid}.{ext}`) — the original

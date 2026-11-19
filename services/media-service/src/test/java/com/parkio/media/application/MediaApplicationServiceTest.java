@@ -84,7 +84,7 @@ class MediaApplicationServiceTest {
         ownerFence = new FakeMediaOwnerFence();
         objectWrites = new FakeObjectWriteLedger();
         MediaUploadConstraints constraints = new MediaUploadConstraints(
-                Set.of("image/jpeg", "image/png", "image/webp"), MAX_SIZE, 1_000, 1_000, 1_000_000);
+                Set.of("image/jpeg", "image/png"), MAX_SIZE, 1_000, 1_000, 1_000_000);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new MediaApplicationService(mediaFiles, validationResults, storage,
                 new ImageIoImageNormalizer(constraints), scanner, outbox,
@@ -373,15 +373,32 @@ class MediaApplicationServiceTest {
     }
 
     @Test
-    void uploadRejectsWebpWhenRuntimeReaderIsUnavailable() {
+    void uploadRefusesWebpAsAnUnsupportedTypeBeforeScanning() {
         UUID owner = UUID.randomUUID();
 
         assertThatThrownBy(() -> service.upload(
                 new UploadMediaCommand(owner, "image/webp", withMagic(WEBP_MAGIC, new byte[]{1, 2}))))
                 .isInstanceOf(MediaException.class)
                 .extracting(e -> ((MediaException) e).errorCode())
-                .isEqualTo(MediaErrorCode.INVALID_IMAGE);
+                .isEqualTo(MediaErrorCode.UNSUPPORTED_MEDIA_TYPE);
 
+        // Refused up front like any type off the allow-list: never scanned, decoded or stored.
+        assertThat(scanner.scanCount).isZero();
+        assertThat(storage.objects).isEmpty();
+        assertRejectedEvent(MediaValidationType.MIME_TYPE);
+    }
+
+    @Test
+    void uploadRefusesWebpBytesDeclaredAsJpegAsAContentMismatch() {
+        UUID owner = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.upload(
+                new UploadMediaCommand(owner, "image/jpeg", withMagic(WEBP_MAGIC, new byte[]{1, 2}))))
+                .isInstanceOf(MediaException.class)
+                .extracting(e -> ((MediaException) e).errorCode())
+                .isEqualTo(MediaErrorCode.UNSUPPORTED_MEDIA_TYPE);
+
+        assertThat(scanner.scanCount).isZero();
         assertThat(storage.objects).isEmpty();
         assertRejectedEvent(MediaValidationType.MIME_TYPE);
     }
