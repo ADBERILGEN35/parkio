@@ -862,7 +862,7 @@ fi
 echo "=== Part C: binding with real docker compose ==="
 if docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && [ "${PARKIO_GUARD_TEST_REAL_DOCKER:-1}" != "0" ]; then
   REAL_DOCKER="$(command -v docker)"
-  BASE_IMG="nginx:1.30.5-alpine3.24"   # the web runtime base (frontend/apps/web/Dockerfile)
+  BASE_IMG="nginx:1.30.7-alpine3.24"   # the web runtime base (frontend/apps/web/Dockerfile)
   docker image inspect "$BASE_IMG" >/dev/null 2>&1 || docker pull -q "$BASE_IMG" >/dev/null
   C="$TMP/partc"; mkdir -p "$C/good/root" "$C/bad/root" "$C/shim"
   PROJ="pwgc$$"
