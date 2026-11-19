@@ -28,7 +28,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.client.RestClientTest;
+import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -184,7 +184,12 @@ class ExpoApplicationMapperTest {
                 .build();
     }
 
-    /** A real client for the JDK (Boot's default here) or the URLConnection request factory. */
+    /**
+     * A real client for the JDK (Boot's default here) or the URLConnection request factory. It keeps
+     * Jackson 2 like the application's builder ({@code preferred-json-mapper=jackson2}); a plain
+     * Framework 7 builder would pick Jackson 3.
+     */
+    @SuppressWarnings("removal") // Jackson 2 converter, until the Jackson 3 follow-up of #515.
     private ExpoPushNotificationSender realSender(String baseUrl, String clientKind, HttpClient jdkClient) {
         ClientHttpRequestFactory factory;
         if ("jdk".equals(clientKind)) {
@@ -200,10 +205,9 @@ class ExpoApplicationMapperTest {
         var client = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(factory)
-                .messageConverters(converters -> {
-                    converters.clear();
-                    converters.add(new MappingJackson2HttpMessageConverter(mapper));
-                }).build();
+                .configureMessageConverters(converters -> converters.registerDefaults()
+                        .withJsonConverter(new MappingJackson2HttpMessageConverter(mapper)))
+                .build();
         return new ExpoPushNotificationSender(client, new PushSenderMetrics(new SimpleMeterRegistry()), "default");
     }
 
