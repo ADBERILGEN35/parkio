@@ -152,13 +152,17 @@ Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unav
 
 Expo send accepts either a single ticket or a one-element ticket array. `SENT`
 means **Expo ticket accepted**, not delivery to FCM/APNs or a device; the real ticket
-ID is retained. Missing IDs, malformed/empty responses and transport failures are
-terminal `FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the
-worker does not resend automatically. This trades possible missed notifications
-for avoiding duplicate sends when acceptance cannot be established. HTTP rejection
-and other explicit ticket failures retain bounded backoff; `DeviceNotRegistered`
-is terminal and deactivates the token. Credential/configuration failures are
-terminal `PROVIDER_CONFIGURATION_ERROR` and preserve the token.
+ID is retained. Missing IDs, malformed/empty responses and transport failures after
+the connection is established (timeouts, resets, unreadable responses) are terminal
+`FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the worker
+does not resend automatically. This trades possible missed notifications for
+avoiding duplicate sends when acceptance cannot be established. A failure to
+connect (refused, unresolved host, no route, connect timeout) proves Expo never
+received the request, so it is `PROVIDER_UNAVAILABLE` and keeps bounded backoff,
+like HTTP rejection (except 401/403) and other explicit ticket failures.
+`DeviceNotRegistered` is terminal and deactivates the token. Credential/configuration
+failures (HTTP 401/403, `InvalidCredentials`, `UNAUTHORIZED`, `MismatchSenderId`)
+are terminal `PROVIDER_CONFIGURATION_ERROR` and preserve the token.
 
 Receipt lookup is a **separate API contract** (IDs mapped to receipt objects), not
 implemented by this sender. Credential errors in receipts concern provider setup,

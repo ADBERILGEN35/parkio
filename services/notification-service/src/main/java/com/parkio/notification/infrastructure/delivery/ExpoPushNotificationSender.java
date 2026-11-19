@@ -7,6 +7,10 @@ import com.parkio.notification.application.port.PushMessage;
 import com.parkio.notification.application.port.PushNotificationSender;
 import com.parkio.notification.application.port.PushSendResult;
 import com.parkio.notification.infrastructure.metrics.PushSenderMetrics;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -78,9 +82,10 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
                 return PushSendResult.failed(FAILURE_INVALID_DEVICE_TOKEN);
             }
             metrics.failed();
-            if ("InvalidCredentials".equals(errorCode(ticket))
-                    || "UNAUTHORIZED".equals(errorCode(ticket))
-                    || "MismatchSenderId".equals(errorCode(ticket))) {
+            String code = errorCode(ticket);
+            if ("InvalidCredentials".equals(code) || "UNAUTHORIZED".equals(code) || "MismatchSenderId".equals(code)) {
+                // Only one of these three known constants is logged, never provider prose.
+                log.warn("Expo push ticket rejected: provider configuration error {}", code);
                 return PushSendResult.failed(FAILURE_CONFIGURATION);
             }
             // Neither provider prose nor arbitrary details.error values are safe to log.
@@ -94,9 +99,30 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
         } catch (RestClientException ex) {
             metrics.providerUnavailable();
             log.warn("Expo push network failure: {}", ex.getClass().getSimpleName());
+            if (failedToConnect(ex)) {
+                // No connection, so Expo never received the request: bounded retry cannot duplicate it.
+                return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
+            }
             // A timeout, reset or unreadable response cannot prove Expo did not enqueue it.
             return PushSendResult.failed(FAILURE_OUTCOME_UNKNOWN);
         }
+    }
+
+    /**
+     * True only when the connection to Expo was never established: refused, unresolved host,
+     * no route or connect timeout. Read/request timeouts and resets stay unknown outcomes.
+     */
+    private static boolean failedToConnect(Throwable failure) {
+        Throwable cause = failure;
+        for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
+            if (cause instanceof ConnectException
+                    || cause instanceof UnknownHostException
+                    || cause instanceof NoRouteToHostException
+                    || cause instanceof HttpConnectTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private PushSendResult unknownOutcome() {

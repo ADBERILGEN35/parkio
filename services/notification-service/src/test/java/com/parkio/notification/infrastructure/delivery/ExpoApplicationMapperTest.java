@@ -4,23 +4,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import com.parkio.notification.application.port.PushMessage;
 import com.parkio.notification.domain.DevicePlatform;
 import com.parkio.notification.infrastructure.config.ExpoPushConfig;
 import com.parkio.notification.infrastructure.metrics.PushSenderMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.junit.jupiter.api.Test;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.NoRouteToHostException;
+import java.net.ServerSocket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
+import java.util.stream.Stream;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.client.RestClientTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.client.MockRestServiceServer;
-import java.net.SocketTimeoutException;
+import org.springframework.web.client.RestClient;
 
 /** Uses Boot's application message converters and the production RestClient bean. */
 @RestClientTest(value = ExpoPushNotificationSender.class, properties = {
@@ -69,17 +88,64 @@ class ExpoApplicationMapperTest {
         server.verify();
     }
 
-    @Test
-    void transportTimeoutHasUnknownAcceptance() {
-        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
-                .andRespond(withException(new SocketTimeoutException("synthetic timeout")));
-        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
-                DevicePlatform.IOS, "Title", "Body"));
-        assertThat(result.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+    static Stream<IOException> failuresAfterConnecting() {
+        return Stream.of(
+                new SocketTimeoutException("synthetic read timeout"),
+                new HttpTimeoutException("synthetic request timeout"),
+                new SocketException("synthetic connection reset"));
     }
 
-    @Test
-    void actualTransportTimeoutAfterPeerAcceptsBodyRemainsUnknown() throws Exception {
+    @ParameterizedTest
+    @MethodSource("failuresAfterConnecting")
+    void transportFailureAfterConnectingHasUnknownAcceptance(IOException failure) {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withException(failure));
+        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
+                DevicePlatform.IOS, "Title", "Body"));
+        assertThat(result.delivered()).isFalse();
+        assertThat(result.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+        server.verify();
+    }
+
+    static Stream<IOException> failuresBeforeTransmission() {
+        return Stream.of(
+                new ConnectException("synthetic connection refused"),
+                new UnknownHostException("synthetic.invalid"),
+                new NoRouteToHostException("synthetic no route"),
+                new HttpConnectTimeoutException("synthetic connect timeout"),
+                new IOException("synthetic client wrapper", new ConnectException("synthetic connection refused")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("failuresBeforeTransmission")
+    void failureToConnectProvesNoTransmissionAndStaysRetryable(IOException failure) {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withException(failure));
+        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
+                DevicePlatform.IOS, "Title", "Body"));
+        assertThat(result.delivered()).isFalse();
+        assertThat(result.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"jdk", "simple"})
+    void actualRefusedConnectionStaysRetryable(String clientKind) throws Exception {
+        int closedPort;
+        try (var probe = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            closedPort = probe.getLocalPort();
+        }
+        try (var jdkClient = jdkClient()) {
+            var actual = realSender("http://127.0.0.1:" + closedPort, clientKind, jdkClient);
+            var result = actual.send(new PushMessage("ExponentPushToken[synthetic]", DevicePlatform.IOS, "Title", "Body"));
+            assertThat(result.delivered()).isFalse();
+            assertThat(result.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"jdk", "simple"})
+    void actualTransportTimeoutAfterPeerAcceptsBodyRemainsUnknown(String clientKind) throws Exception {
         var received = new java.util.concurrent.CountDownLatch(1);
         var release = new java.util.concurrent.CountDownLatch(1);
         var peer = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
@@ -97,18 +163,8 @@ class ExpoApplicationMapperTest {
             }
         });
         peer.start();
-        try {
-            var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-            factory.setConnectTimeout(500);
-            factory.setReadTimeout(150);
-            var client = org.springframework.web.client.RestClient.builder()
-                    .baseUrl("http://127.0.0.1:" + peer.getAddress().getPort())
-                    .requestFactory(factory)
-                    .messageConverters(converters -> {
-                        converters.clear();
-                        converters.add(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(mapper));
-                    }).build();
-            var actual = new ExpoPushNotificationSender(client, new PushSenderMetrics(new SimpleMeterRegistry()), "default");
+        try (var jdkClient = jdkClient()) {
+            var actual = realSender("http://127.0.0.1:" + peer.getAddress().getPort(), clientKind, jdkClient);
             var result = actual.send(new PushMessage("ExponentPushToken[synthetic]", DevicePlatform.IOS, "Title", "Body"));
             assertThat(received.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(result.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
@@ -118,6 +174,72 @@ class ExpoApplicationMapperTest {
             peerExecutor.shutdownNow();
             assertThat(peerExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private static HttpClient jdkClient() {
+        // Windows reports a refused loopback connect only after SYN retries (about 2 s).
+        return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+    }
+
+    /** A real client for the JDK (Boot's default here) or the URLConnection request factory. */
+    private ExpoPushNotificationSender realSender(String baseUrl, String clientKind, HttpClient jdkClient) {
+        ClientHttpRequestFactory factory;
+        if ("jdk".equals(clientKind)) {
+            var jdk = new JdkClientHttpRequestFactory(jdkClient);
+            jdk.setReadTimeout(Duration.ofMillis(150));
+            factory = jdk;
+        } else {
+            var simple = new SimpleClientHttpRequestFactory();
+            simple.setConnectTimeout(Duration.ofSeconds(5));
+            simple.setReadTimeout(Duration.ofMillis(150));
+            factory = simple;
+        }
+        var client = RestClient.builder()
+                .baseUrl(baseUrl)
+                .requestFactory(factory)
+                .messageConverters(converters -> {
+                    converters.clear();
+                    converters.add(new MappingJackson2HttpMessageConverter(mapper));
+                }).build();
+        return new ExpoPushNotificationSender(client, new PushSenderMetrics(new SimpleMeterRegistry()), "default");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403})
+    void credentialHttpStatusIsTerminalConfigurationFailure(int status) {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withStatus(HttpStatus.valueOf(status)));
+        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
+                DevicePlatform.IOS, "Title", "Body"));
+        assertThat(result.failureReason()).isEqualTo("PROVIDER_CONFIGURATION_ERROR");
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 413, 429, 500, 502, 503})
+    void otherHttpRejectionKeepsBoundedRetry(int status) {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withStatus(HttpStatus.valueOf(status)));
+        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
+                DevicePlatform.IOS, "Title", "Body"));
+        assertThat(result.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"data\":{\"status\":\"error\",\"message\":\"synthetic prose\",\"details\":{\"error\":\"DeviceNotRegistered\"}}}",
+            "{\"data\":[{\"status\":\"error\",\"message\":\"synthetic prose\",\"details\":{\"error\":\"DeviceNotRegistered\"}}]}"})
+    void deviceNotRegisteredInEitherTicketShapeIsInvalidToken(String json) {
+        server.expect(requestTo("https://exp.host/--/api/v2/push/send"))
+                .andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+        var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
+                DevicePlatform.IOS, "Title", "Body"));
+        assertThat(result.failureReason()).isEqualTo("INVALID_DEVICE_TOKEN");
+        server.verify();
     }
 
     @ParameterizedTest
