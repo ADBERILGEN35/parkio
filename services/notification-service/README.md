@@ -43,7 +43,12 @@ device tokens (another user's id is treated as `404`).
 | `PATCH /api/v1/notifications/me/preferences` | Update channel preferences |
 
 Device tokens are **unique per (user, token)** and are **deactivated, not deleted**;
-re-registering a deactivated token reactivates it.
+re-registering a deactivated token reactivates it. A push token is **active for at most
+one account**: registering it deactivates every other user's active row for that token in
+the same transaction, so the account that used the device before stops receiving pushes
+there. A transaction-scoped advisory lock on the token serialises concurrent registrations
+(the last one wins). The erasure fence is checked first, so an erased user can neither
+register nor take a token over.
 
 ## Event handling (inbox)
 
