@@ -1,7 +1,9 @@
 package com.parkio.user.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
 import com.parkio.user.application.command.CreateProfileCommand;
@@ -9,16 +11,21 @@ import com.parkio.user.application.event.UserErasureRequestedEvent;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.event.UserRestoredEvent;
+import com.parkio.user.domain.exception.UserException;
+import com.parkio.user.infrastructure.persistence.ErasureAckOutboxAdapter;
 import com.parkio.user.infrastructure.persistence.UserProfileRepositoryAdapter;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -48,6 +55,7 @@ class UserErasureFencePostgresIT {
     @Autowired AccountErasureHandler erasure;
     @Autowired JdbcTemplate jdbc;
     @MockitoSpyBean UserProfileRepositoryAdapter profiles;
+    @MockitoSpyBean ErasureAckOutboxAdapter ackOutbox;
 
     @Test
     void createAfterInitialCheckCannotRecreatePiiAfterCommittedErasureAck() throws Exception {
@@ -85,6 +93,67 @@ class UserErasureFencePostgresIT {
                     Long.class, created.id())).isZero();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM user_trust_profiles WHERE user_profile_id=?",
                     Long.class, created.id())).isZero();
+            assertThat(ackCount(user)).isEqualTo(1);
+        } finally {
+            resume.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    /**
+     * The opposite interleaving: erasure holds the exclusive fence, with its tombstone and deletes
+     * written but not committed, when a create or a late registration/status event arrives.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "registered", "suspended"})
+    void writerArrivingWhileErasureHoldsFenceWaitsThenCannotRecreateRecords(String writer) throws Exception {
+        UUID user = UUID.randomUUID();
+        // A late event targets an existing profile; a create targets a user without one.
+        UUID existingProfile = "create".equals(writer) ? null : users.createProfile(new CreateProfileCommand(
+                user, user + "@example.test", "Synthetic", null, null)).id();
+        var acking = new CountDownLatch(1);
+        var resume = new CountDownLatch(1);
+        doAnswer(call -> {
+            acking.countDown();
+            assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
+            return call.callRealMethod();
+        }).when(ackOutbox).append(any());
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var erase = executor.submit(() -> erasure.handle(request(user)));
+            assertThat(acking.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<?> write = executor.submit(() -> {
+                switch (writer) {
+                    case "create" -> users.createProfile(new CreateProfileCommand(
+                            user, user + "@example.test", "Synthetic", null, null));
+                    case "registered" -> users.handleUserRegistered(new UserRegisteredEvent(
+                            UUID.randomUUID(), user, user + "@example.test", Instant.now()));
+                    default -> users.handleUserSuspended(new UserSuspendedEvent(
+                            UUID.randomUUID(), UUID.randomUUID(), user, UUID.randomUUID(), Instant.now()));
+                }
+                return null;
+            });
+            await().atMost(Duration.ofSeconds(5)).until(() -> jdbc.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted", Long.class) > 0);
+            assertThat(write.isDone()).as("writer admitted while erasure holds the fence").isFalse();
+            resume.countDown();
+            erase.get(10, TimeUnit.SECONDS);
+            if ("create".equals(writer)) {
+                assertThatThrownBy(() -> write.get(10, TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(UserException.class);
+            } else {
+                write.get(10, TimeUnit.SECONDS);
+            }
+            assertThat(profileCount(user)).as("PII after committed erasure ACK").isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM pending_user_status_events WHERE auth_user_id=?",
+                    Long.class, user)).isZero();
+            if (existingProfile != null) {
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM user_preferences WHERE user_profile_id=?",
+                        Long.class, existingProfile)).isZero();
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM user_trust_profiles WHERE user_profile_id=?",
+                        Long.class, existingProfile)).isZero();
+            }
             assertThat(ackCount(user)).isEqualTo(1);
         } finally {
             resume.countDown();
