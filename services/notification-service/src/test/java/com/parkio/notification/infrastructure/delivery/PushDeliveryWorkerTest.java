@@ -74,6 +74,68 @@ class PushDeliveryWorkerTest {
     }
 
     @Test
+    void actualExpoTicketIsPersistedAndNeverRetried() {
+        var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://expo.invalid");
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("https://expo.invalid/push/send"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        "{\"data\":{\"status\":\"ok\",\"id\":\"provider-ticket-123\"}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        var sender = new ExpoPushNotificationSender(builder.build(),
+                new com.parkio.notification.infrastructure.metrics.PushSenderMetrics(meterRegistry), "default");
+        var attempt = persistPendingAttempt();
+        var worker = worker(sender, 5);
+        assertThat(worker.processPendingBatch()).isEqualTo(1);
+        assertThat(worker.processPendingBatch()).isZero();
+        assertThat(attempts.byId.get(attempt.id()).providerMessageId()).isEqualTo("provider-ticket-123");
+        assertThat(attempts.byId.get(attempt.id()).status()).isEqualTo(DeliveryStatus.SENT);
+        assertThat(meterRegistry.counter("parkio.notification.delivery.retry.count").count()).isZero();
+        server.verify();
+    }
+
+    @Test
+    void actualRefusedConnectionKeepsBoundedRetryAndToken() throws Exception {
+        int closedPort;
+        try (var probe = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())) {
+            closedPort = probe.getLocalPort();
+        }
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        // Windows reports a refused loopback connect only after SYN retries (about 2 s).
+        factory.setConnectTimeout(Duration.ofSeconds(5));
+        var sender = new ExpoPushNotificationSender(org.springframework.web.client.RestClient.builder()
+                .baseUrl("http://127.0.0.1:" + closedPort).requestFactory(factory).build(),
+                new com.parkio.notification.infrastructure.metrics.PushSenderMetrics(meterRegistry), "default");
+        var attempt = persistPendingAttempt();
+        var worker = worker(sender, 3);
+
+        worker.processPendingBatch();
+
+        var saved = attempts.byId.get(attempt.id());
+        assertThat(saved.status()).isEqualTo(DeliveryStatus.PENDING);
+        assertThat(saved.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        assertThat(saved.attemptCount()).isEqualTo(1);
+        assertThat(saved.nextAttemptAt()).isEqualTo(NOW.plusMillis(BASE_BACKOFF_MS));
+        assertThat(deviceTokens.findById(saved.deviceTokenId()).orElseThrow().active()).isTrue();
+        assertThat(meterRegistry.counter("parkio.notification.delivery.retry.count").count()).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_CONFIGURATION_ERROR"})
+    void unresolvedOrConfigurationFailureIsTerminalAndPreservesToken(String reason) {
+        var attempt = persistPendingAttempt();
+        var worker = worker(message -> PushSendResult.failed(reason), 5);
+        worker.processPendingBatch();
+        assertThat(worker.processPendingBatch()).isZero();
+        var saved = attempts.byId.get(attempt.id());
+        assertThat(saved.status()).isEqualTo(DeliveryStatus.FAILED);
+        assertThat(saved.failureReason()).isEqualTo(reason);
+        assertThat(saved.attemptCount()).isEqualTo(1);
+        assertThat(saved.nextAttemptAt()).isNull();
+        assertThat(deviceTokens.findById(saved.deviceTokenId()).orElseThrow().active()).isTrue();
+        assertThat(meterRegistry.counter("parkio.notification.delivery.retry.count").count()).isZero();
+    }
+
+    @Test
     void disabledWorkerDoesNotClaimOrSyntheticallyDeliverPendingAttempt() {
         NotificationDeliveryAttempt attempt = persistPendingAttempt();
         AtomicInteger sends = new AtomicInteger();

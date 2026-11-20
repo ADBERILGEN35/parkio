@@ -40,4 +40,6 @@ spring:
 # Tracing exports only at runtime; disabled in tests so no OTLP exporter starts.
 management:
   tracing:
-    enabled: false
+    # Spring Boot 4 name (management.tracing.enabled is no longer bound).
+    export:
+      enabled: false

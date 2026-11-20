@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.parkio.parking.application.command.CreateSpotCommand;
 import com.parkio.parking.application.command.SearchNearbyQuery;
+import com.parkio.parking.application.outcome.OutcomeEvaluationTriggerRequest;
 import com.parkio.parking.application.port.MediaAccessPort;
 import com.parkio.parking.application.port.MediaReadinessPort;
 import com.parkio.parking.application.port.ModerationMetricsPort;
@@ -50,6 +51,7 @@ import com.parkio.parking.domain.event.ParkingSpotReviewFailedEvent;
 import com.parkio.parking.domain.event.ParkingSpotVerifiedEvent;
 import com.parkio.parking.domain.exception.ParkingErrorCode;
 import com.parkio.parking.domain.exception.ParkingException;
+import com.parkio.parking.outcome.history.OutcomeEvaluationTrigger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -65,6 +67,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Behavioural unit tests for {@link ParkingApplicationService} using in-memory fake
@@ -93,6 +97,7 @@ class ParkingApplicationServiceTest {
     private ParkingSessionService parkingSessions;
     private MutableClock clock;
     private RecordingModerationMetrics moderationMetrics;
+    private RecordingOutcomeTriggerPort outcomeTriggers;
     private ParkingApplicationService service;
 
     @BeforeEach
@@ -108,6 +113,7 @@ class ParkingApplicationServiceTest {
         parkingSessions = mock(ParkingSessionService.class);
         clock = new MutableClock(NOW);
         moderationMetrics = new RecordingModerationMetrics();
+        outcomeTriggers = new RecordingOutcomeTriggerPort();
         when(parkingSessions.startSession(any(), any(), anyDouble(), anyDouble(), any(), any()))
                 .thenAnswer(invocation -> ParkingSession.start(
                         invocation.getArgument(0),
@@ -119,7 +125,7 @@ class ParkingApplicationServiceTest {
                         NOW));
         service = new ParkingApplicationService(spots, verifications, statusHistory, viewLogs, searchLogs,
                 outbox, mediaAccess, mediaReadiness, new ParkingSearchSettings(1000, 10, 50000, 50),
-                parkingSessions, POLICY, moderationMetrics, OutcomeEvaluationTriggerPort.noop(),
+                parkingSessions, POLICY, moderationMetrics, outcomeTriggers,
                 disabledExposureShadow(), new com.parkio.parking.application.port.ParkingOwnerFence() {
                     @Override public boolean admitWrite(java.util.UUID userId) { return true; }
                     @Override public void holdForErasure(java.util.UUID userId) {}
@@ -436,6 +442,43 @@ class ParkingApplicationServiceTest {
                 .satisfies(event -> assertThat(((ParkingSpotVerifiedEvent) event).result())
                         .isEqualTo(VerificationResult.ILLEGAL_OR_RISKY));
         assertThat(outbox.events).noneMatch(event -> event.eventType().equals("ParkingSpotRejected"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(VerificationResult.class)
+    void everyVerificationResultIsRecordedAndEnqueuesOneOutcomeTrigger(VerificationResult result) {
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
+        outcomeTriggers.enqueued.clear();
+
+        service.verifySpot(spot.id(), UUID.randomUUID(), result);
+
+        assertThat(verifications.all).singleElement()
+                .satisfies(verification -> assertThat(verification.result()).isEqualTo(result));
+        ParkingSpotVerification verification = verifications.all.get(0);
+        assertThat(outcomeTriggers.enqueued).singleElement()
+                .satisfies(trigger -> {
+                    assertThat(trigger.parkingSpotId()).isEqualTo(spot.id());
+                    assertThat(trigger.triggerReference()).isEqualTo(verification.id());
+                    assertThat(trigger.evidenceCutoffAt()).isEqualTo(verification.createdAt());
+                });
+    }
+
+    @Test
+    void wrongVehicleSizeVerificationAppliesTheNegativeSignalAndEnqueuesANegativeVerificationTrigger() {
+        ParkingSpot spot = createPublishedSpot(UUID.randomUUID());
+        outbox.events.clear();
+        outcomeTriggers.enqueued.clear();
+
+        ParkingSpot reported =
+                service.verifySpot(spot.id(), UUID.randomUUID(), VerificationResult.WRONG_VEHICLE_SIZE);
+
+        assertThat(reported.status()).isEqualTo(ParkingSpotStatus.ACTIVE);
+        assertThat(reported.confidenceScore()).isEqualTo(0.6);
+        assertThat(outcomeTriggers.enqueued).singleElement()
+                .extracting(OutcomeEvaluationTriggerRequest::triggerType)
+                .isEqualTo(OutcomeEvaluationTrigger.NEGATIVE_VERIFICATION);
+        // Like INVALID, the signal has no dedicated parking event.
+        assertThat(outbox.events).isEmpty();
     }
 
     @Test
@@ -1265,6 +1308,27 @@ class ParkingApplicationServiceTest {
         public void append(ParkingEvent event) {
             events.add(event);
         }
+    }
+
+    /** Records enqueued outcome-evaluation triggers; nothing is claimed or processed here. */
+    private static final class RecordingOutcomeTriggerPort implements OutcomeEvaluationTriggerPort {
+        private final List<OutcomeEvaluationTriggerRequest> enqueued = new ArrayList<>();
+
+        @Override
+        public void enqueue(OutcomeEvaluationTriggerRequest trigger) {
+            enqueued.add(trigger);
+        }
+
+        @Override
+        public List<OutcomeEvaluationTriggerRequest> claimPendingBatch(int limit) {
+            return List.of();
+        }
+
+        @Override
+        public void markProcessed(OutcomeEvaluationTriggerRequest trigger, Instant processedAt) {}
+
+        @Override
+        public void recordFailure(OutcomeEvaluationTriggerRequest trigger, String failureStage, Instant failedAt) {}
     }
 
     /** Test clock whose instant can be advanced. */
