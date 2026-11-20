@@ -16,8 +16,12 @@ import com.parkio.parking.domain.ModerationPolicy;
 import com.parkio.parking.domain.ParkingSpotStatus;
 import com.parkio.parking.domain.ParkingSpotStatusHistory;
 import com.parkio.parking.domain.VerificationResult;
+import com.parkio.parking.outcome.OutcomeClassification;
+import com.parkio.parking.outcome.OutcomeReason;
 import com.parkio.parking.outcome.history.OutcomeHistoryRecord;
 import com.parkio.parking.outcome.port.OutcomeHistoryPort;
+import com.parkio.parking.outcome.signal.OutcomeSignal;
+import com.parkio.parking.outcome.signal.OutcomeSignalType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -70,6 +74,39 @@ class OutcomeValidationApplicationServiceTest {
         assertThat(result.status()).isEqualTo(OutcomeProcessingResult.Status.APPENDED);
         assertThat(history.records).hasSize(1);
         assertThat(history.records.getFirst().evidenceCutoffAt()).isEqualTo(cutoff);
+    }
+
+    @Test
+    void evaluatesWrongVehicleSizeVerificationAsNegativeVerification() {
+        UUID spotId = UUID.randomUUID();
+        UUID verificationId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-07-28T10:00:00Z");
+        Instant publishedAt = createdAt.plusSeconds(30);
+        Instant verifiedAt = publishedAt.plusSeconds(60);
+        InMemoryOutcomeHistoryPort history = new InMemoryOutcomeHistoryPort(false);
+        var service = new OutcomeValidationApplicationService(
+                id -> Optional.of(new OutcomeSpotSnapshotData(id, createdAt)),
+                (id, ignored) -> List.of(new ParkingSpotStatusHistory(UUID.randomUUID(), id, ParkingSpotStatus.PENDING_VALIDATION,
+                        ParkingSpotStatus.ACTIVE, "AI_PASSED", publishedAt)),
+                (id, ignored) -> List.of(new OutcomeVerificationSignalData(
+                        verificationId, VerificationResult.WRONG_VEHICLE_SIZE, verifiedAt)),
+                history,
+                OutcomeOperationalizationObserverPort.noop(),
+                moderationPolicy(),
+                fixedClock(verifiedAt));
+
+        // The trigger ParkingApplicationService enqueues for a WRONG_VEHICLE_SIZE verification.
+        OutcomeProcessingResult result = service.process(
+                trigger(spotId, OutcomeEvaluationTrigger.NEGATIVE_VERIFICATION, verificationId, verifiedAt));
+
+        assertThat(result.status()).isEqualTo(OutcomeProcessingResult.Status.APPENDED);
+        assertThat(history.records).hasSize(1);
+        OutcomeHistoryRecord record = history.records.getFirst();
+        assertThat(record.snapshot().evidence().timeline().signals())
+                .extracting(OutcomeSignal::type)
+                .containsExactly(OutcomeSignalType.AI_PUBLISHED, OutcomeSignalType.VERIFICATION_WRONG_VEHICLE_SIZE);
+        assertThat(record.classification()).isEqualTo(OutcomeClassification.LIKELY_INCORRECT);
+        assertThat(record.primaryReason()).isEqualTo(OutcomeReason.NEGATIVE_VERIFICATION);
     }
 
     @Test

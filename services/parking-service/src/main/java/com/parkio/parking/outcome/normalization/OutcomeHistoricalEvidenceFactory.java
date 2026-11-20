@@ -120,7 +120,8 @@ public final class OutcomeHistoricalEvidenceFactory {
             List<OutcomeSignal> signals) {
         Instant occurredAt = verification.createdAt();
         VerificationResult result = verification.result();
-        switch (result) {
+        // Exhaustive without a default: a new VerificationResult must fail compilation here.
+        OutcomeSignalType signalType = switch (result) {
             case AVAILABLE -> {
                 state.verificationCount += 1;
                 if (state.status == ParkingSpotStatus.ACTIVE
@@ -133,17 +134,17 @@ public final class OutcomeHistoricalEvidenceFactory {
                 if (state.expiresAt == null || candidate.isAfter(state.expiresAt)) {
                     state.expiresAt = candidate;
                 }
-                signals.add(new OutcomeSignal(OutcomeSignalType.VERIFICATION_AVAILABLE, OutcomeSignalSource.COMMUNITY, occurredAt));
+                yield OutcomeSignalType.VERIFICATION_AVAILABLE;
             }
             case FILLED -> {
                 state.filledReportCount += 1;
                 state.status = state.filledReportCount >= 2 ? ParkingSpotStatus.FILLED : ParkingSpotStatus.SUSPICIOUS;
-                signals.add(new OutcomeSignal(OutcomeSignalType.VERIFICATION_FILLED, OutcomeSignalSource.COMMUNITY, occurredAt));
+                yield OutcomeSignalType.VERIFICATION_FILLED;
             }
             case ILLEGAL_OR_RISKY -> {
                 state.confidenceScore = Math.max(0.0, state.confidenceScore - CONFIDENCE_PENALTY);
                 state.status = ParkingSpotStatus.SUSPICIOUS;
-                signals.add(new OutcomeSignal(OutcomeSignalType.VERIFICATION_ILLEGAL_OR_RISKY, OutcomeSignalSource.COMMUNITY, occurredAt));
+                yield OutcomeSignalType.VERIFICATION_ILLEGAL_OR_RISKY;
             }
             case WRONG_VEHICLE_SIZE, INVALID -> {
                 state.confidenceScore = Math.max(0.0, state.confidenceScore - CONFIDENCE_PENALTY);
@@ -152,12 +153,12 @@ public final class OutcomeHistoricalEvidenceFactory {
                         && state.status != ParkingSpotStatus.REJECTED) {
                     state.status = ParkingSpotStatus.SUSPICIOUS;
                 }
-                OutcomeSignalType type = result == VerificationResult.INVALID
+                yield result == VerificationResult.INVALID
                         ? OutcomeSignalType.VERIFICATION_INVALID
                         : OutcomeSignalType.VERIFICATION_WRONG_VEHICLE_SIZE;
-                signals.add(new OutcomeSignal(type, OutcomeSignalSource.COMMUNITY, occurredAt));
             }
-        }
+        };
+        signals.add(new OutcomeSignal(signalType, OutcomeSignalSource.COMMUNITY, occurredAt));
         state.updatedAt = occurredAt;
     }
 
