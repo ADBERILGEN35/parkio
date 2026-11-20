@@ -397,7 +397,7 @@ Troubleshooting:
 
 | Area | Files | Focus |
 |------|-------|-------|
-| `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
+| `packages/api-client` | `src/*.test.ts` | Authorization/`X-Correlation-Id` interceptors, 401 → single shared refresh → retry → hard logout, refresh-exempt auth paths, no refresh or resend for `401 INVALID_CREDENTIALS`, `toParkioError` mapping (401/403/`ACCOUNT_NOT_ACTIVE`/429/503/unknown), `Idempotency-Key` on create/verify/claim/upload |
 | `packages/validation` | `src/*.test.ts` | login/register, nearby-search boundaries (lat ±90, lng ±180, radius ≤ 50 000, limit 1–50), media type/size limits, create-spot vehicle/violation rules, profile/preferences/vehicle constraints |
 | `apps/web` | `src/**/*.test.tsx` | Login success (session + redirect) and 401 (friendly message + traceId), manifest-driven `RoutePolicyBoundary` lifecycle/role policy, route title/focus management, Sonner toast helpers/dedupe, jest-axe checks for login/register/map shell, PWA manifest/service-worker cache policy, offline banner, 404 CTA routing, notifications list/empty/mark-as-read cache update, spot detail 404 / 409 `ALREADY_VERIFIED` / claim success, upload validation/media-reuse/create, profile stats + section-tab switching + vehicle empty/current + profile/preferences save + logout, gamification "Your Impact" header + level hero + recent activity/benefits + activity empty state + roadmap current-level highlight, leaderboard podium + public-profile enrichment/fallback + your-standing highlight + not-in-top-N + show-more + empty, moderation case queue/detail-assign/appeal-resolve controls, analytics overview KPIs + daily empty state + own-id-only 403 message, register extended-form validation (display name / password match / terms) + sends only email+password + captured name/phone PATCHed after provisioning + profile-save failure is non-fatal, register success → preparing → /map and register → preparing (not suspended), post-register provisioning grace (retry on `ACCOUNT_NOT_ACTIVE`, timeout → retry/sign-out) + store guard (suspended only outside the grace window), my-spots empty/list, reports list + appeal form, AppNav mobile menu toggle + role-gated links |
 | `apps/web` (E2E) | `e2e/smoke.spec.ts`, `e2e/wp03-routing.spec.ts` | Frontend-controlled Playwright coverage for critical product flows and the canonical WP-03 runtime/router/policy composition. The focused WP-03 Chromium suite is the required CI routing gate; no backend or seeded account is used. |
@@ -550,6 +550,13 @@ All auth calls go through the gateway (`VITE_API_BASE_URL`, **required** — def
   token is delivered only as a replacement HttpOnly cookie.
 - 401s from `/auth/login`, `/auth/register`, `/auth/refresh-token` and `/auth/logout`
   never trigger a refresh (invalid credentials / invalid refresh token — retrying would loop).
+- A `401 INVALID_CREDENTIALS` never triggers a refresh or a resend, on any path. It is
+  auth-service's answer to a failed password check behind an accepted access token (a
+  wrong current password on change-password, a wrong password on account deletion, or
+  an attempt the login throttle refused). Resending would check the same password again
+  and count it twice on the throttle budget shared with login (#557). The gateway's
+  token 401s (`MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_REVOKED`) still refresh and retry
+  once.
 
 ### Hard logout conditions
 
