@@ -104,7 +104,8 @@ export interface UserStats {
 
 /**
  * Public profile of another user (`GET /users/{userId}/public-profile`).
- * Privacy-safe: no email, phone or plate. `userId` is the platform-wide auth user id.
+ * Privacy-safe: no email, phone, plate or account status (the owner reads `status`
+ * from `GET /users/me`). `userId` is the platform-wide auth user id.
  */
 export interface PublicProfile {
   userId: string;
@@ -112,6 +113,5 @@ export interface PublicProfile {
   city: string | null;
   trustBand: TrustBand;
   currentLevel: number;
-  status: UserStatus;
   memberSince: string;
 }

@@ -234,7 +234,7 @@ async function installMocks(
     if (publicProfile) {
       return json({
         userId: publicProfile[1], displayName: `Driver ${publicProfile[1].slice(-2)}`, city: 'Istanbul',
-        trustBand: 'HIGH_TRUST', currentLevel: 4, status: 'ACTIVE', memberSince: '2026-08-01T08:00:00Z',
+        trustBand: 'HIGH_TRUST', currentLevel: 4, memberSince: '2026-08-01T08:00:00Z',
       });
     }
     unmocked.push(`${method} ${path}`);

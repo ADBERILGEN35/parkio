@@ -616,13 +616,15 @@ class UserApplicationServiceTest {
         assertThat(view.trustBand()).isEqualTo(TrustBand.HIGH_TRUST);
         assertThat(view.currentLevel()).isEqualTo(1);
 
-        // Privacy guard: the public view must not carry email / phone / plate.
+        // Privacy guard: the public view must not carry email / phone / plate or the
+        // account's moderation status.
         List<String> componentNames = new ArrayList<>();
         for (RecordComponent rc : PublicProfileView.class.getRecordComponents()) {
             componentNames.add(rc.getName().toLowerCase());
         }
         assertThat(componentNames)
-                .noneMatch(n -> n.contains("email") || n.contains("phone") || n.contains("plate"));
+                .noneMatch(n -> n.contains("email") || n.contains("phone") || n.contains("plate")
+                        || n.contains("status"));
     }
 
     @Test
