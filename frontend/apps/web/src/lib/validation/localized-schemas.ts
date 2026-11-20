@@ -1,4 +1,6 @@
 import {
+  MEDIA_MAX_FILE_SIZE_BYTES,
+  isAllowedImageType,
   isStrongPassword,
   isWithinPasswordByteLimit,
   passwordRequirementState,
@@ -91,6 +93,17 @@ export function createRegisterProfileSchema(t: SchemaTranslate) {
       message: t('validation:password.mismatch'),
       path: ['confirmPassword'],
     });
+}
+
+/** Localized photo checks of the upload wizard: the rules of `mediaUploadSchema` in @parkio/validation. */
+export function createMediaUploadSchema(t: SchemaTranslate) {
+  return z.object({
+    file: z
+      .instanceof(File)
+      .refine((f) => f.size > 0, t('media:upload.choosePhoto'))
+      .refine((f) => isAllowedImageType(f.type), { message: t('media:upload.unsupportedType') })
+      .refine((f) => f.size <= MEDIA_MAX_FILE_SIZE_BYTES, t('media:upload.fileTooLarge')),
+  });
 }
 
 export type PasswordRequirementId = keyof ReturnType<typeof passwordRequirementState>;
