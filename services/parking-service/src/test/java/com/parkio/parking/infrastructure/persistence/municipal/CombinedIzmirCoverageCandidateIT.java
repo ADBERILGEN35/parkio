@@ -57,8 +57,9 @@ class CombinedIzmirCoverageCandidateIT {
     private static final Path GEOJSON = Path.of(requirePropOrEnv(
                     "parkio.osm.real.izmir.geojson", "PARKIO_OSM_REAL_IZMIR_GEOJSON"))
             .toAbsolutePath().normalize();
-    // Without an explicit directory the report stays in the module's build directory, like every other test
-    // output (docs/ai-context/08-coding-standards.md); evidence for agent-tools/ is requested with the property.
+    // Without an explicit directory the report stays under the module's build directory
+    // (docs/ai-context/08-coding-standards.md). A relative directory resolves against services/parking-service,
+    // so pass an absolute path to export evidence elsewhere.
     private static final Path REPORT_DIR = Path.of(firstNonBlank(
                     System.getProperty("parkio.combined.report.dir"),
                     System.getenv("PARKIO_COMBINED_REPORT_DIR"),
