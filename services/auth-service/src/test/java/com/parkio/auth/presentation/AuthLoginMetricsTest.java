@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 /**
  * Verifies login outcome counters increment on the login path — counters only,
@@ -56,7 +57,8 @@ class AuthLoginMetricsTest {
         when(authService.login(any(LoginCommand.class))).thenReturn(
                 new AuthResult(user, "access", NOW.plusSeconds(900), "refresh", NOW.plusSeconds(86400)));
 
-        controller.login(new LoginRequest("user@parkio.app", "secret-password"), new MockHttpServletRequest());
+        controller.login(new LoginRequest("user@parkio.app", "secret-password"), new MockHttpServletRequest(),
+                new MockHttpServletResponse());
 
         assertThat(registry.counter("login_success").count()).isEqualTo(1.0);
         assertThat(registry.counter("login_failures").count()).isZero();
@@ -72,13 +74,15 @@ class AuthLoginMetricsTest {
         MockHttpServletRequest viaGateway = new MockHttpServletRequest();
         viaGateway.setAttribute(com.parkio.auth.infrastructure.web.GatewayAuthFilter.GATEWAY_AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
         viaGateway.addHeader("X-Parkio-Client-Ip", "198.51.100.7");
-        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), viaGateway))
+        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), viaGateway,
+                new MockHttpServletResponse()))
                 .isInstanceOf(AuthException.class);
         assertThat(command.getValue().clientKey()).isEqualTo("198.51.100.7");
 
         MockHttpServletRequest direct = new MockHttpServletRequest();
         direct.addHeader("X-Parkio-Client-Ip", "203.0.113.99");
-        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), direct))
+        assertThatThrownBy(() -> controller.login(new LoginRequest("user@parkio.app", "wrong"), direct,
+                new MockHttpServletResponse()))
                 .isInstanceOf(AuthException.class);
         assertThat(command.getValue().clientKey()).isEqualTo(com.parkio.auth.application.LoginFailureTracker.UNKNOWN_CLIENT);
     }
@@ -89,7 +93,8 @@ class AuthLoginMetricsTest {
                 .thenThrow(new AuthException(AuthErrorCode.INVALID_CREDENTIALS));
 
         assertThatThrownBy(() -> controller.login(
-                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest()))
+                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest(),
+                        new MockHttpServletResponse()))
                 .isInstanceOf(AuthException.class);
 
         assertThat(registry.counter("login_failures").count()).isEqualTo(1.0);
@@ -102,7 +107,8 @@ class AuthLoginMetricsTest {
         when(authService.login(any(LoginCommand.class))).thenThrow(new LoginLockedException());
 
         assertThatThrownBy(() -> controller.login(
-                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest()))
+                        new LoginRequest("user@parkio.app", "wrong"), new MockHttpServletRequest(),
+                        new MockHttpServletResponse()))
                 .isInstanceOf(AuthException.class)
                 .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage());
 

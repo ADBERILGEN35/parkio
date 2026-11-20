@@ -6,6 +6,9 @@
  * starters they need.
  */
 import java.util.concurrent.TimeUnit
+import org.cyclonedx.gradle.CyclonedxAggregateTask
+import org.cyclonedx.gradle.CyclonedxDirectTask
+import org.cyclonedx.model.Component
 
 plugins {
     java
@@ -32,17 +35,11 @@ repositories {
 }
 
 val springCloudVersion: String = project.findProperty("springCloudVersion") as String
-val tomcatVersion: String = project.findProperty("tomcatVersion") as String
-val nettyVersion: String = project.findProperty("nettyVersion") as String
-val postgresqlVersion: String = project.findProperty("postgresqlVersion") as String
 val jacksonBomVersion: String = project.findProperty("jacksonBomVersion") as String
 
-// Override vulnerable Spring Boot BOM families centrally so every service image resolves
-// the same patched artifacts. These property names are the official Boot BOM override keys.
-extra["tomcat.version"] = tomcatVersion
-extra["netty.version"] = nettyVersion
-extra["postgresql.version"] = postgresqlVersion
-extra["jackson-bom.version"] = jacksonBomVersion
+// Pin Jackson 2 centrally so every service image resolves the same patched artifacts. In Spring Boot 4
+// `jackson-bom.version` is the Jackson 3 BOM; Jackson 2 is `jackson-2-bom.version`.
+extra["jackson-2-bom.version"] = jacksonBomVersion
 
 dependencyManagement {
     imports {
@@ -65,16 +62,24 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 // RUNTIME classpath only — the dependency set that actually ships in the bootJar / image.
 // Produced on demand by `:services:<svc>:cyclonedxBom` (the release workflow collects them);
 // deliberately NOT wired into `build`, so normal CI stays fast and Docker-free. One file per
-// service, no XML+JSON duplication.
-tasks.named<org.cyclonedx.gradle.CycloneDxTask>("cyclonedxBom") {
-    setIncludeConfigs(listOf("runtimeClasspath"))
-    setProjectType("application")
-    setSchemaVersion("1.5")
-    setDestination(layout.buildDirectory.dir("reports/sbom").get().asFile)
-    setOutputName("bom")
-    setOutputFormat("json")
-    setIncludeBomSerialNumber(true)
-    setIncludeLicenseText(false)
+// service, no XML+JSON duplication. Plugin 3.x splits the work: `cyclonedxDirectBom` describes
+// this project and `cyclonedxBom` aggregates it (each task is configured on its own).
+tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom") {
+    includeConfigs = listOf("runtimeClasspath")
+    projectType = Component.Type.APPLICATION
+    schemaVersion = org.cyclonedx.Version.VERSION_15
+    includeBomSerialNumber = true
+    includeLicenseText = false
+    jsonOutput = layout.buildDirectory.file("reports/cyclonedx-direct/bom.json")
+    xmlOutput.convention(null as RegularFile?)
+}
+tasks.named<CyclonedxAggregateTask>("cyclonedxBom") {
+    projectType = Component.Type.APPLICATION
+    schemaVersion = org.cyclonedx.Version.VERSION_15
+    includeBomSerialNumber = true
+    includeLicenseText = false
+    jsonOutput = layout.buildDirectory.file("reports/sbom/bom.json")
+    xmlOutput.convention(null as RegularFile?)
 }
 
 // Default `test` (and therefore `check`/`build`) runs unit tests only and excludes the

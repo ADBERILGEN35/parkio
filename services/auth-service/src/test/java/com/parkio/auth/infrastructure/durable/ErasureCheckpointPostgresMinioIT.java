@@ -112,7 +112,7 @@ class ErasureCheckpointPostgresMinioIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         String store = "parkio.privacy.account-erasure.durable-store.object-lock.";
         registry.add(store + "enabled", () -> "true");
         registry.add(store + "endpoint", ErasureCheckpointPostgresMinioIT::minioEndpoint);

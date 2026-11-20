@@ -79,8 +79,14 @@ report="$(python3 - "$ROOT" "$start_utc" "${expected[@]}" <<'PY'
 import datetime, glob, sys
 import xml.etree.ElementTree as ET
 root, start = sys.argv[1], datetime.datetime.fromisoformat(sys.argv[2])
-# JUnit timestamps are UTC without a zone. Allow for a VM clock stepping back a little.
+# JUnit timestamps are UTC: Gradle 8.11 wrote them without a zone, Gradle 8.14 adds milliseconds and
+# a "Z". Compare them as naive UTC. Allow for a VM clock stepping back a little.
 earliest = start - datetime.timedelta(seconds=5)
+def utc(text):
+    stamp = datetime.datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    if stamp.tzinfo is not None:
+        stamp = stamp.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return stamp
 rows, ok = [], True
 for spec in sys.argv[3:]:
     p, minimum = spec.split("=", 1)
@@ -90,7 +96,7 @@ for spec in sys.argv[3:]:
     for path in glob.glob(f"{root}/services/{p}-service/build/test-results/integrationTest/TEST-*.xml"):
         suite = ET.parse(path).getroot()
         try:
-            fresh = datetime.datetime.fromisoformat(suite.get("timestamp", "")) >= earliest
+            fresh = utc(suite.get("timestamp", "")) >= earliest
         except ValueError:
             fresh = False
         counted = False
