@@ -49,6 +49,10 @@
 - Tag Docker-backed tests `integration`; normal `build` excludes them and
   `integrationTest` runs them, skipping cleanly when Docker is unavailable.
 - Keep the existing `contextLoads` smoke test green. `./gradlew build` must pass.
+- Tests write files only under their module's `build/` directory or a temporary
+  directory (`@TempDir`), so a test run leaves `git status` clean. An opt-in tool
+  that exports evidence elsewhere takes the directory from an explicit property or
+  environment variable.
 
 ## Logging & observability
 
