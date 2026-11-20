@@ -2,6 +2,7 @@
 """Stub-driven proof that the textfile-export unit runs the exporter atomically."""
 from __future__ import annotations
 
+import math
 import os
 import re
 import shutil
@@ -22,7 +23,17 @@ TIMER = ROOT / "scripts/slack_biz/deploy/civo/parkio-slack-biz-textfile-export.t
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
+from slack_biz.export_textfile_metrics import render  # noqa: E402
 from slack_biz.store import DeliveryStore  # noqa: E402
+
+_HEARTBEAT_AGE = re.compile(r"(?m)^parkio_slack_biz_worker_heartbeat_age_seconds (\S+)$")
+
+
+def heartbeat_age(body: str) -> float:
+    match = _HEARTBEAT_AGE.search(body)
+    if match is None:
+        raise AssertionError(f"export has no worker heartbeat age:\n{body}")
+    return float(match.group(1))
 
 
 def _seed_store(db_path: Path) -> None:
@@ -190,17 +201,24 @@ class TextfileExportTimerTest(unittest.TestCase):
         )
         return env
 
-    def _export(self, data_dir: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, Path]:
+    def _export(
+        self, data_dir: Path, tmp_path: Path, extra_env: dict[str, str] | None = None
+    ) -> tuple[subprocess.CompletedProcess, Path]:
         out = tmp_path / "textfile" / "parkio_slack_biz.prom"
         proc = subprocess.run(
             [sys.executable, str(EXPORT), "--output", str(out)],
             check=False,
             capture_output=True,
             text=True,
-            env=self._env(data_dir, tmp_path),
+            env={**self._env(data_dir, tmp_path), **(extra_env or {})},
             cwd=str(ROOT),
         )
         return proc, out
+
+    def _export_body(self, data_dir: Path, tmp_path: Path, extra_env: dict[str, str]) -> str:
+        proc, out = self._export(data_dir, tmp_path, extra_env)
+        self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+        return out.read_text(encoding="utf-8")
 
     def _tmp(self) -> Path:
         # Cleanups run last-in first-out, so a later chmod back to 0755 runs before this removal.
@@ -262,7 +280,8 @@ class TextfileExportTimerTest(unittest.TestCase):
 
     def test_a_relay_stopped_with_sigterm_is_reported_as_stopped(self) -> None:
         """systemctl stop sends SIGTERM. Each relay entrypoint must still close the store, so the WAL
-        side files go and the export reads parkio_slack_biz_relay_db_open 0 (#488 review)."""
+        side files go and the export reads parkio_slack_biz_relay_db_open 0 (#488 review). No worker
+        holds the lock afterwards (the worker releases it), so the heartbeat age reads +Inf (#544)."""
         for script, args in (
             ("worker.py", ["--loop", "--interval", "0.2", "--worker-id", "sigterm-test"]),
             ("consume_waitlist.py", ["--loop", "--interval", "0.2"]),
@@ -301,6 +320,118 @@ class TextfileExportTimerTest(unittest.TestCase):
                 body = out.read_text(encoding="utf-8")
                 self.assertIn("parkio_slack_biz_relay_db_open 0", body)
                 self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
+                self.assertEqual(heartbeat_age(body), math.inf)
+                self.assertIn("parkio_slack_biz_delivery_enabled 0", body)
+
+    def test_a_crashed_relay_keeps_its_heartbeat_age_growing(self) -> None:
+        """#544: SIGKILL skips every close, so the WAL side files stay and parkio_slack_biz_relay_db_open
+        stays 1 after the crash. The worker's lock heartbeat is what a crash cannot keep fresh: small
+        while the worker polls, growing from the kill on. The export reads a read-only directory, as
+        under its unit."""
+        tmp_path = self._tmp()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        db_path = data_dir / "slack_biz.sqlite3"
+        _seed_store(db_path)  # delivery_unknown and DLT rows only: no row is due, so nothing is sent
+        worker_env = self._env(data_dir, tmp_path)
+        # Delivery on, so the worker heartbeats on every poll. The address is local and refuses
+        # connections; it is never called because no row is due.
+        worker_env.update(
+            {
+                "PARKIO_SLACK_BIZ_ENABLED": "true",
+                "PARKIO_SLACK_BIZ_WEBHOOK_URL": "http://127.0.0.1:9/slack-biz-unit-test",
+                "PARKIO_SLACK_BIZ_WEBHOOK_URL_BIZ": "",
+                "PARKIO_SLACK_BIZ_WEBHOOK_URL_OPS": "",
+            }
+        )
+        # The export unit reads the non-secret conf only: delivery on, no webhook.
+        delivery_on = {"PARKIO_SLACK_BIZ_ENABLED": "true"}
+        relay = subprocess.Popen(
+            [
+                sys.executable,
+                str(ROOT / "scripts/slack_biz/worker.py"),
+                *("--loop", "--interval", "0.2", "--worker-id", "crash-test"),
+            ],
+            env=worker_env,
+            cwd=str(ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(relay.stderr.close)
+        self.addCleanup(relay.kill)
+        deadline = time.time() + 30
+        while not Path(f"{db_path}-wal").exists():
+            if relay.poll() is not None:  # read stderr only once the relay has exited
+                self.fail(f"worker.py exited early: {relay.stderr.read()}")
+            if time.time() > deadline:
+                self.fail("worker.py never opened the store")
+            time.sleep(0.05)
+        self._make_read_only(data_dir)
+
+        deadline = time.time() + 30
+        while not math.isfinite(heartbeat_age(self._export_body(data_dir, tmp_path, delivery_on))):
+            if relay.poll() is not None:
+                self.fail(f"worker.py exited early: {relay.stderr.read()}")
+            if time.time() > deadline:
+                self.fail("worker.py never took the lock")
+            time.sleep(0.1)
+        time.sleep(3)
+        body = self._export_body(data_dir, tmp_path, delivery_on)
+        # Without a heartbeat after the first one the age would be 3 or more by now.
+        self.assertLess(heartbeat_age(body), 3)
+        self.assertIn("parkio_slack_biz_delivery_enabled 1", body)
+
+        relay.kill()  # SIGKILL: no finally, no lock release, no store close
+        relay.wait(timeout=30)
+        self.assertTrue(Path(f"{db_path}-wal").exists(), "the crash left the WAL side files behind")
+        first = self._export_body(data_dir, tmp_path, delivery_on)
+        time.sleep(2.2)
+        second = self._export_body(data_dir, tmp_path, delivery_on)
+        for body in (first, second):
+            self.assertIn("parkio_slack_biz_relay_db_open 1", body)
+            self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
+        self.assertGreaterEqual(heartbeat_age(second), heartbeat_age(first) + 2)
+
+    def test_render_reports_the_worker_heartbeat_age(self) -> None:
+        """#544: the age comes from worker_lock.heartbeat_at through the read-only open. It follows the
+        clock, never goes negative, and is +Inf once no worker holds the lock."""
+        db_path = self._tmp() / "slack_biz.sqlite3"
+        _seed_store(db_path)
+        relay = DeliveryStore(db_path)
+        try:
+            relay.acquire_worker_lock("render-test")
+            with relay._lock:  # noqa: SLF001
+                beat = float(
+                    relay._conn.execute("SELECT heartbeat_at FROM worker_lock WHERE id=1").fetchone()[0]
+                )
+        finally:
+            relay.close()
+
+        ro = DeliveryStore(db_path, readonly=True)
+        try:
+            body = render(ro, when=beat + 600.9, delivery_enabled=True)
+            self.assertEqual(heartbeat_age(body), 600)
+            self.assertIn("parkio_slack_biz_delivery_enabled 1\n", body)
+            self.assertEqual(heartbeat_age(render(ro, when=beat + 1200, delivery_enabled=True)), 1200)
+            # A clock step back reads 0, not a negative age.
+            body = render(ro, when=beat - 30, delivery_enabled=False)
+            self.assertEqual(heartbeat_age(body), 0)
+            self.assertIn("parkio_slack_biz_delivery_enabled 0\n", body)
+        finally:
+            ro.close()
+
+        relay = DeliveryStore(db_path)
+        try:
+            relay.release_worker_lock("render-test")
+        finally:
+            relay.close()
+        ro = DeliveryStore(db_path, readonly=True)
+        try:
+            body = render(ro, when=beat + 600, delivery_enabled=True)
+        finally:
+            ro.close()
+        self.assertIn("parkio_slack_biz_worker_heartbeat_age_seconds +Inf\n", body)
 
 
 if __name__ == "__main__":
