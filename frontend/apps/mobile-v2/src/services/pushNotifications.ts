@@ -3,6 +3,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { hasAdminRole, hasPrivilegedRole } from '@parkio/types';
 import { Platform } from 'react-native';
 import { notificationsApi } from '@/services/api';
+import { useAuthStore } from '@/state/authStore';
 
 /**
  * Push notifications — the single seam over `expo-notifications`.
@@ -65,6 +66,20 @@ export interface PushRegistration {
 
 let registration: PushRegistration | null = null;
 let tokenRefreshSubscription: NotificationsTypes.EventSubscription | null = null;
+let stopSessionWatch: (() => void) | null = null;
+
+/**
+ * Drops this process's registration without a server call. A registration belongs to the session
+ * that made it: after that session ends, the next sign-in registers the token again, and the
+ * server hands it over from the previous account (#546).
+ */
+function forgetRegistration(): void {
+  registration = null;
+  tokenRefreshSubscription?.remove();
+  tokenRefreshSubscription = null;
+  stopSessionWatch?.();
+  stopSessionWatch = null;
+}
 
 /** Show notifications while foregrounded (banner, no sound). */
 export function configureForegroundHandling(): void {
@@ -106,6 +121,8 @@ async function registerTokenWithBackend(token: string): Promise<string | null> {
 export async function registerForPushNotifications(): Promise<PushRegistration | null> {
   if (!Notifications) return null;
   if (registration) return registration;
+  const sessionEpoch = useAuthStore.getState().sessionEpoch;
+  const sameSession = () => useAuthStore.getState().sessionEpoch === sessionEpoch;
   try {
     const current = await Notifications.getPermissionsAsync();
     const granted = current.granted
@@ -117,19 +134,33 @@ export async function registerForPushNotifications(): Promise<PushRegistration |
 
     // Throws inside Expo Go on Android (no FCM) — fails soft with a log.
     const expoToken = await Notifications.getExpoPushTokenAsync();
+    // The session ended during the permission or token step: send nothing. Without a session the
+    // POST gets a 401, and its handler would clear the tokens of a sign-in being saved right now.
+    if (!sameSession()) return null;
     const backendTokenId = await registerTokenWithBackend(expoToken.data);
+    // The session ended meanwhile: keep nothing, so the next sign-in registers again.
+    if (!sameSession()) return null;
     registration = {
       token: expoToken.data,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
       backendTokenId,
     };
 
+    // Every session-clearing path (sign-out, an expired or revoked session, a failed refresh or
+    // session write) goes through clearSession(), which bumps sessionEpoch.
+    stopSessionWatch?.();
+    stopSessionWatch = useAuthStore.subscribe((state) => {
+      if (state.sessionEpoch !== sessionEpoch) forgetRegistration();
+    });
+
     // Token refresh: re-register the new token; the backend upserts by token.
     tokenRefreshSubscription?.remove();
     tokenRefreshSubscription = Notifications.addPushTokenListener((next) => {
       if (typeof next.data === 'string' && next.data !== registration?.token) {
         void registerTokenWithBackend(next.data).then((id) => {
-          registration = { ...registration!, token: next.data as string, backendTokenId: id };
+          if (registration && sameSession()) {
+            registration = { ...registration, token: next.data as string, backendTokenId: id };
+          }
         });
       }
     });
@@ -145,9 +176,7 @@ export async function registerForPushNotifications(): Promise<PushRegistration |
 /** Best-effort deactivation on logout so a signed-out device stops receiving pushes. */
 export async function unregisterPushToken(): Promise<void> {
   const backendTokenId = registration?.backendTokenId;
-  registration = null;
-  tokenRefreshSubscription?.remove();
-  tokenRefreshSubscription = null;
+  forgetRegistration();
   if (!backendTokenId) return;
   try {
     await notificationsApi.deactivateDeviceToken(backendTokenId);

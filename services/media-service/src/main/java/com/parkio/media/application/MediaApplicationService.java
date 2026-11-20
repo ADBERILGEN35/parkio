@@ -51,8 +51,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <p><b>Access model:</b> media-service has no local knowledge of parking-spot
  * visibility, so reads are restricted to the owner (or a moderator/admin). An
- * unauthorized read is answered as NOT_FOUND so media ids cannot be enumerated.
- * Public spot-photo viewing for non-owners must be mediated by parking-service
+ * unauthorized read is answered as NOT_FOUND so media ids cannot be enumerated;
+ * the owner writes (claimed region, delete) answer anyone but the owner the same
+ * way. Public spot-photo viewing for non-owners must be mediated by parking-service
  * later (documented limitation).
  */
 @Service
@@ -259,14 +260,11 @@ public class MediaApplicationService {
         return requireActiveMedia(mediaId);
     }
 
-    /** Owner sets/replaces the claimed parking region annotation. */
+    /** Owner sets/replaces the claimed parking region annotation; anyone else sees NOT_FOUND. */
     @Transactional
     public MediaFile setClaimedRegion(SetClaimedRegionCommand command) {
         requireWritableOwner(command.ownerUserId());
-        MediaFile media = requireActiveMedia(command.mediaId());
-        if (!media.isOwnedBy(command.ownerUserId())) {
-            throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "Only the media owner can update the claimed region.");
-        }
+        MediaFile media = requireOwnedMedia(command.mediaId(), command.ownerUserId());
         media.setClaimedRegion(command.claimedRegion(), clock.instant());
         return mediaFiles.save(media);
     }
@@ -337,25 +335,48 @@ public class MediaApplicationService {
         return new MediaAccessUrl(media.id(), url, expiresAt);
     }
 
-    /** Soft-deletes the media (owner only) and best-effort removes the stored object. */
+    /**
+     * Soft-deletes the media (owner only; anyone else sees NOT_FOUND) and, once that has committed,
+     * best-effort removes the stored object.
+     */
     public void delete(UUID mediaId, UUID requesterUserId) {
-        // Fenced like every owner write: unfenced, its storage delete could reach a versioned bucket
-        // (as a new delete marker under the owner's key) after an erasure had confirmed the key empty.
+        // Fenced like every owner write: an erased owner's delete is refused, and the soft delete
+        // commits before an erasure of the owner can start.
         requireWritableOwner(requesterUserId);
-        MediaFile media = requireActiveMedia(mediaId);
-        if (!media.isOwnedBy(requesterUserId)) {
-            throw new MediaException(MediaErrorCode.NOT_MEDIA_OWNER, "You do not own this media.");
-        }
+        MediaFile media = requireOwnedMedia(mediaId, requesterUserId);
         media.softDelete(clock.instant());
         mediaFiles.save(media);
+        removeStoredObjectAfterCommit(media);
+    }
 
-        // The bytes are owned solely by this service and a soft-deleted record is
-        // never served again, so removing the object is safe. Best-effort: a
-        // storage failure must not fail the (already-committed-intent) delete.
+    /**
+     * Removes the deleted media's object only after the soft delete committed: removed earlier, a
+     * failed commit would leave a READY row whose object is gone. Runs after the owner fence was
+     * released, which is safe because every storage delete removes versions by id, so it can only
+     * remove data, never add a delete marker. Best effort: the bytes are owned solely by this
+     * service and a soft-deleted record is never served again, so a storage failure must not fail
+     * the committed delete; an object left behind stays under the owner's key namespace, which an
+     * account erasure sweeps.
+     */
+    private void removeStoredObjectAfterCommit(MediaFile media) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // No transaction to wait for: the soft delete is already saved.
+            removeDeletedObject(media);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                removeDeletedObject(media);
+            }
+        });
+    }
+
+    private void removeDeletedObject(MediaFile media) {
         try {
             storage.delete(media.objectKey());
         } catch (RuntimeException ex) {
-            log.warn("Soft-deleted media {} but failed to remove its storage object", mediaId, ex);
+            log.warn("Soft-deleted media {} but failed to remove its storage object", media.id(), ex);
         }
     }
 
@@ -394,6 +415,18 @@ public class MediaApplicationService {
     private MediaFile requireReadableMedia(UUID mediaId, UUID requesterUserId, boolean canModerate) {
         MediaFile media = requireActiveMedia(mediaId);
         if (!media.isOwnedBy(requesterUserId) && !canModerate) {
+            throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
+        }
+        return media;
+    }
+
+    /**
+     * Owner writes: anyone but the owner gets NOT_FOUND, the answer for an unknown id, so the write
+     * endpoints cannot confirm that a media id exists either.
+     */
+    private MediaFile requireOwnedMedia(UUID mediaId, UUID ownerUserId) {
+        MediaFile media = requireActiveMedia(mediaId);
+        if (!media.isOwnedBy(ownerUserId)) {
             throw new MediaException(MediaErrorCode.MEDIA_NOT_FOUND);
         }
         return media;

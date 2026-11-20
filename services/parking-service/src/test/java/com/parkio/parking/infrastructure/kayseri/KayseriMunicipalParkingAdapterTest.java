@@ -1,5 +1,6 @@
 package com.parkio.parking.infrastructure.kayseri;
 
+import com.parkio.parking.infrastructure.client.Jackson2RestClientBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -44,7 +45,7 @@ class KayseriMunicipalParkingAdapterTest {
         JsonNode geojson = mapper.readTree(getClass().getResourceAsStream(
                 "/fixtures/municipal/kayseri/sample-geojson.json"));
         JsonNode payload = new KayseriParkingClient(
-                        org.springframework.web.client.RestClient.builder(),
+                        Jackson2RestClientBuilder.builder(),
                         mapper,
                         new com.parkio.parking.infrastructure.config.MunicipalSourceProperties())
                 .flattenFeatures(geojson);

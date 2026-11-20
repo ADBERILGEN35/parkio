@@ -43,7 +43,12 @@ device tokens (another user's id is treated as `404`).
 | `PATCH /api/v1/notifications/me/preferences` | Update channel preferences |
 
 Device tokens are **unique per (user, token)** and are **deactivated, not deleted**;
-re-registering a deactivated token reactivates it.
+re-registering a deactivated token reactivates it. A push token is **active for at most
+one account**: registering it deactivates every other user's active row for that token in
+the same transaction, so the account that used the device before stops receiving pushes
+there. A transaction-scoped advisory lock on the token serialises concurrent registrations
+(the last one wins). The erasure fence is checked first, so an erased user can neither
+register nor take a token over.
 
 ## Event handling (inbox)
 
@@ -149,6 +154,27 @@ or token values.
 
 Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable}.count`,
 `parkio.notification.delivery.retry.count`, `parkio.notification.delivery.worker.*`.
+
+Expo send accepts either a single ticket or a one-element ticket array. `SENT`
+means **Expo ticket accepted**, not delivery to FCM/APNs or a device; the real ticket
+ID is retained. Missing IDs, malformed/empty responses and transport failures after
+the connection is established (timeouts, resets, unreadable responses) are terminal
+`FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the worker
+does not resend automatically. This trades possible missed notifications for
+avoiding duplicate sends when acceptance cannot be established. A failure to
+connect (refused, unresolved host, no route, connect timeout) proves Expo never
+received the request, so it is `PROVIDER_UNAVAILABLE` and keeps bounded backoff,
+like HTTP rejection (except 401/403) and other explicit ticket failures.
+`DeviceNotRegistered` is terminal and deactivates the token. Credential/configuration
+failures (HTTP 401/403, `InvalidCredentials`, `UNAUTHORIZED`, `MismatchSenderId`)
+are terminal `PROVIDER_CONFIGURATION_ERROR` and preserve the token.
+
+Receipt lookup is a **separate API contract** (IDs mapped to receipt objects), not
+implemented by this sender. Credential errors in receipts concern provider setup,
+not token validity. Receipt collection, retention and operator reconciliation of
+unknown outcomes require a separate design; no receipt polling or automatic
+unknown-outcome replay is implied here. See the
+[Expo send/ticket/receipt contract](https://docs.expo.dev/push-notifications/sending-notifications/).
 
 ### Required env vars for a real FCM provider (later)
 

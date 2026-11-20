@@ -22,6 +22,10 @@ tests:
         values: "0+60x40"
       - series: 'parkio_slack_biz_relay_db_open'
         values: "1x40"
+      - series: 'parkio_slack_biz_worker_heartbeat_age_seconds'
+        values: "1x40"
+      - series: 'parkio_slack_biz_delivery_enabled'
+        values: "1x40"
       - series: 'parkio_nr_budget_gate_probe_success'
         values: "1x40"
     alert_rule_test:
@@ -53,11 +57,73 @@ tests:
         alertname: NrBudgetGateExhausted
         exp_alerts: []
 
-  - name: slack biz relay stopped fires after 15m and resolves when the relay runs again
+  # SlackBizRelayStopped (#544). Inf cannot take the expanding notation, so the groups that carry it
+  # sample every 5m (within the 5m lookback, so every 1m evaluation sees a value).
+  - name: slack biz relay crash with side files left behind fires and resolves after a restart
     interval: 1m
     input_series:
+      # SIGKILL at 0m: the side files keep relay_db_open at 1 while the age grows from the last
+      # heartbeat. A restarted worker heartbeats again from 26m.
+      - series: 'parkio_slack_biz_worker_heartbeat_age_seconds'
+        values: "0+60x25 1x15"
+      - series: 'parkio_slack_biz_delivery_enabled'
+        values: "1x40"
       - series: 'parkio_slack_biz_relay_db_open'
-        values: "0x30 1x10"
+        values: "1x40"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: SlackBizRelayStopped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: slack-biz
+            exp_annotations:
+              summary: "Slack biz delivery worker is down or stuck"
+              description: "The Slack biz delivery worker's lock heartbeat has been older than 5m for 15m while delivery is enabled (crashed, killed, stopped, hung, or enabled without a webhook), or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
+      - eval_time: 30m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+
+  - name: slack biz worker stopped cleanly while the consumer keeps the DB open fires
+    interval: 5m
+    input_series:
+      # The clean stop releases the lock (+Inf); the running consumer keeps relay_db_open at 1.
+      - series: 'parkio_slack_biz_worker_heartbeat_age_seconds'
+        values: "1 Inf Inf Inf Inf Inf"
+      - series: 'parkio_slack_biz_delivery_enabled'
+        values: "1x5"
+      - series: 'parkio_slack_biz_relay_db_open'
+        values: "1x5"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: SlackBizRelayStopped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: slack-biz
+            exp_annotations:
+              summary: "Slack biz delivery worker is down or stuck"
+              description: "The Slack biz delivery worker's lock heartbeat has been older than 5m for 15m while delivery is enabled (crashed, killed, stopped, hung, or enabled without a webhook), or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+              runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
+
+  - name: slack biz relay fully closed while delivery is disabled fires and resolves when the relay runs again
+    interval: 5m
+    input_series:
+      # Both units stopped cleanly: no side files and no lock. The heartbeat arm is off while delivery
+      # is disabled; relay_db_open == 0 still fires. Both units run again from 30m.
+      - series: 'parkio_slack_biz_worker_heartbeat_age_seconds'
+        values: "Inf Inf Inf Inf Inf Inf 1 1 1"
+      - series: 'parkio_slack_biz_delivery_enabled'
+        values: "0x8"
+      - series: 'parkio_slack_biz_relay_db_open'
+        values: "0x5 1x3"
     alert_rule_test:
       - eval_time: 10m
         alertname: SlackBizRelayStopped
@@ -69,10 +135,25 @@ tests:
               severity: warning
               service: slack-biz
             exp_annotations:
-              summary: "No Slack biz relay process is running"
-              description: "Neither Slack biz relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+              summary: "Slack biz delivery worker is down or stuck"
+              description: "The Slack biz delivery worker's lock heartbeat has been older than 5m for 15m while delivery is enabled (crashed, killed, stopped, hung, or enabled without a webhook), or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
               runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
       - eval_time: 38m
+        alertname: SlackBizRelayStopped
+        exp_alerts: []
+
+  - name: slack biz relay stays quiet while delivery is disabled
+    interval: 1m
+    input_series:
+      # A disabled worker takes the lock once and then never heartbeats, so its age only grows.
+      - series: 'parkio_slack_biz_worker_heartbeat_age_seconds'
+        values: "0+60x40"
+      - series: 'parkio_slack_biz_delivery_enabled'
+        values: "0x40"
+      - series: 'parkio_slack_biz_relay_db_open'
+        values: "1x40"
+    alert_rule_test:
+      - eval_time: 35m
         alertname: SlackBizRelayStopped
         exp_alerts: []
 

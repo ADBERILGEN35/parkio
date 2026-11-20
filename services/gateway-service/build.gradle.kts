@@ -11,16 +11,21 @@ val authMainClasses = files(authMain.output.classesDirs).builtBy(authMain.classe
 dependencies {
     implementation(libs.spring.cloud.gateway)
     implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.spring.boot.jackson2)
+    implementation(libs.spring.boot.starter.restclient)
+    implementation(libs.spring.boot.starter.webclient)
     // Prometheus metrics export: /actuator/prometheus (scraped by docker/prometheus).
     runtimeOnly(libs.micrometer.registry.prometheus)
     // Distributed tracing: export OTLP spans to Tempo (Micrometer Observation -> OpenTelemetry).
     implementation(libs.micrometer.tracing.bridge.otel)
+    implementation(libs.spring.boot.micrometer.tracing.opentelemetry)
+    implementation(libs.spring.boot.opentelemetry)
     runtimeOnly(libs.opentelemetry.exporter.otlp)
     // Reactive Redis backs the edge RequestRateLimiter (token bucket per user/IP).
     implementation(libs.spring.boot.starter.data.redis.reactive)
     // Minimal waitlist persistence uses Flyway-owned schema and JdbcTemplate.
     implementation(libs.spring.boot.starter.jdbc)
-    implementation(libs.flyway.core)
+    implementation(libs.spring.boot.starter.flyway)
     implementation(libs.flyway.database.postgresql)
     // Bean Validation for @ConfigurationProperties (fail-closed JWT secret check).
     implementation(libs.spring.boot.starter.validation)
@@ -39,6 +44,9 @@ dependencies {
     }
 
     testImplementation(libs.spring.boot.starter.test)
+    // @AutoConfigureMetrics: the Prometheus endpoint tests need metrics export in the test context.
+    testImplementation(libs.spring.boot.micrometer.metrics.test)
+    testImplementation(libs.spring.boot.starter.webflux.test)
     // Contract proof uses auth JWT/admin types. Classes only: the auth jar also
     // ships db/migration V1 which collides with gateway Flyway on the test classpath.
     testImplementation(authMainClasses)

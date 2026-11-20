@@ -45,7 +45,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
@@ -86,7 +86,7 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         registry.add("parkio.kafka.relay.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
         registry.add("parkio.privacy.account-erasure.enabled", () -> "true");
         registry.add("parkio.privacy.account-erasure.durable-recording-enabled", () -> "true");
         // The scheduled worker bean stays disabled: a fixed-delay @Scheduled method runs right after the
@@ -110,14 +110,14 @@ class AccountErasureDurableRecordingWorkerPostgresIT {
         }
     }
 
-    @MockBean private AuthUserRepository users;
-    @MockBean private RefreshTokenRepository refreshTokens;
-    @MockBean private PasswordResetRepository passwordResets;
-    @MockBean private PasswordHasher passwordHasher;
-    @MockBean private OutboxEventAppender outbox;
-    @MockBean private InboxEventRepository inbox;
-    @MockBean private LoginFailureTracker loginFailureTracker;
-    @MockBean private EmailVerificationSender emailVerificationSender;
+    @MockitoBean private AuthUserRepository users;
+    @MockitoBean private RefreshTokenRepository refreshTokens;
+    @MockitoBean private PasswordResetRepository passwordResets;
+    @MockitoBean private PasswordHasher passwordHasher;
+    @MockitoBean private OutboxEventAppender outbox;
+    @MockitoBean private InboxEventRepository inbox;
+    @MockitoBean private LoginFailureTracker loginFailureTracker;
+    @MockitoBean private EmailVerificationSender emailVerificationSender;
 
     @Autowired private AccountErasureApplicationService erasure;
     @Autowired private ObjectProvider<DurableErasureRecordStore> stores;

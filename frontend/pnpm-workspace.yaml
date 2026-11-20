@@ -30,12 +30,13 @@ overrides:
   'brace-expansion@1': '^1.1.20'
   'brace-expansion@5': '^5.0.11'
   # GHSA-6h2x-m376-mqjq. cli-config and cli-types 20.2.0 accept ^17.2.1.
-  'joi@17': '^17.13.7'
+  # CVE-2026-118772 GHSA-4528-x5fx-h6hg (joi >= 17.1.1 < 17.13.9, patched 17.13.9).
+  'joi@17': '^17.13.9'
   'react': '19.2.3'
   'react-dom': '19.2.3'
   '@types/react': '19.2.17'
   '@types/react-dom': '19.2.3'
-  # SDK 56.0.22 bundledNativeModules.json. The previous 56.0.16 pin contradicted
+  # SDK 56.0.22 bundledNativeModules.json, unchanged in 56.0.24. The previous 56.0.16 pin contradicted
   # both apps/mobile (56.0.17) and the 56.0.16 ledger (~56.0.17). A split
   # 56.0.16/56.0.22 hoist leaves duplicate native modules; both apps stay on 56.
   '@expo/metro-runtime': '56.0.21'
@@ -55,9 +56,25 @@ overrides:
   # launch-editor 2.14.1 (^1.8.4) and react-devtools-core 6.1.5 (^1.6.1) resolved it to 1.9.0.
   'shell-quote': '^1.11.0'
   # CVE-2026-111755 / CVE-2026-111756 (follow-redirects < 1.16.1).
-  'follow-redirects': '>=1.16.1'
+  # CVE-2026-116689 GHSA-mrwp-f3q8-3g9p (follow-redirects >= 1.16.0 <= 1.16.1, patched 1.16.2).
+  # axios 1.20.0 accepts ^1.16.0. The caret keeps a later 2.x out.
+  'follow-redirects': '^1.16.2'
   # CVE-2026-112942 (launch-editor < 2.14.2).
   'launch-editor': '>=2.14.2'
   # CVE-2026-111181 GHSA-27r3-jxmh-p828 (body-parser >= 2.0.0 < 2.4.0, patched 2.4.0).
   # @react-native-community/cli-server-api 20.2.0 resolved it to 2.3.0.
   'body-parser@2': '^2.4.0'
+  # CVE-2026-118664 GHSA-qr28-fpjm-wq7f, #517 (decode-uri-component <= 0.5.0, patched 0.5.1, which is
+  # ESM-only). expo-router 56.2.x needs query-string ^7.1.3, a CommonJS package that require()s
+  # decode-uri-component ^0.2.2. The patch below gives query-string a CommonJS copy of the 0.5.1
+  # decoder, so the vulnerable package is removed from its dependencies.
+  'query-string@7>decode-uri-component': '-'
+  # CVE-2026-118779 GHSA-7wch-p9px-956x, CVE-2026-118782 GHSA-jc66-7q78-782g,
+  # CVE-2026-119187 GHSA-hqq3-7jhf-c5jx, CVE-2026-119188 GHSA-8hrf-8g6f-7xwp,
+  # CVE-2026-119190 GHSA-5x38-2vff-x55p, CVE-2026-119191 GHSA-rhr8-3pm8-cq29,
+  # CVE-2026-119192 GHSA-6qrw-m8cv-hcxf (node-forge <= 1.4.0, patched 1.4.1). @expo/cli
+  # 56.1.27 and @expo/code-signing-certificates 0.0.6 accept ^1.3.3 and resolved it to 1.4.0.
+  'node-forge': '^1.4.1'
+
+patchedDependencies:
+  'query-string@7.1.3': 'patches/query-string@7.1.3.patch'
