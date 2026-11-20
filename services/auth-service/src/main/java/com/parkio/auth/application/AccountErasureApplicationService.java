@@ -244,6 +244,12 @@ public class AccountErasureApplicationService {
         return new AccountDeletionStatusView(requestId, "IN_PROGRESS");
     }
 
+    /** Takes the request's client key (#563); not used yet: the password check is not throttled. */
+    @Transactional
+    public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password, String clientKey) {
+        return requestDeletion(principalUserId, password);
+    }
+
     /**
      * Removes the login-throttle state of the account (counters and known clients, CL-F15 v2) once the
      * erasure request has committed. Registered after the durable-recording step and never throws: a
