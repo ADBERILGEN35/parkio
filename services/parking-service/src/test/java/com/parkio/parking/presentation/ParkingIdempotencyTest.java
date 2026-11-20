@@ -165,6 +165,29 @@ class ParkingIdempotencyTest {
     }
 
     @Test
+    void wrongVehicleSizeVerificationIsRecordedAndAnswersOk() throws Exception {
+        UUID spotId = createdSpotId(UUID.randomUUID());
+
+        verify(UUID.randomUUID(), spotId, UUID.randomUUID().toString(), "WRONG_VEHICLE_SIZE")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(spotId.toString()))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        assertThat(jdbc.queryForList(
+                "SELECT result FROM parking_spot_verifications WHERE spot_id = ?", String.class, spotId))
+                .containsExactly("WRONG_VEHICLE_SIZE");
+        assertThat(jdbc.queryForObject(
+                "SELECT confidence_score FROM parking_spots WHERE id = ?", Double.class, spotId))
+                .isEqualTo(0.6);
+        UUID verificationId = jdbc.queryForObject(
+                "SELECT id FROM parking_spot_verifications WHERE spot_id = ?", UUID.class, spotId);
+        assertThat(jdbc.queryForList(
+                "SELECT trigger_type FROM outcome_evaluation_triggers WHERE trigger_reference = ?",
+                String.class, verificationId))
+                .containsExactly("NEGATIVE_VERIFICATION");
+    }
+
+    @Test
     void sameKeyWithDifferentBodyOrPathReturnsConflict() throws Exception {
         UUID userId = UUID.randomUUID();
         String bodyKey = UUID.randomUUID().toString();
