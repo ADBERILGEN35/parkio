@@ -5,7 +5,8 @@
 # Scope: typecheck + lint + unit tests + focused Mobile-v2 suite + expo-doctor.
 # Release APK/AAB builds remain on EAS (see mobile-v2 / legacy eas.json).
 #
-# Path-filtered to mobile apps + shared packages so unrelated PRs stay fast.
+# Path-filtered to mobile apps, shared packages and the shared install inputs (lockfile,
+# workspace overrides, patches) so unrelated PRs stay fast.
 # Retries remain disabled (jest / expo-doctor defaults; no retry: flags).
 
 name: Mobile CI
@@ -16,6 +17,11 @@ on:
       - "frontend/apps/mobile/**"
       - "frontend/apps/mobile-v2/**"
       - "frontend/packages/**"
+      # The shared install inputs: a lockfile, override or patch change reaches both apps without touching their trees.
+      - "frontend/package.json"
+      - "frontend/pnpm-lock.yaml"
+      - "frontend/pnpm-workspace.yaml"
+      - "frontend/patches/**"
       - ".github/workflows/mobile-ci.yml"
   push:
     branches: [api, master]
@@ -23,6 +29,11 @@ on:
       - "frontend/apps/mobile/**"
       - "frontend/apps/mobile-v2/**"
       - "frontend/packages/**"
+      # The shared install inputs: a lockfile, override or patch change reaches both apps without touching their trees.
+      - "frontend/package.json"
+      - "frontend/pnpm-lock.yaml"
+      - "frontend/pnpm-workspace.yaml"
+      - "frontend/patches/**"
       - ".github/workflows/mobile-ci.yml"
   workflow_dispatch:
 

@@ -357,16 +357,43 @@ public class AuthApplicationService {
         AuthUser user = authUsers.findById(command.userId())
                 .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
         user.ensureCanAuthenticate();
+        // H-06: the current password is checked on the account's login-throttle budget, exactly like a login:
+        // admission claims the running waits first, a wrong password counts for this (account, client) pair and
+        // the account, and a throttled attempt is answered like a wrong password.
+        String clientKey = command.clientKey() == null || command.clientKey().isBlank()
+                ? LoginFailureTracker.UNKNOWN_CLIENT
+                : command.clientKey();
+        Instant now = clock.instant();
+        Duration wait = loginFailures.admit(user.email(), clientKey, now);
+        if (!wait.isZero()) {
+            log.warn("Change-password throttled; userId={}, clientHash={}, retryAfterSeconds={}",
+                    user.id(), Integer.toHexString(clientKey.hashCode()), wait.toSeconds());
+            throw new LoginLockedException();
+        }
         if (!passwordHasher.matches(command.currentPassword(), user.passwordHash())) {
+            LoginFailureTracker.LoginFailureOutcome outcome = loginFailures.recordFailure(user.email(), clientKey, now);
+            if (outcome.throttled()) {
+                log.warn(
+                        "Change-password throttle applied; userId={}, clientHash={}, pairFailures={}, accountFailures={}, retryAt={}",
+                        user.id(),
+                        Integer.toHexString(clientKey.hashCode()),
+                        outcome.pairFailures(),
+                        outcome.accountFailures(),
+                        outcome.retryAt());
+                throw new LoginLockedException();
+            }
             throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
-        Instant now = clock.instant();
         user.changePassword(passwordHasher.hash(command.newPassword()));
         long newEpoch = user.bumpSessionEpoch();
         authUsers.save(user);
         int revoked = refreshTokens.revokeAllActiveForUser(
                 user.id(), RefreshTokenRevocationReason.PASSWORD_CHANGED, now);
+        // The right current password authenticates this client like a login: its pair is cleared and it becomes
+        // known for the account, once the change has committed (the account counter stays).
+        loginThrottleAfterCommit(() -> loginFailures.clearAfterSuccess(user.email(), clientKey),
+                "counters not cleared after a password change; they expire on their own", user.id());
         log.info("Password changed; userId={}, activeRefreshTokensRevoked={}, sessionEpoch={}",
                 user.id(), revoked, newEpoch);
     }

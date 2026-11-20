@@ -101,7 +101,7 @@ class TrustShadowPersistencePostgresIT {
         registry.add("parkio.lifecycle.trust-shadow.enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.outbox-enabled", () -> "false");
         registry.add("parkio.lifecycle.retention.inbox-enabled", () -> "false");
-        registry.add("management.tracing.enabled", () -> "false");
+        registry.add("management.tracing.export.enabled", () -> "false");
     }
 
     @Autowired

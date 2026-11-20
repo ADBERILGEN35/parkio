@@ -186,6 +186,10 @@ for direct in \
   mode="$(git -C "$ROOT" ls-files -s -- "$direct" | awk '{print $1}')"
   check "$direct is committed executable (got ${mode:-missing})" "[ \"$mode\" = 100755 ]"
 done
+# H-14 (#549): the same holds for every script a runbook, cron line, workflow or other script runs
+# by path: every scripts/**/*.sh with a shebang outside scripts/lib/, plus the files the check lists.
+check "every script run by path is committed executable (scripts/ci/check_script_modes.py)" \
+  "python3 '$ROOT/scripts/ci/check_script_modes.py' >&2"
 
 echo "== R8-I: the live gate cannot repeat the run-32340585156 harness defects =="
 live="$ROOT/scripts/test-invite-production-release-containers.sh"

@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -36,13 +36,13 @@ class WaitlistOpsNotificationDisabledTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @MockBean
+    @MockitoBean
     private WaitlistRateLimiter rateLimiter;
 
-    @MockBean
+    @MockitoBean
     private WaitlistEmailSender emailSender;
 
-    @MockBean
+    @MockitoBean
     private JwtTokenValidator tokenValidator;
 
     @Test

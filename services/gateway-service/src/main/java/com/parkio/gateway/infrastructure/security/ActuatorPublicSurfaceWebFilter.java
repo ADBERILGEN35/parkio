@@ -99,7 +99,7 @@ public class ActuatorPublicSurfaceWebFilter implements WebFilter {
     }
 
     private static boolean relayedByProxy(ServerWebExchange exchange) {
-        return PROXY_HEADERS.stream().anyMatch(exchange.getRequest().getHeaders()::containsKey);
+        return PROXY_HEADERS.stream().anyMatch(exchange.getRequest().getHeaders()::containsHeader);
     }
 
     private static Mono<Void> notFound(ServerWebExchange exchange) {
