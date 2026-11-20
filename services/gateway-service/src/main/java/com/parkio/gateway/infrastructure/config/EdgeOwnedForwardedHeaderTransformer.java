@@ -20,7 +20,7 @@ public class EdgeOwnedForwardedHeaderTransformer extends ForwardedHeaderTransfor
 
     @Override
     public ServerHttpRequest apply(ServerHttpRequest request) {
-        ServerHttpRequest edgeOwned = request.getHeaders().containsKey(FORWARDED)
+        ServerHttpRequest edgeOwned = request.getHeaders().containsHeader(FORWARDED)
                 ? request.mutate().headers(headers -> headers.remove(FORWARDED)).build()
                 : request;
         return super.apply(edgeOwned);

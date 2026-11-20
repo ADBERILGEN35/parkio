@@ -66,6 +66,15 @@ README); the gateway's per-request status check uses this service's
 
 ## Run locally
 
+Profile creation, profile/preference commands and late status/projection events
+join a service-local PostgreSQL transaction-scoped owner fence before reading
+profile state. Erasure takes the exclusive fence before writing the tombstone and
+deleting the graph; its ACK outbox row commits only after admitted writers finish.
+Late registration/status events are inbox-consumed without recreating a profile or
+pending-status row. H2 tests do not prove this ordering; `UserErasureFencePostgresIT`
+uses real PostgreSQL transactions and deterministic barriers (PA30-S01 / #524).
+Production erasure remains disabled pending separate recovery acceptance.
+
 From the repository root:
 
 ```bash

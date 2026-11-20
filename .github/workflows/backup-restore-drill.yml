@@ -134,9 +134,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assert MinIO image pin parity (compose/CI/scripts)
-        run: |
-          chmod +x scripts/ci/assert-minio-image-pins.sh
-          ./scripts/ci/assert-minio-image-pins.sh
+        run: ./scripts/ci/assert-minio-image-pins.sh
 
       - name: Backup metric publication contract
         run: python3 scripts/test_backup_metrics.py
@@ -149,9 +147,7 @@ jobs:
           # Backup helpers source this file; keep their image selection equal to Compose.
           printf '%s\n' "MINIO_IMAGE=$MINIO_IMAGE" "MINIO_MC_IMAGE=$MINIO_MC_IMAGE" >> docker/.env
 
-      - name: Make scripts executable
-        run: chmod +x scripts/*.sh scripts/lib/*.sh
-
+      # No chmod: the scripts run with the modes git recorded, as on a fresh host checkout (H-14, #549).
       - name: Azure SAS + MinIO encryption unit tests (offline)
         run: ./scripts/test-backup-azure-sas-minio-encryption.sh
 

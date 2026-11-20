@@ -860,14 +860,21 @@ groups:
 
       - alert: SlackBizRelayStopped
         # The textfile export stays fresh while the relay is stopped (#488), so the stop is named here.
-        expr: parkio_slack_biz_relay_db_open == 0
+        # A crash or SIGKILL leaves the WAL side files, so relay_db_open stays 1 (#544). The worker's
+        # lock heartbeat cannot stay fresh that way: its age grows after a crash and is +Inf once no
+        # worker holds the lock. The worker heartbeats only while delivery is enabled. 300s is well
+        # above a slow batch (20 sends at the 5s HTTP timeout). A clean close of every relay process
+        # still fires through relay_db_open == 0, delivery enabled or not.
+        expr: |
+          (parkio_slack_biz_worker_heartbeat_age_seconds > 300 and parkio_slack_biz_delivery_enabled == 1)
+            or parkio_slack_biz_relay_db_open == 0
         for: 15m
         labels:
           severity: warning
           service: slack-biz
         annotations:
-          summary: "No Slack biz relay process is running"
-          description: "Neither Slack biz relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+          summary: "Slack biz delivery worker is down or stuck"
+          description: "The Slack biz delivery worker's lock heartbeat has been older than 5m for 15m while delivery is enabled (crashed, killed, stopped, hung, or enabled without a webhook), or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
 
       - alert: NrBudgetGateExhausted

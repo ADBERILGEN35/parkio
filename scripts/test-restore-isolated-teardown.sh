@@ -5,7 +5,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-chmod +x "${ROOT}/scripts/restore-isolated-fixture.sh"
 
 pass=0
 fail=0
