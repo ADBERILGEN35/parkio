@@ -69,10 +69,11 @@ inside one /64 is one client), an IPv4-mapped IPv6 address as the IPv4 client, a
 |---|---|---|
 | (account, client) failures | 24 h after the last failure | the pair waits 30 s from the 5th failure, 5 min from the 10th, 1 h from the 20th |
 | account failures (all clients) | 1 h after the last failure | from the 50th failure each further failure makes the account's **unknown** clients wait 10 s; from the 100th, 60 s; from the 200th, 5 min |
-| known client of the account (one marker per client) | 14 days after that client's last login, completed reset or successful refresh-token rotation | exempt from the account wait (its own pair tiers still apply) |
+| known client of the account (one marker per client) | 14 days after that client's last login, password change, completed reset or successful refresh-token rotation | exempt from the account wait (its own pair tiers still apply) |
 
-A client becomes **known** for an account when it logs in successfully or completes the account's
-password reset, and stays known while it rotates the account's refresh tokens (an active session keeps
+A client becomes **known** for an account when it logs in successfully (or changes the password with the
+right current password) or completes the account's password reset, and stays known while it rotates the
+account's refresh tokens (an active session keeps
 its exemption without a password login); the shared `unknown` client never does. Only a successful
 authentication writes or refreshes the marker: admission, failures and a rejected refresh never do
 (`ThrottledLoginFailureTrackerTest`, `AuthApplicationServiceTest`, `LoginThrottleClientKeyHttpTest`).
@@ -95,11 +96,21 @@ wait does not escalate the tier. A throttled attempt is answered exactly like a 
 (`INVALID_CREDENTIALS`), also when the password was right; logs and the `login_lockouts` counter
 ("attempts refused by the throttle") see the difference.
 
+**Change-password (H-06).** `POST /api/v1/auth/change-password` checks the current password through the
+same throttle: the same (account, client) pair and account counter (the client is the gateway-resolved
+`X-Parkio-Client-Ip`, as on login), admission before the comparison, and a wrong current password counted
+as a failure. Login and change-password therefore share one budget: alternating them gives no extra
+guesses, and a wait started on either holds both. A refused or throttled attempt is answered exactly like a
+wrong current password (`INVALID_CREDENTIALS`, no `Retry-After`); the warning log shows the difference, the
+`login_lockouts` counter stays login-only.
+
 Clearing:
 
 - a successful login clears that client's pair and marks it known; the account counter and other
   clients' pairs stay (one successful login does not end an attack, and gives the attacker no fresh
   budget);
+- a change-password with the right current password does the same, once the change has committed (best
+  effort, like the reset below);
 - a completed password reset clears every client's pair for the account (the tracker keeps the set of
   client digests that failed) and marks the resetting client known, once the reset has committed; the
   account counter stays. Best effort: if the throttle store is unavailable the reset still succeeds and

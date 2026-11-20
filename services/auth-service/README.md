@@ -230,7 +230,10 @@ or presenting an expired reset token returns the generic `INVALID_RESET_TOKEN`;
 the raw token and hash are not included in responses or production logs.
 
 `POST /api/v1/auth/change-password` is authenticated. It verifies the current
-password, applies the same password policy to the new password, then performs the
+password through the login throttle (the same per-client and per-account budget as
+login; a throttled attempt is answered like a wrong password, see
+`docs/architecture/login-throttling.md`), applies the same password policy to the
+new password, then performs the
 same session invalidation as reset-password: all refresh families are revoked,
 `session_epoch` is bumped, and refresh cookies are cleared. The current browser
 must sign in again after a successful change; this intentionally avoids leaving a
