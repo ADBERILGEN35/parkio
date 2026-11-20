@@ -56,7 +56,7 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
 | `POST /api/v1/media/upload`                  | Multipart `file` plus required `Idempotency-Key`. Validates mime/size/magic-bytes, **scans the original bytes for malware**, decodes and re-encodes the image to metadata-stripped JPEG, computes SHA-256 over the normalized bytes, rejects duplicates (409), stores the normalized object and returns `{ mediaId, status, contentType, fileSize }` with `status=READY`. Infected → `422 MEDIA_INFECTED`; scan unavailable → `503 MEDIA_SCAN_UNAVAILABLE`; corrupt/oversized image → `422 INVALID_IMAGE` (fail-closed, nothing stored). |
 | `GET /api/v1/media/{mediaId}`                | Metadata — **owner or MODERATOR/ADMIN only**.        |
 | `GET /api/v1/media/{mediaId}/access-url`     | Short-lived presigned GET URL — **owner or MODERATOR/ADMIN only**. |
-| `DELETE /api/v1/media/{mediaId}`             | Soft-delete (**owner only**, `403` otherwise); best-effort object removal. |
+| `DELETE /api/v1/media/{mediaId}`             | Soft-delete (**owner only**, `404 MEDIA_NOT_FOUND` otherwise); best-effort object removal once the soft delete has committed. |
 | `GET /api/v1/media/{mediaId}/validation-results` | Validation internals — **owner or MODERATOR/ADMIN only**. |
 
 ### Access control
@@ -66,8 +66,8 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
   for callers whose `X-User-Roles` header contains `MODERATOR` or `ADMIN`.
 - Unauthorized reads are answered as **`404 MEDIA_NOT_FOUND`**, not `403`, so media
   ids cannot be probed/enumerated (IDOR prevention).
-- Delete remains owner-only (`403 NOT_MEDIA_OWNER` for others); moderator/admin
-  delete is deferred (backlog).
+- Claimed-region update and delete are owner-only and answer everyone else the same
+  way (`404 MEDIA_NOT_FOUND`); moderator/admin delete is deferred (backlog).
 - **Account erasure (U05):** upload, claimed-region update and delete first join the
   owner's erasure fence (a PostgreSQL advisory lock per owner) and answer
   **`403 ACCOUNT_ERASED`** once the owner's erasure has started, without storing or

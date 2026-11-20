@@ -395,7 +395,8 @@ Per participant subtask:
      retry or release.
 
   Every storage delete removes versions by version id. That covers the
-  worker, the upload's rollback cleanup and the owner delete; the HEAD fallback
+  worker, the upload's rollback cleanup and the owner delete, which removes the
+  object only after its soft delete committed; the HEAD fallback
   uses the current version id. So a delete that reaches the store late can only
   remove data; it can never add a delete marker. AWS documents that a simple
   DELETE in a versioning-enabled bucket inserts a delete marker. The tested
