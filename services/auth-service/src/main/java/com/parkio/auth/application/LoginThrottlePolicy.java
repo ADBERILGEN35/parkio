@@ -18,9 +18,10 @@ import java.time.Duration;
  *       hour once it passes 200, however many addresses it has and however many attempts it sends at once:
  *       admission claims each wait atomically before the password is checked
  *       ({@code LoginThrottleSimulationTest}).</li>
- *   <li><b>Known clients</b> logged into the account, completed its password reset, or rotated one of
- *       its refresh tokens within the last 14 days (one marker per client, expiring 14 days after that
- *       client's last login, reset or refresh). They are exempt from the account wait, so a distributed
+ *   <li><b>Known clients</b> logged into the account (or changed its password with the right current
+ *       password), completed its password reset, or rotated one of its refresh tokens within the last 14
+ *       days (one marker per client, expiring 14 days after that client's last login, password change,
+ *       reset or refresh). They are exempt from the account wait, so a distributed
  *       attacker cannot keep the owner out of a network the owner used before; their own pair tiers
  *       still apply. (NIST SP 800-63B 5.2.2 lists this allowlist of previously authenticated addresses
  *       among the measures against lockout.) Only a successful authentication writes the marker.</li>

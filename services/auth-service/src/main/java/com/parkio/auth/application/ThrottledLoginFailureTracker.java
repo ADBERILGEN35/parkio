@@ -34,9 +34,9 @@ import org.springframework.stereotype.Component;
  * attempts that arrive together there are all evaluated: the overshoot at a tier crossing is bounded by
  * the number of attempts in flight.
  *
- * <p>A client becomes or stays known only after a successful authentication: a password login, a
- * completed password reset (possession of the mailbox) or a successful refresh-token rotation. Admission
- * and failures never write a known marker.
+ * <p>A client becomes or stays known only after a successful authentication: a password login (or the
+ * right current password on change-password), a completed password reset (possession of the mailbox) or a
+ * successful refresh-token rotation. Admission and failures never write a known marker.
  */
 @Component
 public class ThrottledLoginFailureTracker implements LoginFailureTracker {

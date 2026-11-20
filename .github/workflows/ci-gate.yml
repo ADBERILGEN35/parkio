@@ -35,11 +35,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y python3-yaml
 
       - name: Gate unit tests
-        run: python3 -m unittest scripts/ci/test_ci_gate.py scripts/ci/test_junit_summary.py scripts/ci/test_detect_path_scope.py scripts/ci/test_path_filtered_summary_gate.py scripts/ci/test_check_public_host_details.py
+        run: python3 -m unittest scripts/ci/test_ci_gate.py scripts/ci/test_junit_summary.py scripts/ci/test_detect_path_scope.py scripts/ci/test_path_filtered_summary_gate.py scripts/ci/test_check_public_host_details.py scripts/ci/test_check_script_modes.py
 
       # The repository is public: docs/ and agent-tools/ name roles, not personal addresses or SSH logins (G-05, #487).
       - name: Public docs carry no personal addresses or SSH logins
         run: python3 scripts/ci/check_public_host_details.py
+
+      # A fresh clone runs these by path; the mode git recorded must allow it (H-14, #549).
+      - name: Scripts run by path are committed executable
+        run: python3 scripts/ci/check_script_modes.py
 
       - name: Wait for and judge the required checks
         env:
