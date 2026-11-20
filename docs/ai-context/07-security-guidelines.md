@@ -184,8 +184,9 @@ Privilege boundaries / enforcement notes:
   `PARKIO_LOGIN_THROTTLE_HMAC_KEY_PREVIOUS`); a client stays known for 14 days after
   its last successful authentication, and only a successful authentication (login or
   change-password with the right current password, completed reset, refresh-token
-  rotation) writes that marker. The current-password check of change-password uses the
-  same counters and generic response as login (H-06), so the two share one budget.
+  rotation) writes that marker. The current-password check of change-password (H-06) and
+  the password check of account deletion (#563) use the same counters and generic
+  response as login, so all three share one budget.
   The client is the gateway-resolved IP in `X-Parkio-Client-Ip` (IPv6 by /64): the
   gateway strips any client-supplied copy, and auth-service reads it only on
   gateway-authenticated requests. A successful login clears that client's counter

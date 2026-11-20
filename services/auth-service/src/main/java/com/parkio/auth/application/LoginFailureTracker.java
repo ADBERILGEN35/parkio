@@ -8,7 +8,8 @@ import java.time.Instant;
  * the rules are {@link LoginThrottlePolicy}. The client key comes from {@link LoginClientKeys} (an IPv4
  * address or an IPv6 /64), or is {@link #UNKNOWN_CLIENT} when the request carried none: all unknown
  * clients of an account share one pair, and that pair is never a known client. The current-password check
- * of change-password uses the same pairs and counters (H-06), so login and change-password share one budget.
+ * of change-password (H-06) and the password check of account deletion (#563) use the same pairs and
+ * counters, so login, change-password and deletion share one budget.
  */
 public interface LoginFailureTracker {
 
