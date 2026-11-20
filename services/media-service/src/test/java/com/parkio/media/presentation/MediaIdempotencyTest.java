@@ -17,9 +17,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,7 +39,7 @@ class MediaIdempotencyTest {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @MockBean
+    @MockitoBean
     private MediaStoragePort storage;
 
     @BeforeEach
@@ -104,7 +104,7 @@ class MediaIdempotencyTest {
         verify(storage, times(1)).store(anyString(), any(byte[].class), anyString());
     }
 
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder uploadRequest(
+    private org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder uploadRequest(
             UUID userId, String key, String filename, byte[] content) {
         MockMultipartFile file = new MockMultipartFile(
                 "file", filename, "image/jpeg", content);

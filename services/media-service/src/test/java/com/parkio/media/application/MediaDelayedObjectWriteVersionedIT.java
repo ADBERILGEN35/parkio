@@ -18,7 +18,7 @@ import java.util.UUID;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -32,7 +32,7 @@ class MediaDelayedObjectWriteVersionedIT extends DelayedObjectWriteITSupport {
 
     private static final String BUCKET = "parkio-media-delayed-write-versioned-it";
 
-    @SpyBean private MediaFileRepository mediaFiles;
+    @MockitoSpyBean private MediaFileRepository mediaFiles;
 
     @DynamicPropertySource
     static void bucketProperty(DynamicPropertyRegistry registry) {

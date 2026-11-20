@@ -164,7 +164,16 @@ No `parkio_slack_biz_textfile_last_success_unixtime` series. Install/enable the 
 
 ## SlackBizRelayStopped
 
-`parkio_slack_biz_relay_db_open` has been 0 for 15 minutes: neither `parkio-slack-biz-worker` nor `parkio-slack-biz-waitlist-consumer` holds the delivery DB open, and the last one closed cleanly (a stop, an error exit). The textfile export keeps publishing the counts from the checkpointed database (#488). Check `systemctl status parkio-slack-biz-worker parkio-slack-biz-waitlist-consumer` and their journals; start them once the cause is fixed. Queued events wait in the delivery DB until then. Not covered: a relay killed by SIGKILL or a crash leaves the WAL side files, so the gauge stays 1 until a relay opens and closes the DB again; `Restart=on-failure` restarts crashes. Only one of the two processes stopped also stays at 1.
+Fires after 15 minutes of either condition (#544):
+
+- `parkio_slack_biz_worker_heartbeat_age_seconds > 300` while `parkio_slack_biz_delivery_enabled` is 1. The delivery worker refreshes its lock heartbeat on every poll (every 2s) while delivery is enabled. A finite, growing age means it crashed or was killed (SIGKILL, OOM) and did not come back, hangs, or has delivery enabled without a webhook (it never heartbeats then). `+Inf` means no worker holds the lock: it stopped cleanly or never started.
+- `parkio_slack_biz_relay_db_open == 0`: neither `parkio-slack-biz-worker` nor `parkio-slack-biz-waitlist-consumer` holds the delivery DB open, and the last one closed cleanly (a stop, an error exit). This fires with delivery disabled too. The textfile export keeps publishing the counts from the checkpointed database (#488).
+
+`parkio_slack_biz_relay_db_open 1` does not prove a relay runs: a crash leaves the WAL side files behind, so the gauge stays 1 until a relay opens and closes the DB again.
+
+Check `systemctl status parkio-slack-biz-worker parkio-slack-biz-waitlist-consumer` and their journals (`journalctl -u parkio-slack-biz-worker`). A unit that hit its start limit needs `systemctl reset-failed` before it starts again. With delivery enabled, confirm the webhook secret is installed (see [waitlist-slack-notifications.md](./waitlist-slack-notifications.md#secret-ownership-and-rotation)). Start the units once the cause is fixed. Queued events wait in the delivery DB until then.
+
+Not covered: the waitlist consumer stopping while the worker runs (its backlog shows as WaitlistOpsInboxBacklog); a worker that crash-loops after taking the lock, since each restart refreshes the heartbeat (the journal shows the restarts); a crashed or stopped worker while delivery is disabled, unless every relay process has closed the DB.
 
 ## NrBudgetGateExhausted
 

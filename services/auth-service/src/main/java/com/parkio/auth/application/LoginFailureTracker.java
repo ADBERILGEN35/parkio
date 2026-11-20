@@ -7,7 +7,8 @@ import java.time.Instant;
  * Failed-login tracker (CL-F15). Failures are keyed by (normalized e-mail, client key) and by e-mail;
  * the rules are {@link LoginThrottlePolicy}. The client key comes from {@link LoginClientKeys} (an IPv4
  * address or an IPv6 /64), or is {@link #UNKNOWN_CLIENT} when the request carried none: all unknown
- * clients of an account share one pair, and that pair is never a known client.
+ * clients of an account share one pair, and that pair is never a known client. The current-password check
+ * of change-password uses the same pairs and counters (H-06), so login and change-password share one budget.
  */
 public interface LoginFailureTracker {
 
@@ -32,7 +33,10 @@ public interface LoginFailureTracker {
 
     LoginFailureOutcome recordFailure(String normalizedEmail, String clientKey, Instant now);
 
-    /** A successful login: clears this client's pair and marks the client known for the account. */
+    /**
+     * A successful login, or a change-password with the right current password: clears this client's pair
+     * and marks the client known for the account.
+     */
     void clearAfterSuccess(String normalizedEmail, String clientKey);
 
     /**

@@ -207,12 +207,12 @@ describe('MunicipalFacilityDetailPage (WEB-MUNI-02 / WEB-MUNI-04)', () => {
     expect(screen.getByTestId('municipal-facility-location-distance')).toBeInTheDocument();
   });
 
-  it('renders stale İZUM copy distinct from OSM static wording', async () => {
+  it.each(['izmir-izum-otoparklar', 'istanbul-ispark-parks'])('renders stale %s retained values without live occupancy', async (source) => {
     stubFacility({
-      contributingSourceKeys: ['izmir-izum-otoparklar'],
-      availabilitySource: 'izmir-izum-otoparklar',
-      availableSpaces: null,
-      occupiedSpaces: null,
+      contributingSourceKeys: [source],
+      availabilitySource: source,
+      availableSpaces: 17,
+      occupiedSpaces: 183,
       freshness: 'STALE',
       availabilityFreshness: 'STALE',
       capacityTotal: 200,

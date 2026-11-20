@@ -5,9 +5,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-chmod +x "${ROOT}/scripts/restore-isolated-fixture.sh" \
-  "${ROOT}/scripts/restore-hosted-beta.sh" \
-  "${ROOT}/scripts/restore-database.sh"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   if [ -n "${GITHUB_ACTIONS:-}" ]; then

@@ -14,6 +14,7 @@ import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
 import com.parkio.notification.application.event.UserRestoredEvent;
 import com.parkio.notification.application.event.UserSuspendedEvent;
+import com.parkio.notification.application.port.DeviceTokenHandover;
 import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.NotificationOwnerFence;
 import com.parkio.notification.application.port.InboxEventRepository;
@@ -62,6 +63,7 @@ public class NotificationApplicationService {
 
     private final NotificationRepository notifications;
     private final DeviceTokenRepository deviceTokens;
+    private final DeviceTokenHandover tokenHandover;
     private final NotificationPreferenceRepository preferences;
     private final InboxEventRepository inbox;
     private final OutboxEventAppender outbox;
@@ -72,6 +74,7 @@ public class NotificationApplicationService {
 
     public NotificationApplicationService(NotificationRepository notifications,
                                           DeviceTokenRepository deviceTokens,
+                                          DeviceTokenHandover tokenHandover,
                                           NotificationPreferenceRepository preferences,
                                           InboxEventRepository inbox,
                                           OutboxEventAppender outbox,
@@ -81,6 +84,7 @@ public class NotificationApplicationService {
                                           Clock clock) {
         this.notifications = notifications;
         this.deviceTokens = deviceTokens;
+        this.tokenHandover = tokenHandover;
         this.preferences = preferences;
         this.inbox = inbox;
         this.outbox = outbox;
@@ -236,12 +240,18 @@ public class NotificationApplicationService {
         return notifications.save(notification);
     }
 
-    /** Registers a device token, re-activating an existing (user, token) instead of duplicating. */
+    /**
+     * Registers a device token, re-activating an existing (user, token) instead of duplicating.
+     * The token is handed over: every other user's active row for it is deactivated in the same
+     * transaction, so the account that used this device before stops receiving its pushes here.
+     * The erasure fence runs first, so an erased user can neither register nor take a token over.
+     */
     public DeviceToken registerDeviceToken(RegisterDeviceTokenCommand command) {
         if (!ownerFence.admitWrite(command.userId())) {
             throw new NotificationException(NotificationErrorCode.DEVICE_TOKEN_NOT_FOUND);
         }
         Instant now = clock.instant();
+        tokenHandover.deactivateForOtherUsers(command.token(), command.userId(), now);
         return deviceTokens.findByUserIdAndToken(command.userId(), command.token())
                 .map(existing -> {
                     existing.reactivate(now);
