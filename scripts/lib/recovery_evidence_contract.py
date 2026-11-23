@@ -20,6 +20,10 @@ import time
 from pathlib import Path
 
 PROTOCOL_LOCK = "table-share-lock"
+# The only service source this module reads. restore-drill-01-procedure.yml lists it in its
+# pull_request paths, so a change to it runs these guards; keep the two in step.
+AUTH_ERASURE_SERVICE = ("services/auth-service/src/main/java/com/parkio/auth/"
+                        "application/AccountErasureApplicationService.java")
 # Auth is the coordinator and is not in the configured CSV.
 # The eight names match AccountErasureApplicationService.DEFAULT_PARTICIPANTS.
 CONFIGURED_PARTICIPANTS = (
@@ -98,8 +102,7 @@ def verify_hmac(payload, key, signature):
 def configured_participants_from_auth(root=None):
     """Read the configured participant CSV from auth source. Auth is not listed."""
     root = Path(root or Path(__file__).resolve().parents[2])
-    text = (root / "services/auth-service/src/main/java/com/parkio/auth/"
-            "application/AccountErasureApplicationService.java").read_text(encoding="utf-8")
+    text = (root / AUTH_ERASURE_SERVICE).read_text(encoding="utf-8")
     start = text.find("DEFAULT_PARTICIPANTS = List.of(")
     if start < 0:
         raise ContractError("DEFAULT_PARTICIPANTS missing from auth")
@@ -434,20 +437,119 @@ def restore_erasure_ledger_still_unverified(root=None):
     return True
 
 
+REQUEST_DELETION_DECLARATION = re.compile(r"\bpublic\s+AccountDeletionStatusView\s+requestDeletion\s*\(")
+IN_PROGRESS_RETURN = 'return new AccountDeletionStatusView(requestId, "IN_PROGRESS")'
+_PLAIN_ARGUMENT = r'(?:[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|"[^"\\]*"|-?\d+)'
+PURE_DELEGATION = re.compile(
+    rf"\s*return\s+requestDeletion\s*\(\s*(?:{_PLAIN_ARGUMENT}(?:\s*,\s*{_PLAIN_ARGUMENT})*)?\s*\)\s*;\s*"
+)
+PERSIST_ACK_NEEDLES = ("offhost", "watermark", "persist-ack", "publicationid")
+_CODE, _LITERAL, _COMMENT = 0, 1, 2
+
+
+def _java_char_kinds(text):
+    """Classify each character of Java source as code, a string/char literal or a comment."""
+    kinds = [_CODE] * len(text)
+    index, length = 0, len(text)
+    while index < length:
+        if text.startswith("//", index):
+            end, kind = text.find("\n", index), _COMMENT
+            end = length if end < 0 else end
+        elif text.startswith("/*", index):
+            end, kind = text.find("*/", index + 2), _COMMENT
+            end = length if end < 0 else end + 2
+        elif text.startswith('"""', index):
+            # A text block ends at the first unescaped """; \""" inside it is an escaped quote.
+            end, kind = index + 3, _LITERAL
+            while end < length and not text.startswith('"""', end):
+                end += 2 if text[end] == "\\" else 1
+            end = min(end + 3, length)
+        elif text[index] in "\"'":
+            end, kind = index + 1, _LITERAL
+            while end < length and text[end] not in (text[index], "\n"):
+                end += 2 if text[end] == "\\" else 1
+            end = min(end + 1, length)
+        else:
+            index += 1
+            continue
+        kinds[index:end] = [kind] * (end - index)
+        index = end
+    return kinds
+
+
+def _request_deletion_overloads(text):
+    """Every public requestDeletion overload, each cut at its own closing brace.
+
+    Returns (source, code) pairs: the declaration through its closing brace, and its body
+    without comments. Braces inside literals and comments do not count.
+    """
+    kinds = _java_char_kinds(text)
+    overloads, after = [], 0
+    for match in REQUEST_DELETION_DECLARATION.finditer(text):
+        start = match.start()
+        if start < after or kinds[start] != _CODE:
+            continue
+        # The body starts after the parameter list, whose annotations may hold braces too.
+        depth, parameters_end = 1, None
+        for i in range(match.end(), len(text)):
+            if kinds[i] != _CODE or text[i] not in "()":
+                continue
+            depth += 1 if text[i] == "(" else -1
+            if depth == 0:
+                parameters_end = i
+                break
+        if parameters_end is None:
+            raise ContractError("a requestDeletion overload has an unclosed parameter list")
+        opening = next((i for i in range(parameters_end + 1, len(text))
+                        if kinds[i] == _CODE and text[i] in "{;"), None)
+        if opening is None or text[opening] != "{":
+            raise ContractError("a requestDeletion overload has no body")
+        depth, closing = 0, None
+        for i in range(opening, len(text)):
+            if kinds[i] != _CODE or text[i] not in "{}":
+                continue
+            depth += 1 if text[i] == "{" else -1
+            if depth == 0:
+                closing = i
+                break
+        if closing is None:
+            raise ContractError("a requestDeletion overload body is not closed")
+        code = "".join(char for i, char in enumerate(text[opening + 1:closing], opening + 1)
+                       if kinds[i] != _COMMENT)
+        overloads.append((text[start:closing + 1], code))
+        after = closing + 1
+    return overloads
+
+
 def persist_before_ack_is_not_implemented(root=None):
-    """Production requestDeletion ACKs the HTTP request after auth TX commit."""
+    """Production requestDeletion ACKs the HTTP request after auth TX commit.
+
+    Every public requestDeletion overload is read by its own body. Exactly one of them returns
+    IN_PROGRESS after the auth TX commit; every other overload is a pure delegation (a single
+    return requestDeletion(...) with plain arguments). Neither an overload nor any other part
+    of the file mentions persist-before-ACK.
+    """
     root = Path(root or Path(__file__).resolve().parents[2])
-    path = (root / "services/auth-service/src/main/java/com/parkio/auth/"
-            "application/AccountErasureApplicationService.java")
-    text = path.read_text(encoding="utf-8")
-    start = text.find("public AccountDeletionStatusView requestDeletion")
-    if start < 0:
+    text = (root / AUTH_ERASURE_SERVICE).read_text(encoding="utf-8")
+    overloads = _request_deletion_overloads(text)
+    if not overloads:
         raise ContractError("requestDeletion missing")
-    method = text[start:text.find("\n    @Transactional", start + 1)]
-    if 'return new AccountDeletionStatusView(requestId, "IN_PROGRESS")' not in method:
+    implementing = [code for _, code in overloads if IN_PROGRESS_RETURN in code]
+    if not implementing:
         raise ContractError("requestDeletion no longer returns IN_PROGRESS after commit")
-    lowered = method.lower()
-    for needle in ("offhost", "watermark", "persist-ack", "publicationid"):
+    if len(implementing) > 1:
+        raise ContractError("more than one requestDeletion overload returns IN_PROGRESS")
+    for _, code in overloads:
+        if IN_PROGRESS_RETURN not in code and not PURE_DELEGATION.fullmatch(code):
+            raise ContractError("a requestDeletion overload does work instead of delegating")
+    for source, _ in overloads:
+        lowered = source.lower()
+        for needle in PERSIST_ACK_NEEDLES:
+            if needle in lowered:
+                raise ContractError(f"requestDeletion unexpectedly mentions {needle}")
+    # Helpers after requestDeletion and non-public or differently typed overloads count too.
+    lowered = text.lower()
+    for needle in PERSIST_ACK_NEEDLES:
         if needle in lowered:
-            raise ContractError(f"requestDeletion unexpectedly mentions {needle}")
+            raise ContractError(f"{Path(AUTH_ERASURE_SERVICE).name} unexpectedly mentions {needle}")
     return True

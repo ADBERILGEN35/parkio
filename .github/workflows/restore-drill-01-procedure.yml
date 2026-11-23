@@ -40,6 +40,8 @@ on:
       - "scripts/generate-durable-erasure-evidence-fixtures.py"
       - "scripts/test-durable-erasure-evidence-interop.py"
       - "services/auth-service/src/test/resources/durable-erasure-evidence/**"
+      # The auth source scripts/lib/recovery_evidence_contract.py reads (AUTH_ERASURE_SERVICE).
+      - "services/auth-service/src/main/java/com/parkio/auth/application/AccountErasureApplicationService.java"
       - "scripts/test-restore-isolated-fixture.sh"
       - "scripts/test-restore-isolated-teardown.sh"
       - "scripts/test-restore-isolated-topology.py"
