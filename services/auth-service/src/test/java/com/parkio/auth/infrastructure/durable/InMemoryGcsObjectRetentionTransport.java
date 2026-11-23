@@ -8,12 +8,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -26,7 +27,8 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
 
     private final String bucket;
     private final AtomicLong generationSeq = new AtomicLong(1_000);
-    private final Map<String, List<Stored>> objects = new ConcurrentHashMap<>();
+    /** Sorted by object name, so a prefix listing reads only the names under that prefix. */
+    private final ConcurrentNavigableMap<String, List<Stored>> objects = new ConcurrentSkipListMap<>();
     private final ReentrantLock lock = new ReentrantLock();
     private boolean objectRetentionEnabled = true;
     private boolean versioningEnabled = true;
@@ -140,8 +142,9 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         List<ListedGeneration> flat = new ArrayList<>();
         lock.lock();
         try {
-            for (Map.Entry<String, List<Stored>> entry : new LinkedHashMap<>(objects).entrySet()) {
-                if (!entry.getKey().startsWith(prefix) && !entry.getKey().equals(prefix)) {
+            for (Map.Entry<String, List<Stored>> entry
+                    : objects.subMap(prefix, true, prefix + Character.MAX_VALUE, true).entrySet()) {
+                if (!entry.getKey().startsWith(prefix)) {
                     continue;
                 }
                 List<Stored> gens = new ArrayList<>(entry.getValue());
