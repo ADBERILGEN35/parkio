@@ -17,10 +17,12 @@ password randomized) after **all** participant acks.
 
 After the erasure request commits, auth-service also removes the account's login-throttle state from
 Redis (failure counters, waits and known-client markers; CL-F15 v2, `docs/architecture/login-throttling.md`),
-best effort: the counters expire within 24 h and the markers within 14 days on their own. Failed logins
-during the pending window can recreate failure counters (at most 24 h); they cannot recreate known-client
-markers, because a login is refused before the success is recorded and a reset is refused for a
-non-active account.
+best effort: the counters expire within 24 h and the markers within 14 days on their own. The request's own
+password check runs on that throttle (#563): while Redis is unavailable, `DELETE /api/v1/account` fails closed
+(500) before any erasure starts, as login and change-password do. Failed logins and repeated `DELETE` requests
+during the pending window can recreate failure counters and waits (at most 24 h); they cannot recreate
+known-client markers, because a login is refused before the success is recorded, a deletion request never
+marks a client known, and a reset is refused for a non-active account.
 
 User-visible statuses: `IN_PROGRESS`, `COMPLETE`, `FAILED_RETRYING`.
 

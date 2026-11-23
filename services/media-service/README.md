@@ -135,7 +135,9 @@ internal endpoint. See the parking-service README for the full flow.
 
 ### Validation
 
-- Allowed content types: `image/jpeg`, `image/png`, `image/webp`.
+- Allowed content types: `image/jpeg`, `image/png`. WebP is not accepted: the runtime
+  has no WebP decoder for normalization, so it is refused up front (`415
+  UNSUPPORTED_MEDIA_TYPE`) and the clients do not offer it.
 - Max file size configurable (`parkio.media.max-file-size`, default 10MB); empty
   files rejected.
 - Object keys are **generated** (`media/{ownerUserId}/{uuid}.{ext}`) — the original
@@ -147,9 +149,6 @@ internal endpoint. See the parking-service README for the full flow.
   storing user-supplied image structure. The original upload bytes are not stored.
 - Transparent PNG input is flattened onto a white background. ICC profiles are not
   preserved; stored bytes contain only the normalized image pixels.
-- WebP remains an accepted declared type, but the runtime must provide a reliable
-  ImageIO WebP reader. If not available, WebP uploads fail closed with
-  `422 INVALID_IMAGE` rather than storing unnormalized bytes.
 - Stored `contentType`, object-key extension, response `contentType`, and signed URL
   object metadata reflect the normalized output (`image/jpeg`, `.jpg`).
 - Duplicate detection uses the checksum of the normalized stored bytes, not the

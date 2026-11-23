@@ -12,6 +12,7 @@ import {
   renderWithProviders,
   resetAuth,
   signInAs,
+  withLocale,
 } from '@/test/utils';
 import { UploadPage } from './UploadPage';
 
@@ -168,8 +169,36 @@ describe('UploadPage', () => {
 
     await user.upload(screen.getByLabelText('Spot photo'), imageFile('doc.pdf', 'application/pdf'));
 
+    expect(await screen.findByText('Only JPEG and PNG images are allowed')).toBeInTheDocument();
+  });
+
+  it('offers only JPEG and PNG and refuses a WebP photo before any upload request', async () => {
+    renderUpload();
+    // applyAccept: false bypasses the input's accept filter, as a drag-and-drop would.
+    const user = userEvent.setup({ applyAccept: false });
+
+    expect(screen.getByLabelText('Spot photo')).toHaveAttribute('accept', 'image/jpeg,image/png');
+    await user.upload(screen.getByLabelText('Spot photo'), imageFile('photo.webp', 'image/webp'));
+
+    expect(await screen.findByText('Only JPEG and PNG images are allowed')).toBeInTheDocument();
+    await clickNext(user);
+    expect(screen.getByRole('heading', { name: '1. Photo' })).toBeInTheDocument();
+    expect(mediaApi.uploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('shows the WebP refusal in Turkish too', async () => {
+    // The shared test setup switches back to English after each test.
+    await withLocale('tr');
+    renderUpload();
+    const user = userEvent.setup({ applyAccept: false });
+
+    await user.upload(
+      screen.getByLabelText('Park yeri fotoğrafı'),
+      imageFile('photo.webp', 'image/webp'),
+    );
+
     expect(
-      await screen.findByText('Only JPEG, PNG and WebP images are allowed'),
+      await screen.findByText('Yalnızca JPEG ve PNG görselleri yüklenebilir'),
     ).toBeInTheDocument();
   });
 

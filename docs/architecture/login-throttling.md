@@ -104,6 +104,13 @@ guesses, and a wait started on either holds both. A refused or throttled attempt
 wrong current password (`INVALID_CREDENTIALS`, no `Retry-After`); the warning log shows the difference, the
 `login_lockouts` counter stays login-only.
 
+**Account deletion (#563).** `DELETE /api/v1/account` checks the account's password the same way when
+account erasure is enabled: admission before the comparison, a wrong password counted on the same pair and
+account counter, and a refused or throttled attempt answered exactly like a wrong password. Login,
+change-password and deletion share one budget. Even with the right password the check clears nothing and marks
+no client known: a new erasure request removes the account's whole throttle state once it commits (below), and
+on a repeated request while the erasure is pending the counters and waits expire on their own.
+
 Clearing:
 
 - a successful login clears that client's pair and marks it known; the account counter and other
@@ -207,7 +214,8 @@ Reading the table:
   normal internet source.
 - **Redis loss** empties every known-client allowlist; owners are unknown clients until their next login
   or reset. Redis down means login fails closed (500), as in v1 (the SEC-002 audit entries cite the
-  replaced `RedisLoginFailureTracker`; the posture is unchanged).
+  replaced `RedisLoginFailureTracker`; the posture is unchanged). Change-password (H-06) and account
+  deletion (#563) check the password on the same store, so they fail closed (500) too.
 - **Spraying across accounts** (a few guesses against many accounts) is outside per-account throttling;
   the gateway's per-IP limit (auth routes: 5 requests/s, burst 10) is the control, and it still keys
   IPv6 clients by /128. Keying the gateway's anonymous limits by IPv6 /64 is a separate decision (it
@@ -241,8 +249,9 @@ Reading the table:
   an attack lets the owner in at once; reset clearing only at commit and best effort; a valid refresh
   makes the client known while a reused token, an unknown token and a wrong password never do.
 - `AccountErasureApplicationServiceTest`, `AccountErasureHttpIntegrationTest`: the erasure request removes
-  the account's throttle state (also through the Spring-wired hook over HTTP); an unavailable store does
-  not fail it.
+  the account's throttle state (also through the Spring-wired hook over HTTP); a store that fails after the
+  password check does not fail it. Its password check runs on the throttle of the gateway-resolved client, on
+  login's budget, and is answered like a wrong password when refused (#563).
 - `AuthApplicationServiceTest` also sends sixteen concurrent wrong-password logins from different
   addresses when the account wait opens: exactly one reaches the password check.
 - `ThrottledLoginFailureTrackerRedisIT` (Testcontainers `redis:7-alpine`, `integrationTest`): the same

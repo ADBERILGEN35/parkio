@@ -1060,7 +1060,8 @@ file name and file size, plus inline validation. Replacing the file clears the k
 Media upload (mirrors media-service config), checked client-side before upload and enforced
 by the backend:
 
-- JPEG, PNG or WebP only (`image/jpeg`, `image/png`, `image/webp`)
+- JPEG or PNG only (`image/jpeg`, `image/png`); WebP is refused before upload because
+  media-service cannot decode it (the mobile apps re-encode every source photo to JPEG)
 - max **10MB**
 
 Create-spot fields: `mediaId` (UUID, from step 1), `latitude` (−90..90), `longitude`

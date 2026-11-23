@@ -48,8 +48,9 @@ public final class LoginThrottlePolicy {
     public static final long ACCOUNT_THIRD_CAP = 200;
     public static final Duration ACCOUNT_THIRD_DELAY = Duration.ofMinutes(5);
     /**
-     * How long a successful login, a completed reset or a successful token refresh keeps a client known
-     * for the account (the retention of the account-to-client digest; owner decision 2026-10-08 item 6).
+     * How long a successful login, a change-password with the right current password, a completed reset
+     * or a successful token refresh keeps a client known for the account (the retention of the
+     * account-to-client digest; owner decision 2026-10-08 item 6).
      */
     public static final Duration KNOWN_CLIENT_TTL = Duration.ofDays(14);
     /** Scheduled rotation interval of the keyed-hashing secret (operations; not enforced by code). */
