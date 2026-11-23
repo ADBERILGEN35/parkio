@@ -370,10 +370,23 @@ format v2. No store product has been chosen (§9 item 1); the adapter assumes
 the S3 API with object-lock semantics and is tested only against a disposable
 MinIO bucket.
 
-- Protocol as in the Python model: reserve a sequence with a marker, raise the
-  frontier's `highestReserved`, publish the signed record, raise
-  `expectedThrough` to cover it. A record counts as found only once the signed
-  frontier covers it; a crash in between is completed by the next put.
+- Protocol as in the Python model (#494,
+  `docs/architecture/erasure-evidence-conditional-writes.md`):
+  1. Reserve a sequence above the frontier's `highestReserved` with a marker
+     created only if absent.
+  2. Publish the signed record, again only if absent.
+  3. Raise `expectedThrough` and `highestReserved` to cover the record in one
+     compare-and-swap of the frontier.
+
+  No write lists the recorded history. A record counts as found only once the
+  signed frontier covers it; a crash in between is completed by the next put.
+  A marker above the frontier belongs to a writer that stopped before
+  publishing. The next writer that passes it writes an unsigned index entry
+  for its owner under `reservations/`; that entry is writer state, not
+  evidence. The retry of that request, or the next checkpoint, finds it there
+  and fills the gap. The first reservation of a bucket writes the boundary
+  (0, 0) first, so a reservation lost before its record leaves a BLOCKED
+  boundary, not an UNKNOWN one.
 - Every object version is written with a retention lock
   (`retention-mode` GOVERNANCE or COMPLIANCE, `retention` duration; both
   required). Nothing is overwritten or deleted by the adapter.
@@ -396,8 +409,12 @@ MinIO bucket.
   Versions that fail verification are ignored while another one verifies; if
   none does, recovery fails with that error. Ignored versions are tamper
   evidence: recovery reports their number (`ignoredFrontierVersions`), and the
-  store logs a warning whenever that number grows. The store reads each
-  version once (versions never change); recovery reads them all.
+  store logs a warning whenever that number grows. Recovery reads every
+  version. The store reads only the live version, which it replaces by
+  compare-and-swap. A store read never goes below a boundary that the store
+  has already read or written. If the live version fails verification, or
+  none is live although versions exist, the store reads all versions as
+  recovery does.
   `ObjectLockEvidenceObjects` reads the frontier only through all of its
   versions: `find` refuses the frontier key and `findAll` refuses every other
   key.
@@ -414,7 +431,9 @@ MinIO bucket.
   transaction. Any store or verification failure is
   `DURABLE_RECORDING_UNAVAILABLE` (the request stays `PENDING_DURABLE`).
 - One auth instance may write a bucket at a time (writes are serialised in the
-  JVM; the frontier is read-modify-written).
+  JVM). Conditional writes keep a second writer from replacing evidence or the
+  frontier on a stale read: GCS `ifGenerationMatch`, S3 `If-None-Match` /
+  `If-Match`. The reservation index assumes one writer.
 - Recovery needs only the bucket: `ObjectLockEvidenceObjects.connect(...)` with
   `DurableErasureEvidenceVerifier.recover(...)`.
 - Configuration `parkio.privacy.account-erasure.durable-store.object-lock.*`

@@ -32,9 +32,12 @@ The independently durable expected boundary is the signed store object
 `frontier/expected-through.json`:
 
 - `expectedThrough` advances only after a record is published.
-- `highestReserved` advances when a sequence reservation is allocated.
-- Concurrent reservations use if-not-exists sequence markers; the
-  frontier is overwritten monotonically under the coordinator lock.
+- `highestReserved` advances with it, in the same frontier write. A new
+  reservation starts above it, so allocation never lists the markers (#494).
+- Reservations use if-not-exists sequence markers. The frontier is replaced
+  monotonically by compare-and-swap (`put_if_match`), never from a stale read.
+- A store without a frontier gets the boundary (0, 0) before its first
+  reservation.
 - An abandoned reservation (sequence allocated, record never published)
   does not increase `expectedThrough`. If a later sequence publishes,
   `1..expectedThrough` contains a hole and recovery is `BLOCKED`.

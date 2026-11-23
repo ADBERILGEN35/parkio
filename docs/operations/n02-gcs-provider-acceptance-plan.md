@@ -14,7 +14,7 @@ acceptance (layer C) only.
 | The merged adapter and store against one dedicated, non-production Cloud Storage bucket with Object Retention Lock | Production export, enablement, exposure or legal retention (#365, layer D) |
 | Synthetic evidence written by the harness; short test retention | Bucket Lock (bucket retention policy) on any bucket |
 | Machine-readable, sanitized evidence tied to the source SHA and the bucket identity | Emulators, fakes and the offline model: they **do not** satisfy #483 |
-| | A production-readiness claim: the run is bounded and small (#494 stays open) |
+| | A production-readiness claim: the run is bounded and small |
 
 ## 2. What the run exercises
 
@@ -146,7 +146,7 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | T1 | writer | 10 back-to-back writes to one name through the adapter all complete; the provider's 429s are counted |
 | S1–S3 | writer | Store put: COMPLIANCE receipt on the canonical generation; identical retry settles without a write; different body is a conflict without a write |
 | S4 | writer | Response lost **after** the provider committed the record: not durable before the frontier covers it; the retry settles on that generation without a second write |
-| S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier) |
+| S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier). It follows S4's record call without a pause: a call writes the frontier once (#494), so the per-object limit is met across calls |
 | S5r | writer | Retry convergence: after a failed S5, unpaced retries must converge; after a passing S5, the response to the next reservation marker is lost after commit and the next call must fill that reservation; no gap, no abandoned reservation |
 | S5s | writer | After a passing S5: the response to the checkpoint object itself is lost after commit (no resume path, #365 finding 3); the next call converges, the published checkpoint stays and the frontier covers both; the sequences consumed are recorded (today a new one; not a requirement) |
 | S5b | writer | Diagnostic, only after a failed S5: one call with writes to one name spaced 1.1 s. Never counts as a pass |
@@ -311,10 +311,10 @@ HMAC key generated in memory per run). Never production evidence, trust document
 
 | Per run | Cap | Offline plan |
 |---------|-----|--------------|
-| Logical operations | 1,500 | 948 (488 Class A, 412 Class B charged; 49 refused or throttled; the 8-writer race varies by a few) |
-| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 948 plus a few token requests |
-| Generations that may exist | 360 | 258 (229 GOVERNANCE, 26 COMPLIANCE, 3 unanswered) |
-| COMPLIANCE generations that may exist | 40 | 29 |
+| Logical operations | 1,500 | 851 (427 Class A, 366 Class B charged; 45 refused or throttled; the 8-writer race varies by a few) |
+| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 865 (14 live frontier reads take two requests each) plus a few token requests |
+| Generations that may exist | 360 | 253 (229 GOVERNANCE, 21 COMPLIANCE, 3 unanswered) |
+| COMPLIANCE generations that may exist | 40 | 24 |
 | Wall clock | 45 min | ≈ 4.8 min of waits plus request latency |
 
 At most **two attempts** under this approval. An attempt counts once it has sent a write; an attempt that
@@ -340,7 +340,7 @@ instead of retrying. A second attempt only after a diagnosed failure.
 List prices read 2026-10-22, europe-west4 regional Standard: Class A $0.005 / 1,000, Class B
 $0.0004 / 1,000, storage $0.020 / GiB-month, egress $0.12 / GiB, deletes free, 4xx/5xx generally not charged.
 
-- Planned run: 488 × A + 412 × B ≈ $0.0026; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
+- Planned run: 427 × A + 366 × B ≈ $0.0023; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
   ≈ **$0.003 per run**. At the caps (1,800 requests, all Class A, ≈ 176 MiB egress) ≈ $0.03 per run, two runs
   ≈ $0.06.
 - Stop rule (Cloud Billing cannot cap spend and its data lags by hours): the harness caps bound each
@@ -417,9 +417,9 @@ and any attempt once cleanup has started.
 | # | Finding | Disposition |
 |---|---------|-------------|
 | 1 | Versioning was not checked at discovery; without it a rewrite of a retained name is refused and after expiry would replace history | Fixed in #491 (`requireObjectRetentionEnabled`) |
-| 2 | A store write refused with 429 was never sent again; under the per-object limit the two back-to-back frontier writes made every checkpoint fail, and each later call consumed a new sequence and left three retained generations | #492, fixed in #491 (adapter resends); confirmed or refuted live by S5/S5r/S5s/T1. The resend waits up to 16.5 s per write while holding the store lock, on the request thread for records: bound the pause or fail fast to the retry worker before enablement (#365) |
+| 2 | A store write refused with 429 was never sent again; under the per-object limit the two back-to-back frontier writes made every checkpoint fail, and each later call consumed a new sequence and left three retained generations (since #494 a call writes the frontier once) | #492, fixed in #491 (adapter resends); confirmed or refuted live by S5/S5r/S5s/T1. The resend waits up to 16.5 s per write while holding the store lock, on the request thread for records: bound the pause or fail fast to the retry worker before enablement (#365) |
 | 3 | `publishCheckpoint` has no resume path for a published but uncovered checkpoint; every call writes the frontier twice | Open under #365 (design); harmless while #492's resend holds |
 | 4 | A versioned overwrite needs `storage.objects.delete`, so the production writer holds delete; retention, not IAM, protects evidence | L2 measures, L3 + G5 prove; production role decision under #365 |
 | 5 | Unbounded `listAll` pagination | #493: a listing fails closed on a repeated page token, past `list-max-pages` (default 1,000) or after `list-deadline` (default 30 s) |
-| 6 | Per-write list cost grows with recorded history | #494, open; blocks enablement |
+| 6 | Per-write list cost grows with recorded history | #494: conditional writes; no store operation lists the history (`docs/architecture/erasure-evidence-conditional-writes.md`) |
 | 7 | Versioning is only checked at startup; a later suspension makes rewrites fail closed (`PENDING_DURABLE`) | Open under #365 (periodic re-check or alert) |
