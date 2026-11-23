@@ -53,6 +53,11 @@ parkio_backup_load_env() {
     local _saved_mc_url="${BACKUP_MC_URL-}"
     local _saved_mc_access="${BACKUP_MC_ACCESS_KEY-}"
     local _saved_mc_secret="${BACKUP_MC_SECRET_KEY-}"
+    # backup-hosted-beta.sh hands these to backup-databases.sh, which sources the same env file
+    # again. A value there must not turn the child's deferred upload and prune back on, or move
+    # its dumps into another stamp directory.
+    local _saved_skip_mc_upload="${BACKUP_SKIP_MC_UPLOAD-}"
+    local _saved_dest_dir="${BACKUP_DEST_DIR-}"
     set -a
     # shellcheck disable=SC1090
     . "${env_file}"
@@ -92,6 +97,12 @@ parkio_backup_load_env() {
     fi
     if [ -n "${_saved_mc_secret}" ]; then
       export BACKUP_MC_SECRET_KEY="${_saved_mc_secret}"
+    fi
+    if [ -n "${_saved_skip_mc_upload}" ]; then
+      export BACKUP_SKIP_MC_UPLOAD="${_saved_skip_mc_upload}"
+    fi
+    if [ -n "${_saved_dest_dir}" ]; then
+      export BACKUP_DEST_DIR="${_saved_dest_dir}"
     fi
   elif [ -n "${env_file}" ]; then
     echo "WARN: env file '${env_file}' not found; relying on current environment." >&2

@@ -21,22 +21,42 @@ source "$ROOT/scripts/lib/backup-common.sh"
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 OPERATOR="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
 ARTIFACT_DIR="${PARKIO_BACKUP_ARTIFACT_DIR:-backup-artifacts}"
-DRY_RUN=0
-NO_PRUNE=0
+# The per-run switches come from the command line only. The env file is sourced below under
+# set -a, so they are parsed into private names and become NO_PRUNE / DRY_RUN after it.
+arg_dry_run=0
+arg_no_prune=0
+
+# A value option must not take the next option as its value ("--env-file --no-prune").
+option_value() {
+  case "${2-}" in
+    "" | -*)
+      echo "ERROR: $1 needs a value; got '${2-}'" >&2
+      exit 2
+      ;;
+  esac
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --artifact-dir) ARTIFACT_DIR="${2:-}"; shift 2 ;;
-    --operator) OPERATOR="${2:-}"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    --no-prune) NO_PRUNE=1; shift ;;
+    --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
+    --artifact-dir) option_value "$1" "${2-}"; ARTIFACT_DIR="$2"; shift 2 ;;
+    --operator) option_value "$1" "${2-}"; OPERATOR="$2"; shift 2 ;;
+    --dry-run) arg_dry_run=1; shift ;;
+    --no-prune) arg_no_prune=1; shift ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
 parkio_backup_load_env "${ENV_FILE}"
+if [ -n "${NO_PRUNE+set}" ]; then
+  echo "WARN: ignoring NO_PRUNE from the environment or env file; only --no-prune counts." >&2
+fi
+if [ -n "${DRY_RUN+set}" ]; then
+  echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
+fi
+NO_PRUNE="${arg_no_prune}"
+DRY_RUN="${arg_dry_run}"
 parkio_backup_validate_deployment_profile
 if ! parkio_backup_preflight; then
   exit 2
