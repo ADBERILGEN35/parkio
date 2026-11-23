@@ -1,6 +1,7 @@
 # N-02 — Production recovery coverage: decision memo (#365)
 
-**Recorded:** 2026-11-23. **Parent issue:** [#365](https://github.com/ADBERILGEN35/parkio/issues/365).
+**Recorded:** 2026-11-23; revised 2026-11-24 after the independent review of PR #573.
+**Parent issue:** [#365](https://github.com/ADBERILGEN35/parkio/issues/365).
 **Audience:** the owner, and counsel for the legal and custody questions.
 
 This memo lists the decisions that block production recovery coverage, with options and consequences. It
@@ -9,7 +10,7 @@ infrastructure. `verifiedCoverage` stays `false`, and production restore stays r
 
 ## 1. What production recovery coverage means here
 
-A backup restore can bring back users who asked for erasure after the backup was taken. So Parkio refuses a
+A restore can bring back users who asked for erasure after the restored copy was taken. So Parkio refuses a
 production data restore unless it can prove which erasures the restored copy must replay. That proof is the
 **durable erasure evidence**:
 
@@ -26,7 +27,7 @@ production data restore unless it can prove which erasures the restored copy mus
    ([f27 design matrix](../operations/f27-production-recovery-coverage-design-matrix.md) §2).
 
 Today none of this runs in production:
-- The restore entrypoints refuse a production data restore with `parkio_restore_refuse_unverified_production`
+- The restore scripts refuse a production data restore with `parkio_restore_refuse_unverified_production`
   (exit 3).
 - The durable-recording and durable-store flags are off by default.
 - No production RPO or RTO is offered.
@@ -34,22 +35,46 @@ Today none of this runs in production:
 The isolated drill of #296 measured RTO 234 s, data RPO 165 s and erasure RPO 0 on synthetic data. That is not
 production acceptance ([disaster-recovery-runbook.md](../operations/disaster-recovery-runbook.md), "RPO / RTO").
 
+**The refusal covers the scripted restore path only.**
+- The production VM's disk has daily snapshots, kept for 14 days. The Docker volumes are on that disk, and so is
+  all personal data.
+- Restoring a snapshot is a full data restore that no repository script refuses (D5).
+
 ### Layer status (2026-11-23)
 
 | Layer | Scope | Status |
 |---|---|---|
 | A | Bundle-validation wrapper (`scripts/production-recovery-evidence.sh`, default-off) | Done (#481; #366 and #367 closed) |
-| B | GCS Object Retention Lock adapter (default-off) | Merged (#484, #491). [#493](https://github.com/ADBERILGEN35/parkio/issues/493) (pagination bound) and [#494](https://github.com/ADBERILGEN35/parkio/issues/494) (per-write history cost) are being implemented; both block production enablement |
-| C | Real-provider acceptance on a dedicated bucket with synthetic data | Approved by the owner; the run ([#483](https://github.com/ADBERILGEN35/parkio/issues/483)) is pending |
+| B | GCS Object Retention Lock adapter (default-off) | Merged (#484, #491), **not ready for production**: [#493](https://github.com/ADBERILGEN35/parkio/issues/493) (unbounded pagination) blocks enablement |
+| Store | `ObjectLockDurableErasureRecordStore`, shared by every provider route | [#494](https://github.com/ADBERILGEN35/parkio/issues/494) (per-write history cost) blocks enablement on any route |
+| C | Real-provider acceptance on a dedicated bucket with synthetic data | Plan approved by the owner; the run ([#483](https://github.com/ADBERILGEN35/parkio/issues/483)) is pending |
 | D | Production export, enablement, exposure and legal retention | **Open: this memo** |
 
-**Provider route: Google.**
-- On 2026-11-23 production moved from Civo to Google Compute Engine (europe-west4), and offsite backups are
-  moving to Cloud Storage (europe-west1).
-- The owner lifted the 2026-10-29 deferral of the GCS work.
-- The S3 Object Lock contingency stays available only if #483 shows that the GCS adapter cannot keep its
-  contract ([n02-gcs-evidence-store-compatibility.md](../operations/n02-gcs-evidence-store-compatibility.md)
-  §4, route C).
+#494 is provider-neutral, after the owner's 2026-10-29 correction: it sits in the store class and also applies
+to the S3 contingency. #493 is in the GCS adapter only, so it drops out if D3 moves to S3.
+
+**Owner decisions of 2026-11-23**, recorded on #365 and #483:
+- The 2026-10-29 Google Cloud postponement is lifted. Production moved to Google Compute Engine (europe-west4),
+  and offsite backups are moving to Cloud Storage (#520).
+- The bounded real-GCS acceptance (#483) is approved as planned.
+- #494 is resolved with conditional writes: the next sequence comes from the frontier's last reserved value, and
+  it is written with a generation-match condition.
+- Layer D is handled through this decision memo. The owner or counsel approves the legal part.
+
+**Provider route: Google.** The S3 Object Lock contingency stays available only if #483 shows that the GCS
+adapter cannot keep its contract
+([n02-gcs-evidence-store-compatibility.md](../operations/n02-gcs-evidence-store-compatibility.md) §4, route C).
+
+### Copies that can bring an erased account back
+
+Each of these copies binds D1 and the counsel questions.
+
+| Copy | How long it can hold an erased account (2026-11-23) |
+|---|---|
+| Offsite backups: a Cloud Storage bucket in the same Google Cloud project as production | A 14-day bucket retention policy (unlocked) keeps objects from being deleted or overwritten for 14 days. A lifecycle rule deletes them at 35 days, and a 7-day soft delete keeps a deleted object recoverable. So a copy can exist for up to about 42 days after upload |
+| Local backup stamps on the production host | Pruned after `BACKUP_RETENTION_DAYS` (default 14, `scripts/backup-hosted-beta.sh`), but only after a successful offsite step. The old offsite target failed for weeks, so no local prune has run, and older stamps remain. Pruning resumes once the reviewed `gcs` offsite kind (PR #575, Refs #520) is live |
+| Production VM disk snapshots | Daily, kept 14 days. They contain every Docker volume |
+| Live tombstone tables (`erased_user_tombstones` in auth and the participants' tombstones) | `{authUserId, erased_at}` kept with no expiry; no service deletes tombstones |
 
 ### What the evidence store holds
 
@@ -60,11 +85,15 @@ This matters for the legal questions in D1.
 | Pending record `records/<erasureRequestId>.json` | `authUserId` (random UUID), `erasureRequestId`, `erasedAt`, sequence, database identity, producer and key ids, HMAC signature |
 | Checkpoint `checkpoints/<sequence>.json` | One `{authUserId, erasedAt}` pair for every erased-user tombstone at that point, plus the signature |
 | Frontier `frontier/expected-through.json` | Sequence counters, signature |
-| Sequence markers | Sequence reservations, unsigned |
+| Sequence marker `sequences/<sequence>.json` | `sequence` and the `erasureRequestId` it is reserved for (the nil UUID for a checkpoint's marker); unsigned |
 
-There are no e-mail addresses, names or user content. After erasure, the auth row stays only as an `ERASED`
-tombstone without a recoverable e-mail
-([priv-001-account-data-erasure.md](priv-001-account-data-erasure.md)). Backups keep their own 14-day window.
+- There are no e-mail addresses, names or user content.
+- After erasure, the auth row stays only as an `ERASED` tombstone without a recoverable e-mail
+  ([priv-001-account-data-erasure.md](priv-001-account-data-erasure.md)).
+- **Checkpoints re-copy every erased id.** Every checkpoint copies the whole tombstone ledger, and tombstones
+  are never deleted. So each new checkpoint writes and locks every erased user's id again. The D1 period
+  applies to each object, which means an erased id stays in the locked store as long as checkpoints keep being
+  written, plus the period.
 
 ## 2. Decisions needed
 
@@ -74,44 +103,55 @@ questions for the owner and counsel; this memo answers none of them.
 ### D1. Legal retention duration for durable erasure evidence
 
 **Facts that bind the choice:**
-- The evidence must outlive every backup it may have to correct. Engineering guidance already on record:
-  - with the 14-day offsite backup window, the technical floor is at least 45 days (14 + 30);
-  - the recommended engineering floor before counsel is at least 90 days.
-
-  These are engineering inputs, not a legal period
-  ([erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md)). The 400-day placeholder
-  stays discarded.
-- COMPLIANCE (Locked) is the intended mode for the real store (owner decision B2, 2026-10-03, in the contract).
-  Under Locked mode nobody, the project owner included, can shorten, remove or delete a retained generation
-  before its retain-until. Under Unlocked (GOVERNANCE) mode, a principal with `overrideUnlockedRetention` can
-  shorten, remove or lock it later ([n02-gcs-provider-acceptance-plan.md](../operations/n02-gcs-provider-acceptance-plan.md) §3).
-- Every write is retained for the chosen period, including frontier rewrites and markers. Storage volume is
-  tiny. The cost comes from operations and retained generations (#494).
+- **The evidence must outlive every copy it may have to correct** (the table in §1).
+  - The engineering floors on record were derived from the old 14-day offsite window, as offsite retention plus
+    30 days to investigate and recover (#366,
+    [erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md)). They are:
+    - a technical floor of at least 45 days;
+    - a recommended engineering floor of at least 90 days.
+  - Those floors predate the current settings, so engineering must re-derive them before D1. With the same
+    formula, today's 35-day lifecycle gives 65 days (35 + 30), and 72 days if soft delete counts (42 + 30).
+  - These are engineering inputs, not legal periods. The 400-day placeholder stays discarded.
+- **Lock behaviour.** COMPLIANCE (Locked) is the intended mode for the real store (owner decision B2,
+  2026-10-03, in the contract).
+  - Under Locked mode nobody, the project owner included, can shorten, remove or delete a retained generation
+    before its retain-until ([n02-gcs-provider-acceptance-plan.md](../operations/n02-gcs-provider-acceptance-plan.md) §3).
+  - After the retain-until passes, any identity with `storage.objects.delete` can delete the object, the
+    production writer included (finding 4).
+  - With soft delete off, that deletion is final.
+- **Checkpoints extend how long an id stays.** Each checkpoint re-copies and re-locks every erased id (§1), so
+  the checkpoint cadence (D3.2) decides how long an erased id stays in the store as much as the period does.
+- **Cost.** Every write is retained for the period, frontier rewrites and markers included. Storage volume is
+  tiny; the cost comes from operations and retained generations (#494).
 
 | Option | Consequence |
 |---|---|
-| R1. Period tied to the longest backup retention plus a margin (for example the engineering floor) | Shortest exposure and lowest cost. Any later increase of backup retention must raise the evidence period first, or older backups lose their proof |
-| R2. A fixed period set by counsel | Follows counsel exactly. If it is longer than R1, the extra period cannot be shortened later for objects already written under Locked mode |
-| R3. Start Unlocked with a short period while counsel decides, then lock | Evidence starts recording sooner. Until locked, integrity rests on IAM: a principal with override permission can remove it. Locking later is a separate, recorded change |
+| R1. A period tied to the longest restorable copy plus a margin, re-derived by engineering from today's settings | Shortest exposure and lowest cost. Any later increase of backup or snapshot retention must raise the evidence period first, or older copies lose their proof |
+| R2. A fixed period set by counsel | Follows counsel exactly. If it is longer than R1, the extra time cannot be shortened later for objects already written under Locked mode |
 
 **Questions for counsel (KVKK and GDPR).** These are questions only:
 1. **Applicable law.** Do KVKK (Law No. 6698) and the GDPR both apply to Parkio's processing? Parkio is offered
-   in Türkiye, and production and backups are hosted in Google Cloud EU regions (Netherlands, Belgium). For the
-   GDPR, see its territorial scope (Art. 3).
+   in Türkiye, and production, backups and snapshots are hosted in Google Cloud EU regions. For the GDPR, see
+   its territorial scope (Art. 3).
 2. **Erasure obligation.** After a user's erasure, is it compatible with the erasure obligations (KVKK Art. 7
    and the regulation on erasure, destruction or anonymization; GDPR Art. 17) to keep that user's random
    `authUserId` and erasure time? The purpose is to prove and re-apply the erasure after a disaster restore.
+   Note that periodic checkpoints write and lock the same id again and again.
 3. **Lawful basis.** If keeping it is permitted, which lawful basis applies, if any? What documentation does
    that basis require (for example a balancing test, or an entry in the retention and destruction policy)?
-4. **Personal data.** Is `authUserId` still personal data once the account is erased? Backups keep the account
-   for up to 14 days, and other records, such as logs, may carry the same id within their own retention.
+4. **Personal data.** Is `authUserId` still personal data once the account is erased? These copies still hold
+   the account or the id:
+   - offsite backups, for up to about 42 days;
+   - local backup stamps, longer while local pruning is paused;
+   - VM disk snapshots, for 14 days;
+   - the live tombstone tables, with no expiry;
+   - logs, within their own retention.
 5. **Maximum period.** What is the longest acceptable retention period for this evidence? Must it follow the
-   backup retention?
+   backup and snapshot retention? Does it bound each checkpoint object or each erased id?
 6. **Irreversible lock.** Is an irreversible lock acceptable? A Locked object cannot be deleted before its
-   retain-until, even on a data subject request, a KVKK Board decision or a court order. If it is not
-   acceptable, is Unlocked mode with restricted override access required instead?
-7. **Transfers abroad.** Does storing this evidence, and the backups (#520), in EU regions count as a transfer
-   abroad under KVKK Art. 9? If so, which instrument is needed?
+   retain-until, even on a data subject request, a KVKK Board decision or a court order.
+7. **Transfers abroad.** Does storing this evidence, the backups (#520) and the VM disk snapshots in EU regions
+   count as a transfer abroad under KVKK Art. 9? If so, which instrument is needed?
 8. **Registers and notices.** Does this processing need to appear in:
    - the VERBIS registry and the personal data processing inventory (KVKK Art. 16);
    - the record of processing activities (GDPR Art. 30);
@@ -126,27 +166,31 @@ questions for the owner and counsel; this memo answers none of them.
 - No centralized secrets store is claimed.
 - Evidence keys stay separate from backup encryption secrets and storage credentials.
 
-**Still open** ([erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md), "Still open"):
-- rotation cadence;
-- escrow;
-- the distribution channel;
-- the host path of the trust document.
+**Still open:**
+- rotation cadence, the distribution channel and the host path of the trust document
+  ([erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md), "Still open");
+- escrow, which this memo adds as a decision. The compatibility doc (§3, "Key access after host loss") and #366
+  raise it, but the custody doc's list does not.
 
 **Technical facts:**
-- The keys are HMAC secrets. The same secret signs and verifies, so every verifier's trust document is secret
-  material too.
-- If every copy of a key is lost, the evidence it signed can no longer be verified, and recovery through it is
-  `BLOCKED`. The evidence is write-once and cannot be re-signed.
-- After a compromise, the key is retired, and every object it signed is refused. That period becomes an unknown
+- **Shared secret.** The keys are HMAC secrets. The same secret signs and verifies, so every verifier's trust
+  document is secret material too.
+- **Startup dependency.** auth-service reads the trust document only from the `trust-file` path. With the store
+  enabled, a missing, unreadable or invalid trust document stops auth-service at startup, so logins stop too,
+  not only erasures. If durable recording is on without a store, new deletion requests are refused with
+  `DURABLE_RECORDING_UNAVAILABLE`.
+- **Lost keys.** If every copy of a key is lost, the evidence it signed can no longer be verified, and recovery
+  through it is `BLOCKED`. The evidence is write-once and cannot be re-signed.
+- **Compromise.** The key is retired, and every object it signed is refused. That period becomes an unknown
   tail.
-- A new database cluster gets a new database identity, for example after a fresh initdb, a logical restore or a
-  move to a managed database. Its evidence starts a new lineage and needs a trust document pinned to the new
-  identity.
+- **New database cluster.** A new cluster gets a new database identity, for example after a fresh initdb, a
+  logical restore or a move to a managed database. Its evidence starts a new lineage and needs a trust document
+  pinned to the new identity.
 
 | Option | Consequence |
 |---|---|
-| K1. Single custodian; trust document mounted on the production host (read-only for the service user); offline escrow copy kept by the owner outside Google Cloud | Simplest. One person can lose or reveal the keys (bus factor 1). Escrow is what keeps the evidence verifiable when the host and the custodian's workstation are both lost |
-| K2. Google Secret Manager in a separate project with narrow IAM; the producer reads the key at startup; offline escrow copy as in K1 | Access is audited, and rotation works through secret versions. It adds a startup dependency, which fails closed: no key means no durable recording, and requests stay `PENDING_DURABLE`. Needs a provisioned project and IAM |
+| K1. Single custodian; trust document as a file mounted read-only into the auth-service container; offline escrow copy kept by the owner outside Google Cloud | Simplest, and supported by today's code once the mount exists (D3.1). The file is a startup dependency of the whole auth service. One person can lose or reveal the keys (bus factor 1). Escrow keeps the evidence verifiable when the host and the custodian's workstation are both lost |
+| K2. Google Secret Manager in a separate project with narrow IAM; offline escrow copy as in K1 | **Needs new code**, since auth-service reads only a file today, or a deploy-time step that fetches the secret into the trust file. Access is audited, and rotation works through secret versions. The startup dependency stays: if the fetch fails, auth-service does not start. Needs a provisioned project and IAM |
 | K3. A second custodian or split knowledge for escrow | Removes the single point of failure. Needs a named second person; none is recorded today |
 
 **Questions for the owner:**
@@ -161,8 +205,19 @@ questions for the owner and counsel; this memo answers none of them.
 the producer's writes to the evidence store. No other export of user data is proposed. Any extra copy, for
 example to a second provider, would be a separate decision.
 
-**D3.1 Approval.** Enabling durable recording in production is a production change. It means turning on these
-flags, all off by default under `parkio.privacy.account-erasure.`:
+**D3.1 Approval and the source change it needs.**
+
+The recorded order puts enablement after counsel:
+- the f27 matrix (§6) lists lawful basis and counsel first, and enablement after both;
+- #365's D-DP1 comments require an explicit lawful-basis or authorization statement for any production evidence
+  export path;
+- owner decision B2 sets COMPLIANCE for the real store.
+
+This memo keeps that order. The decision here is who approves enablement after counsel's answers, and how it is
+recorded: on #365, with baseline, rollback and acceptance like other production changes.
+
+Enabling durable recording means turning on these flags, all off by default under
+`parkio.privacy.account-erasure.`:
 
 | Property | Environment variable |
 |---|---|
@@ -171,51 +226,79 @@ flags, all off by default under `parkio.privacy.account-erasure.`:
 | `durable-store.gcs.enabled` | `PARKIO_ERASURE_STORE_GCS_ENABLED` |
 | `durable-store.checkpoint.enabled` | `PARKIO_ERASURE_CHECKPOINT_ENABLED` |
 
-| Option | Consequence |
-|---|---|
-| A1. Owner approval recorded on #365, after counsel's D1 answers, with baseline, rollback and acceptance like other production changes | One accountable approver. The legal inputs are in place before the first irreversible write |
-| A2. Owner approval before counsel answers, under Unlocked mode and a short period (R3) | Earlier operational experience. The irreversible part waits for counsel. The evidence written meanwhile is IAM-protected only |
+**Today none of them reaches the auth-service container:**
+- Of the erasure settings, the production compose files pass only `PARKIO_ACCOUNT_ERASURE_ENABLED`, and unlisted
+  keys never reach the container.
+- The same holds for the six store inputs: project id, bucket, retention mode, retention, trust file and
+  producer key id. They have no defaults, and a missing one stops startup.
+- The trust document needs a mount, and the container's root filesystem is read-only.
 
-**D3.2 Project.**
+So enablement first needs a reviewed source change to the env examples, the compose overlay and the preflight,
+as #365's rules require.
+
+**D3.2 Checkpoint caller and cadence.**
+- Turning on `durable-store.checkpoint.enabled` publishes nothing by itself. The producer exists, but nothing in
+  the service calls it and no schedule is configured. Its cadence is an operator decision
+  (`ErasureCheckpointProducer`, `application.yml`).
+- Erasures from before enablement have no pending record, so checkpoints are their only coverage (contract,
+  "Erasure set"). The first checkpoint at enablement is what brings them into the evidence.
+
+Decisions needed:
+- the caller: a schedule inside auth-service, or an operator-run command. Either needs new code.
+- the cadence, including that first checkpoint.
+
+| Cadence | Consequence |
+|---|---|
+| Higher | Shorter replay and less reliance on records alone. More retained generations, and every erased id is re-locked more often (D1) |
+| Lower | Fewer generations and less re-locking. More records to replay, and longer stretches that depend on the record chain |
+
+**D3.3 Project.**
 
 | Option | Consequence |
 |---|---|
 | P1. A dedicated evidence project | IAM stays separate from production. The best-effort lien that Object Retention Lock places on project deletion stays out of production's lifecycle. Billing and alerts are separate. Costs one more project to operate |
 | P2. The production project | Fewer projects. Production administrators can manage the evidence bucket, and the lien also blocks deleting the production project |
-| P3. The backup project | Shares IAM with the backups. Evidence and backups fail or survive together |
+| P3. A backup project | Today the offsite backup bucket is in the production project, so P3 is the same as P2 unless a separate backup project is created |
 
-**D3.3 Region.**
+**D3.4 Region.**
 - The contract requires the store to be off the primary host. Any Cloud Storage bucket meets that.
 - The remaining question is correlated failure. Evidence must be available whenever a backup is restorable, and
   must survive the loss of production.
 
 | Option | Consequence |
 |---|---|
-| G1. Same region as the backups (europe-west1), different from production (europe-west4) | Evidence and backups survive together, apart from production. Single-region price |
+| G1. Same region as the offsite backups (europe-west1), different from production (europe-west4) | Evidence and backups survive together, apart from production. Single-region price |
 | G2. Same region as production (europe-west4) | A regional outage takes production and the evidence together. Backups in europe-west1 might then be restorable while the evidence is not |
 | G3. Dual-region or EU multi-region | Survives a single-region outage. Higher storage and operation prices, and different replication semantics to check against #483's findings |
 
 Jurisdiction is part of counsel's question 7.
 
-**D3.4 Bucket and retention mode.** Configure the bucket as in the #483 test bucket, but with the production
-retention. Object Retention Lock is enabled at creation and cannot be disabled afterwards.
+**D3.5 Bucket and retention mode.** Configure the bucket like the #483 test bucket, but with the production
+retention:
 
 | Setting | Value |
 |---|---|
-| Object Retention Lock | Enabled at creation (irreversible) |
+| Object Retention Lock | Enabled at creation; cannot be disabled afterwards |
 | Object Versioning | On |
 | Soft delete | Off |
 | Uniform bucket-level access | On |
 | Public access prevention | Enforced |
 | Bucket Lock retention policy | None |
 
-- Retention mode: confirm COMPLIANCE (Locked) from the first production write, or use R3. The duration comes
-  from D1.
-- Store authentication: the production VM's attached service account through ADC, with custom roles modelled
-  on the #483 plan (§7.4).
-- Who may hold `overrideUnlockedRetention`: only relevant under Unlocked mode.
+- Retention mode: COMPLIANCE (Locked), per owner decision B2. The duration comes from D1.
+- Store authentication: the production VM's attached service account through ADC, with custom roles modelled on
+  the #483 plan (§7.4).
 
-**D3.5 Exposure after a restore (P-EXPOSURE).** Who decides that a restored copy may serve users, and on which
+**D3.6 Public deletion status.** This is contract §9 item 2, still an open operator input. Today the API
+returns only `IN_PROGRESS`, `COMPLETE` and `FAILED_RETRYING`. With durable recording on, a request waiting for
+its record shows as `IN_PROGRESS`.
+
+| Option | Consequence |
+|---|---|
+| S1. Add `PENDING_DURABLE` / `DURABLY_RECORDED` to the public status | Clients see the recording state. This is an API change for the clients |
+| S2. Keep `IN_PROGRESS` until persist-ack | No API change. Document that `IN_PROGRESS` covers both states |
+
+**D3.7 Exposure after a restore (P-EXPOSURE).** Who decides that a restored copy may serve users, and on which
 evidence? This stays separate from enablement. Recording evidence does not make restores acceptable.
 
 ### D4. Remaining design items for layer D
@@ -239,17 +322,18 @@ not yet covered by the frontier, and every call writes the frontier twice.
 | Option | Consequence |
 |---|---|
 | F3a. Add a resume path: cover published checkpoints above `expectedThrough` before reserving a new sequence | Fewer sequences and retained generations, which matters more as retention grows. More store code to test. #483's S5s requires only convergence, so it keeps passing |
-| F3b. Keep the current behaviour: a lost response converges through a new sequence | No change. Each lost response leaves extra retained generations, which adds to #494's cost growth |
+| F3b. Keep the current behaviour: a lost response converges through a new sequence | No change. Each lost response leaves extra retained generations |
 
-Recommendation: decide after #483's S5/S5s show how often responses are lost and #494 settles the cost model.
+Recommendation: decide after #483's S5/S5s show how often responses are lost, and after #494's conditional
+writes settle the per-write cost.
 
 **Finding 4: the production writer holds `storage.objects.delete`.** A versioned overwrite of the frontier needs
 that permission, so retention protects the evidence, not IAM. #483 measures this (L2) and proves it (L3, G5).
 
 | Option | Consequence |
 |---|---|
-| F4a. Accept: under Locked mode the provider refuses deleting retained generations whatever the role (**recommended with Locked mode**) | No redesign. Protection depends on the lock mode. Under Unlocked mode, an identity with override permission plus delete could remove evidence |
-| F4b. Redesign so the store never rewrites a name, for example a frontier written as new immutable objects | The writer loses delete. A larger change to the store, and #483 would have to run again |
+| F4a. Accept: under Locked mode the provider refuses deleting retained generations whatever the role (**recommended**) | No redesign. Protection depends on the lock mode and lasts until each retain-until (D1) |
+| F4b. Redesign so the store never rewrites a name, for example a frontier written as new immutable objects | The writer loses delete. The frontier key and the way its versions are read are part of format v2, so this also changes the Python model, both verifiers, the fixtures and the recovery tooling, and #483 would have to run again |
 | F4c. F4a plus Cloud Audit Logs data-access logging on the bucket | Detects delete attempts. Adds log volume and cost |
 
 **Finding 7: versioning is checked only at startup.** If versioning is later suspended, rewrites fail closed
@@ -261,8 +345,21 @@ that permission, so retention protects the evidence, not IAM. #483 measures this
 | F7b. Alert on `PENDING_DURABLE` growth and recording failures only | No extra calls. Detects the drift only after erasures start waiting |
 
 **Before enablement:**
-- #493 and #494 must be merged.
+- #493 must be merged (GCS route only).
+- #494 must be merged (any route), with conditional writes per the owner's decision.
 - #483 must pass, and its cleanup must be recorded.
+
+### D5. Disk snapshot restores
+
+- No script refuses restoring a production VM disk snapshot.
+- Such a restore brings back erased accounts exactly like a backup. The snapshots are also another copy of
+  personal data (questions 4 and 7).
+
+| Option | Consequence |
+|---|---|
+| S-A. An owner rule in the disaster recovery runbook: restoring data from a snapshot counts as a production data restore and stays refused until coverage exists, except into an isolated environment | No infrastructure change. The rule is procedural, since no script enforces it |
+| S-B. Exclude the data from snapshots, for example by moving the Docker volumes to a separate disk without a snapshot schedule, and rely on backups | One copy fewer, and the scripted refusal then covers data restores. Loses the fast whole-disk recovery path, and needs a migration on the production host |
+| S-C. Keep snapshots and restrict who may restore them (IAM), with S-A's rule | Narrows who can take the unrefused path. Still procedural |
 
 ## 3. Recommended sequence once the decisions exist
 
@@ -272,21 +369,25 @@ Steps 1 to 3 can run in parallel. The rest are ordered.
    the S3 contingency.
 2. Merge #493 and #494.
 3. Counsel answers D1. The owner records on #365:
-   - the retention duration, the mode and the lawful-basis outcome (D1);
-   - the custody choices (D2);
-   - the project, region, approval and exposure owner (D3).
-4. Implement the D4 decisions, default-off, with red then green tests. Production-path changes need stub-driven
-   end-to-end refusal tests, as #365's acceptance criteria require.
+   - D1: the retention duration and the lawful-basis outcome;
+   - D2: the custody choices;
+   - D3: approval, checkpoint caller and cadence, project, region, public status and exposure owner;
+   - D5: snapshot restores.
+4. Implement the decided changes, default-off, with red then green tests. Production-path changes need
+   stub-driven end-to-end refusal tests, as #365's acceptance criteria require. This step covers:
+   - D4;
+   - the checkpoint caller (D3.2);
+   - the source change that lets the flags, the store inputs and the trust-file mount reach auth-service (D3.1).
 5. The owner provisions:
    - the evidence project and bucket (irreversible Object Retention Lock; confirm cost and lien first);
    - the production signing key, the trust documents and the escrow copy.
-6. A production change, approved under D3.1: turn on the four durable-recording flags.
+6. A production change, approved under D3.1: turn on the four durable-recording flags, then publish the first
+   checkpoint.
    - **Baseline:** the four flags are off. Record the erasure request statuses before the change.
-   - **Rollback:** turn the flags off. Erasures then complete without durable evidence again, so the
-     evidence has a gap from that moment (an unknown tail for any later restore). Evidence already written
-     stays locked.
+   - **Rollback:** turn the flags off. Erasures then complete without durable evidence again, so the evidence
+     has a gap from that moment (an unknown tail for any later restore). Evidence already written stays locked.
    - **Acceptance:** a consumer-side, read-only verification of the production evidence chain with the
-     verifier's trust document.
+     verifier's trust document, covering the first checkpoint.
 7. A burn-in period with the finding 2 and 7 alerts.
 8. Only then, as a separate decision:
    - a production verification gate that refuses every case in the
@@ -296,58 +397,20 @@ Steps 1 to 3 can run in parallel. The rest are ordered.
    - any change to `verifiedCoverage`.
 
 **What stays refused until then:**
-- Production data restore: `restore-hosted-beta.sh` and `restore-database.sh` refuse with exit 3, and the
-  MinIO-only scope stays unsupported.
+- Production data restore through the scripts: `restore-hosted-beta.sh` and `restore-database.sh` refuse with
+  exit 3, and the MinIO-only scope stays unsupported.
+- Disk snapshot restores: no script refuses them, and D5 decides how they are held back.
 - `verifiedCoverage` stays `false`. No evidence-file bypass is added.
 - The durable-recording and durable-store flags stay off by default in every environment.
 - No production RPO or RTO is offered.
-- No production evidence is exported. #104 stays on HOLD.
+- Before step 6, no production evidence leaves the host. #104 stays on HOLD.
 
 ## 4. References
 
 - [n02-gcs-provider-acceptance-plan.md](../operations/n02-gcs-provider-acceptance-plan.md): #483 plan, provider facts (§3), findings (§8)
 - [erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md): custody record, rotation, retirement
 - [disaster-recovery-runbook.md](../operations/disaster-recovery-runbook.md): refusals, RPO/RTO status
-- [recovery-evidence-contract.md](../operations/recovery-evidence-contract.md): evidence format, unknown tail, operator inputs (§9)
-- [f27-production-recovery-coverage-design-matrix.md](../operations/f27-production-recovery-coverage-design-matrix.md): negative cases, recorded owner decisions
+- [recovery-evidence-contract.md](../operations/recovery-evidence-contract.md): evidence format, erasure set, unknown tail, operator inputs (§9)
+- [f27-production-recovery-coverage-design-matrix.md](../operations/f27-production-recovery-coverage-design-matrix.md): negative cases, recorded owner decisions, order (§6)
 - [n02-gcs-evidence-store-compatibility.md](../operations/n02-gcs-evidence-store-compatibility.md) and [n02-gcs-evidence-adapter-design.md](../operations/n02-gcs-evidence-adapter-design.md): route and adapter contract
-- Issues: [#365](https://github.com/ADBERILGEN35/parkio/issues/365), [#483](https://github.com/ADBERILGEN35/parkio/issues/483), [#493](https://github.com/ADBERILGEN35/parkio/issues/493), [#494](https://github.com/ADBERILGEN35/parkio/issues/494), [#520](https://github.com/ADBERILGEN35/parkio/issues/520)
-
-## 5. Türkçe özet (sahip için)
-
-**Ne durumdayız.**
-- Üretimde veri geri yüklemesi bilerek kapalı (`verifiedCoverage=false`). Bir yedek, yedekten sonra silinmesini
-  isteyen kullanıcıları geri getirebilir. Bunu önleyecek kalıcı silme kanıtı üretimde henüz çalışmıyor.
-- A ve B katmanları hazır. C, yani gerçek GCS kabul koşusu (#483), onaylandı ve koşulmayı bekliyor.
-  #493 ve #494 yapılıyor.
-- D katmanı açık: üretimde açma, hukuki saklama süresi, anahtar saklama ve açığa çıkarma kararları. Sağlayıcı
-  yolu artık Google.
-
-**Senden ve hukuk danışmanından beklenen kararlar:**
-1. **D1, saklama süresi.** Kanıt kayıtları silinen kullanıcının rastgele kimliğini (`authUserId`) ve silinme
-   zamanını içeriyor. E-posta ya da isim yok. Locked modda bu kayıtlar süre dolana kadar kimse tarafından
-   silinemiyor. Süreyi ve modu danışman yanıtlarına göre sen belirleyeceksin. KVKK ve GDPR soruları 2. bölümde.
-2. **D2, anahtar saklama.** Saklayıcı `ADBERILGEN35` olarak kayıtlı. Açık konular:
-   - anahtarların yedek (escrow) kopyasının nerede duracağı;
-   - döndürme sıklığı;
-   - ikinci bir saklayıcı olup olmadığı.
-
-   Bütün kopyalar kaybolursa o anahtarla imzalanmış kanıt doğrulanamaz ve geri yükleme kapalı kalır.
-3. **D3, üretimde açma.**
-   - Onayı kimin vereceği.
-   - Proje: ayrı bir kanıt projesi öneriliyor.
-   - Bölge: yedeklerle aynı bölge (europe-west1) öneriliyor.
-   - Mod: Locked mı, önce Unlocked mı.
-   - Geri yüklenen bir kopyanın kullanıcıya ne zaman açılabileceği (P-EXPOSURE).
-4. **D4, mühendislik kararları (bulgu 2, 3, 4 ve 7).** Öneriler 2. bölümde işaretli. Hepsi açmadan önce
-   uygulanacak.
-
-**Sıra:**
-1. #483'ü koş, #493 ve #494'ü merge et, danışman yanıtlarını al.
-2. Kararları #365'e yaz.
-3. D4'ü varsayılan kapalı olarak uygula.
-4. Projeyi, bucket'ı ve anahtarları hazırla.
-5. Onaylı bir değişiklikle kanıt kaydını aç ve bir süre izle.
-6. Üretim geri yüklemesi en son, ayrı bir kararla gelir.
-
-O zamana kadar üretim geri yüklemesi kapalı kalır.
+- Issues: [#365](https://github.com/ADBERILGEN35/parkio/issues/365), [#483](https://github.com/ADBERILGEN35/parkio/issues/483), [#493](https://github.com/ADBERILGEN35/parkio/issues/493), [#494](https://github.com/ADBERILGEN35/parkio/issues/494), [#520](https://github.com/ADBERILGEN35/parkio/issues/520); offsite `gcs` kind: [PR #575](https://github.com/ADBERILGEN35/parkio/pull/575)
