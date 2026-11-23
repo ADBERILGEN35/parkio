@@ -396,6 +396,9 @@ Attribution on OSM-derived facilities: © OpenStreetMap contributors (ODbL). Leg
 ```bash
 export PARKIO_OSM_REAL_IZMIR_VALIDATION=true
 export PARKIO_OSM_REAL_IZMIR_GEOJSON=/path/to/izmir-parking-parkio.geojson
+# Optional, absolute path: where the reduced GeoJSON and data-wp-02a-controlled-import-report.json go.
+# Default: services/parking-service/build/osm-real-izmir-import-validation (never next to the input).
+# export PARKIO_OSM_REAL_IZMIR_REPORT_DIR=/path/to/report-dir
 ./gradlew :services:parking-service:integrationTest \
   --tests com.parkio.parking.infrastructure.osm.OsmRealIzmirImportValidationIT
 ```
