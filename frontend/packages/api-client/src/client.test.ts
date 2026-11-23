@@ -298,6 +298,42 @@ describe('401 from a failed password check (INVALID_CREDENTIALS)', () => {
     },
   );
 
+  it.each([
+    { name: 'an empty body', unauthorized: () => new HttpResponse(null, { status: 401 }) },
+    {
+      name: 'a non-JSON body',
+      unauthorized: () =>
+        new HttpResponse('<html><body>401</body></html>', {
+          status: 401,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    },
+  ])(
+    'still refreshes once and resends once after a 401 with $name (no Parkio error code)',
+    async ({ unauthorized }) => {
+      // toParkioError maps an unparseable body to UNKNOWN_ERROR: only the parsed code
+      // INVALID_CREDENTIALS stops the refresh, so this keeps the previous behaviour.
+      const attempts = passwordCheckEndpoint('post', '/auth/change-password', (authorization) =>
+        authorization === 'Bearer fresh-token'
+          ? new HttpResponse(null, { status: 204 })
+          : unauthorized(),
+      );
+      const { client, storage, onAuthFailure } = makeClient();
+      storage.setTokens({ accessToken: 'stale-token' });
+      const refresh = vi.fn(async () => 'fresh-token');
+      setRefreshHandler(refresh);
+
+      await expect(createAuthApi(client).changePassword(changePasswordBody)).resolves.toBeUndefined();
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(attempts.map((attempt) => attempt.authorization)).toEqual([
+        'Bearer stale-token',
+        'Bearer fresh-token',
+      ]);
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
   it('checks the password once when the access token had expired: one refresh, one resend', async () => {
     // The gateway rejects the expired token before auth-service sees the password; only the resend
     // under the refreshed token is evaluated, and its INVALID_CREDENTIALS is surfaced as is.
