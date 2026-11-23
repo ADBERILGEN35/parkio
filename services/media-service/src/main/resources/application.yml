@@ -195,10 +195,11 @@ parkio:
     max-image-width: ${PARKIO_MEDIA_MAX_IMAGE_WIDTH:8000}
     max-image-height: ${PARKIO_MEDIA_MAX_IMAGE_HEIGHT:8000}
     max-image-pixels: ${PARKIO_MEDIA_MAX_IMAGE_PIXELS:40000000}
+    # Only types the runtime can decode for normalization (ImageIO has no WebP reader);
+    # the clients' allow-lists mirror this one.
     allowed-content-types:
       - image/jpeg
       - image/png
-      - image/webp
     # Lifetime of presigned GET URLs returned by /api/v1/media/{id}/access-url.
     # Short-lived by design; URLs are generated per request and never persisted.
     access-url-ttl: ${PARKIO_MEDIA_ACCESS_URL_TTL:5m}

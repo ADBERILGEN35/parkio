@@ -2,10 +2,13 @@ package com.parkio.auth.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.parkio.auth.application.AccountErasureApplicationService;
 import com.parkio.auth.application.AuthApplicationService;
 import com.parkio.auth.application.LoginFailureTracker;
@@ -20,9 +24,12 @@ import com.parkio.auth.application.command.RegisterCommand;
 import com.parkio.auth.application.command.VerifyEmailCommand;
 import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.EmailVerificationSender;
+import com.parkio.auth.domain.AuthUserStatus;
 import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.RoleJpaRepository;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -146,6 +154,51 @@ class AccountErasureHttpIntegrationTest {
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
     }
 
+    /** #563: the deletion request checks the password on the throttle of the gateway-resolved client. */
+    @Test
+    void deletionAdmitsTheGatewayResolvedClient() throws Exception {
+        String email = registerAndVerify("erase-client-" + UUID.randomUUID() + "@example.com");
+        String access = accessToken(email);
+        clearInvocations(loginFailureTracker);
+
+        MockHttpServletResponse response = deleteAccount(access, "2001:DB8:5:6::7", PASSWORD);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(loginFailureTracker).admit(eq(email), eq("2001:db8:5:6:0:0:0:0/64"), any(Instant.class));
+        verify(loginFailureTracker, never()).recordFailure(anyString(), anyString(), any(Instant.class));
+        verify(loginFailureTracker, never()).clearAfterSuccess(anyString(), anyString());
+        verify(loginFailureTracker).forgetAccount(email);
+    }
+
+    /**
+     * #563: a deletion request that the throttle refuses is answered exactly like a wrong password, as on login:
+     * same status and body, no Retry-After; the refused attempt is not counted and starts no erasure.
+     */
+    @Test
+    void aThrottledDeletionIsAnsweredLikeAWrongPassword() throws Exception {
+        String email = registerAndVerify("erase-throttled-" + UUID.randomUUID() + "@example.com");
+        String access = accessToken(email);
+        when(loginFailureTracker.recordFailure(eq(email), eq("198.51.100.23"), any(Instant.class)))
+                .thenReturn(new LoginFailureTracker.LoginFailureOutcome(1, 1, Duration.ZERO, null));
+        when(loginFailureTracker.admit(eq(email), eq("198.51.100.24"), any(Instant.class)))
+                .thenReturn(Duration.ofSeconds(30));
+
+        MockHttpServletResponse wrong = deleteAccount(access, "198.51.100.23", "wrong-password");
+        MockHttpServletResponse throttled = deleteAccount(access, "198.51.100.24", PASSWORD);
+
+        assertThat(wrong.getStatus()).isEqualTo(401);
+        assertThat(throttled.getStatus()).isEqualTo(401);
+        assertThat(wrong.getHeader("Retry-After")).isNull();
+        assertThat(throttled.getHeader("Retry-After")).isNull();
+        JsonNode wrongBody = errorWithoutRequestFields(wrong);
+        assertThat(wrongBody.path("code").asText()).isEqualTo("INVALID_CREDENTIALS");
+        assertThat(errorWithoutRequestFields(throttled)).isEqualTo(wrongBody);
+        verify(loginFailureTracker).recordFailure(eq(email), eq("198.51.100.23"), any(Instant.class));
+        verify(loginFailureTracker, never()).recordFailure(eq(email), eq("198.51.100.24"), any(Instant.class));
+        verify(loginFailureTracker, never()).forgetAccount(anyString());
+        assertThat(users.findByEmail(email).orElseThrow().status()).isEqualTo(AuthUserStatus.ACTIVE);
+    }
+
     @Test
     void deletionLocksLoginUntilAllParticipantsAckThenCompletes() throws Exception {
         String email = registerAndVerify("erase-" + UUID.randomUUID() + "@example.com");
@@ -187,6 +240,26 @@ class AccountErasureHttpIntegrationTest {
                 .getResponse()
                 .getContentAsString();
         return objectMapper.readTree(body).get("accessToken").asText();
+    }
+
+    private MockHttpServletResponse deleteAccount(String accessToken, String clientIp, String password)
+            throws Exception {
+        return mockMvc.perform(delete("/api/v1/account")
+                        .header("X-Gateway-Auth", GATEWAY_SECRET)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .header("X-Parkio-Client-Ip", clientIp)
+                        .contentType("application/json")
+                        .content("{\"password\":\"" + password + "\"}"))
+                .andReturn()
+                .getResponse();
+    }
+
+    /** The error body without its per-request fields (trace id, timestamp). */
+    private JsonNode errorWithoutRequestFields(MockHttpServletResponse response) throws Exception {
+        ObjectNode body = (ObjectNode) objectMapper.readTree(response.getContentAsString());
+        body.remove("traceId");
+        body.remove("timestamp");
+        return body;
     }
 
     private String registerAndVerify(String email) {

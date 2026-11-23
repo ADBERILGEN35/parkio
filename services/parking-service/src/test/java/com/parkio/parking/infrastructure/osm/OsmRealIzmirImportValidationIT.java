@@ -48,6 +48,11 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>Requires {@code PARKIO_OSM_REAL_IZMIR_VALIDATION=true} and
  * {@code PARKIO_OSM_REAL_IZMIR_GEOJSON}. Never part of default CI.
+ *
+ * <p>The reduced GeoJSON and {@code data-wp-02a-controlled-import-report.json} go to
+ * {@code PARKIO_OSM_REAL_IZMIR_REPORT_DIR} (an absolute path; a relative one resolves against
+ * {@code services/parking-service}), else to the module's {@code build/osm-real-izmir-import-validation},
+ * never next to the input GeoJSON.
  */
 @Tag("integration")
 @EnabledIfEnvironmentVariable(named = "PARKIO_OSM_REAL_IZMIR_VALIDATION", matches = "true")
@@ -66,10 +71,11 @@ class OsmRealIzmirImportValidationIT {
     private static final HttpServer IZUM_SERVER = startServer();
     private static final Path GEOJSON = Path.of(
             requireEnv("PARKIO_OSM_REAL_IZMIR_GEOJSON")).toAbsolutePath().normalize();
-    private static final Path REPORT_DIR = Path.of(
-            System.getenv().getOrDefault(
-                    "PARKIO_OSM_REAL_IZMIR_REPORT_DIR",
-                    GEOJSON.getParent().toString())).toAbsolutePath().normalize();
+    // Without an explicit directory the outputs stay under the module's build directory
+    // (docs/ai-context/08-coding-standards.md), so a run never rewrites files beside the input.
+    private static final Path REPORT_DIR = Path.of(firstNonBlank(
+            System.getenv("PARKIO_OSM_REAL_IZMIR_REPORT_DIR"),
+            "build/osm-real-izmir-import-validation")).toAbsolutePath().normalize();
 
     @Autowired OsmImportApplicationService importService;
     @Autowired MunicipalFacilitySyncService municipalSync;
@@ -354,6 +360,10 @@ class OsmRealIzmirImportValidationIT {
             throw new IllegalStateException(name + " is required when validation is enabled");
         }
         return value;
+    }
+
+    private static String firstNonBlank(String configured, String fallback) {
+        return configured == null || configured.isBlank() ? fallback : configured;
     }
 
     private static HttpServer startServer() {

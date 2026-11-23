@@ -18,6 +18,7 @@ import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.domain.event.UserErasureRequestedEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.ErasureMetrics;
 import com.parkio.auth.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.auth.infrastructure.persistence.entity.ErasureRequestEntity;
@@ -89,7 +90,11 @@ public class AccountErasureApplicationService {
     private final EntityManagerFactory entityManagerFactory;
     private final TransactionTemplate requiresNew;
     private final TransactionTemplate withoutTransaction;
-    /** Optional (CL-F15 v2): erasure removes what the login throttle keeps for the account. */
+    /**
+     * Optional (CL-F15 v2): erasure removes what the login throttle keeps for the account, and the password check
+     * of a deletion request runs on the account's login-throttle budget (#563). Without it the check is a plain
+     * comparison.
+     */
     private LoginFailureTracker loginFailures;
 
     public AccountErasureApplicationService(
@@ -198,6 +203,19 @@ public class AccountErasureApplicationService {
 
     @Transactional
     public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password) {
+        return requestDeletion(principalUserId, password, null);
+    }
+
+    /**
+     * Starts the erasure of the principal's account once its password is confirmed, or returns the status of the
+     * erasure already requested.
+     *
+     * @param clientKey the gateway-resolved client of the request ({@code LoginClientKeys}); the password check is
+     *     throttled for this (account, client) pair on the login throttle's budget (#563). Null or blank when
+     *     unknown: the account's shared unknown-client pair is used.
+     */
+    @Transactional
+    public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password, String clientKey) {
         if (!enabled) {
             throw new AuthException(AuthErrorCode.ACCOUNT_ERASURE_DISABLED);
         }
@@ -206,10 +224,8 @@ public class AccountErasureApplicationService {
         }
         AuthUser user = users.findById(principalUserId)
                 .orElseThrow(() -> new AuthException(AuthErrorCode.USER_NOT_FOUND));
-        if (!passwordHasher.matches(password, user.passwordHash())) {
-            throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
-        }
         Instant now = erasureTime();
+        verifyPassword(user, password, clientKey, now);
         var existing = requests.findFirstByAuthUserIdOrderByRequestedAtDesc(principalUserId);
         if (existing.isPresent()) {
             String status = existing.get().getStatus();
@@ -242,6 +258,45 @@ public class AccountErasureApplicationService {
         }
         forgetLoginThrottleAfterCommit(user.email(), requestId);
         return new AccountDeletionStatusView(requestId, "IN_PROGRESS");
+    }
+
+    /**
+     * The password check of a deletion request. With the login throttle present (#563) it runs on the account's
+     * login-throttle budget, like a login and the current-password check of change-password (H-06): admission
+     * claims the running waits first, a wrong password counts for this (account, client) pair and the account,
+     * and a refused or throttled attempt is answered like a wrong password. A right password clears nothing here:
+     * a new erasure request removes all of the account's throttle state once it has committed (this client's
+     * pair included), and a repeated request must not make a client known for an account pending erasure.
+     */
+    private void verifyPassword(AuthUser user, String password, String clientKey, Instant now) {
+        if (loginFailures == null) {
+            if (!passwordHasher.matches(password, user.passwordHash())) {
+                throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
+            }
+            return;
+        }
+        String throttleClientKey = clientKey == null || clientKey.isBlank()
+                ? LoginFailureTracker.UNKNOWN_CLIENT
+                : clientKey;
+        Duration wait = loginFailures.admit(user.email(), throttleClientKey, now);
+        if (!wait.isZero()) {
+            log.warn("erasure request throttled clientHash={} retryAfterSeconds={}",
+                    Integer.toHexString(throttleClientKey.hashCode()), wait.toSeconds());
+            throw new LoginLockedException();
+        }
+        if (!passwordHasher.matches(password, user.passwordHash())) {
+            LoginFailureTracker.LoginFailureOutcome outcome =
+                    loginFailures.recordFailure(user.email(), throttleClientKey, now);
+            if (outcome.throttled()) {
+                log.warn("erasure request throttle applied clientHash={} pairFailures={} accountFailures={} retryAt={}",
+                        Integer.toHexString(throttleClientKey.hashCode()),
+                        outcome.pairFailures(),
+                        outcome.accountFailures(),
+                        outcome.retryAt());
+                throw new LoginLockedException();
+            }
+            throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS);
+        }
     }
 
     /**
