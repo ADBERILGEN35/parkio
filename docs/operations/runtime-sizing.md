@@ -194,8 +194,9 @@ interval: 15s  timeout: 5s  retries: 5  start_period: 60s
 Postgres volumes and MinIO media are genuine business data and are deliberately not capped.
 They are covered operationally by host-level alerts already in `prometheus/alerts.yml`:
 `HostDiskSpaceLow`, `HostDiskSpaceCritical`, `HostDiskWillFillSoon`, `HostInodesLow/Critical`
-(from node-exporter). Run the backup job (`scripts/backup-databases.sh`) on a schedule and
-watch those alerts; storage expansion is a manual, planned operation on a single VPS.
+(from node-exporter). Run the scheduled backup (`scripts/backup-hosted-beta.sh`; see
+[backup-runbook.md](./backup-runbook.md)) and watch those alerts; storage expansion is a
+manual, planned operation on a single VPS.
 
 ---
 

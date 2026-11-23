@@ -156,7 +156,7 @@ The authorized live acceptance of `BackupStale` delivery (synthetic second textf
    older than `BACKUP_RETENTION_DAYS`, whether or not it ever reached offsite.
 5. Do not report success if only the local copy exists.
 
-## Offsite outage and the first run after it {#offsite-outage}
+## Offsite outage
 
 While offsite uploads fail, every run fails and none prunes. A full local stamp is added to
 the host disk every night, and none of these stamps has an offsite copy. Watch free space
@@ -171,7 +171,8 @@ caller's value. Make the first run against the restored target a bounded run wit
 1. Make sure it is the first run to reach the target. `--no-prune` protects only the run
    it is given to; a scheduled run against a working target prunes as usual. Hold the
    schedule while the target is restored (owner decision), or finish steps 3 and 4 before
-   the next 03:30 UTC run.
+   the next 03:30 UTC run. If any outage stamp must be kept, the schedule stays held until
+   the step 5 copies exist.
 2. Preflight: no backup is running (the lock is free), and the `BACKUP_DIR` disk has room
    for one more full stamp.
 3. Run once, under the same lock and with the same environment as the scheduled run in
@@ -188,6 +189,9 @@ caller's value. Make the first run against the restored target a bounded run wit
      at the end. The manifests (`backup-<stamp>.json`, `backup-current.json` and the sealed
      `<stamp>/backup-manifest.json`) record `"localPrune": "skipped"`; a run without the
      flag records `"after-success"`.
+   - Only the command line counts. A `NO_PRUNE` or `DRY_RUN` line in the env file is
+     ignored with a `WARN`, and the env file cannot change what the orchestrator hands
+     `backup-databases.sh` (`BACKUP_SKIP_MC_UPLOAD`, `BACKUP_DEST_DIR`).
    - A checkout without this option rejects it (`ERROR: unknown argument '--no-prune'`,
      exit 2) before it writes or deletes anything. Do not drop the flag to get past that;
      update the checkout first.
@@ -199,9 +203,9 @@ caller's value. Make the first run against the restored target a bounded run wit
    [backup-dated-acceptance.md](./backup-dated-acceptance.md) describes.
 5. Pruning resumes with the next scheduled run, after that verification. That run deletes
    every local stamp older than `BACKUP_RETENTION_DAYS`, including outage stamps that never
-   reached offsite. Copy
-   any stamp the owner wants to keep to a place outside `BACKUP_DIR` first: the prune
-   removes every directory in `BACKUP_DIR` older than the retention, not only stamps.
+   reached offsite. Copy any stamp the owner wants to keep to a place outside `BACKUP_DIR`
+   first: the prune removes every directory in `BACKUP_DIR` older than the retention, not
+   only stamps.
 
 The upload never touches another stamp. Azure `upload-batch` and `upload` write only under
 `<container>/<stamp>/`; `mc mirror` (without `--remove`) and `mc cp` write only under
