@@ -106,10 +106,12 @@ echo "unexpected az call: $*" >&2
 exit 2
 SH
 chmod +x "${BIN}/az"
-# Fake gcloud over a filesystem bucket (FAKE_GCS_ROOT/<bucket>/<object name>) for the gcs kind: the
-# listing prints sizes as strings, as the JSON API does, and [] when nothing matches; a download copies
-# one object, creating its local directories as gcloud does. The acceptance never uploads, so any other
-# call fails. FAKE_GCS_LIST_SCOPE=bucket lists the whole bucket instead of the requested prefix, and
+# Fake gcloud over a filesystem bucket (FAKE_GCS_ROOT/<bucket>/<object name>) for the gcs kind. Live
+# gcloud (592.0.0) prints integer sizes; this listing prints them as strings on purpose, as the JSON
+# API does, so the parser stays pinned to both (the complete-gate fake prints integers). A listing
+# that matches nothing is "[]" with exit 0, as live gcloud answers. A download copies one object,
+# creating its local directories as gcloud does. The acceptance never uploads, so any other call
+# fails. FAKE_GCS_LIST_SCOPE=bucket lists the whole bucket instead of the requested prefix, and
 # FAKE_GCS_LIST_SIZE=omit leaves the sizes out, as a misbehaving or changed listing would.
 cat > "${BIN}/gcloud" <<'PY'
 #!/usr/bin/env python3
@@ -411,6 +413,12 @@ FAKE_GCS_LIST_SCOPE=bucket KIND=gcs backup_host
   && grep -q "offsite listing failed" "${REPORT}" \
   && ok "a gcs listing that returns objects outside the stamp's prefix is refused, not trusted" \
   || bad "gcs listing scope (rc=${rc}): $(results)"
+gcs_case gcs-no-remote-object
+rm -rf "${GCS_REMOTE}"
+KIND=gcs backup_host --decrypt
+[ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && grep -q '"detail": "0/[0-9]* expected objects listed' "${REPORT}" \
+  && ok "a stamp with no gcs object (listing []) fails presence and integrity" || bad "gcs no remote object (rc=${rc}): $(results)"
 gcs_case gcs-listing-no-size
 FAKE_GCS_LIST_SIZE=omit KIND=gcs backup_host
 [ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \

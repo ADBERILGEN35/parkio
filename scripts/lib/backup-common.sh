@@ -44,6 +44,7 @@ parkio_backup_load_env() {
     local _saved_encrypt="${BACKUP_ENCRYPT_PASSPHRASE-}"
     local _saved_mc="${BACKUP_MC_DEST-}"
     local _saved_gcs="${BACKUP_GCS_DEST-}"
+    local _saved_gcloud_bin="${BACKUP_GCLOUD_BIN-}"
     local _saved_prod="${BACKUP_PRODUCTION_MODE-}"
     local _saved_kind="${BACKUP_OFFSITE_KIND-}"
     local _saved_azure_acct="${BACKUP_AZURE_STORAGE_ACCOUNT-}"
@@ -71,6 +72,9 @@ parkio_backup_load_env() {
     fi
     if [ -n "${_saved_gcs}" ]; then
       export BACKUP_GCS_DEST="${_saved_gcs}"
+    fi
+    if [ -n "${_saved_gcloud_bin}" ]; then
+      export BACKUP_GCLOUD_BIN="${_saved_gcloud_bin}"
     fi
     if [ -n "${_saved_prod}" ]; then
       export BACKUP_PRODUCTION_MODE="${_saved_prod}"
