@@ -96,8 +96,9 @@ This matters for the legal questions in D1.
   and the D1 period is only a lock period: how long an object cannot be deleted. Deleting evidence after its
   lock expires would break the chain and block every later recovery.
 - **Checkpoints re-copy every erased id.** Every checkpoint copies the whole tombstone ledger, and tombstones
-  are never deleted. So each new checkpoint writes and locks every erased user's id again. With periodic
-  checkpoints, every erased id is also under a live lock at all times.
+  are never deleted. So each new checkpoint writes and locks every erased user's id again. If a checkpoint is
+  written at least once per lock period, every erased id is also under a live lock at all times. A lower
+  cadence (D3.2) leaves gaps.
 
 ## 2. Decisions needed
 
@@ -131,8 +132,9 @@ questions for the owner and counsel; this memo answers none of them.
   - After the retain-until passes, any identity with `storage.objects.delete` can delete the object, the
     production writer included (finding 4).
   - With soft delete off, that deletion is final.
-- **Checkpoints keep every erased id under a live lock.** Periodic checkpoints re-copy and re-lock every erased
-  id (§1).
+- **Checkpoints can keep every erased id under a live lock.** Each checkpoint re-copies and re-locks every
+  erased id (§1). With at least one checkpoint per lock period, the ids are locked at all times. A lower
+  cadence leaves gaps.
 - **Cost.** Every write is kept indefinitely, frontier rewrites and markers included. Storage volume is tiny;
   the cost comes from operations and the growing number of retained generations (#494).
 
@@ -345,7 +347,7 @@ not yet covered by the frontier, and every call writes the frontier twice.
 
 | Option | Consequence |
 |---|---|
-| F3a. Add a resume path: cover published checkpoints above `expectedThrough` before reserving a new sequence | Fewer sequences and retained generations, which matters more as retention grows. More store code to test. #483's S5s requires only convergence, so it keeps passing |
+| F3a. Add a resume path: cover published checkpoints above `expectedThrough` before reserving a new sequence | Fewer sequences and retained generations, which matters more as history grows. More store code to test. #483's S5s requires only convergence, so it keeps passing |
 | F3b. Keep the current behaviour: a lost response converges through a new sequence | No change. Each lost response leaves extra retained generations |
 
 Recommendation: decide after #483's S5/S5s show how often responses are lost, and after #494's conditional
@@ -381,7 +383,7 @@ that permission, so retention protects the evidence, not IAM. #483 measures this
 
 | Option | Consequence |
 |---|---|
-| S-A. An owner rule in the disaster recovery runbook: restoring data from a snapshot counts as a production data restore and stays refused until coverage exists | No infrastructure change. The rule is procedural, since no script enforces it. Restoring onto another host, even an isolated one, is not an exception: D-DP1 forbids moving real production data to another host ([f27 design matrix](../operations/f27-production-recovery-coverage-design-matrix.md) §5) |
+| S-A. An owner rule in the disaster recovery runbook: restoring data from a snapshot counts as a production data restore and stays refused until coverage exists | No infrastructure change. The rule is procedural, since no script enforces it. Restoring onto another host, even an isolated one, is not an exception. D-DP1 forbids transferring or decrypting real production backups onto another host ([f27 design matrix](../operations/f27-production-recovery-coverage-design-matrix.md) §5) |
 | S-B. Exclude the data from snapshots, for example by moving the Docker volumes to a separate disk without a snapshot schedule, and rely on backups | One copy fewer, and the scripted refusal then covers data restores. Loses the fast whole-disk recovery path, and needs a migration on the production host |
 | S-C. Keep snapshots and restrict who may restore them (IAM), with S-A's rule | Narrows who can take the unrefused path. Still procedural |
 
