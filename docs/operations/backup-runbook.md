@@ -95,7 +95,10 @@ stays in the scripts, and `s3`/mc is what the CI drill uses. See
 
 Bucket and prefix are operator config in the env file.
 
-MinIO objects are **not** client-side encrypted by backup scripts. Protection = TLS in transit + Azure SSE at rest. Do not claim `.enc` covers MinIO.
+MinIO objects are client-side encrypted too: with `BACKUP_ENCRYPT_PASSPHRASE` set (always so in
+production mode), the mirror is sealed into `minio.tar.gz.enc` with the same AES-256-CBC passphrase
+before `COMPLETE`, and the plaintext `minio/` tree is removed. An offsite upload refuses a stamp
+that still holds a plaintext `minio/` tree.
 
 ## Required env
 
@@ -244,8 +247,9 @@ Cron's `PATH` (`/usr/bin:/bin`) has no `/snap/bin`, which is why the script look
 the metadata server. Its only roles on the bucket are `roles/storage.objectCreator` and
 `roles/storage.objectViewer`: it can create, read and list objects, but cannot delete or replace
 them or read the bucket's metadata. On the host, as root (the backup's user), `gcloud auth list`
-must show that service account as the only credentialed account, and the env file must set no
-`CLOUDSDK_AUTH_*` variable.
+must show that service account as the only credentialed account. The env file must set no
+`CLOUDSDK_*` variable at all: it is sourced with `set -a`, so any such line reaches `gcloud` and can
+switch its account, configuration directory or credential file.
 
 **Bucket protections**, set on the bucket and not by these scripts:
 
@@ -264,14 +268,17 @@ stamp is. `COMPLETE` goes last, and only after a listing shows every other file 
 A second listing must then show the whole stamp before the receipt beside it
 (`<stamp>.offsite-receipt.json`, target `gs://<bucket>/<prefix>/<stamp>`) is written.
 
-**Verify a stamp remotely.** These only read; the service account may run them.
+**Verify a stamp remotely.** These only read; the service account may run them. The two scripts
+take the offsite settings from the env file the backup uses, so run them from `/opt/parkio` with
+`PARKIO_ENV_FILE` set (or `--env-file`); without it they find no offsite.
 
 - Names and sizes: `gcloud storage ls --long --recursive gs://parkio-prod-backups-euw1/stamps/<stamp>/`.
-- The dated record: `scripts/backup-dated-acceptance.sh --stamp-dir /var/backups/parkio/<stamp> ...`
-  compares the listing with `SHA256SUMS` (outcome 2) and verifies a pulled copy (outcome 3); see
+- The dated record: `PARKIO_ENV_FILE=docker/.env.azure-hosted-beta scripts/backup-dated-acceptance.sh
+  --stamp-dir /var/backups/parkio/<stamp> --evidence <new dir> --work <new dir>` compares the
+  listing with `SHA256SUMS` (outcome 2) and verifies a pulled copy (outcome 3); see
   [backup-dated-acceptance.md](./backup-dated-acceptance.md).
-- A copy: `scripts/backup-offsite-pull.sh --stamp <stamp> --dest <new directory>` downloads each
-  object and runs `sha256sum -c SHA256SUMS`.
+- A copy: `scripts/backup-offsite-pull.sh --env-file docker/.env.azure-hosted-beta --stamp <stamp>
+  --dest <new directory>` downloads each object and runs `sha256sum -c SHA256SUMS`.
 
 **Replacing the interim job.** Until this kind is deployed, `/etc/cron.d/parkio-gcs-interim` runs
 `/usr/local/sbin/parkio-gcs-interim-sync.sh` at 04:20 UTC under the backup lock. It copies
@@ -290,5 +297,7 @@ or all of them before the next 03:30 UTC run:
 5. Then remove the interim job: delete `/etc/cron.d/parkio-gcs-interim` and
    `/usr/local/sbin/parkio-gcs-interim-sync.sh`. While both run, the 03:30 run uploads its stamp
    first and the 04:20 copy skips those objects. If a `gcs` upload stops partway, the next interim
-   copy completes that stamp, `COMPLETE` included, but no receipt is written for it.
+   copy completes that stamp, `COMPLETE` included, but no receipt is written for it. Such a stamp
+   is unverified, even though its remote copy looks complete, until its dated acceptance
+   (outcomes 2 and 3) passes.
 6. Release the schedule. Pruning resumes with the next scheduled run (Offsite outage, step 5).
