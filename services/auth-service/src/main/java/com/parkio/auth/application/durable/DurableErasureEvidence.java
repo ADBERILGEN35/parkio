@@ -36,6 +36,17 @@ public final class DurableErasureEvidence {
     public static final String KIND_CHECKPOINT = "erasure-checkpoint";
     public static final String KIND_FRONTIER = "erasure-expected-frontier";
     public static final String KIND_SEQUENCE_ALLOCATION = "sequence-allocation";
+    /** Writer state, not evidence: which sequence a request reserved (#494). */
+    public static final String KIND_SEQUENCE_RESERVATION = "sequence-reservation";
+    /** Writer state, not evidence: a sequence reserved for a checkpoint (#494). */
+    public static final String KIND_CHECKPOINT_RESERVATION = "checkpoint-reservation";
+    /**
+     * Prefix of the reservation index the writer keeps beside the evidence: unsigned, create-only,
+     * never exported or verified. It lets a request find its reservation, and a checkpoint an
+     * abandoned checkpoint reservation, without listing the recorded markers.
+     */
+    public static final String RESERVATIONS_PREFIX = "reservations/";
+    public static final String CHECKPOINT_RESERVATIONS_PREFIX = "reservations/checkpoints/";
     public static final String KIND_LEDGER = "erasure-ledger";
     public static final String FRONTIER_KEY = "frontier/expected-through.json";
     /** The capture protocol of a checkpoint: READ COMMITTED read under a SHARE table lock. */
@@ -70,6 +81,32 @@ public final class DurableErasureEvidence {
 
     public static String checkpointKey(long sequence) {
         return String.format(Locale.ROOT, "checkpoints/%016d.json", requirePositive(sequence));
+    }
+
+    /** Where a request's reservation is indexed: one request, one key. */
+    public static String reservationKey(UUID erasureRequestId) {
+        return RESERVATIONS_PREFIX + erasureRequestId + ".json";
+    }
+
+    public static String checkpointReservationKey(long sequence) {
+        return String.format(Locale.ROOT, CHECKPOINT_RESERVATIONS_PREFIX + "%016d.json", requirePositive(sequence));
+    }
+
+    /** The unsigned index entry naming the sequence {@code erasureRequestId} reserved. */
+    public static byte[] sequenceReservation(long sequence, UUID erasureRequestId) {
+        Map<String, Object> reservation = new LinkedHashMap<>();
+        reservation.put("kind", KIND_SEQUENCE_RESERVATION);
+        reservation.put("sequence", requirePositive(sequence));
+        reservation.put("erasureRequestId", erasureRequestId.toString());
+        return CanonicalJson.bytes(reservation);
+    }
+
+    /** The unsigned index entry of a sequence reserved for a checkpoint. */
+    public static byte[] checkpointReservation(long sequence) {
+        Map<String, Object> reservation = new LinkedHashMap<>();
+        reservation.put("kind", KIND_CHECKPOINT_RESERVATION);
+        reservation.put("sequence", requirePositive(sequence));
+        return CanonicalJson.bytes(reservation);
     }
 
     /**

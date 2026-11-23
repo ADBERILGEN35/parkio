@@ -21,8 +21,10 @@ import com.parkio.auth.application.port.DurableErasureRecordStore;
 import com.parkio.auth.application.port.ErasureLedgerCapture;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.Current;
 import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.RetentionLock;
 import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.StoredVersion;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.Written;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,12 +33,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -45,8 +50,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * Off-host durable erasure record store on a retention-locked evidence bucket
  * ({@link DurableEvidenceBucket}: MinIO/S3 Object Lock or GCS Object Retention Lock), writing
  * evidence format v2 (docs/operations/recovery-evidence-contract.md). The protocol mirrors the
- * Python model: reserve a sequence with a marker, raise the frontier's highest reservation,
- * publish the signed record, then raise the expected boundary to cover it.
+ * Python model: reserve a sequence with a marker, publish the signed record, then raise both
+ * boundaries of the frontier to cover it in one conditional write.
  *
  * <ul>
  *   <li>Every object version is written under a retention lock; nothing is overwritten or
@@ -61,16 +66,40 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *       retired and inside its signing window; reads verify with the whole trust.</li>
  * </ul>
  *
+ * <p><strong>Conditional writes (#494).</strong> No operation lists the recorded history, so
+ * the cost of an operation does not grow with the number of erasures
+ * (docs/architecture/erasure-evidence-conditional-writes.md):
+ * <ul>
+ *   <li>A new sequence starts just above the signed frontier's {@code highestReserved}. Markers,
+ *       records and checkpoints are created only if absent. The frontier is raised only after
+ *       publication, so a marker found above it belongs to a writer that stopped before
+ *       publishing; it is skipped.</li>
+ *   <li>A skipped marker gets an index entry for its owner, because the frontier is about to pass
+ *       it: {@code reservations/<erasureRequestId>.json}, or
+ *       {@code reservations/checkpoints/<sequence>.json} for a checkpoint reservation. Its request
+ *       finds its reservation there, the next checkpoint an abandoned checkpoint reservation; both
+ *       fill the gap. Index entries are unsigned writer state, not evidence, and the normal path
+ *       writes none.</li>
+ *   <li>The frontier is read as its live version and replaced only while that version is still
+ *       live (compare-and-swap); a live version that fails verification falls back to the highest
+ *       verified of all versions, as recovery reads it. Reads never go below a boundary this
+ *       process has read or written.</li>
+ * </ul>
+ *
  * <p>Signed checkpoints of the tombstone ledger (contract stage 2) take sequences from the same
  * space as records; see {@link #publishCheckpoint(ErasureLedgerCapture)}.
  *
- * <p>Writes are serialised in this JVM; the frontier is read-modify-written, so one auth
- * instance may write a bucket at a time. Any store or verification failure throws
+ * <p>Writes are serialised in this JVM, and one auth instance may write a bucket at a time: the
+ * conditional writes keep a second writer from replacing evidence or the frontier on a stale
+ * read, but the reservation index assumes one writer. Any store or verification failure throws
  * {@link AuthErrorCode#DURABLE_RECORDING_UNAVAILABLE}, which leaves the request
  * {@code PENDING_DURABLE} for the retry worker.
  */
 public final class ObjectLockDurableErasureRecordStore
         implements DurableErasureRecordStore, DurableErasureCheckpointStore {
+
+    /** Conditional frontier writes before the store gives up on a frontier that keeps changing. */
+    static final int FRONTIER_WRITE_ATTEMPTS = 3;
 
     private static final Logger log = LoggerFactory.getLogger(ObjectLockDurableErasureRecordStore.class);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -84,6 +113,32 @@ public final class ObjectLockDurableErasureRecordStore
     private final Duration retention;
     private final Clock clock;
     private final AtomicInteger reportedIgnoredFrontierVersions = new AtomicInteger();
+    /** The highest boundary this process has read or written; frontier reads never go below it. */
+    private final AtomicReference<Boundary> highestSeen = new AtomicReference<>(Boundary.NONE);
+
+    /** A frontier's two boundaries, ordered as recovery orders versions: expectedThrough, then highestReserved. */
+    private record Boundary(long expectedThrough, long highestReserved) {
+
+        static final Boundary NONE = new Boundary(0, 0);
+
+        static Boundary max(Boundary a, Boundary b) {
+            boolean aBelow = a.expectedThrough < b.expectedThrough
+                    || (a.expectedThrough == b.expectedThrough && a.highestReserved < b.highestReserved);
+            return aBelow ? b : a;
+        }
+    }
+
+    /**
+     * A frontier read: the boundary to build on, the verified live version's boundary (null when no
+     * live version verifies) and the token a conditional replace of the live version must name
+     * (null when no version is live).
+     */
+    private record FrontierState(Boundary boundary, Boundary live, String matchToken) {
+    }
+
+    /** A reserved checkpoint sequence, and whether it was an abandoned reservation being filled. */
+    private record CheckpointReservation(long sequence, boolean abandoned) {
+    }
 
     /**
      * Signs with {@code signingKeyId} from {@code trust} and verifies what it reads with the whole
@@ -109,15 +164,16 @@ public final class ObjectLockDurableErasureRecordStore
         String key = DurableErasureEvidence.recordKey(record.erasureRequestId());
         Optional<StoredVersion> existing = bucket.oldest(key);
         if (existing.isPresent()) {
-            return settle(existing.get(), record, false);
+            return settle(existing.get(), record, false, readFrontier());
         }
-        long sequence = reserveSequence(record.erasureRequestId());
-        advanceFrontier(null, sequence);
-        String versionId = publish(key,
+        FrontierState frontier = startingFrontier();
+        long sequence = reserveSequence(record.erasureRequestId(), frontier);
+        Optional<Written> written = publishIfAbsent(key,
                 DurableErasureEvidence.pendingRecord(record, sequence, databaseIdentity, signingKey()));
         StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("record " + key + " is not readable after publication"));
-        return settle(canonical, record, canonical.versionId().equals(versionId));
+        boolean writtenNow = written.isPresent() && canonical.versionId().equals(written.get().versionId());
+        return settle(canonical, record, writtenNow, frontier);
     }
 
     @Override
@@ -128,7 +184,7 @@ public final class ObjectLockDurableErasureRecordStore
             return Optional.empty();
         }
         VerifiedPending pending = verify(stored.get());
-        long expectedThrough = frontier().map(VerifiedFrontier::expectedThrough).orElse(0L);
+        long expectedThrough = readFrontier().boundary().expectedThrough();
         // Not durable until the signed boundary covers it; the next put completes it.
         return pending.sequence() <= expectedThrough ? Optional.of(toRecord(pending, stored.get())) : Optional.empty();
     }
@@ -149,21 +205,27 @@ public final class ObjectLockDurableErasureRecordStore
         signingKey();
         CapturedErasureLedger ledger = Objects.requireNonNull(capture.capture(), "capture");
         requireNoTransaction();
-        OptionalLong abandoned = abandonedCheckpointReservation();
-        long sequence = abandoned.isPresent() ? abandoned.getAsLong() : reserveCheckpointSequence();
-        advanceFrontier(null, sequence);
+        FrontierState frontier = startingFrontier();
+        OptionalLong indexed = abandonedCheckpointReservation();
+        CheckpointReservation reservation = indexed.isPresent()
+                ? new CheckpointReservation(indexed.getAsLong(), true)
+                : reserveCheckpointSequence(frontier);
+        long sequence = reservation.sequence();
         String key = DurableErasureEvidence.checkpointKey(sequence);
-        String versionId = publish(key,
-                DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, signingKey()));
+        byte[] bytes = DurableErasureEvidence.checkpoint(sequence, ledger.entries(), databaseIdentity, signingKey());
+        Optional<Written> written = publishIfAbsent(key, bytes);
         StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("checkpoint " + key + " is not readable after publication"));
-        if (!canonical.versionId().equals(versionId)) {
+        // A resend after a lost response finds its own checkpoint in place: same bytes.
+        boolean ours = written.map(w -> canonical.versionId().equals(w.versionId()))
+                .orElseGet(() -> Arrays.equals(canonical.bytes(), bytes));
+        if (!ours) {
             throw unavailable("checkpoint " + key + " was published by another writer");
         }
         VerifiedCheckpoint verified = verifyCheckpoint(canonical);
-        advanceFrontier(sequence, sequence);
+        advanceFrontier(frontier, sequence, sequence);
         return new DurableErasureCheckpoint(sequence, ledger.entries().size(), verified.ledgerDigest(),
-                ledger.coveredThrough(), abandoned.isPresent());
+                ledger.coveredThrough(), reservation.abandoned());
     }
 
     /** Read access to the bucket's evidence, for recovery checks. */
@@ -172,14 +234,14 @@ public final class ObjectLockDurableErasureRecordStore
     }
 
     private DurableErasurePutResult settle(StoredVersion stored, DurableErasureRecord candidate,
-                                           boolean writtenNow) {
+                                           boolean writtenNow, FrontierState frontier) {
         VerifiedPending pending = verify(stored);
         DurableErasureRecord existing = toRecord(pending, stored);
         DurableErasureReceipt receipt = receipt(stored);
         if (!existing.bodyDigest().equals(candidate.bodyDigest())) {
             return DurableErasurePutResult.conflict(existing, receipt);
         }
-        advanceFrontier(pending.sequence(), pending.sequence());
+        advanceFrontier(frontier, pending.sequence(), pending.sequence());
         return writtenNow
                 ? DurableErasurePutResult.created(existing, receipt)
                 : DurableErasurePutResult.existing(existing, receipt);
@@ -201,82 +263,159 @@ public final class ObjectLockDurableErasureRecordStore
     }
 
     /**
-     * Python's SequenceAllocator: reuse this request's reservation, else take the next free
-     * sequence. Like the model it reads every marker, which is fine at erasure volumes.
+     * Python's SequenceAllocator: this request's reservation, else the next free sequence above
+     * the frontier's {@code highestReserved}. The frontier is raised only after the record is
+     * published, so an unpublished marker of this request is either still above the frontier,
+     * where this walk meets it again, or was passed by a later writer, which indexed it.
      */
-    private long reserveSequence(UUID erasureRequestId) {
-        String requestId = erasureRequestId.toString();
-        long highest = 0;
-        for (String key : bucket.keys("sequences/")) {
-            long sequence = sequenceOf(key);
-            highest = Math.max(highest, sequence);
-            if (requestId.equals(markerRequestId(bucket.oldest(key).orElseThrow()))) {
-                return sequence;
-            }
+    private long reserveSequence(UUID erasureRequestId, FrontierState frontier) {
+        OptionalLong reserved = indexedReservation(erasureRequestId);
+        if (reserved.isPresent()) {
+            return reserved.getAsLong();
         }
-        for (long next = highest + 1; ; next++) {
-            String key = DurableErasureEvidence.sequenceKey(next);
-            if (bucket.oldest(key).isPresent()) {
-                continue;
-            }
-            publish(key, DurableErasureEvidence.sequenceMarker(next, erasureRequestId));
-            // Another writer may have reserved it first: the first version wins.
-            if (requestId.equals(markerRequestId(bucket.oldest(key).orElseThrow()))) {
+        for (long next = frontier.boundary().highestReserved() + 1; ; next++) {
+            UUID owner = claimMarker(next, erasureRequestId).owner();
+            if (owner.equals(erasureRequestId)) {
                 return next;
             }
+            indexForItsOwner(next, owner);
         }
     }
 
-    /** The lowest sequence a checkpoint reserved without publishing its checkpoint, if any. */
+    /**
+     * The next free sequence above the frontier's {@code highestReserved}, reserved with a
+     * checkpoint marker. A checkpoint marker found on the way without its checkpoint is an
+     * abandoned checkpoint reservation that no writer has passed yet; it is filled.
+     */
+    private CheckpointReservation reserveCheckpointSequence(FrontierState frontier) {
+        UUID checkpoint = DurableErasureEvidence.CHECKPOINT_RESERVATION;
+        for (long next = frontier.boundary().highestReserved() + 1; ; next++) {
+            Claim claim = claimMarker(next, checkpoint);
+            if (claim.owner().equals(checkpoint)
+                    && (claim.created() || bucket.oldest(DurableErasureEvidence.checkpointKey(next)).isEmpty())) {
+                return new CheckpointReservation(next, !claim.created());
+            }
+            indexForItsOwner(next, claim.owner());
+        }
+    }
+
+    /** A marker's canonical owner, and whether this call created that canonical version. */
+    private record Claim(UUID owner, boolean created) {
+    }
+
+    /**
+     * Creates the marker of {@code sequence} for {@code owner} unless one exists. The first
+     * version stays canonical, so the owner is read back.
+     */
+    private Claim claimMarker(long sequence, UUID owner) {
+        String key = DurableErasureEvidence.sequenceKey(sequence);
+        Optional<Written> written = publishIfAbsent(key, DurableErasureEvidence.sequenceMarker(sequence, owner));
+        StoredVersion canonical = bucket.oldest(key)
+                .orElseThrow(() -> unavailable("marker " + key + " is not readable after its reservation"));
+        return new Claim(markerOwner(canonical),
+                written.isPresent() && canonical.versionId().equals(written.get().versionId()));
+    }
+
+    /**
+     * A marker above the frontier that is not ours belongs to a reservation whose writer stopped
+     * before publishing. This walk is about to raise the frontier past it, after which no walk
+     * meets it again, so it is indexed for its owner: its request (or the next checkpoint) finds
+     * it there and fills the gap.
+     */
+    private void indexForItsOwner(long sequence, UUID owner) {
+        if (owner.equals(DurableErasureEvidence.CHECKPOINT_RESERVATION)) {
+            publishIfAbsent(DurableErasureEvidence.checkpointReservationKey(sequence),
+                    DurableErasureEvidence.checkpointReservation(sequence));
+        } else {
+            publishIfAbsent(DurableErasureEvidence.reservationKey(owner),
+                    DurableErasureEvidence.sequenceReservation(sequence, owner));
+        }
+    }
+
+    /** The sequence this request's index entry names, after checking that its marker names the request. */
+    private OptionalLong indexedReservation(UUID erasureRequestId) {
+        String key = DurableErasureEvidence.reservationKey(erasureRequestId);
+        Optional<StoredVersion> entry = bucket.oldest(key);
+        if (entry.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        long sequence = indexedSequence(entry.get());
+        StoredVersion marker = bucket.oldest(DurableErasureEvidence.sequenceKey(sequence))
+                .orElseThrow(() -> unavailable("index entry " + key + " names a sequence without a marker"));
+        if (!erasureRequestId.equals(markerOwner(marker))) {
+            throw unavailable("index entry " + key + " names another request's marker");
+        }
+        return OptionalLong.of(sequence);
+    }
+
+    /**
+     * The lowest sequence reserved for a checkpoint that has no checkpoint, if any. It lists the
+     * checkpoint index and the checkpoints, which grow with checkpoints, not with records.
+     */
     private OptionalLong abandonedCheckpointReservation() {
-        for (String key : bucket.keys("sequences/")) {
-            long sequence = sequenceOf(key);
-            if (isCheckpointReservation(bucket.oldest(key).orElseThrow())
-                    && bucket.oldest(DurableErasureEvidence.checkpointKey(sequence)).isEmpty()) {
-                return OptionalLong.of(sequence);
-            }
+        TreeSet<Long> reserved = new TreeSet<>();
+        for (String key : bucket.keys(DurableErasureEvidence.CHECKPOINT_RESERVATIONS_PREFIX)) {
+            reserved.add(sequenceOf(key));
         }
-        return OptionalLong.empty();
+        if (reserved.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        for (String key : bucket.keys("checkpoints/")) {
+            reserved.remove(sequenceOf(key));
+        }
+        if (reserved.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        long sequence = reserved.first();
+        StoredVersion marker = bucket.oldest(DurableErasureEvidence.sequenceKey(sequence))
+                .orElseThrow(() -> unavailable("checkpoint reservation " + sequence + " has no marker"));
+        if (!DurableErasureEvidence.CHECKPOINT_RESERVATION.equals(markerOwner(marker))) {
+            throw unavailable("checkpoint reservation " + sequence + " names a request's marker");
+        }
+        return OptionalLong.of(sequence);
     }
 
-    /** The next free sequence, reserved with a checkpoint marker; the first marker version wins. */
-    private long reserveCheckpointSequence() {
-        long highest = 0;
-        for (String key : bucket.keys("sequences/")) {
-            highest = Math.max(highest, sequenceOf(key));
+    /**
+     * The frontier to build on. Normally one read of the live version. If that version does not
+     * verify, or no version is live although versions exist, it is the highest verified of all
+     * versions, as recovery reads it. Never below a boundary this process has read or written.
+     */
+    private FrontierState readFrontier() {
+        Optional<Current> live = bucket.current(DurableErasureEvidence.FRONTIER_KEY);
+        Optional<VerifiedFrontier> liveVerified = live.flatMap(this::verifiedLiveFrontier);
+        Optional<VerifiedFrontier> verified = liveVerified;
+        if (verified.isEmpty() && (live.isPresent() || bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY) > 0)) {
+            verified = highestVerifiedFrontier();
         }
-        for (long next = highest + 1; ; next++) {
-            String key = DurableErasureEvidence.sequenceKey(next);
-            if (bucket.oldest(key).isPresent()) {
-                continue;
-            }
-            String versionId = publish(key,
-                    DurableErasureEvidence.sequenceMarker(next, DurableErasureEvidence.CHECKPOINT_RESERVATION));
-            if (bucket.oldest(key).orElseThrow().versionId().equals(versionId)) {
-                return next;
-            }
+        Boundary read = verified.map(ObjectLockDurableErasureRecordStore::boundary).orElse(Boundary.NONE);
+        return new FrontierState(highestSeen.accumulateAndGet(read, Boundary::max),
+                liveVerified.map(ObjectLockDurableErasureRecordStore::boundary).orElse(null),
+                live.map(Current::matchToken).orElse(null));
+    }
+
+    /**
+     * The frontier a reservation starts from. Without a live version it writes one first: the
+     * boundary {@code (0, 0)} in a new bucket, so that a reservation lost before its object
+     * leaves a present but incomplete boundary (BLOCKED) instead of none (UNKNOWN), as the Python
+     * model does; else the highest verified version again, if the live one was deleted.
+     */
+    private FrontierState startingFrontier() {
+        FrontierState frontier = readFrontier();
+        return frontier.matchToken() == null ? advanceFrontier(frontier, null, 0) : frontier;
+    }
+
+    private Optional<VerifiedFrontier> verifiedLiveFrontier(Current live) {
+        try {
+            return verifier().verifyFrontier(Optional.of(live.version().bytes()));
+        } catch (DurableEvidenceException ex) {
+            log.warn("durable store live frontier version {} failed verification ({}); reading every version",
+                    live.version().versionId(), ex.getMessage());
+            return Optional.empty();
         }
     }
 
-    private static boolean isCheckpointReservation(StoredVersion marker) {
-        return DurableErasureEvidence.CHECKPOINT_RESERVATION.toString().equals(markerRequestId(marker));
-    }
-
-    /** Raises the signed boundary; it never decreases and highestReserved never trails it. */
-    private void advanceFrontier(Long expectedThrough, long highestReserved) {
-        Optional<VerifiedFrontier> current = frontier();
-        long oldExpected = current.map(VerifiedFrontier::expectedThrough).orElse(0L);
-        long oldReserved = current.map(VerifiedFrontier::highestReserved).orElse(0L);
-        long newExpected = expectedThrough == null ? oldExpected : Math.max(oldExpected, expectedThrough);
-        long newReserved = Math.max(Math.max(oldReserved, highestReserved), newExpected);
-        if (current.isPresent() && newExpected == oldExpected && newReserved == oldReserved) {
-            return;
-        }
-        publish(DurableErasureEvidence.FRONTIER_KEY,
-                DurableErasureEvidence.frontier(newExpected, newReserved, databaseIdentity, signingKey()));
-    }
-
-    private Optional<VerifiedFrontier> frontier() {
+    /** The highest verified frontier version, as recovery reads it; ignored versions are logged. */
+    private Optional<VerifiedFrontier> highestVerifiedFrontier() {
         FrontierVersions versions;
         try {
             versions = verifier().verifyFrontierVersions(objects.findAll(DurableErasureEvidence.FRONTIER_KEY));
@@ -289,6 +428,44 @@ public final class ObjectLockDurableErasureRecordStore
             log.warn("durable store ignores {} frontier version(s) that failed verification", ignored);
         }
         return versions.highest();
+    }
+
+    private static Boundary boundary(VerifiedFrontier frontier) {
+        return new Boundary(frontier.expectedThrough(), frontier.highestReserved());
+    }
+
+    /**
+     * Raises the signed boundary; it never decreases and highestReserved never trails it. The
+     * write names the live version it builds on; if that version is no longer live, the frontier
+     * is read again and the write repeated, at most {@link #FRONTIER_WRITE_ATTEMPTS} times. A
+     * resend after a lost response finds its own write live and stops there.
+     */
+    private FrontierState advanceFrontier(FrontierState frontier, Long expectedThrough, long highestReserved) {
+        FrontierState current = frontier;
+        for (int attempt = 1; ; attempt++) {
+            Boundary base = current.boundary();
+            long newExpected = expectedThrough == null
+                    ? base.expectedThrough()
+                    : Math.max(base.expectedThrough(), expectedThrough);
+            long newReserved = Math.max(Math.max(base.highestReserved(), highestReserved), newExpected);
+            Boundary next = new Boundary(newExpected, newReserved);
+            if (current.matchToken() != null && next.equals(current.live())) {
+                return current;
+            }
+            byte[] bytes = DurableErasureEvidence.frontier(newExpected, newReserved, databaseIdentity, signingKey());
+            Optional<Written> written = current.matchToken() == null
+                    ? publishIfAbsent(DurableErasureEvidence.FRONTIER_KEY, bytes)
+                    : bucket.putIfCurrent(DurableErasureEvidence.FRONTIER_KEY, bytes, current.matchToken(),
+                            retentionMode, retainUntil());
+            if (written.isPresent()) {
+                return new FrontierState(highestSeen.accumulateAndGet(next, Boundary::max), next,
+                        written.get().matchToken());
+            }
+            if (attempt == FRONTIER_WRITE_ATTEMPTS) {
+                throw unavailable("frontier kept changing while it was written");
+            }
+            current = readFrontier();
+        }
     }
 
     private VerifiedCheckpoint verifyCheckpoint(StoredVersion stored) {
@@ -322,11 +499,27 @@ public final class ObjectLockDurableErasureRecordStore
         }
     }
 
-    private static String markerRequestId(StoredVersion marker) {
+    private static UUID markerOwner(StoredVersion marker) {
         try {
-            return JSON.readTree(marker.bytes()).path("erasureRequestId").asText();
-        } catch (IOException ex) {
+            JsonNode body = JSON.readTree(marker.bytes());
+            if (!DurableErasureEvidence.KIND_SEQUENCE_ALLOCATION.equals(body.path("kind").asText())) {
+                throw unavailable("marker " + marker.key() + " is not a sequence marker");
+            }
+            return UUID.fromString(body.path("erasureRequestId").asText());
+        } catch (IOException | IllegalArgumentException ex) {
             throw unavailable("marker " + marker.key() + " is unreadable");
+        }
+    }
+
+    private static long indexedSequence(StoredVersion entry) {
+        try {
+            JsonNode sequence = JSON.readTree(entry.bytes()).path("sequence");
+            if (!sequence.canConvertToLong() || sequence.asLong() < 1) {
+                throw unavailable("index entry " + entry.key() + " has no sequence");
+            }
+            return sequence.asLong();
+        } catch (IOException ex) {
+            throw unavailable("index entry " + entry.key() + " is unreadable");
         }
     }
 
@@ -335,7 +528,7 @@ public final class ObjectLockDurableErasureRecordStore
         try {
             return Long.parseLong(name);
         } catch (NumberFormatException ex) {
-            throw unavailable("unexpected sequence marker " + key);
+            throw unavailable("unexpected sequence key " + key);
         }
     }
 
@@ -356,10 +549,13 @@ public final class ObjectLockDurableErasureRecordStore
         return new DurableErasureEvidenceVerifier(trust, clock.instant());
     }
 
-    /** Every version is written under the configured retention lock. */
-    private String publish(String key, byte[] bytes) {
-        return bucket.put(key, bytes, retentionMode,
-                ZonedDateTime.ofInstant(clock.instant().plus(retention), ZoneOffset.UTC));
+    /** Every version is written under the configured retention lock, and only if the key has none. */
+    private Optional<Written> publishIfAbsent(String key, byte[] bytes) {
+        return bucket.putIfAbsent(key, bytes, retentionMode, retainUntil());
+    }
+
+    private ZonedDateTime retainUntil() {
+        return ZonedDateTime.ofInstant(clock.instant().plus(retention), ZoneOffset.UTC);
     }
 
     private static void requireNoTransaction() {
