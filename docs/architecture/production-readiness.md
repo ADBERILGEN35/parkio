@@ -284,8 +284,9 @@ endpoint/public-endpoint for SigV4-signed GET URLs.
 - **Image normalization before storage (implemented).** After a clean malware scan, uploads are decoded,
   checked against configured width/height/pixel limits, and re-encoded to server-generated JPEG bytes.
   The stored checksum, content type, object extension, and signed URL metadata all describe the
-  normalized bytes; original upload bytes and EXIF/GPS/device metadata are not stored. WebP input
-  requires a runtime ImageIO WebP reader and otherwise fails closed.
+  normalized bytes; original upload bytes and EXIF/GPS/device metadata are not stored. Only JPEG and
+  PNG are accepted: the runtime has no ImageIO WebP reader, so WebP is refused up front
+  (`415 UNSUPPORTED_MEDIA_TYPE`, before the scan) and the clients do not offer it.
   **Known limitation:** this is malware scanning, **not** illegal/abusive-content (CSAM) detection —
   for public production add a **managed AV / content-safety provider** and/or human moderation.
 - **AI validation findings.** Treat advisory validation output as moderation data:

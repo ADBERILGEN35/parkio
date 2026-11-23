@@ -216,7 +216,8 @@ public class AuthController {
                                                HttpServletResponse httpResponse) {
         validateOriginIfPresent(httpRequest);
         authService.changePassword(new ChangePasswordCommand(
-                principal.userId(), request.currentPassword(), request.newPassword()));
+                principal.userId(), request.currentPassword(), request.newPassword(),
+                clientIdentity.clientKey(httpRequest)));
         clearRefreshCookies(httpResponse);
         return ResponseEntity.noContent().build();
     }

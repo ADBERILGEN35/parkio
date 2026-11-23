@@ -69,10 +69,11 @@ inside one /64 is one client), an IPv4-mapped IPv6 address as the IPv4 client, a
 |---|---|---|
 | (account, client) failures | 24 h after the last failure | the pair waits 30 s from the 5th failure, 5 min from the 10th, 1 h from the 20th |
 | account failures (all clients) | 1 h after the last failure | from the 50th failure each further failure makes the account's **unknown** clients wait 10 s; from the 100th, 60 s; from the 200th, 5 min |
-| known client of the account (one marker per client) | 14 days after that client's last login, completed reset or successful refresh-token rotation | exempt from the account wait (its own pair tiers still apply) |
+| known client of the account (one marker per client) | 14 days after that client's last login, password change, completed reset or successful refresh-token rotation | exempt from the account wait (its own pair tiers still apply) |
 
-A client becomes **known** for an account when it logs in successfully or completes the account's
-password reset, and stays known while it rotates the account's refresh tokens (an active session keeps
+A client becomes **known** for an account when it logs in successfully (or changes the password with the
+right current password) or completes the account's password reset, and stays known while it rotates the
+account's refresh tokens (an active session keeps
 its exemption without a password login); the shared `unknown` client never does. Only a successful
 authentication writes or refreshes the marker: admission, failures and a rejected refresh never do
 (`ThrottledLoginFailureTrackerTest`, `AuthApplicationServiceTest`, `LoginThrottleClientKeyHttpTest`).
@@ -95,11 +96,28 @@ wait does not escalate the tier. A throttled attempt is answered exactly like a 
 (`INVALID_CREDENTIALS`), also when the password was right; logs and the `login_lockouts` counter
 ("attempts refused by the throttle") see the difference.
 
+**Change-password (H-06).** `POST /api/v1/auth/change-password` checks the current password through the
+same throttle: the same (account, client) pair and account counter (the client is the gateway-resolved
+`X-Parkio-Client-Ip`, as on login), admission before the comparison, and a wrong current password counted
+as a failure. Login and change-password therefore share one budget: alternating them gives no extra
+guesses, and a wait started on either holds both. A refused or throttled attempt is answered exactly like a
+wrong current password (`INVALID_CREDENTIALS`, no `Retry-After`); the warning log shows the difference, the
+`login_lockouts` counter stays login-only.
+
+**Account deletion (#563).** `DELETE /api/v1/account` checks the account's password the same way when
+account erasure is enabled: admission before the comparison, a wrong password counted on the same pair and
+account counter, and a refused or throttled attempt answered exactly like a wrong password. Login,
+change-password and deletion share one budget. Even with the right password the check clears nothing and marks
+no client known: a new erasure request removes the account's whole throttle state once it commits (below), and
+on a repeated request while the erasure is pending the counters and waits expire on their own.
+
 Clearing:
 
 - a successful login clears that client's pair and marks it known; the account counter and other
   clients' pairs stay (one successful login does not end an attack, and gives the attacker no fresh
   budget);
+- a change-password with the right current password does the same, once the change has committed (best
+  effort, like the reset below);
 - a completed password reset clears every client's pair for the account (the tracker keeps the set of
   client digests that failed) and marks the resetting client known, once the reset has committed; the
   account counter stays. Best effort: if the throttle store is unavailable the reset still succeeds and
@@ -196,7 +214,8 @@ Reading the table:
   normal internet source.
 - **Redis loss** empties every known-client allowlist; owners are unknown clients until their next login
   or reset. Redis down means login fails closed (500), as in v1 (the SEC-002 audit entries cite the
-  replaced `RedisLoginFailureTracker`; the posture is unchanged).
+  replaced `RedisLoginFailureTracker`; the posture is unchanged). Change-password (H-06) and account
+  deletion (#563) check the password on the same store, so they fail closed (500) too.
 - **Spraying across accounts** (a few guesses against many accounts) is outside per-account throttling;
   the gateway's per-IP limit (auth routes: 5 requests/s, burst 10) is the control, and it still keys
   IPv6 clients by /128. Keying the gateway's anonymous limits by IPv6 /64 is a separate decision (it
@@ -230,8 +249,9 @@ Reading the table:
   an attack lets the owner in at once; reset clearing only at commit and best effort; a valid refresh
   makes the client known while a reused token, an unknown token and a wrong password never do.
 - `AccountErasureApplicationServiceTest`, `AccountErasureHttpIntegrationTest`: the erasure request removes
-  the account's throttle state (also through the Spring-wired hook over HTTP); an unavailable store does
-  not fail it.
+  the account's throttle state (also through the Spring-wired hook over HTTP); a store that fails after the
+  password check does not fail it. Its password check runs on the throttle of the gateway-resolved client, on
+  login's budget, and is answered like a wrong password when refused (#563).
 - `AuthApplicationServiceTest` also sends sixteen concurrent wrong-password logins from different
   addresses when the account wait opens: exactly one reaches the password check.
 - `ThrottledLoginFailureTrackerRedisIT` (Testcontainers `redis:7-alpine`, `integrationTest`): the same

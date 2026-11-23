@@ -10,9 +10,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.parkio.auth.application.LoginFailureTracker;
 import com.parkio.auth.application.PasswordResetLimiter;
+import com.parkio.auth.application.port.AuthUserRepository;
 import com.parkio.auth.application.port.EmailVerificationSender;
 import com.parkio.auth.application.port.PasswordResetEmailSender;
 import com.parkio.auth.domain.EmailLocale;
@@ -20,6 +23,8 @@ import com.parkio.auth.domain.RoleName;
 import com.parkio.auth.infrastructure.config.AuthRecoveryDispatchConfig;
 import com.parkio.auth.infrastructure.persistence.entity.RoleEntity;
 import com.parkio.auth.infrastructure.persistence.jpa.RoleJpaRepository;
+import com.parkio.auth.infrastructure.security.JwtService;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -38,8 +43,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * CL-F15 v2 wiring over HTTP: the gateway-resolved client reaches login admission and the password reset
- * (where it becomes a known client), keyed by IPv6 /64; without the header the shared unknown client is used.
+ * CL-F15 v2 wiring over HTTP: the gateway-resolved client reaches login admission, the current-password check of
+ * change-password (H-06) and the password reset (where it becomes a known client), keyed by IPv6 /64; without the
+ * header the shared unknown client is used.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +53,7 @@ class LoginThrottleClientKeyHttpTest {
 
     private static final String GATEWAY_SECRET = "test-only-parkio-gateway-internal-secret-0123456789";
     private static final String PASSWORD = "Testtest-testtest-1A";  // policy-valid, low-entropy test value
+    private static final String NEW_PASSWORD = "Testtest-testtest-2B";  // policy-valid, low-entropy test value
 
     @Autowired
     private MockMvc mockMvc;
@@ -56,6 +63,12 @@ class LoginThrottleClientKeyHttpTest {
 
     @Autowired
     private RoleJpaRepository roles;
+
+    @Autowired
+    private AuthUserRepository authUsers;
+
+    @Autowired
+    private JwtService jwtService;
 
     @Autowired
     @Qualifier(AuthRecoveryDispatchConfig.EXECUTOR)
@@ -156,6 +169,72 @@ class LoginThrottleClientKeyHttpTest {
         assertThat(garbage.getStatus()).isEqualTo(401);
         verify(loginFailureTracker, never()).refreshKnownClient(eq(email), eq("2001:db8:7:8:0:0:0:0/64"));
         verify(loginFailureTracker, times(1)).refreshKnownClient(anyString(), anyString());
+    }
+
+    /** H-06 (#547): change-password checks the current password on the throttle of the gateway-resolved client. */
+    @Test
+    void changePasswordAdmissionAndSuccessUseTheGatewayResolvedClient() throws Exception {
+        String email = verifiedUser();
+
+        MockHttpServletResponse response = postAuthorized("/api/v1/auth/change-password", accessToken(email),
+                "2001:DB8:5:6::7", Map.of("currentPassword", PASSWORD, "newPassword", NEW_PASSWORD));
+
+        assertThat(response.getStatus()).isEqualTo(204);
+        verify(loginFailureTracker).admit(eq(email), eq("2001:db8:5:6:0:0:0:0/64"), any(Instant.class));
+        verify(loginFailureTracker).clearAfterSuccess(email, "2001:db8:5:6:0:0:0:0/64");
+    }
+
+    /**
+     * H-06 (#547): a change-password that the throttle refuses is answered exactly like a wrong current password,
+     * as on login: same status and body, no Retry-After, and the refused attempt is not counted as a failure.
+     */
+    @Test
+    void aThrottledChangePasswordIsAnsweredLikeAWrongCurrentPassword() throws Exception {
+        String email = verifiedUser();
+        String accessToken = accessToken(email);
+        when(loginFailureTracker.recordFailure(eq(email), eq("198.51.100.23"), any(Instant.class)))
+                .thenReturn(new LoginFailureTracker.LoginFailureOutcome(1, 1, Duration.ZERO, null));
+        when(loginFailureTracker.admit(eq(email), eq("198.51.100.24"), any(Instant.class)))
+                .thenReturn(Duration.ofSeconds(30));
+
+        MockHttpServletResponse wrong = postAuthorized("/api/v1/auth/change-password", accessToken, "198.51.100.23",
+                Map.of("currentPassword", "wrong-password", "newPassword", NEW_PASSWORD));
+        MockHttpServletResponse throttled = postAuthorized("/api/v1/auth/change-password", accessToken,
+                "198.51.100.24", Map.of("currentPassword", PASSWORD, "newPassword", NEW_PASSWORD));
+
+        assertThat(wrong.getStatus()).isEqualTo(401);
+        assertThat(throttled.getStatus()).isEqualTo(401);
+        assertThat(wrong.getHeader("Retry-After")).isNull();
+        assertThat(throttled.getHeader("Retry-After")).isNull();
+        JsonNode wrongBody = errorWithoutRequestFields(wrong);
+        assertThat(wrongBody.path("code").asText()).isEqualTo("INVALID_CREDENTIALS");
+        assertThat(errorWithoutRequestFields(throttled)).isEqualTo(wrongBody);
+        verify(loginFailureTracker).recordFailure(eq(email), eq("198.51.100.23"), any(Instant.class));
+        verify(loginFailureTracker, never()).recordFailure(eq(email), eq("198.51.100.24"), any(Instant.class));
+        verify(loginFailureTracker, never()).clearAfterSuccess(anyString(), anyString());
+    }
+
+    private String accessToken(String email) {
+        return jwtService.issue(authUsers.findByEmail(email).orElseThrow()).token();
+    }
+
+    /** The error body without its per-request fields (trace id, timestamp). */
+    private JsonNode errorWithoutRequestFields(MockHttpServletResponse response) throws Exception {
+        ObjectNode body = (ObjectNode) objectMapper.readTree(response.getContentAsString());
+        body.remove("traceId");
+        body.remove("timestamp");
+        return body;
+    }
+
+    private MockHttpServletResponse postAuthorized(String path, String accessToken, String clientIp,
+                                                   Map<String, String> body) throws Exception {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                .header("X-Gateway-Auth", GATEWAY_SECRET)
+                .header("Authorization", "Bearer " + accessToken)
+                .header("X-Parkio-Client-Ip", clientIp)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body));
+        return mockMvc.perform(request).andReturn().getResponse();
     }
 
     /** Native-client transport: the refresh token travels in the body, no cookie and no Origin. */

@@ -12,7 +12,6 @@ public enum MediaErrorCode {
     /** Claimed parking region coordinates are missing, incomplete, or out of bounds. */
     INVALID_CLAIMED_REGION,
     MISSING_USER_ID,
-    NOT_MEDIA_OWNER,
     /** The uploaded bytes failed the malware scan (mapped to 422). */
     MEDIA_INFECTED,
     /** The malware scan could not be completed; upload fails closed (mapped to 503). */

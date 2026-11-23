@@ -155,7 +155,6 @@ const consumedResponses: Array<{ name: string; schema: ZodTypeAny; payload: unkn
       city: 'Istanbul',
       trustBand: 'HIGH_TRUST',
       currentLevel: 2,
-      status: 'ACTIVE',
       memberSince: instant,
     },
   },
