@@ -181,7 +181,10 @@ parkio:
       base-url: https://openapi.izmir.bel.tr
       path: /api/ibb/izum/otoparklar
       connect-timeout: 2s
-      read-timeout: 5s
+      # #523: on 2026-11-23 the feed sent its first byte 11.6-24.9 s after the request. Connect plus
+      # read timeout (29 s) still ends inside max-response-time. The production Compose overlay
+      # passes the same default.
+      read-timeout: ${PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT:27s}
       max-retries: 2
       # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
       max-response-size: 16MB
