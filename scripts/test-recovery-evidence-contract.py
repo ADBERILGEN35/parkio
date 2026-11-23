@@ -376,7 +376,8 @@ class PersistBeforeAckScanTest(unittest.TestCase):
         working = DELEGATING.replace(
             "        return requestDeletion", "        audit(principalUserId);\n        return requestDeletion")
         computed = DELEGATING.replace("password, null)", "password, resolveClient())")
-        for delegating in (working, computed):
+        trailing = DELEGATING.replace("password, null);", "password, null); audit(principalUserId);")
+        for delegating in (working, computed, trailing):
             self.assert_both_orders_raise("does work instead of delegating", delegating, IMPLEMENTING)
 
     def test_second_implementation_fails(self):
@@ -388,9 +389,10 @@ class PersistBeforeAckScanTest(unittest.TestCase):
             noted_delegation = DELEGATING.replace("        return", f"        // {needle}\n        return")
             noted_implementation = IMPLEMENTING.replace(
                 "        UUID requestId", f"        // {needle}\n        UUID requestId")
+            expected = f"requestDeletion unexpectedly mentions {needle.lower()}"
             with self.subTest(needle=needle):
-                self.assert_both_orders_raise(f"mentions {needle.lower()}", noted_delegation, IMPLEMENTING)
-                self.assert_both_orders_raise(f"mentions {needle.lower()}", DELEGATING, noted_implementation)
+                self.assert_both_orders_raise(expected, noted_delegation, IMPLEMENTING)
+                self.assert_both_orders_raise(expected, DELEGATING, noted_implementation)
 
     def test_missing_method_fails(self):
         renamed = IMPLEMENTING.replace("requestDeletion(UUID principalUserId, String password, String",

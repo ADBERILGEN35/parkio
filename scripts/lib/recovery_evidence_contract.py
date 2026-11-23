@@ -459,8 +459,11 @@ def _java_char_kinds(text):
             end, kind = text.find("*/", index + 2), _COMMENT
             end = length if end < 0 else end + 2
         elif text.startswith('"""', index):
-            end, kind = text.find('"""', index + 3), _LITERAL
-            end = length if end < 0 else end + 3
+            # A text block ends at the first unescaped """; \""" inside it is an escaped quote.
+            end, kind = index + 3, _LITERAL
+            while end < length and not text.startswith('"""', end):
+                end += 2 if text[end] == "\\" else 1
+            end = min(end + 3, length)
         elif text[index] in "\"'":
             end, kind = index + 1, _LITERAL
             while end < length and text[end] not in (text[index], "\n"):
@@ -486,7 +489,18 @@ def _request_deletion_overloads(text):
         start = match.start()
         if start < after or kinds[start] != _CODE:
             continue
-        opening = next((i for i in range(match.end(), len(text))
+        # The body starts after the parameter list, whose annotations may hold braces too.
+        depth, parameters_end = 1, None
+        for i in range(match.end(), len(text)):
+            if kinds[i] != _CODE or text[i] not in "()":
+                continue
+            depth += 1 if text[i] == "(" else -1
+            if depth == 0:
+                parameters_end = i
+                break
+        if parameters_end is None:
+            raise ContractError("a requestDeletion overload has an unclosed parameter list")
+        opening = next((i for i in range(parameters_end + 1, len(text))
                         if kinds[i] == _CODE and text[i] in "{;"), None)
         if opening is None or text[opening] != "{":
             raise ContractError("a requestDeletion overload has no body")
@@ -512,7 +526,8 @@ def persist_before_ack_is_not_implemented(root=None):
 
     Every public requestDeletion overload is read by its own body. Exactly one of them returns
     IN_PROGRESS after the auth TX commit; every other overload is a pure delegation (a single
-    return requestDeletion(...) with plain arguments). No overload mentions persist-before-ACK.
+    return requestDeletion(...) with plain arguments). Neither an overload nor any other part
+    of the file mentions persist-before-ACK.
     """
     root = Path(root or Path(__file__).resolve().parents[2])
     text = (root / AUTH_ERASURE_SERVICE).read_text(encoding="utf-8")
@@ -532,4 +547,9 @@ def persist_before_ack_is_not_implemented(root=None):
         for needle in PERSIST_ACK_NEEDLES:
             if needle in lowered:
                 raise ContractError(f"requestDeletion unexpectedly mentions {needle}")
+    # Helpers after requestDeletion and non-public or differently typed overloads count too.
+    lowered = text.lower()
+    for needle in PERSIST_ACK_NEEDLES:
+        if needle in lowered:
+            raise ContractError(f"{Path(AUTH_ERASURE_SERVICE).name} unexpectedly mentions {needle}")
     return True
