@@ -1,4 +1,4 @@
-import { MAX_IMAGE_PIXELS } from '../../constants';
+import { ALLOWED_CONTENT_TYPES, MAX_IMAGE_PIXELS, PREPARED_CONTENT_TYPE } from '../../constants';
 import { validateLocalAsset } from '../validation';
 
 describe('validateLocalAsset', () => {
@@ -12,6 +12,14 @@ describe('validateLocalAsset', () => {
     ).toEqual({ ok: true });
     expect(
       validateLocalAsset({ uri: 'file:///photo.heif', width: 4032, height: 3024, mimeType: 'image/HEIF' }),
+    ).toEqual({ ok: true });
+  });
+
+  it('accepts WebP sources, which the backend refuses, because preparation re-encodes them to JPEG', () => {
+    expect(ALLOWED_CONTENT_TYPES).toEqual(['image/jpeg', 'image/png']);
+    expect(PREPARED_CONTENT_TYPE).toBe('image/jpeg');
+    expect(
+      validateLocalAsset({ uri: 'file:///photo.webp', width: 1080, height: 1920, mimeType: 'image/webp' }),
     ).toEqual({ ok: true });
   });
 

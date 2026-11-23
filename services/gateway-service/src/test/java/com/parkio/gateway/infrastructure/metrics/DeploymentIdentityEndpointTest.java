@@ -3,6 +3,7 @@ package com.parkio.gateway.infrastructure.metrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -20,6 +21,7 @@ import java.time.Duration;
  * {@code management.info.env.enabled=true} Spring Boot silently omits {@code info.*}
  * properties, which would leave dark smoke unable to verify identity.
  */
+@AutoConfigureWebTestClient
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {

@@ -66,7 +66,7 @@ class MediaServiceClientTest {
     }
 
     private MediaServiceClient client() {
-        return new MediaServiceClient(RestClient.builder(),
+        return new MediaServiceClient(Jackson2RestClientBuilder.builder(),
                 "http://localhost:" + server.getAddress().getPort(),
                 SECRET, Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
@@ -132,7 +132,7 @@ class MediaServiceClientTest {
     void unreachableMediaServiceMapsToMediaAccessUnavailable() {
         int port = server.getAddress().getPort();
         server.stop(0);
-        MediaServiceClient client = new MediaServiceClient(RestClient.builder(),
+        MediaServiceClient client = new MediaServiceClient(Jackson2RestClientBuilder.builder(),
                 "http://localhost:" + port, SECRET, Duration.ofMillis(250), Duration.ofMillis(250));
 
         assertThatThrownBy(() -> client.requestAccessUrl(UUID.randomUUID(), UUID.randomUUID()))

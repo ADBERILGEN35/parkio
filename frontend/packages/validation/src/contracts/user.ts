@@ -131,7 +131,6 @@ export const publicProfileResponseSchema = z
     city: z.string().nullable(),
     trustBand: trustBandSchema,
     currentLevel: integerSchema,
-    status: userStatusSchema,
     memberSince: instantSchema,
   })
   .strip() satisfies z.ZodType<PublicProfile>;

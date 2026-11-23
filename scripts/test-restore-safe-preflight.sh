@@ -6,9 +6,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-chmod +x "${ROOT}/scripts/restore-hosted-beta.sh" \
-  "${ROOT}/scripts/restore-database.sh" \
-  "${ROOT}/scripts/lib/restore-safe-preflight.sh"
 pass=0
 fail=0
 ok() { echo "PASS $1"; pass=$((pass + 1)); }

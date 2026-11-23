@@ -175,7 +175,6 @@ async function installLocaleMockApi(page: Page) {
         city: 'Izmir',
         trustBand: 'TRUSTED',
         currentLevel: 1,
-        status: 'ACTIVE',
         memberSince: '2026-01-01T00:00:00Z',
       });
     }

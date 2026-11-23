@@ -158,11 +158,13 @@ describe('MunicipalFacilityDetailScreen', () => {
     expect(queryByText('Unknown')).toBeNull();
   });
 
-  it('renders stale İZUM without numeric occupancy as current', () => {
+  it.each(['izmir-izum-otoparklar', 'istanbul-ispark-parks'])('renders stale %s without numeric occupancy as current', (source) => {
     mockUseQuery.mockReturnValue({
       data: makeFacility({
-        availableSpaces: null,
-        occupiedSpaces: null,
+        availableSpaces: 17,
+        contributingSourceKeys: [source],
+        availabilitySource: source,
+        occupiedSpaces: 42,
         freshness: 'STALE',
         availabilityFreshness: 'STALE',
       }),

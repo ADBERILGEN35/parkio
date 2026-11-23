@@ -3,8 +3,8 @@ package com.parkio.parking.infrastructure.health;
 import com.parkio.parking.application.port.LinkCandidateGenerationRunPort;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 

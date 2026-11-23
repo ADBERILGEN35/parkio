@@ -23,9 +23,10 @@ function reject(reason: MediaRejectionReason): MediaValidation {
 /**
  * Source formats the backend doesn't accept but the device can decode —
  * preparation re-encodes them to JPEG, so rejecting them here would dead-end
- * perfectly usable photos (iOS gallery images are HEIC by default).
+ * perfectly usable photos (iOS gallery images are HEIC by default; WebP is
+ * common on Android).
  */
-const RECODED_SOURCE_TYPES: string[] = ['image/heic', 'image/heif'];
+const RECODED_SOURCE_TYPES: string[] = ['image/heic', 'image/heif', 'image/webp'];
 
 /**
  * Pre-flight check on a freshly-acquired asset, mirroring the backend's

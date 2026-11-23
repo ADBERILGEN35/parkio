@@ -10,7 +10,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-chmod +x scripts/parkio-prod-compose.sh scripts/lib/deploy-image-provenance.sh
 
 pass=0
 fail=0

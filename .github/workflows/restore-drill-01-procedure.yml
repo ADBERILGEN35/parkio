@@ -127,7 +127,7 @@ jobs:
           cp docker/.env.example docker/.env
           printf '%s\n' "MINIO_IMAGE=$MINIO_IMAGE" "MINIO_MC_IMAGE=$MINIO_MC_IMAGE" \
             "POSTGRES_IMAGE=$POSTGRES_IMAGE" "POSTGIS_IMAGE=$POSTGIS_IMAGE" >> docker/.env
-          chmod +x scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh scripts/lib/*.py
+          # No chmod: the scripts run with the modes git recorded, as on a fresh host checkout (H-14, #549).
 
       - name: Start synthetic SOURCE stack (10 PostgreSQL + MinIO)
         run: |

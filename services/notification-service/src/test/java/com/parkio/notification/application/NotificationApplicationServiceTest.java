@@ -12,12 +12,15 @@ import com.parkio.notification.application.event.ParkingSpotRejectedEvent;
 import com.parkio.notification.application.event.PointsEarnedEvent;
 import com.parkio.notification.application.event.TrustScoreUpdatedEvent;
 import com.parkio.notification.application.event.UserLevelChangedEvent;
+import com.parkio.notification.application.port.DeviceTokenHandover;
 import com.parkio.notification.application.port.DeviceTokenRepository;
 import com.parkio.notification.application.port.InboxEventRepository;
 import com.parkio.notification.application.port.NotificationDeliveryAttemptRepository;
 import com.parkio.notification.application.port.NotificationPreferenceRepository;
 import com.parkio.notification.application.port.NotificationRepository;
 import com.parkio.notification.application.port.OutboxEventAppender;
+import com.parkio.notification.application.port.PushMessage;
+import com.parkio.notification.application.port.PushSendResult;
 import com.parkio.notification.application.port.UserLocalePort;
 import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.domain.DevicePlatform;
@@ -32,14 +35,18 @@ import com.parkio.notification.domain.NotificationType;
 import com.parkio.notification.domain.event.NotificationCreatedEvent;
 import com.parkio.notification.domain.exception.NotificationErrorCode;
 import com.parkio.notification.domain.exception.NotificationException;
+import com.parkio.notification.infrastructure.delivery.PushDeliveryWorker;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +58,9 @@ import org.junit.jupiter.api.Test;
 class NotificationApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-07T12:00:00Z");
+    private static final String SHARED_DEVICE_TOKEN = "ExponentPushToken[shared-device]";
 
+    private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private FakeNotificationRepository notifications;
     private FakeDeviceTokenRepository deviceTokens;
     private FakePreferenceRepository preferences;
@@ -59,6 +68,7 @@ class NotificationApplicationServiceTest {
     private FakeOutbox outbox;
     private FakeDeliveryAttemptRepository deliveryAttempts;
     private FakeUserLocalePort userLocales;
+    private FakeOwnerFence ownerFence;
     private NotificationApplicationService service;
 
     @BeforeEach
@@ -70,14 +80,11 @@ class NotificationApplicationServiceTest {
         outbox = new FakeOutbox();
         deliveryAttempts = new FakeDeliveryAttemptRepository();
         userLocales = new FakeUserLocalePort();
-        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        ownerFence = new FakeOwnerFence();
         NotificationDeliveryService delivery =
                 new NotificationDeliveryService(preferences, deviceTokens, deliveryAttempts, clock);
-        service = new NotificationApplicationService(notifications, deviceTokens, preferences,
-                inbox, outbox, delivery, userLocales, new NotificationOwnerFence() {
-                    @Override public boolean admitWrite(java.util.UUID userId) { return true; }
-                    @Override public void holdForErasure(java.util.UUID userId) {}
-                }, clock);
+        service = new NotificationApplicationService(notifications, deviceTokens, deviceTokens, preferences,
+                inbox, outbox, delivery, userLocales, ownerFence, clock);
     }
 
     @Test
@@ -125,6 +132,112 @@ class NotificationApplicationServiceTest {
         service.deactivateDeviceToken(user, token.id());
 
         assertThat(deviceTokens.byId.get(token.id()).active()).isFalse();
+    }
+
+    @Test
+    void registeringATokenAnotherUserHoldsDeactivatesTheirRow() {
+        UUID previousHolder = UUID.randomUUID();
+        UUID newHolder = UUID.randomUUID();
+        DeviceToken previous = register(previousHolder, SHARED_DEVICE_TOKEN);
+
+        DeviceToken current = register(newHolder, SHARED_DEVICE_TOKEN);
+
+        assertThat(deviceTokens.byId.get(previous.id()).active()).isFalse();
+        assertThat(current.active()).isTrue();
+        assertThat(deviceTokens.findActiveByUserId(previousHolder)).isEmpty();
+        assertThat(deviceTokens.findActiveByUserId(newHolder)).extracting(DeviceToken::id)
+                .containsExactly(current.id());
+    }
+
+    @Test
+    void handOverLeavesOtherTokensActive() {
+        UUID previousHolder = UUID.randomUUID();
+        UUID bystander = UUID.randomUUID();
+        DeviceToken handedOver = register(previousHolder, SHARED_DEVICE_TOKEN);
+        DeviceToken previousHoldersOtherDevice = register(previousHolder, "ExponentPushToken[other-device]");
+        DeviceToken bystandersDevice = register(bystander, "ExponentPushToken[bystander-device]");
+
+        register(UUID.randomUUID(), SHARED_DEVICE_TOKEN);
+
+        assertThat(deviceTokens.byId.get(handedOver.id()).active()).isFalse();
+        assertThat(deviceTokens.byId.get(previousHoldersOtherDevice.id()).active()).isTrue();
+        assertThat(deviceTokens.byId.get(bystandersDevice.id()).active()).isTrue();
+    }
+
+    @Test
+    void reRegisteringOwnActiveTokenKeepsItActive() {
+        UUID user = UUID.randomUUID();
+        DeviceToken first = register(user, SHARED_DEVICE_TOKEN);
+
+        DeviceToken again = register(user, SHARED_DEVICE_TOKEN);
+
+        assertThat(again.id()).isEqualTo(first.id());
+        assertThat(deviceTokens.byId.get(first.id()).active()).isTrue();
+    }
+
+    @Test
+    void tokenReturnsToThePreviousHolderWhenItRegistersAgain() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        DeviceToken firstRow = register(first, SHARED_DEVICE_TOKEN);
+        DeviceToken secondRow = register(second, SHARED_DEVICE_TOKEN);
+
+        DeviceToken back = register(first, SHARED_DEVICE_TOKEN);
+
+        assertThat(back.id()).isEqualTo(firstRow.id());
+        assertThat(back.active()).isTrue();
+        assertThat(deviceTokens.byId.get(secondRow.id()).active()).isFalse();
+    }
+
+    @Test
+    void erasedUserCannotTakeOverAToken() {
+        UUID holder = UUID.randomUUID();
+        UUID erased = UUID.randomUUID();
+        DeviceToken held = register(holder, SHARED_DEVICE_TOKEN);
+        ownerFence.erased.add(erased);
+
+        assertThatThrownBy(() -> register(erased, SHARED_DEVICE_TOKEN))
+                .isInstanceOf(NotificationException.class)
+                .extracting(e -> ((NotificationException) e).errorCode())
+                .isEqualTo(NotificationErrorCode.DEVICE_TOKEN_NOT_FOUND);
+        assertThat(deviceTokens.byId).containsOnlyKeys(held.id());
+        assertThat(deviceTokens.byId.get(held.id()).active()).isTrue();
+    }
+
+    @Test
+    void deliveryWorkerSendsNoPushOfThePreviousHolderToAHandedOverToken() {
+        UUID previousHolder = UUID.randomUUID();
+        UUID newHolder = UUID.randomUUID();
+        register(previousHolder, SHARED_DEVICE_TOKEN);
+        // Queued while the previous holder still held the token.
+        service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), previousHolder, 1, 2, 100, NOW));
+
+        register(newHolder, SHARED_DEVICE_TOKEN);
+        service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), previousHolder, 2, 3, 200, NOW));
+        service.handleUserLevelChanged(new UserLevelChangedEvent(UUID.randomUUID(), newHolder, 1, 2, 100, NOW));
+        List<PushMessage> sent = new ArrayList<>();
+        PushDeliveryWorker worker = new PushDeliveryWorker(deliveryAttempts, deviceTokens, notifications,
+                message -> {
+                    sent.add(message);
+                    return PushSendResult.sent("provider-" + sent.size());
+                },
+                clock, new SimpleMeterRegistry(), true, 100, 5, 30_000L);
+
+        worker.processPendingBatch();
+
+        assertThat(sent).singleElement()
+                .satisfies(message -> assertThat(message.deviceToken()).isEqualTo(SHARED_DEVICE_TOKEN));
+        assertThat(deliveryAttempts.byId.values())
+                .filteredOn(attempt -> attempt.status() == DeliveryStatus.SENT)
+                .singleElement()
+                .satisfies(attempt -> assertThat(attempt.userId()).isEqualTo(newHolder));
+        assertThat(deliveryAttempts.byId.values())
+                .filteredOn(attempt -> attempt.userId().equals(previousHolder))
+                .singleElement()
+                .satisfies(attempt -> {
+                    assertThat(attempt.status()).isNotEqualTo(DeliveryStatus.SENT);
+                    assertThat(attempt.failureReason()).isEqualTo("DEVICE_TOKEN_INACTIVE");
+                });
     }
 
     @Test
@@ -345,7 +458,25 @@ class NotificationApplicationServiceTest {
                 });
     }
 
+    private DeviceToken register(UUID userId, String token) {
+        return service.registerDeviceToken(new RegisterDeviceTokenCommand(userId, token, DevicePlatform.ANDROID));
+    }
+
     // --- Fakes -----------------------------------------------------------
+
+    private static final class FakeOwnerFence implements NotificationOwnerFence {
+        private final Set<UUID> erased = new HashSet<>();
+
+        @Override
+        public boolean admitWrite(UUID userId) {
+            return !erased.contains(userId);
+        }
+
+        @Override
+        public void holdForErasure(UUID userId) {
+            // Locking is an adapter concern; the fake only models the erased set.
+        }
+    }
 
     private static final class FakeUserLocalePort implements UserLocalePort {
         NotificationLocale locale = NotificationLocale.DEFAULT;
@@ -379,8 +510,17 @@ class NotificationApplicationServiceTest {
         }
     }
 
-    private static final class FakeDeviceTokenRepository implements DeviceTokenRepository {
+    private static final class FakeDeviceTokenRepository implements DeviceTokenRepository, DeviceTokenHandover {
         private final Map<UUID, DeviceToken> byId = new HashMap<>();
+
+        @Override
+        public int deactivateForOtherUsers(String token, UUID userId, Instant now) {
+            List<DeviceToken> heldByOthers = byId.values().stream()
+                    .filter(t -> t.token().equals(token) && !t.userId().equals(userId) && t.active())
+                    .toList();
+            heldByOthers.forEach(t -> t.deactivate(now));
+            return heldByOthers.size();
+        }
 
         @Override
         public DeviceToken save(DeviceToken deviceToken) {
