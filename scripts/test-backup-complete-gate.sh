@@ -180,6 +180,33 @@ if [[ "$1" == run ]]; then
     printf '%s\n' "$@" >> "${DOCKER_RUN_LOG}"
     echo "=== end docker run ===" >> "${DOCKER_RUN_LOG}"
   fi
+  # Offsite mc through docker (parkio_backup_mc_docker) is the only run that sets MC_DEST:
+  # log its target and script, then copy like mc would, so the receipt can be checked.
+  mc_dest="" mc_file="" mc_src="" mc_script=""
+  args=("$@")
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[i]}" in
+      -e)
+        case "${args[i + 1]:-}" in
+          MC_DEST=*) mc_dest="${args[i + 1]#MC_DEST=}" ;;
+          SRC_FILE=*) mc_file="${args[i + 1]#SRC_FILE=}" ;;
+        esac
+        ;;
+      -v) mc_src="${args[i + 1]%%:*}" ;;
+      -c) mc_script="${args[i + 1]:-}" ;;
+    esac
+  done
+  if [[ -n "${mc_dest}" ]]; then
+    printf 'docker mc MC_DEST=%s\n%s\n=== end script ===\n' "${mc_dest}" "${mc_script}" >> "${OFFSITE_LOG:-/dev/null}"
+    if [[ "${mc_script}" == *"mc mirror"* ]]; then
+      mkdir -p "${mc_dest}"
+      cp -a "${mc_src}/." "${mc_dest}/"
+    elif [[ "${mc_script}" == *"mc cp"* ]]; then
+      mkdir -p "$(dirname "${mc_dest}")"
+      cp "${mc_src}/${mc_file}" "${mc_dest}"
+    fi
+    exit 0
+  fi
   dest=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == -v || "$1" == --volume ]]; then
@@ -406,7 +433,7 @@ manifest_local_prune() {
     || echo "<unreadable>"
 }
 
-# Extra arguments go to backup-hosted-beta.sh.
+# Extra arguments go to backup-hosted-beta.sh. CASE_MC_URL=<url> selects the docker mc path.
 run_hosted() {
   local case_dir="$1"
   shift
@@ -419,6 +446,9 @@ run_hosted() {
   export OFFSITE_LOG="${case_dir}/mc.log"
   unset BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL
   unset PARKIO_ENV_FILE
+  if [ -n "${CASE_MC_URL:-}" ]; then
+    export BACKUP_MC_URL="${CASE_MC_URL}"
+  fi
   bash "${ROOT}/scripts/backup-hosted-beta.sh" "$@"
 }
 
@@ -625,6 +655,141 @@ if [ "${sealed_np}" = skipped ] && [ "${live_np}" = skipped ] \
   ok "manifests record localPrune=skipped with --no-prune and after-success by default"
 else
   bad "manifest localPrune must be skipped/after-success (got ${sealed_np}/${live_np} and ${sealed_ok}/${live_ok})"
+fi
+
+# --- #520 review: the env file cannot change the per-run switches ---
+# Arguments are parsed before the env file is sourced (set -a). A NO_PRUNE or DRY_RUN line in
+# it must neither cancel --no-prune / --dry-run nor turn them on for a run without the flag.
+reset_fakes
+case_env0="${WORK}/env-no-prune-0"
+old_env0="$(plant_old_good "${case_env0}/backups")"
+printf 'NO_PRUNE=0\n' > "${case_env0}.env"
+rc=0
+run_hosted "${case_env0}" --env-file "${case_env0}.env" --no-prune > "${case_env0}.log" 2>&1 || rc=$?
+if [ "${rc}" -eq 0 ] && [ -f "${old_env0}/COMPLETE" ] && grep -qx 'localPrune=skipped' "${case_env0}.log"; then
+  ok "--no-prune keeps stamps when the env file says NO_PRUNE=0"
+else
+  bad "an env file NO_PRUNE=0 must not cancel --no-prune (rc=${rc}, old stamp kept: $([ -d "${old_env0}" ] && echo yes || echo no))"
+fi
+reset_fakes
+case_env1="${WORK}/env-no-prune-1"
+old_env1="$(plant_old_good "${case_env1}/backups")"
+printf 'NO_PRUNE=1\n' > "${case_env1}.env"
+rc=0
+run_hosted "${case_env1}" --env-file "${case_env1}.env" > "${case_env1}.log" 2>&1 || rc=$?
+if [ "${rc}" -eq 0 ] && [ ! -d "${old_env1}" ] && grep -qx 'localPrune=after-success' "${case_env1}.log" \
+  && grep -q '^WARN: .*NO_PRUNE' "${case_env1}.log"; then
+  ok "an env file NO_PRUNE=1 is ignored with a warning; the default prune still runs"
+else
+  bad "an env file NO_PRUNE=1 must not turn the skip on (rc=${rc}, old stamp kept: $([ -d "${old_env1}" ] && echo yes || echo no))"
+fi
+reset_fakes
+case_envdry="${WORK}/env-dry-run-0"
+old_envdry="$(plant_old_good "${case_envdry}/backups")"
+printf 'DRY_RUN=0\n' > "${case_envdry}.env"
+rc=0
+run_hosted "${case_envdry}" --env-file "${case_envdry}.env" --dry-run > "${case_envdry}.log" 2>&1 || rc=$?
+dirs_envdry="$(find "${case_envdry}/backups" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+if [ "${rc}" -eq 0 ] && [ "${dirs_envdry}" = 1 ] && [ -f "${old_envdry}/COMPLETE" ] \
+  && grep -qx 'dryRun=1' "${case_envdry}.log"; then
+  ok "--dry-run stays a dry run when the env file says DRY_RUN=0"
+else
+  bad "an env file DRY_RUN=0 must not turn --dry-run into a real run (rc=${rc}, stamp dirs=${dirs_envdry})"
+fi
+
+# --- #520 review: the env file cannot undo what the orchestrator hands backup-databases.sh ---
+# The child re-sources the same env file. BACKUP_SKIP_MC_UPLOAD= there must not make it upload
+# and prune on its own, and BACKUP_DEST_DIR there must not move its dumps into another stamp.
+reset_fakes
+case_skip="${WORK}/env-skip-upload-no-prune"
+old_skip="$(plant_old_good "${case_skip}/backups")"
+printf 'BACKUP_SKIP_MC_UPLOAD=\n' > "${case_skip}.env"
+rc=0
+run_hosted "${case_skip}" --env-file "${case_skip}.env" --no-prune > "${case_skip}.log" 2>&1 || rc=$?
+if [ "${rc}" -eq 0 ] && [ -f "${old_skip}/COMPLETE" ] \
+  && grep -q '^Local prune deferred to orchestrator' "${case_skip}.log"; then
+  ok "with BACKUP_SKIP_MC_UPLOAD= in the env file, --no-prune still deletes nothing"
+else
+  bad "the child must defer its prune under --no-prune (rc=${rc}, old stamp kept: $([ -d "${old_skip}" ] && echo yes || echo no))"
+fi
+reset_fakes
+case_skipok="${WORK}/env-skip-upload-default"
+mkdir -p "${case_skipok}"
+printf 'BACKUP_SKIP_MC_UPLOAD=\n' > "${case_skipok}.env"
+rc=0
+run_hosted "${case_skipok}" --env-file "${case_skipok}.env" > "${case_skipok}.log" 2>&1 || rc=$?
+mirrors_skipok="$(grep -c '^mc mirror ' "${case_skipok}/mc.log" 2>/dev/null || true)"
+if [ "${rc}" -eq 0 ] && [ "${mirrors_skipok}" = 1 ] \
+  && grep -q '^Local prune deferred to orchestrator' "${case_skipok}.log"; then
+  ok "with BACKUP_SKIP_MC_UPLOAD= in the env file, the child neither uploads nor prunes"
+else
+  bad "the child must defer upload and prune to the orchestrator (rc=${rc}, mc mirror calls=${mirrors_skipok:-0})"
+fi
+reset_fakes
+export FAKE_MINIO_MODE=fail-partial
+case_skipfail="${WORK}/env-skip-upload-minio-fail"
+old_skipfail="$(plant_old_good "${case_skipfail}/backups")"
+printf 'BACKUP_SKIP_MC_UPLOAD=\n' > "${case_skipfail}.env"
+rc=0
+run_hosted "${case_skipfail}" --env-file "${case_skipfail}.env" > "${case_skipfail}.log" 2>&1 || rc=$?
+if [ "${rc}" -ne 0 ] && [ -f "${old_skipfail}/COMPLETE" ] \
+  && grep -q '^Local prune deferred to orchestrator' "${case_skipfail}.log"; then
+  ok "with BACKUP_SKIP_MC_UPLOAD= in the env file, a later MinIO failure still prunes nothing"
+else
+  bad "a MinIO failure must leave the previous stamp (rc=${rc}, old stamp kept: $([ -d "${old_skipfail}" ] && echo yes || echo no))"
+fi
+reset_fakes
+case_dest="${WORK}/env-dest-dir"
+old_dest="$(plant_old_good "${case_dest}/backups")"
+printf 'BACKUP_DEST_DIR=%s\n' "${old_dest}" > "${case_dest}.env"
+before_dest="$(ls -A "${old_dest}" | LC_ALL=C sort | tr '\n' ' ')"
+rc=0
+run_hosted "${case_dest}" --env-file "${case_dest}.env" --no-prune > "${case_dest}.log" 2>&1 || rc=$?
+after_dest="$(ls -A "${old_dest}" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+if [ "${rc}" -eq 0 ] && [ "${before_dest}" = "${after_dest}" ]; then
+  ok "BACKUP_DEST_DIR in the env file does not send the dumps into an existing stamp"
+else
+  bad "the dumps must go to the new stamp (rc=${rc}, old stamp before: ${before_dest}after: ${after_dest})"
+fi
+
+# --- #520 review: a value option never takes the next option as its value ---
+for opt_args in "--env-file --no-prune" "--operator --no-prune" "--env-file"; do
+  case_opt="${WORK}/opt-$(printf '%s' "${opt_args}" | tr -c 'a-z' '-')"
+  rc=0
+  # shellcheck disable=SC2086 # split the option string on purpose
+  run_hosted "${case_opt}" ${opt_args} > "${case_opt}.log" 2>&1 || rc=$?
+  written="$(find "${case_opt}/backups" "${case_opt}/artifacts" "${case_opt}/textfile" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${rc}" -eq 2 ] && [ "${written}" = 0 ]; then
+    ok "'${opt_args}' exits 2 and writes nothing"
+  else
+    bad "'${opt_args}' must exit 2 before writing (rc=${rc}, entries written=${written})"
+  fi
+done
+
+# --- #520 review: the docker mc path (BACKUP_MC_URL) writes only under <dest>/<new stamp> ---
+reset_fakes
+case_dmc="${WORK}/docker-mc"
+export BACKUP_MC_ACCESS_KEY=testtest-testtest BACKUP_MC_SECRET_KEY=testtest-testtest
+export BACKUP_MC_DOCKER_NETWORK=parkio-backend
+rc=0
+CASE_MC_URL=http://offsite-minio:9000 run_hosted "${case_dmc}" > "${case_dmc}.log" 2>&1 || rc=$?
+unset BACKUP_MC_URL BACKUP_MC_ACCESS_KEY BACKUP_MC_SECRET_KEY BACKUP_MC_DOCKER_NETWORK
+stamp_dmc="$(latest_stamp_dir "${case_dmc}/backups" || true)"
+dest_dmc="${case_dmc}/offsite/parkio-backups/$(basename "${stamp_dmc:-none}")"
+calls_dmc="$(cat "${case_dmc}/mc.log" 2>/dev/null || true)"
+script_dmc="$(sed 's/^[[:space:]]*//' "${case_dmc}/mc.log" 2>/dev/null || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_dmc}" ] \
+  && [ "$(grep -c '^docker mc MC_DEST=' <<< "${calls_dmc}")" = 2 ] \
+  && grep -qxF "docker mc MC_DEST=${dest_dmc}" <<< "${calls_dmc}" \
+  && grep -qxF "docker mc MC_DEST=${dest_dmc}/COMPLETE" <<< "${calls_dmc}" \
+  && [ "$(grep -c '^mc mirror ' <<< "${script_dmc}")" = 1 ] \
+  && grep -qxF 'mc mirror --overwrite /upload "$MC_DEST"' <<< "${script_dmc}" \
+  && grep -qxF 'mc cp "/upload/${SRC_FILE}" "$MC_DEST"' <<< "${script_dmc}" \
+  && ! grep -qE -- '--remove|^mc rm' <<< "${script_dmc}" \
+  && check_receipt "${stamp_dmc}" "${case_dmc}/offsite/parkio-backups" > /dev/null; then
+  ok "docker mc upload writes only under the new stamp's prefix and removes nothing"
+else
+  bad "docker mc upload must stay under the new stamp's prefix (rc=${rc})"
 fi
 
 # --- partial MinIO then failure ---
