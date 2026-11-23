@@ -5,6 +5,12 @@
 # Usage:
 #   PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh
 #   PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh --dry-run
+#   PARKIO_ENV_FILE=docker/.env ./scripts/backup-hosted-beta.sh --no-prune
+#
+# --no-prune keeps every local stamp even when this run succeeds: the prune of
+# stamps older than BACKUP_RETENTION_DAYS is skipped, logged, and recorded as
+# "localPrune": "skipped" in the manifest. Use it for the first run after an
+# offsite outage (docs/operations/backup-runbook.md#offsite-outage).
 #
 set -euo pipefail
 
@@ -15,20 +21,42 @@ source "$ROOT/scripts/lib/backup-common.sh"
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 OPERATOR="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
 ARTIFACT_DIR="${PARKIO_BACKUP_ARTIFACT_DIR:-backup-artifacts}"
-DRY_RUN=0
+# The per-run switches come from the command line only. The env file is sourced below under
+# set -a, so they are parsed into private names and become NO_PRUNE / DRY_RUN after it.
+arg_dry_run=0
+arg_no_prune=0
+
+# A value option must not take the next option as its value ("--env-file --no-prune").
+option_value() {
+  case "${2-}" in
+    "" | -*)
+      echo "ERROR: $1 needs a value; got '${2-}'" >&2
+      exit 2
+      ;;
+  esac
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --artifact-dir) ARTIFACT_DIR="${2:-}"; shift 2 ;;
-    --operator) OPERATOR="${2:-}"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
+    --artifact-dir) option_value "$1" "${2-}"; ARTIFACT_DIR="$2"; shift 2 ;;
+    --operator) option_value "$1" "${2-}"; OPERATOR="$2"; shift 2 ;;
+    --dry-run) arg_dry_run=1; shift ;;
+    --no-prune) arg_no_prune=1; shift ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
 parkio_backup_load_env "${ENV_FILE}"
+if [ -n "${NO_PRUNE+set}" ]; then
+  echo "WARN: ignoring NO_PRUNE from the environment or env file; only --no-prune counts." >&2
+fi
+if [ -n "${DRY_RUN+set}" ]; then
+  echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
+fi
+NO_PRUNE="${arg_no_prune}"
+DRY_RUN="${arg_dry_run}"
 parkio_backup_validate_deployment_profile
 if ! parkio_backup_preflight; then
   exit 2
@@ -44,6 +72,11 @@ case "${ARTIFACT_DIR}" in
 esac
 MANIFEST_PATH="${MANIFEST_DIR}/backup-${STAMP}.json"
 STAMP_EPOCH="$(date -u +%s)"
+# Derived from --no-prune only (set after the env file is loaded); the manifest records it.
+PARKIO_BACKUP_LOCAL_PRUNE=after-success
+if [ "${NO_PRUNE}" = 1 ]; then
+  PARKIO_BACKUP_LOCAL_PRUNE=skipped
+fi
 
 echo "=== Parkio hosted-beta backup ==="
 echo "destination=${DEST_DIR}"
@@ -51,6 +84,7 @@ echo "gitSha=${GIT_SHA}"
 echo "operator=${OPERATOR}"
 echo "deploymentProfile=${PARKIO_DEPLOYMENT_PROFILE}"
 echo "dryRun=${DRY_RUN}"
+echo "localPrune=${PARKIO_BACKUP_LOCAL_PRUNE}"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY-RUN: would run backup-databases.sh and backup-minio.sh into ${DEST_DIR}"
@@ -153,7 +187,11 @@ parkio_backup_write_metrics "${PARKIO_DEPLOYMENT_PROFILE}" "${SUCCESS}" "$(date 
 
 if [ "${SUCCESS}" -eq 1 ]; then
   cp "${MANIFEST_PATH}" "${MANIFEST_DIR}/backup-current.json" 2>/dev/null || true
-  parkio_backup_prune_expired_stamps "${BACKUP_DIR}" "${BACKUP_RETENTION_DAYS:-14}"
+  if [ "${PARKIO_BACKUP_LOCAL_PRUNE}" = skipped ]; then
+    echo "Local prune skipped (--no-prune): stamps older than ${BACKUP_RETENTION_DAYS:-14} days in ${BACKUP_DIR} were kept."
+  else
+    parkio_backup_prune_expired_stamps "${BACKUP_DIR}" "${BACKUP_RETENTION_DAYS:-14}"
+  fi
 else
   echo "Backup completed with failures (dbFailed=${DB_FAILED}, minioOk=${MINIO_OK}, offsiteOk=${OFFSITE_OK})." >&2
   echo "Previous complete stamps were not pruned." >&2

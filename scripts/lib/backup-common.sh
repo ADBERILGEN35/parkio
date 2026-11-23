@@ -53,6 +53,11 @@ parkio_backup_load_env() {
     local _saved_mc_url="${BACKUP_MC_URL-}"
     local _saved_mc_access="${BACKUP_MC_ACCESS_KEY-}"
     local _saved_mc_secret="${BACKUP_MC_SECRET_KEY-}"
+    # backup-hosted-beta.sh hands these to backup-databases.sh, which sources the same env file
+    # again. A value there must not turn the child's deferred upload and prune back on, or move
+    # its dumps into another stamp directory.
+    local _saved_skip_mc_upload="${BACKUP_SKIP_MC_UPLOAD-}"
+    local _saved_dest_dir="${BACKUP_DEST_DIR-}"
     set -a
     # shellcheck disable=SC1090
     . "${env_file}"
@@ -92,6 +97,12 @@ parkio_backup_load_env() {
     fi
     if [ -n "${_saved_mc_secret}" ]; then
       export BACKUP_MC_SECRET_KEY="${_saved_mc_secret}"
+    fi
+    if [ -n "${_saved_skip_mc_upload}" ]; then
+      export BACKUP_SKIP_MC_UPLOAD="${_saved_skip_mc_upload}"
+    fi
+    if [ -n "${_saved_dest_dir}" ]; then
+      export BACKUP_DEST_DIR="${_saved_dest_dir}"
     fi
   elif [ -n "${env_file}" ]; then
     echo "WARN: env file '${env_file}' not found; relying on current environment." >&2
@@ -341,6 +352,9 @@ parkio_backup_write_manifest() {
   local offsite_kind
   offsite_kind="$(parkio_backup_offsite_kind)"
   local offsite_uploaded="${PARKIO_BACKUP_OFFSITE_UPLOADED:-0}"
+  # after-success: expired local stamps are pruned only after a successful run;
+  # skipped: this run keeps every local stamp (backup-hosted-beta.sh --no-prune).
+  local local_prune="${PARKIO_BACKUP_LOCAL_PRUNE:-after-success}"
   jq -n \
     --arg action "backup" \
     --arg stamp "${stamp}" \
@@ -359,6 +373,7 @@ parkio_backup_write_manifest() {
     --argjson offsiteRetentionDays "${offsite_retention}" \
     --argjson encryptionEnabled "${encrypt_on}" \
     --argjson offsiteUploaded "${offsite_uploaded}" \
+    --arg localPrune "${local_prune}" \
     --arg encryptionAlgorithm "$( [ "${encrypt_on}" -eq 1 ] && echo aes-256-cbc-pbkdf2 || echo none )" \
   '{
     schemaVersion: 3,
@@ -376,6 +391,7 @@ parkio_backup_write_manifest() {
     minioOk: $minioOk,
     retentionDays: $retentionDays,
     offsiteRetentionDays: $offsiteRetentionDays,
+    localPrune: $localPrune,
     encryption: { enabled: ($encryptionEnabled == 1), algorithm: $encryptionAlgorithm },
     offsite: { kind: $offsiteKind, uploaded: ($offsiteUploaded == 1) },
     checksums: { sha256sums: "SHA256SUMS" }
