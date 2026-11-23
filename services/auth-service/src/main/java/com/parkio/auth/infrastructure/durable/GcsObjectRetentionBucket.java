@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
  * GCS Object Retention Lock implementation of {@link DurableEvidenceBucket}. Version ids are GCS
@@ -43,8 +44,26 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
         void sleep(Duration duration) throws InterruptedException;
     }
 
+    /** Bounds one listing: how many pages it may fetch and how long it may keep paging. */
+    record ListBounds(int maxPages, Duration deadline) {
+
+        static final ListBounds DEFAULT = new ListBounds(1_000, Duration.ofSeconds(30));
+
+        ListBounds {
+            if (maxPages < 1) {
+                throw new IllegalArgumentException("maxPages must be at least 1");
+            }
+            Objects.requireNonNull(deadline, "deadline");
+            if (deadline.isZero() || deadline.isNegative()) {
+                throw new IllegalArgumentException("deadline must be positive");
+            }
+        }
+    }
+
     private final GcsObjectRetentionTransport transport;
     private final Pause pause;
+    private final ListBounds listBounds;
+    private final LongSupplier nanoTime;
     private final ConcurrentHashMap<String, StoredVersion> versionCache = new ConcurrentHashMap<>();
 
     GcsObjectRetentionBucket(GcsObjectRetentionTransport transport) {
@@ -52,8 +71,16 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     }
 
     GcsObjectRetentionBucket(GcsObjectRetentionTransport transport, Pause pause) {
+        this(transport, pause, ListBounds.DEFAULT, System::nanoTime);
+    }
+
+    /** {@code nanoTime} is a monotonic clock in nanoseconds; tests replace {@link System#nanoTime()}. */
+    GcsObjectRetentionBucket(GcsObjectRetentionTransport transport, Pause pause, ListBounds listBounds,
+                             LongSupplier nanoTime) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.pause = Objects.requireNonNull(pause, "pause");
+        this.listBounds = Objects.requireNonNull(listBounds, "listBounds");
+        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
     @Override
