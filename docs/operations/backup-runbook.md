@@ -71,6 +71,7 @@ backup-hosted-beta.sh
   5. offsite upload of that COMPLETE stamp only (never a failed stamp)
   6. Prometheus textfile (success and failure both recorded truthfully)
   7. prune expired local stamps only after a successful complete run
+     (--no-prune skips it; the manifest records "localPrune")
 ```
 
 Consumers must refuse a remote stamp without `COMPLETE`.
@@ -150,5 +151,62 @@ The authorized live acceptance of `BackupStale` delivery (synthetic second textf
 1. Read `/var/log/parkio-backup.log` or script stdout.
 2. Check `parkio_backup_last_success` and `parkio_backup_offsite_last_success`.
 3. `docker compose ps` for postgres-* and minio.
-4. Re-run `backup-hosted-beta.sh` with production mode still set.
+4. Re-run `backup-hosted-beta.sh` with production mode still set. After an offsite outage,
+   follow [Offsite outage](#offsite-outage) instead: a successful plain run prunes every stamp
+   older than `BACKUP_RETENTION_DAYS`, whether or not it ever reached offsite.
 5. Do not report success if only the local copy exists.
+
+## Offsite outage and the first run after it {#offsite-outage}
+
+While offsite uploads fail, every run fails and none prunes. A full local stamp is added to
+the host disk every night, and none of these stamps has an offsite copy. Watch free space
+on the disk that holds `BACKUP_DIR`: nothing removes these stamps until a run succeeds.
+
+The first run whose offsite step succeeds would delete, at once, every local stamp older
+than `BACKUP_RETENTION_DAYS` (14), before anyone has checked the new remote copy. Setting
+`BACKUP_RETENTION_DAYS` for one run does not help: the env file sets it and wins over the
+caller's value. Make the first run against the restored target a bounded run with
+`--no-prune`:
+
+1. Make sure it is the first run to reach the target. `--no-prune` protects only the run
+   it is given to; a scheduled run against a working target prunes as usual. Hold the
+   schedule while the target is restored (owner decision), or finish steps 3 and 4 before
+   the next 03:30 UTC run.
+2. Preflight: no backup is running (the lock is free), and the `BACKUP_DIR` disk has room
+   for one more full stamp.
+3. Run once, under the same lock and with the same environment as the scheduled run in
+   `/etc/cron.d/parkio-backup`:
+
+   ```bash
+   flock -n /var/lock/parkio-backup.lock -c 'cd /opt/parkio && \
+     PARKIO_ENV_FILE=docker/.env.azure-hosted-beta \
+     BACKUP_PRODUCTION_MODE=1 \
+     ./scripts/backup-hosted-beta.sh --no-prune >> /var/log/parkio-backup.log 2>&1'
+   ```
+
+   - The log shows `localPrune=skipped` at the start and `Local prune skipped (--no-prune)`
+     at the end. The manifests (`backup-<stamp>.json`, `backup-current.json` and the sealed
+     `<stamp>/backup-manifest.json`) record `"localPrune": "skipped"`; a run without the
+     flag records `"after-success"`.
+   - A checkout without this option rejects it (`ERROR: unknown argument '--no-prune'`,
+     exit 2) before it writes or deletes anything. Do not drop the flag to get past that;
+     update the checkout first.
+   - Do not use `run-production-backup.sh` for this run: it does not pass arguments on, so
+     the run would prune.
+   - Do not run `backup-databases.sh` on its own: after a successful DB-only run it prunes
+     `BACKUP_DIR`, and it has no `--no-prune`.
+4. Verify the remote copy of that stamp (objects, sizes, hashes, `COMPLETE`, receipt) as
+   [backup-dated-acceptance.md](./backup-dated-acceptance.md) describes.
+5. Pruning resumes with the next scheduled run, after that verification. That run deletes
+   every local stamp older than `BACKUP_RETENTION_DAYS`, including outage stamps that never
+   reached offsite. Copy
+   any stamp the owner wants to keep to a place outside `BACKUP_DIR` first: the prune
+   removes every directory in `BACKUP_DIR` older than the retention, not only stamps.
+
+The upload never touches another stamp. Azure `upload-batch` and `upload` write only under
+`<container>/<stamp>/`; `mc mirror` (without `--remove`) and `mc cp` write only under
+`<BACKUP_MC_DEST>/<stamp>/`. The backup scripts never delete remote objects. `--overwrite`
+can replace objects only under a stamp of the same name. A stamp name is the run's start
+time in UTC seconds, so that takes two runs starting in the same second; runs that take the
+shared lock cannot. Old remote objects expire through the destination account's lifecycle
+rule (see Offsite destination), not through these scripts.
