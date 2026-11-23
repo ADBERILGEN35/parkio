@@ -21,7 +21,8 @@ import org.springframework.stereotype.Component;
  * auth:login:v3:{kid}:account:{email}:wait             marker, the account delay (unknown clients only)
  * auth:login:v3:{kid}:account:{email}:clients          plain set of client digests that failed, PAIR_WINDOW
  * auth:login:v3:{kid}:known:{email}:{client}           marker, KNOWN_CLIENT_TTL after the client's last
- *                                                      login, completed reset or token refresh
+ *                                                      login, password change, completed reset or
+ *                                                      token refresh
  * </pre>
  *
  * <p>During a key rotation the entries written under the previous secret stay in force: admission checks

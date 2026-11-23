@@ -1,6 +1,8 @@
+import type { AxiosInstance } from 'axios';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createAuthApi } from './auth';
 import {
   createApiClient,
   isRefreshInFlight,
@@ -198,6 +200,163 @@ describe('401 refresh behavior', () => {
       expect(refresh).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('401 from a failed password check (INVALID_CREDENTIALS)', () => {
+  interface Attempt {
+    authorization: string | null;
+    body: unknown;
+  }
+
+  const changePasswordBody = {
+    currentPassword: 'wrong-password',
+    newPassword: 'Testtest-testtest-1A',
+  };
+  const deleteAccountBody = { password: 'wrong-password' };
+
+  /** Records every attempt on `method path`; `answer` picks the response from the bearer token. */
+  function passwordCheckEndpoint(
+    method: 'post' | 'delete',
+    path: string,
+    answer: (authorization: string | null) => Response,
+  ): Attempt[] {
+    const attempts: Attempt[] = [];
+    server.use(
+      http[method](`${BASE}${path}`, async ({ request }) => {
+        const authorization = request.headers.get('authorization');
+        attempts.push({ authorization, body: await request.json() });
+        return answer(authorization);
+      }),
+    );
+    return attempts;
+  }
+
+  const passwordChecks = [
+    {
+      name: 'POST /auth/change-password',
+      method: 'post' as const,
+      path: '/auth/change-password',
+      body: changePasswordBody,
+      send: (client: AxiosInstance) =>
+        createAuthApi(client).changePassword(changePasswordBody),
+    },
+    {
+      name: 'DELETE /account',
+      method: 'delete' as const,
+      path: '/account',
+      body: deleteAccountBody,
+      send: (client: AxiosInstance) =>
+        client.delete('/account', { data: deleteAccountBody }),
+    },
+  ];
+
+  it.each(passwordChecks)(
+    'surfaces a wrong password on $name without a refresh or a resend',
+    async ({ method, path, body, send }) => {
+      // auth-service counts each evaluated wrong password on the login throttle (#557), and a throttled
+      // attempt gets this same answer: one submission must reach the password check exactly once.
+      const attempts = passwordCheckEndpoint(method, path, () =>
+        HttpResponse.json(apiErrorBody('INVALID_CREDENTIALS'), { status: 401 }),
+      );
+      const { client, storage, onAuthFailure } = makeClient();
+      storage.setTokens({ accessToken: 'token-a' });
+      const refresh = vi.fn(async () => 'fresh-token');
+      setRefreshHandler(refresh);
+
+      const pending = send(client);
+
+      await expect(pending).rejects.toBeInstanceOf(UnauthorizedError);
+      await expect(pending).rejects.toMatchObject({ status: 401, code: 'INVALID_CREDENTIALS' });
+      expect(refresh).not.toHaveBeenCalled();
+      expect(attempts).toEqual([{ authorization: 'Bearer token-a', body }]);
+      expect(storage.getAccessToken()).toBe('token-a');
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['INVALID_TOKEN', 'TOKEN_REVOKED', 'MISSING_TOKEN'])(
+    'still refreshes once and resends once after a gateway 401 %s on change-password',
+    async (code) => {
+      const attempts = passwordCheckEndpoint('post', '/auth/change-password', (authorization) =>
+        authorization === 'Bearer fresh-token'
+          ? new HttpResponse(null, { status: 204 })
+          : HttpResponse.json(apiErrorBody(code), { status: 401 }),
+      );
+      const { client, storage, onAuthFailure } = makeClient();
+      storage.setTokens({ accessToken: 'stale-token' });
+      const refresh = vi.fn(async () => 'fresh-token');
+      setRefreshHandler(refresh);
+
+      await expect(createAuthApi(client).changePassword(changePasswordBody)).resolves.toBeUndefined();
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(attempts).toEqual([
+        { authorization: 'Bearer stale-token', body: changePasswordBody },
+        { authorization: 'Bearer fresh-token', body: changePasswordBody },
+      ]);
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { name: 'an empty body', unauthorized: () => new HttpResponse(null, { status: 401 }) },
+    {
+      name: 'a non-JSON body',
+      unauthorized: () =>
+        new HttpResponse('<html><body>401</body></html>', {
+          status: 401,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    },
+  ])(
+    'still refreshes once and resends once after a 401 with $name (no Parkio error code)',
+    async ({ unauthorized }) => {
+      // toParkioError maps an unparseable body to UNKNOWN_ERROR: only the parsed code
+      // INVALID_CREDENTIALS stops the refresh, so this keeps the previous behaviour.
+      const attempts = passwordCheckEndpoint('post', '/auth/change-password', (authorization) =>
+        authorization === 'Bearer fresh-token'
+          ? new HttpResponse(null, { status: 204 })
+          : unauthorized(),
+      );
+      const { client, storage, onAuthFailure } = makeClient();
+      storage.setTokens({ accessToken: 'stale-token' });
+      const refresh = vi.fn(async () => 'fresh-token');
+      setRefreshHandler(refresh);
+
+      await expect(createAuthApi(client).changePassword(changePasswordBody)).resolves.toBeUndefined();
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(attempts.map((attempt) => attempt.authorization)).toEqual([
+        'Bearer stale-token',
+        'Bearer fresh-token',
+      ]);
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it('checks the password once when the access token had expired: one refresh, one resend', async () => {
+    // The gateway rejects the expired token before auth-service sees the password; only the resend
+    // under the refreshed token is evaluated, and its INVALID_CREDENTIALS is surfaced as is.
+    const attempts = passwordCheckEndpoint('post', '/auth/change-password', (authorization) =>
+      authorization === 'Bearer fresh-token'
+        ? HttpResponse.json(apiErrorBody('INVALID_CREDENTIALS'), { status: 401 })
+        : HttpResponse.json(apiErrorBody('INVALID_TOKEN'), { status: 401 }),
+    );
+    const { client, storage, onAuthFailure } = makeClient();
+    storage.setTokens({ accessToken: 'stale-token' });
+    const refresh = vi.fn(async () => 'fresh-token');
+    setRefreshHandler(refresh);
+
+    const pending = createAuthApi(client).changePassword(changePasswordBody);
+
+    await expect(pending).rejects.toMatchObject({ status: 401, code: 'INVALID_CREDENTIALS' });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(attempts.map((attempt) => attempt.authorization)).toEqual([
+      'Bearer stale-token',
+      'Bearer fresh-token',
+    ]);
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
 });
 
 describe('per-request auth binding', () => {

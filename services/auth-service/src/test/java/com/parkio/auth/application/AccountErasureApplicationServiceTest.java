@@ -27,6 +27,7 @@ import com.parkio.auth.domain.event.UserErasureAcknowledgedEvent;
 import com.parkio.auth.domain.event.UserErasureRequestedEvent;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.domain.exception.LoginLockedException;
 import com.parkio.auth.infrastructure.metrics.ErasureMetrics;
 import com.parkio.auth.infrastructure.persistence.entity.ErasedUserTombstoneEntity;
 import com.parkio.auth.infrastructure.persistence.entity.ErasureRequestEntity;
@@ -35,7 +36,9 @@ import com.parkio.auth.infrastructure.persistence.jpa.ErasureRequestJpaRepositor
 import com.parkio.auth.infrastructure.persistence.jpa.ErasureServiceAckJpaRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -162,19 +165,196 @@ class AccountErasureApplicationServiceTest {
         assertThat(store.keys()).anyMatch(key -> key.contains(tracker.digest("neighbour@example.com")));
     }
 
-    /** Best effort: an unavailable throttle store does not fail or change the erasure request. */
+    /**
+     * Best effort: a throttle store that becomes unavailable once the password has been checked does not fail or
+     * change the erasure request.
+     */
     @Test
     void anUnavailableThrottleStoreDoesNotFailTheErasureRequest() {
         InMemoryLoginThrottleStore store = new InMemoryLoginThrottleStore(() -> NOW);
-        store.failing = true;
         service.setLoginFailureTracker(new ThrottledLoginFailureTracker(store, LoginThrottleTestKeys.CURRENT));
         when(users.findById(user.id())).thenReturn(Optional.of(user));
         when(passwordHasher.matches("pw", "hash")).thenReturn(true);
-        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+        // The password check runs on the store (#563); the store goes down right after it.
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenAnswer(invocation -> {
+            store.failing = true;
+            return Optional.empty();
+        });
 
         assertThat(service.requestDeletion(user.id(), "pw").status()).isEqualTo("IN_PROGRESS");
         verify(outbox).append(any(UserErasureRequestedEvent.class));
         verify(tombstones).save(any());
+    }
+
+    /**
+     * #563: like a login, the password check needs the throttle store; while the store is unavailable the
+     * request fails closed, before the password is compared, and no erasure starts.
+     */
+    @Test
+    void anUnavailableThrottleStoreFailsTheDeletionRequestClosed() {
+        service = throttledService();
+        throttleStore.failing = true;
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw", CLIENT))
+                .isInstanceOf(IllegalStateException.class);
+        verify(passwordHasher, never()).matches(any(), any());
+        verify(outbox, never()).append(any(UserErasureRequestedEvent.class));
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ACTIVE);
+    }
+
+    /**
+     * #563: wrong passwords on a deletion request meet the login throttle of the account and client, as a failed
+     * login and a wrong current password on change-password do (H-06). From the fifth failure the pair waits,
+     * answered with the same generic error as a wrong password, and no erasure starts while it waits.
+     */
+    @Test
+    void wrongPasswordsOnADeletionRequestMeetTheLoginThrottle() {
+        service = throttledService();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("bad", "hash")).thenReturn(false);
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", CLIENT))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class)
+                    .extracting(e -> ((AuthException) e).errorCode())
+                    .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", CLIENT))
+                .isInstanceOf(LoginLockedException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage())
+                .extracting(e -> ((AuthException) e).errorCode())
+                .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+        assertThat(loginFailures.retryAfter(user.email(), CLIENT, clock.instant())).isEqualTo(Duration.ofSeconds(30));
+
+        // While the pair waits even the right password is refused and not counted; no erasure starts.
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw", CLIENT))
+                .isInstanceOf(LoginLockedException.class)
+                .hasMessage(AuthErrorCode.INVALID_CREDENTIALS.defaultMessage());
+        assertThat(failureCount(CLIENT)).isEqualTo(5);
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ACTIVE);
+        verify(outbox, never()).append(any(UserErasureRequestedEvent.class));
+
+        // Once the wait has passed the right password starts the erasure as before, and the committed request
+        // still removes all of the account's throttle state.
+        clock.advance(Duration.ofSeconds(31));
+        assertThat(service.requestDeletion(user.id(), "pw", CLIENT).status()).isEqualTo("IN_PROGRESS");
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ERASURE_IN_PROGRESS);
+        verify(outbox).append(any(UserErasureRequestedEvent.class));
+        String account = loginFailures.digest(user.email());
+        assertThat(throttleStore.keys()).noneMatch(key -> key.contains(account));
+    }
+
+    /**
+     * #563: deletion requests and logins draw on one budget per account and client, because both use the login
+     * tracker with the account's normalized e-mail: alternating them gives no extra guesses, and a wait started on
+     * either holds the other.
+     */
+    @Test
+    void deletionAndLoginFailuresShareOneBudget() {
+        service = throttledService();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("bad", "hash")).thenReturn(false);
+        for (int i = 0; i < 2; i++) {
+            failedLogin(OTHER_CLIENT);
+            assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", OTHER_CLIENT))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class);
+        }
+        assertThat(failureCount(OTHER_CLIENT)).isEqualTo(4);
+        assertThat(accountFailureCount()).isEqualTo(4);
+
+        // The fifth failure, a login, starts the pair's wait; the deletion request honours it.
+        failedLogin(OTHER_CLIENT);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", OTHER_CLIENT))
+                .isInstanceOf(LoginLockedException.class);
+
+        // After the wait a sixth failure, on the deletion request, starts the next wait; the next login meets it.
+        clock.advance(Duration.ofSeconds(31));
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", OTHER_CLIENT))
+                .isInstanceOf(LoginLockedException.class);
+        assertThat(loginFailures.admit(user.email(), OTHER_CLIENT, clock.instant())).isPositive();
+        assertThat(failureCount(OTHER_CLIENT)).isEqualTo(6);
+        assertThat(accountFailureCount()).isEqualTo(6);
+    }
+
+    /** #563: the account-wide wait for unknown clients covers deletion requests; a known client is exempt. */
+    @Test
+    void aDeletionFromAnUnknownClientWaitsForTheAccountTier() {
+        service = throttledService();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+        loginFailures.clearAfterSuccess(user.email(), CLIENT); // CLIENT logged in before, so it is known
+        // 50 failed logins spread over 13 clients: no single client reaches its 5-failure tier.
+        for (int i = 0; i < 50; i++) {
+            failedLogin("192.0.2." + (10 + i / 4));
+        }
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "pw", OTHER_CLIENT))
+                .isInstanceOf(LoginLockedException.class);
+        assertThat(failureCount(OTHER_CLIENT)).isZero();
+        assertThat(user.status()).isEqualTo(AuthUserStatus.ACTIVE);
+
+        assertThat(service.requestDeletion(user.id(), "pw", CLIENT).status()).isEqualTo("IN_PROGRESS");
+    }
+
+    /** A deletion request without a client key uses the account's shared unknown-client pair, as a login does. */
+    @Test
+    void aDeletionRequestWithoutAClientKeyUsesTheSharedUnknownClient() {
+        service = throttledService();
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("bad", "hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad")).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", null)).isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", " ")).isInstanceOf(AuthException.class);
+
+        assertThat(failureCount(LoginFailureTracker.UNKNOWN_CLIENT)).isEqualTo(3);
+    }
+
+    /**
+     * The right password on a repeated request, while the erasure is pending, makes no client known (unlike a
+     * login or change-password): nothing may write a known-client marker for an account pending erasure
+     * (docs/architecture/priv-001-account-data-erasure.md), and the account can never log in again anyway. Below
+     * the first tier the request writes no throttle state for the account at all.
+     */
+    @Test
+    void aRepeatedRequestWithTheRightPasswordMakesNoClientKnown() {
+        service = throttledService();
+        UUID requestId = UUID.randomUUID();
+        user.beginErasure(NOW);
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id()))
+                .thenReturn(Optional.of(new ErasureRequestEntity(requestId, user.id(), "IN_PROGRESS", NOW)));
+
+        assertThat(service.requestDeletion(user.id(), "pw", CLIENT).erasureRequestId()).isEqualTo(requestId);
+
+        String account = loginFailures.digest(user.email());
+        assertThat(throttleStore.keys())
+                .doesNotContain(loginFailures.knownKey(account, loginFailures.digest(CLIENT)))
+                .noneMatch(key -> key.contains(account));
+        verify(outbox, never()).append(any(UserErasureRequestedEvent.class));
+    }
+
+    /** Without a login throttle the password check stays a plain comparison and is never throttled. */
+    @Test
+    void withoutALoginThrottleThePasswordCheckIsAPlainComparison() {
+        when(users.findById(user.id())).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("bad", "hash")).thenReturn(false);
+        when(passwordHasher.matches("pw", "hash")).thenReturn(true);
+        when(requests.findFirstByAuthUserIdOrderByRequestedAtDesc(user.id())).thenReturn(Optional.empty());
+
+        for (int i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> service.requestDeletion(user.id(), "bad", CLIENT))
+                    .isInstanceOf(AuthException.class)
+                    .isNotInstanceOf(LoginLockedException.class);
+        }
+        assertThat(service.requestDeletion(user.id(), "pw", CLIENT).status()).isEqualTo("IN_PROGRESS");
     }
 
     @Test
@@ -529,6 +709,65 @@ class AccountErasureApplicationServiceTest {
                 users, refreshTokens, passwordResets, passwordHasher, outbox, inbox,
                 requests, acks, tombstones, new ErasureMetrics(new SimpleMeterRegistry()),
                 clock, true, PARTICIPANTS);
+    }
+
+    private static final String CLIENT = "198.51.100.7";
+    private static final String OTHER_CLIENT = "203.0.113.9";
+
+    private MutableClock clock;
+    private InMemoryLoginThrottleStore throttleStore;
+    private ThrottledLoginFailureTracker loginFailures;
+
+    /** The service with the real login throttle on an in-memory store, both on a clock the test can advance. */
+    private AccountErasureApplicationService throttledService() {
+        clock = new MutableClock(NOW);
+        throttleStore = new InMemoryLoginThrottleStore(clock);
+        loginFailures = new ThrottledLoginFailureTracker(throttleStore, LoginThrottleTestKeys.CURRENT);
+        AccountErasureApplicationService throttled = serviceWithClock(clock);
+        throttled.setLoginFailureTracker(loginFailures);
+        return throttled;
+    }
+
+    /** What {@code AuthApplicationService.login} does with a wrong password for the account: admit, then record. */
+    private void failedLogin(String client) {
+        assertThat(loginFailures.admit(user.email(), client, clock.instant())).isZero();
+        loginFailures.recordFailure(user.email(), client, clock.instant());
+    }
+
+    private long failureCount(String client) {
+        return throttleStore.counter(loginFailures.pairFailuresKey(
+                loginFailures.digest(user.email()), loginFailures.digest(client)));
+    }
+
+    private long accountFailureCount() {
+        return throttleStore.counter(loginFailures.accountFailuresKey(loginFailures.digest(user.email())));
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(Duration duration) {
+            this.instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 
     private final Map<UUID, ErasureRequestEntity> requestRows = new HashMap<>();

@@ -121,6 +121,11 @@ account creation.
   `POST /auth/refresh-token`.
 - On refresh success the original request is retried **once** (`_retry` guard) —
   **never an infinite retry loop**.
+- A `401 INVALID_CREDENTIALS` (a wrong or throttled password check on
+  change-password or account deletion) is surfaced as is: no refresh and no
+  resend, so each submitted password is checked, and counted by the login
+  throttle, once. The gateway's token 401s (`MISSING_TOKEN`, `INVALID_TOKEN`,
+  `TOKEN_REVOKED`) keep the refresh-and-retry-once path.
 - On refresh failure `onAuthFailure` runs → hard logout (keystore + state cleared).
 - A `403 ACCOUNT_NOT_ACTIVE` flips the `suspended` flag instead of logging out.
 - A teardown during an in-flight refresh is detected via `sessionEpoch`, so a late
