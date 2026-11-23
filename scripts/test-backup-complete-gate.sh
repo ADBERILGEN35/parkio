@@ -90,6 +90,8 @@ elif "action" in vals and "stamp" in vals:
         },
         "checksums": {"sha256sums": "SHA256SUMS"},
     }
+    if "localPrune" in vals:
+        out["localPrune"] = vals["localPrune"]
 elif "sealed" in vals and "target" in vals:
     out = {
         "schemaVersion": 1,
@@ -399,8 +401,15 @@ manifest_uploaded() {
   python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["offsite"]["uploaded"]).lower())' "$1"
 }
 
+manifest_local_prune() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("localPrune", "<absent>"))' "$1" 2>/dev/null \
+    || echo "<unreadable>"
+}
+
+# Extra arguments go to backup-hosted-beta.sh.
 run_hosted() {
   local case_dir="$1"
+  shift
   mkdir -p "${case_dir}/backups" "${case_dir}/artifacts" "${case_dir}/textfile" "${case_dir}/offsite/parkio-backups"
   export BACKUP_DIR="${case_dir}/backups"
   export PARKIO_BACKUP_ARTIFACT_DIR="${case_dir}/artifacts"
@@ -410,7 +419,7 @@ run_hosted() {
   export OFFSITE_LOG="${case_dir}/mc.log"
   unset BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL
   unset PARKIO_ENV_FILE
-  bash "${ROOT}/scripts/backup-hosted-beta.sh"
+  bash "${ROOT}/scripts/backup-hosted-beta.sh" "$@"
 }
 
 run_db_only() {
@@ -544,6 +553,78 @@ else
   # The planted stamp is 20 days old; success prune may remove it. That is
   # retention, not the failed-run defect. Re-plant for failure cases below.
   ok "success-path prune of expired stamps is allowed"
+fi
+
+# --- #520 overwrite boundary (s3 kind): the upload writes only under <dest>/<new stamp> ---
+# mc mirror without --remove deletes nothing; every write names the new stamp's prefix.
+dest_ok="${case_ok}/offsite/parkio-backups/$(basename "${stamp_ok}")"
+mc_mirror=0
+mc_copy=0
+mc_other=""
+while IFS= read -r call; do
+  case "${call}" in
+    "") ;;
+    *--remove*) mc_other="${mc_other} | ${call}" ;;
+    "mc mirror --overwrite "*" ${dest_ok}") mc_mirror=$((mc_mirror + 1)) ;;
+    "mc cp "*" ${dest_ok}/COMPLETE") mc_copy=$((mc_copy + 1)) ;;
+    *) mc_other="${mc_other} | ${call}" ;;
+  esac
+done < "${case_ok}/mc.log"
+if [ "${mc_mirror}" -eq 1 ] && [ "${mc_copy}" -eq 1 ] && [ -z "${mc_other}" ]; then
+  ok "s3 upload writes only under the new stamp's prefix and removes nothing"
+else
+  bad "s3 upload must stay under the new stamp's prefix (mirror=${mc_mirror} cp=${mc_copy}${mc_other})"
+fi
+
+# --- #520: --no-prune keeps every local stamp on a fully successful run ---
+# While offsite fails, no run prunes, so expired stamps that never reached offsite pile
+# up. The first run against a working target must be able to leave all of them in place.
+reset_fakes
+case_np="${WORK}/full-ok-no-prune"
+old_np="$(plant_old_good "${case_np}/backups")"
+printf '{}\n' > "${old_np}.offsite-receipt.json"
+printf '{}\n' > "${case_np}/backups/2019-12-31T00-00-00Z.offsite-receipt.json"
+before_np=("${case_np}/backups"/*)
+rc=0
+run_hosted "${case_np}" --no-prune > "${case_np}.log" 2>&1 || rc=$?
+stamp_np="$(latest_stamp_dir "${case_np}/backups" || true)"
+ms="$(metric "${case_np}/textfile/parkio_backup.prom" 'parkio_backup_last_success' 2>/dev/null || true)"
+os="$(metric "${case_np}/textfile/parkio_backup.prom" 'parkio_backup_offsite_last_success' 2>/dev/null || true)"
+why=""
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_np}" ] && [ "${ms}" = "1" ] && [ "${os}" = "1" ] \
+  && [ -f "${case_np}/artifacts/backup-current.json" ] \
+  && why="$(check_receipt "${stamp_np}" "${case_np}/offsite/parkio-backups")"; then
+  ok "--no-prune run seals, uploads, writes its receipt and reports success"
+else
+  bad "--no-prune run must succeed like a default run (rc=${rc} metrics=${ms:-none}/${os:-none} ${why})"
+fi
+kept_np=1
+for entry in "${before_np[@]}"; do
+  [ -e "${entry}" ] || kept_np=0
+done
+if [ "${rc}" -eq 0 ] && [ "${kept_np}" -eq 1 ] && [ -f "${old_np}/COMPLETE" ]; then
+  ok "--no-prune keeps the expired stamp and every receipt after a successful run"
+else
+  bad "--no-prune must delete nothing on success (rc=${rc}, all entries kept: ${kept_np})"
+fi
+if grep -qx 'localPrune=skipped' "${case_np}.log" \
+  && grep -q '^Local prune skipped (--no-prune)' "${case_np}.log"; then
+  ok "--no-prune logs localPrune=skipped and the skipped prune"
+else
+  bad "--no-prune must log localPrune=skipped and the skipped prune"
+fi
+sealed_np="<no stamp>"
+if [ -n "${stamp_np}" ]; then
+  sealed_np="$(manifest_local_prune "${stamp_np}/backup-manifest.json")"
+fi
+live_np="$(manifest_local_prune "${case_np}/artifacts/backup-current.json")"
+sealed_ok="$(manifest_local_prune "${stamp_ok}/backup-manifest.json")"
+live_ok="$(manifest_local_prune "${case_ok}/artifacts/backup-current.json")"
+if [ "${sealed_np}" = skipped ] && [ "${live_np}" = skipped ] \
+  && [ "${sealed_ok}" = after-success ] && [ "${live_ok}" = after-success ]; then
+  ok "manifests record localPrune=skipped with --no-prune and after-success by default"
+else
+  bad "manifest localPrune must be skipped/after-success (got ${sealed_np}/${live_np} and ${sealed_ok}/${live_ok})"
 fi
 
 # --- partial MinIO then failure ---

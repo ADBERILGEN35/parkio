@@ -141,6 +141,25 @@ else
   bad "azure CLI SAS env contract"
   cat "${PARKIO_AZ_MOCK_LOG}" >&2 || true
 fi
+# #520 overwrite boundary: exactly two writes, both under <container>/<stamp>/; nothing deletes.
+if python3 - "${PARKIO_AZ_MOCK_LOG}" <<'PY'
+import sys
+calls = [line[len("ARGS:"):].split() for line in open(sys.argv[1]) if line.startswith("ARGS:")]
+def value(call, flag):
+    return call[call.index(flag) + 1] if flag in call else None
+batch = [c for c in calls if c[:3] == ["storage", "blob", "upload-batch"]]
+single = [c for c in calls if c[:3] == ["storage", "blob", "upload"]]
+sys.exit(0 if len(calls) == 2 and len(batch) == 1 and len(single) == 1
+         and value(batch[0], "--destination") == "parkio-production-backups/stamp-test"
+         and value(single[0], "--container-name") == "parkio-production-backups"
+         and value(single[0], "--name") == "stamp-test/COMPLETE" else 1)
+PY
+then
+  ok "azure upload writes only under <container>/<stamp>/ and deletes nothing"
+else
+  bad "azure upload must write only under <container>/<stamp>/"
+  cat "${PARKIO_AZ_MOCK_LOG}" >&2 || true
+fi
 rm -rf "${STAMP_DIR}" "${MOCK_BIN}"
 unset BACKUP_AZURE_SAS_TOKEN BACKUP_AZURE_STORAGE_ACCOUNT BACKUP_AZURE_CONTAINER
 
