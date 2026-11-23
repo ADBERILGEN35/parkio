@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/lib"))
 
 from recovery_evidence_contract import (  # noqa: E402
+    AUTH_ERASURE_SERVICE,
     AckRefused,
     CaptureAborted,
     CONFIGURED_PARTICIPANTS,
@@ -310,6 +311,90 @@ class RecoveryEvidenceContractTest(unittest.TestCase):
         self.assertEqual(auth_status[UNRELATED], "ACTIVE")
         self.assertNotIn("media/erased.jpg", media.objects)
         self.assertIn("media/keep.jpg", media.objects)
+
+
+IN_PROGRESS = 'return new AccountDeletionStatusView(requestId, "IN_PROGRESS");'
+DELEGATING = """\
+    @Transactional
+    public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password) {
+        return requestDeletion(principalUserId, password, null);
+    }
+"""
+IMPLEMENTING = f"""\
+    @Transactional
+    public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password, String clientKey) {{
+        verifyPassword(principalUserId, password, clientKey);
+        UUID requestId = UUID.randomUUID();
+        log.info("erasure requested requestId={{}} status=IN_PROGRESS", requestId);
+        {IN_PROGRESS}
+    }}
+"""
+
+
+class PersistBeforeAckScanTest(unittest.TestCase):
+    """model/unit: the requestDeletion source guard on synthetic auth sources, both overload orders."""
+
+    def scan(self, *methods):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / AUTH_ERASURE_SERVICE
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                "package com.parkio.auth.application;\n\nclass AccountErasureApplicationService {\n\n"
+                + "\n".join(methods) + "}\n",
+                encoding="utf-8",
+            )
+            return persist_before_ack_is_not_implemented(raw)
+
+    def assert_both_orders_raise(self, pattern, delegating, implementing):
+        for order, methods in (("delegation first", (delegating, implementing)),
+                               ("implementation first", (implementing, delegating))):
+            with self.subTest(order=order), self.assertRaisesRegex(ContractError, pattern):
+                self.scan(*methods)
+
+    def test_one_implementation_and_pure_delegations_pass(self):
+        self.assertTrue(self.scan(IMPLEMENTING))
+        self.assertTrue(self.scan(DELEGATING, IMPLEMENTING))
+        self.assertTrue(self.scan(IMPLEMENTING, DELEGATING))
+        # Braces in literals and comments do not end a body early.
+        tricky = IMPLEMENTING.replace(
+            "        UUID requestId",
+            "        char open = '{'; // }\n        String close = \"}\"; /* { */\n        UUID requestId")
+        self.assertTrue(self.scan(DELEGATING, tricky))
+        self.assertTrue(self.scan(tricky, DELEGATING))
+
+    def test_implementation_without_in_progress_return_fails(self):
+        complete = 'return new AccountDeletionStatusView(requestId, "COMPLETE");'
+        for implementing in (IMPLEMENTING.replace(IN_PROGRESS, complete),
+                             IMPLEMENTING.replace(IN_PROGRESS, f"// {IN_PROGRESS}\n        {complete}")):
+            self.assert_both_orders_raise("no longer returns IN_PROGRESS", DELEGATING, implementing)
+
+    def test_overload_that_does_work_fails(self):
+        working = DELEGATING.replace(
+            "        return requestDeletion", "        audit(principalUserId);\n        return requestDeletion")
+        computed = DELEGATING.replace("password, null)", "password, resolveClient())")
+        for delegating in (working, computed):
+            self.assert_both_orders_raise("does work instead of delegating", delegating, IMPLEMENTING)
+
+    def test_second_implementation_fails(self):
+        second = IMPLEMENTING.replace("String clientKey)", "String clientKey, boolean retry)")
+        self.assert_both_orders_raise("more than one", second, IMPLEMENTING)
+
+    def test_persist_ack_vocabulary_in_any_overload_fails(self):
+        for needle in ("offhost", "watermark", "persist-ack", "publicationId"):
+            noted_delegation = DELEGATING.replace("        return", f"        // {needle}\n        return")
+            noted_implementation = IMPLEMENTING.replace(
+                "        UUID requestId", f"        // {needle}\n        UUID requestId")
+            with self.subTest(needle=needle):
+                self.assert_both_orders_raise(f"mentions {needle.lower()}", noted_delegation, IMPLEMENTING)
+                self.assert_both_orders_raise(f"mentions {needle.lower()}", DELEGATING, noted_implementation)
+
+    def test_missing_method_fails(self):
+        renamed = IMPLEMENTING.replace("requestDeletion(UUID principalUserId, String password, String",
+                                       "startDeletion(UUID principalUserId, String password, String")
+        commented = "    // public AccountDeletionStatusView requestDeletion(UUID id) { return null; }\n"
+        for methods in ((), (renamed,), (commented,)):
+            with self.subTest(methods=len(methods)), self.assertRaisesRegex(ContractError, "requestDeletion missing"):
+                self.scan(*methods)
 
 
 if __name__ == "__main__":
