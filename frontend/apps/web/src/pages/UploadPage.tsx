@@ -22,12 +22,13 @@ import {
   type BadgeTone,
 } from '@parkio/ui';
 import {
+  ALLOWED_IMAGE_TYPES,
   createSpotFormSchema,
-  mediaUploadSchema,
   type CreateSpotFormValues,
 } from '@parkio/validation';
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -49,11 +50,13 @@ import { spotStatusLabel } from '@/lib/localized-status';
 import { type GeocodeResult } from '@/lib/geocoding';
 import { hasFormChanges, isUploadWizardDirty } from '@/lib/uploadDirty';
 import { showError, showSuccess } from '@/lib/toast';
+import { createMediaUploadSchema } from '@/lib/validation/localized-schemas';
 import { useCreateSpotMutation } from '@/data/hooks/useParkingMutations';
 
 type SubmitPhase = 'idle' | 'uploading' | 'creating';
 
-const ACCEPTED_TYPES = 'image/jpeg,image/png,image/webp';
+/** The picker offers exactly what media-service accepts (no WebP: it cannot be decoded). */
+const ACCEPTED_TYPES = ALLOWED_IMAGE_TYPES.join(',');
 
 /** Wizard steps. Success is a terminal state, not one of the four numbered steps. */
 const STEP_PHOTO = 0;
@@ -134,6 +137,7 @@ export function UploadPage() {
   const { mediaApi } = useParkioSdk();
   const createSpotMutation = useCreateSpotMutation();
   const { t } = useTranslation('media');
+  const photoSchema = useMemo(() => createMediaUploadSchema(t), [t]);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
@@ -259,7 +263,7 @@ export function UploadPage() {
     setSubmitError(null);
     setFileError(null);
     if (selected) {
-      const check = mediaUploadSchema.safeParse({ file: selected });
+      const check = photoSchema.safeParse({ file: selected });
       if (!check.success) {
         setFileError(check.error.issues[0]?.message ?? t('upload.invalidFile'));
       }
@@ -290,7 +294,7 @@ export function UploadPage() {
         return false;
       }
       if (file) {
-        const check = mediaUploadSchema.safeParse({ file });
+        const check = photoSchema.safeParse({ file });
         if (!check.success) {
           setFileError(check.error.issues[0]?.message ?? t('upload.invalidFile'));
           return false;
@@ -326,7 +330,7 @@ export function UploadPage() {
         setStep(STEP_PHOTO);
         return;
       }
-      const check = mediaUploadSchema.safeParse({ file });
+      const check = photoSchema.safeParse({ file });
       if (!check.success) {
         const message = check.error.issues[0]?.message ?? t('upload.invalidFile');
         setFileError(message);

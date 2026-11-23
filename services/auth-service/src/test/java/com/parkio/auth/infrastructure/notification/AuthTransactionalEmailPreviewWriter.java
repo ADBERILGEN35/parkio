@@ -9,17 +9,31 @@ import org.junit.jupiter.api.Test;
 /**
  * Writes synthetic TR/EN verification (+ password-reset) HTML/text previews for release review.
  * Uses a fixed synthetic token — not a live credential.
+ *
+ * <p>The previews go to the module's build directory, {@code services/auth-service/build/email-previews}
+ * (Gradle runs a module's tests with the module directory as the working directory). Git ignores that
+ * directory and {@code clean} removes it, so running the suite leaves the working tree clean (#550). To
+ * produce the previews on request, run only this class; {@code --rerun} runs it even when the test task is
+ * up to date or restored from the build cache:
+ *
+ * <pre>
+ * ./gradlew :services:auth-service:test \
+ *     --tests com.parkio.auth.infrastructure.notification.AuthTransactionalEmailPreviewWriter --rerun
+ * </pre>
+ *
+ * <p>The template wording itself is asserted by {@link AuthTransactionalEmailTemplatesTest}.
  */
 class AuthTransactionalEmailPreviewWriter {
 
+    /** Relative to the working directory, which Gradle sets to the module directory. */
+    private static final Path OUTPUT = Path.of("build", "email-previews");
     private static final String SYNTHETIC_TOKEN = "preview-token-not-a-credential";
     private static final String VERIFY_BASE = "https://app.parkio.dev/verify-email";
     private static final String RESET_BASE = "https://app.parkio.dev/reset-password";
 
     @Test
     void writePreviews() throws Exception {
-        Path repoRoot = Path.of("../..").toAbsolutePath().normalize();
-        Path out = repoRoot.resolve("agent-tools/parkio-pr68-auth-verification-email-01/previews");
+        Path out = OUTPUT.toAbsolutePath().normalize();
         Files.createDirectories(out);
 
         writeVerification(out, EmailLocale.TR);

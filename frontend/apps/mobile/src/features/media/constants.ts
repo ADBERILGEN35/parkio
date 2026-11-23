@@ -7,8 +7,11 @@
  * Keep these in sync with the backend if the server limits ever change.
  */
 
-/** Content types the backend accepts. We always prepare to JPEG, the safest. */
-export const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/**
+ * Content types the backend accepts (no WebP: media-service cannot decode it). We always
+ * prepare to JPEG, the safest.
+ */
+export const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png'] as const;
 export type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
 
 /** Hard upper bound enforced by the backend (`parkio.media.max-file-size: 10MB`). */

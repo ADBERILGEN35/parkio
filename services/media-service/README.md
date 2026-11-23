@@ -56,7 +56,7 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
 | `POST /api/v1/media/upload`                  | Multipart `file` plus required `Idempotency-Key`. Validates mime/size/magic-bytes, **scans the original bytes for malware**, decodes and re-encodes the image to metadata-stripped JPEG, computes SHA-256 over the normalized bytes, rejects duplicates (409), stores the normalized object and returns `{ mediaId, status, contentType, fileSize }` with `status=READY`. Infected → `422 MEDIA_INFECTED`; scan unavailable → `503 MEDIA_SCAN_UNAVAILABLE`; corrupt/oversized image → `422 INVALID_IMAGE` (fail-closed, nothing stored). |
 | `GET /api/v1/media/{mediaId}`                | Metadata — **owner or MODERATOR/ADMIN only**.        |
 | `GET /api/v1/media/{mediaId}/access-url`     | Short-lived presigned GET URL — **owner or MODERATOR/ADMIN only**. |
-| `DELETE /api/v1/media/{mediaId}`             | Soft-delete (**owner only**, `403` otherwise); best-effort object removal. |
+| `DELETE /api/v1/media/{mediaId}`             | Soft-delete (**owner only**, `404 MEDIA_NOT_FOUND` otherwise); best-effort object removal once the soft delete has committed. |
 | `GET /api/v1/media/{mediaId}/validation-results` | Validation internals — **owner or MODERATOR/ADMIN only**. |
 
 ### Access control
@@ -66,8 +66,8 @@ injects a verified `X-User-Id` (and `X-User-Roles`). Requests without a valid
   for callers whose `X-User-Roles` header contains `MODERATOR` or `ADMIN`.
 - Unauthorized reads are answered as **`404 MEDIA_NOT_FOUND`**, not `403`, so media
   ids cannot be probed/enumerated (IDOR prevention).
-- Delete remains owner-only (`403 NOT_MEDIA_OWNER` for others); moderator/admin
-  delete is deferred (backlog).
+- Claimed-region update and delete are owner-only and answer everyone else the same
+  way (`404 MEDIA_NOT_FOUND`); moderator/admin delete is deferred (backlog).
 - **Account erasure (U05):** upload, claimed-region update and delete first join the
   owner's erasure fence (a PostgreSQL advisory lock per owner) and answer
   **`403 ACCOUNT_ERASED`** once the owner's erasure has started, without storing or
@@ -135,7 +135,9 @@ internal endpoint. See the parking-service README for the full flow.
 
 ### Validation
 
-- Allowed content types: `image/jpeg`, `image/png`, `image/webp`.
+- Allowed content types: `image/jpeg`, `image/png`. WebP is not accepted: the runtime
+  has no WebP decoder for normalization, so it is refused up front (`415
+  UNSUPPORTED_MEDIA_TYPE`) and the clients do not offer it.
 - Max file size configurable (`parkio.media.max-file-size`, default 10MB); empty
   files rejected.
 - Object keys are **generated** (`media/{ownerUserId}/{uuid}.{ext}`) — the original
@@ -147,9 +149,6 @@ internal endpoint. See the parking-service README for the full flow.
   storing user-supplied image structure. The original upload bytes are not stored.
 - Transparent PNG input is flattened onto a white background. ICC profiles are not
   preserved; stored bytes contain only the normalized image pixels.
-- WebP remains an accepted declared type, but the runtime must provide a reliable
-  ImageIO WebP reader. If not available, WebP uploads fail closed with
-  `422 INVALID_IMAGE` rather than storing unnormalized bytes.
 - Stored `contentType`, object-key extension, response `contentType`, and signed URL
   object metadata reflect the normalized output (`image/jpeg`, `.jpg`).
 - Duplicate detection uses the checksum of the normalized stored bytes, not the

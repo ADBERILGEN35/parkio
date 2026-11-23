@@ -43,7 +43,6 @@ parkio:
     allowed-content-types:
       - image/jpeg
       - image/png
-      - image/webp
     # No clamd in the H2-based context tests: wire the pass-through scanner so the
     # context starts. Scan behaviour is covered by MediaApplicationServiceTest with a
     # fake scanner.

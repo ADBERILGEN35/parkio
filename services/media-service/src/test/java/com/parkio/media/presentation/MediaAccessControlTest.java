@@ -3,11 +3,15 @@ package com.parkio.media.presentation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -31,8 +35,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 /**
  * HTTP-contract tests for media access control (IDOR prevention) and the signed
  * access-URL endpoint: identity is required, reads are owner-or-moderator only,
- * unauthorized reads are answered as 404 (no id probing), and responses never
- * expose storage internals (bucket name, object key, checksum).
+ * owner writes (claimed region, delete) are owner-only, every unauthorized caller
+ * is answered as 404 (no id probing), and responses never expose storage internals
+ * (bucket name, object key, checksum).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -180,17 +185,54 @@ class MediaAccessControlTest {
     void deleteIsOwnerOnly() throws Exception {
         UUID owner = UUID.randomUUID();
         String mediaId = upload(owner);
+        UUID otherUser = UUID.randomUUID();
 
-        mockMvc.perform(delete("/api/v1/media/" + mediaId)
-                        .header("X-Gateway-Auth", GATEWAY_SECRET)
-                        .header("X-User-Id", UUID.randomUUID()))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_MEDIA_OWNER"));
+        // A non-owner gets the answer of an unknown id: 404 MEDIA_NOT_FOUND, never a 403 that
+        // would confirm the media exists.
+        assertThat(notFoundMessage(authedDelete("/api/v1/media/" + mediaId, otherUser)))
+                .isEqualTo(notFoundMessage(authedDelete("/api/v1/media/" + UUID.randomUUID(), otherUser)));
+        verify(storage, never()).delete(anyString());
 
-        mockMvc.perform(delete("/api/v1/media/" + mediaId)
-                        .header("X-Gateway-Auth", GATEWAY_SECRET)
-                        .header("X-User-Id", owner))
+        mockMvc.perform(authedDelete("/api/v1/media/" + mediaId, owner))
                 .andExpect(status().isNoContent());
+        verify(storage).delete(startsWith("media/" + owner + "/"));
+    }
+
+    @Test
+    void claimedRegionUpdateIsOwnerOnly() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String mediaId = upload(owner);
+        UUID otherUser = UUID.randomUUID();
+
+        assertThat(notFoundMessage(claimedRegionUpdate(mediaId, otherUser)))
+                .isEqualTo(notFoundMessage(claimedRegionUpdate(UUID.randomUUID().toString(), otherUser)));
+
+        mockMvc.perform(claimedRegionUpdate(mediaId, owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claimedRegion.width").value(0.5));
+    }
+
+    /** Performs the request, expects 404 MEDIA_NOT_FOUND and returns the error message. */
+    private String notFoundMessage(MockHttpServletRequestBuilder request) throws Exception {
+        MvcResult result = mockMvc.perform(request)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEDIA_NOT_FOUND"))
+                .andReturn();
+        return JsonPath.read(result.getResponse().getContentAsString(), "$.message");
+    }
+
+    private MockHttpServletRequestBuilder authedDelete(String path, UUID userId) {
+        return delete(path)
+                .header("X-Gateway-Auth", GATEWAY_SECRET)
+                .header("X-User-Id", userId);
+    }
+
+    private MockHttpServletRequestBuilder claimedRegionUpdate(String mediaId, UUID userId) {
+        return patch("/api/v1/media/" + mediaId + "/claimed-region")
+                .header("X-Gateway-Auth", GATEWAY_SECRET)
+                .header("X-User-Id", userId)
+                .contentType("application/json")
+                .content("{\"x\":0.1,\"y\":0.1,\"width\":0.5,\"height\":0.5}");
     }
 
     private String upload(UUID owner) throws Exception {

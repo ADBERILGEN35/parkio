@@ -137,7 +137,7 @@ All paths are relative to the base URL (which already contains `/api/v1`). 🔑 
 | Preferences | `GET /users/me/preferences` · `PATCH /users/me/preferences` `{preferredRadiusMeters?, notificationsEnabled?, preferredLocale?}` |
 | Stats | `GET /users/me/stats` → `{trustScore, trustBand, totalPoints, currentLevel}` |
 | Vehicle | `GET /users/me/vehicle` · `PUT /users/me/vehicle` `{vehicleType?, plate?}` |
-| Public profile | `GET /users/{userId}/public-profile` |
+| Public profile | `GET /users/{userId}/public-profile` → `{userId, displayName, city, trustBand, currentLevel, memberSince}`; no email, phone, vehicle or account status (the owner reads `status` from `GET /users/me`) |
 | Smart Return settings | `GET /users/me/smart-return` · `PUT /users/me/smart-return/settings` |
 | Smart Return today | `POST .../today/left-by-car` `{expectedReturnAt}` · `POST .../today/not-by-car` · `PUT .../today/return-time` `{expectedReturnAt}` · `POST .../today/cancel` (all under `/users/me/smart-return`) |
 
