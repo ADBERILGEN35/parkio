@@ -341,6 +341,9 @@ parkio_backup_write_manifest() {
   local offsite_kind
   offsite_kind="$(parkio_backup_offsite_kind)"
   local offsite_uploaded="${PARKIO_BACKUP_OFFSITE_UPLOADED:-0}"
+  # after-success: expired local stamps are pruned only after a successful run;
+  # skipped: this run keeps every local stamp (backup-hosted-beta.sh --no-prune).
+  local local_prune="${PARKIO_BACKUP_LOCAL_PRUNE:-after-success}"
   jq -n \
     --arg action "backup" \
     --arg stamp "${stamp}" \
@@ -359,6 +362,7 @@ parkio_backup_write_manifest() {
     --argjson offsiteRetentionDays "${offsite_retention}" \
     --argjson encryptionEnabled "${encrypt_on}" \
     --argjson offsiteUploaded "${offsite_uploaded}" \
+    --arg localPrune "${local_prune}" \
     --arg encryptionAlgorithm "$( [ "${encrypt_on}" -eq 1 ] && echo aes-256-cbc-pbkdf2 || echo none )" \
   '{
     schemaVersion: 3,
@@ -376,6 +380,7 @@ parkio_backup_write_manifest() {
     minioOk: $minioOk,
     retentionDays: $retentionDays,
     offsiteRetentionDays: $offsiteRetentionDays,
+    localPrune: $localPrune,
     encryption: { enabled: ($encryptionEnabled == 1), algorithm: $encryptionAlgorithm },
     offsite: { kind: $offsiteKind, uploaded: ($offsiteUploaded == 1) },
     checksums: { sha256sums: "SHA256SUMS" }
