@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "scripts/lib"))
 
 from recovery_evidence_contract import ContractError, PersistFailed, canonical_bytes, sha256_hex, sign  # noqa: E402
 from recovery_evidence_bundle import (  # noqa: E402
+    OBJECT_PREFIXES,
     bundle_from_store,
     check_target_identity,
     encode_bundle,
@@ -49,7 +50,6 @@ from recovery_persist_protocol import (  # noqa: E402
     EvidenceTrust,
     IsolatedErasureCoordinator,
     IsolatedVersionedStore,
-    SequenceAllocator,
     checkpoint_key,
     erasure_record_id,
     frontier_digest,
@@ -332,7 +332,7 @@ def build_cases(tmp: Path):
     coord = coordinator(store)
     for item in INPUTS[:2]:
         coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
-    sequence = SequenceAllocator(store).allocate("c0ffee00-0000-4000-8000-000000000001")
+    sequence = coord.allocator.allocate("c0ffee00-0000-4000-8000-000000000001")
     entries = [
         {"authUserId": item["authUserId"], "erasureRequestId": item["erasureRequestId"],
          "erasedAt": item["erasedAt"], "note": "şehir"}
@@ -355,7 +355,7 @@ def build_cases(tmp: Path):
     coord = coordinator(store)
     for item in INPUTS[:2]:
         coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
-    sequence = SequenceAllocator(store).allocate(CHECKPOINT_RESERVATION_ID)
+    sequence = coord.allocator.allocate(CHECKPOINT_RESERVATION_ID)
     entries = sorted(
         ({"authUserId": item["authUserId"], "erasedAt": item["erasedAt"]} for item in INPUTS),
         key=lambda entry: entry["authUserId"],
@@ -398,8 +398,9 @@ def build_cases(tmp: Path):
 
 
 def store_objects(store):
-    """Every object of a model store except the frontier, keyed like the store."""
-    return {key: store.get(key) for key in store.list_prefix("") if key != FRONTIER_KEY}
+    """Every evidence object of a model store except the frontier, keyed like the store. The
+    writer's reservation index (``reservations/``) is not evidence and is never exported."""
+    return {key: store.get(key) for prefix in OBJECT_PREFIXES for key in store.list_prefix(prefix)}
 
 
 def signed_frontier(expected_through, highest_reserved, key_id=KEY_ID):
@@ -422,7 +423,7 @@ def checkpoint_tail_store(tmp: Path, name: str, tail=TAIL_INPUT, ledger_users=IN
     coord = coordinator(store)
     for item in INPUTS[:2]:
         coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
-    sequence = SequenceAllocator(store).allocate(CHECKPOINT_RESERVATION_ID)
+    sequence = coord.allocator.allocate(CHECKPOINT_RESERVATION_ID)
     entries = sorted(
         ({"authUserId": item["authUserId"], "erasedAt": item["erasedAt"]} for item in ledger_users),
         key=lambda entry: entry["authUserId"],
@@ -516,9 +517,9 @@ def build_bundle_cases(tmp: Path):
     coord = coordinator(store)
     for item in INPUTS[:2]:
         coord.request_deletion(item["authUserId"], item["erasureRequestId"], item["erasedAt"])
-    third = SequenceAllocator(store).allocate("checkpoint-reservation-0003")
+    third = coord.allocator.allocate("checkpoint-reservation-0003")
     coord.publish_checkpoint(third, ledger_entries(INPUTS[:2]))
-    fourth = SequenceAllocator(store).allocate("checkpoint-reservation-0004")
+    fourth = coord.allocator.allocate("checkpoint-reservation-0004")
     coord.publish_checkpoint(fourth, ledger_entries(INPUTS))
     coord.advance_frontier(expected_through=fourth, highest_reserved=fourth)
     objects = store_objects(store)
