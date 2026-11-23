@@ -367,12 +367,14 @@ public final class ParkingSpot {
     public void verify(UUID verifierUserId, VerificationResult result, Instant now) {
         ensureNotOwner(verifierUserId, ParkingErrorCode.OWNER_CANNOT_VERIFY);
         ensureVerifiable(now);
-        switch (result) {
-            case AVAILABLE -> applyAvailable(now);
-            case FILLED -> applyFilledReport();
-            case ILLEGAL_OR_RISKY -> applyIllegalOrRiskySignal();
-            case WRONG_VEHICLE_SIZE, INVALID -> applyNegativeSignal();
-        }
+        // Exhaustive without a default: a new VerificationResult must fail compilation here.
+        Runnable effect = switch (result) {
+            case AVAILABLE -> () -> applyAvailable(now);
+            case FILLED -> this::applyFilledReport;
+            case ILLEGAL_OR_RISKY -> this::applyIllegalOrRiskySignal;
+            case WRONG_VEHICLE_SIZE, INVALID -> this::applyNegativeSignal;
+        };
+        effect.run();
         this.updatedAt = now;
     }
 
