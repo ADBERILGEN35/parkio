@@ -303,7 +303,11 @@ export class ParkioClient {
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
     });
 
-    if (res.status === 401 && !opts.retried && !REFRESH_EXEMPT.some(p => path.startsWith(p))) {
+    // A 401 INVALID_CREDENTIALS is a failed password check (change-password, account deletion) behind an
+    // accepted token: a refresh cannot help, and a resend would count the same password twice on the login
+    // throttle. Only the gateway's token 401s (MISSING_TOKEN, INVALID_TOKEN, TOKEN_REVOKED) refresh.
+    if (res.status === 401 && !opts.retried && !REFRESH_EXEMPT.some(p => path.startsWith(p))
+        && (await res.clone().json().catch(() => null))?.code !== 'INVALID_CREDENTIALS') {
       await this.refresh();                              // single-flight
       return this.send(method, path, { ...opts, retried: true }); // same idemKey on retry
     }
