@@ -48,6 +48,7 @@ from recovery_evidence_contract import (  # noqa: E402
     restore_erasure_ledger_still_unverified,
     verify_evidence,
     write_claim_file,
+    _request_deletion_overloads,
 )
 
 ERASED = "00000000-0000-4000-a000-0000000000a1"
@@ -324,6 +325,9 @@ IMPLEMENTING = f"""\
     @Transactional
     public AccountDeletionStatusView requestDeletion(UUID principalUserId, String password, String clientKey) {{
         verifyPassword(principalUserId, password, clientKey);
+        if (principalUserId == null) {{
+            throw new IllegalArgumentException("principal");
+        }}
         UUID requestId = UUID.randomUUID();
         log.info("erasure requested requestId={{}} status=IN_PROGRESS", requestId);
         {IN_PROGRESS}
@@ -395,6 +399,66 @@ class PersistBeforeAckScanTest(unittest.TestCase):
         for methods in ((), (renamed,), (commented,)):
             with self.subTest(methods=len(methods)), self.assertRaisesRegex(ContractError, "requestDeletion missing"):
                 self.scan(*methods)
+
+    def test_each_overload_is_cut_at_its_own_closing_brace(self):
+        """Scanner level: nested blocks and literal braces do not move the end of a body."""
+        char_brace = IMPLEMENTING.replace("        UUID requestId", "        char open = '{';\n        UUID requestId")
+        for methods in ((IMPLEMENTING, DELEGATING), (DELEGATING, IMPLEMENTING), (char_brace, DELEGATING)):
+            text = "class AccountErasureApplicationService {\n" + "\n".join(methods) + "}\n"
+            expected = [method[method.index("public"):method.rindex("}") + 1] for method in methods]
+            with self.subTest(first=methods[0].splitlines()[1].strip()[:60]):
+                self.assertEqual([source for source, _ in _request_deletion_overloads(text)], expected)
+
+    def test_literal_braces_do_not_hide_an_overload_that_does_work(self):
+        """A brace in a char literal or text block of the first overload must not swallow the next one."""
+        working = DELEGATING.replace(
+            "        return requestDeletion", "        offloadToWorker(principalUserId);\n        return requestDeletion")
+        literals = {
+            "char {": "char open = '{';",
+            "char }": "char close = '}';",
+            "text block {": 'String json = """\n            {\n            """;',
+            "text block }": 'String json = """\n            }\n            """;',
+        }
+        for name, literal in literals.items():
+            implementing = IMPLEMENTING.replace("        UUID requestId", f"        {literal}\n        UUID requestId")
+            with self.subTest(literal=name), self.assertRaisesRegex(ContractError, "does work instead of delegating"):
+                self.scan(implementing, working)
+
+    def test_persist_ack_vocabulary_anywhere_in_the_file_fails(self):
+        """The needles are checked over the whole file, not only over the public overloads."""
+        placements = {
+            "helper after the method": ("    private void forgetLoginThrottleAfterCommit(String email) {{\n"
+                                        "        // {needle}\n        loginFailures.forget(email);\n    }}\n"),
+            "private overload": ("    private AccountDeletionStatusView requestDeletion(UUID principalUserId) {{\n"
+                                 "        // {needle}\n        return requestDeletion(principalUserId, null, null);\n"
+                                 "    }}\n"),
+            "final overload": ("    public final AccountDeletionStatusView requestDeletion(String email) {{\n"
+                               "        // {needle}\n        return null;\n    }}\n"),
+            "Optional overload": ("    public Optional<AccountDeletionStatusView> requestDeletion(UUID id, boolean dry) {{\n"
+                                  "        // {needle}\n        return Optional.empty();\n    }}\n"),
+        }
+        for needle in ("offhost", "watermark", "persist-ack", "publicationId"):
+            for name, template in placements.items():
+                extra = template.format(needle=needle)
+                for methods in ((IMPLEMENTING, extra), (DELEGATING, IMPLEMENTING, extra)):
+                    with self.subTest(needle=needle, placement=name, overloads=len(methods) - 1), \
+                            self.assertRaisesRegex(ContractError, f"mentions {needle.lower()}"):
+                        self.scan(*methods)
+
+    def test_annotation_array_in_the_parameters_is_not_the_body(self):
+        annotated = "@Size(groups = {Default.class}) String password"
+        implementing = IMPLEMENTING.replace("String password, String clientKey)", f"{annotated}, String clientKey)")
+        delegating = DELEGATING.replace("String password)", f"{annotated})")
+        for index, methods in enumerate(((implementing,), (DELEGATING, implementing), (implementing, DELEGATING),
+                                         (delegating, IMPLEMENTING), (IMPLEMENTING, delegating))):
+            with self.subTest(case=index):
+                self.assertTrue(self.scan(*methods))
+
+    def test_escaped_triple_quote_does_not_end_a_text_block(self):
+        block = 'String json = """\n            say \\""" and {\n            """;'
+        implementing = IMPLEMENTING.replace("        UUID requestId", f"        {block}\n        UUID requestId")
+        self.assertTrue(self.scan(implementing, DELEGATING))
+        self.assertTrue(self.scan(DELEGATING, implementing))
 
 
 if __name__ == "__main__":
