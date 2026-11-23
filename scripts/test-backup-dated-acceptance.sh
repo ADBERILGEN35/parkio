@@ -106,6 +106,41 @@ echo "unexpected az call: $*" >&2
 exit 2
 SH
 chmod +x "${BIN}/az"
+# Fake gcloud over a filesystem bucket (FAKE_GCS_ROOT/<bucket>/<object name>) for the gcs kind: the
+# listing prints sizes as strings, as the JSON API does, and [] when nothing matches; a download copies
+# one object, creating its local directories as gcloud does. The acceptance never uploads, so any other
+# call fails. FAKE_GCS_LIST_SCOPE=bucket lists the whole bucket instead of the requested prefix, and
+# FAKE_GCS_LIST_SIZE=omit leaves the sizes out, as a misbehaving or changed listing would.
+cat > "${BIN}/gcloud" <<'PY'
+#!/usr/bin/env python3
+import json, os, shutil, sys
+args = sys.argv[1:]
+root = os.environ["FAKE_GCS_ROOT"]
+def local(url):
+    return os.path.join(root, url[len("gs://"):])
+if (args[:3] == ["storage", "objects", "list"] and len(args) == 5 and args[3].endswith("/**")
+        and args[4] == "--format=json(name,size)"):
+    bucket = os.path.join(root, args[3][len("gs://"):].split("/", 1)[0])
+    base = bucket if os.environ.get("FAKE_GCS_LIST_SCOPE") == "bucket" else local(args[3][:-2])
+    found = []
+    for walk_root, _, files in os.walk(base):
+        for name in sorted(files):
+            path = os.path.join(walk_root, name)
+            found.append({"name": os.path.relpath(path, bucket), "size": str(os.path.getsize(path))})
+            if os.environ.get("FAKE_GCS_LIST_SIZE") == "omit":
+                del found[-1]["size"]
+    print(json.dumps(found))
+elif args[:2] == ["storage", "cp"] and len(args) == 4 and args[2].startswith("gs://") and not args[3].startswith("gs://"):
+    if not os.path.isfile(local(args[2])):
+        sys.stderr.write("ERROR: (gcloud.storage.cp) The following URLs matched no objects or files: %s\n" % args[2])
+        sys.exit(1)
+    os.makedirs(os.path.dirname(args[3]) or ".", exist_ok=True)
+    shutil.copyfile(local(args[2]), args[3])
+else:
+    sys.stderr.write("unexpected gcloud call: %s\n" % args)
+    sys.exit(2)
+PY
+chmod +x "${BIN}/gcloud"
 export PATH="${BIN}:${PATH}"
 
 # Every `env` the acceptance script or the drill starts goes through this shim, which logs its argv.
@@ -181,6 +216,7 @@ new_case() { # name
 run_acceptance() { # extra args...; sets rc, out and REPORT
   local rc_=0 evidence="${EVIDENCE_DIR:-${CASE}/evidence}"
   out="$(/usr/bin/env PATH="${ARGV_SHIM}:${PATH}" BACKUP_OFFSITE_KIND="${KIND:-s3}" BACKUP_MC_DEST="${CASE}/offsite/parkio-backups" \
+    BACKUP_GCS_DEST=gs://parkio-synthetic-backups/stamps FAKE_GCS_ROOT="${CASE}/gcs" \
     BACKUP_ENCRYPT_PASSPHRASE="${PHRASE-${PASSPHRASE}}" BACKUP_PRODUCTION_MODE=1 \
     BACKUP_AZURE_STORAGE_KEY=live-looking-storage-key PARKIO_RESEND_API_KEY=re_ABCDEFGHIJKLMNOPQRSTUV \
     PARKIO_DRILL_ID=rd-test-01 PARKIO_DRILL_FAKE_RC="${DRILL_RC:-0}" PARKIO_ENV_FILE="" BACKUP_MC_URL="" \
@@ -229,7 +265,7 @@ expected="complete=NOT_RUN remote-presence=NOT_RUN remote-integrity=PASS decrypt
   && ok "the drill host passes outcomes 3-5 through the real isolation preflight" \
   || bad "drill host (rc=${rc}): $(results 2>/dev/null) $(head -c 400 "${CASE}/drill-evidence/isolated-restore/isolation.json" 2>/dev/null) ${out}"
 DRILL_RECORD="${REPORT}"
-if ! grep -q -E '^(BACKUP_MC_DEST|BACKUP_AZURE_STORAGE_KEY|BACKUP_PRODUCTION_MODE|PARKIO_RESEND_API_KEY|BACKUP_OFFSITE_KIND)$' "${CASE}/drill-env-names" \
+if ! grep -q -E '^(BACKUP_MC_DEST|BACKUP_GCS_DEST|BACKUP_AZURE_STORAGE_KEY|BACKUP_PRODUCTION_MODE|PARKIO_RESEND_API_KEY|BACKUP_OFFSITE_KIND)$' "${CASE}/drill-env-names" \
   && ! grep -q -E '^(BASH_FUNC_|NOT-AN-IDENTIFIER)' "${CASE}/drill-env-names" \
   && grep -qx "PARKIO_DRILL_ID" "${CASE}/drill-env-names" && grep -qx "BACKUP_ENCRYPT_PASSPHRASE" "${CASE}/drill-env-names" \
   && grep -qx -- "--env-file" "${CASE}/drill-args" && grep -qx "${CASE}/drill/drill.env" "${CASE}/drill-args" \
@@ -338,6 +374,49 @@ backup_host
 [ "${rc}" -eq 1 ] && grep -q "is not the sealed stamp's" "${REPORT}" \
   && ok "an offsite copy that passes its own checksums but belongs to another seal fails integrity" \
   || bad "resealed (rc=${rc}): $(results)"
+
+# ---- 6b. backup host: the gcs kind (keyless gcloud storage) --------------------------------------
+# The stamp sits under stamps/ in a fake bucket, next to what the interim sync leaves there: another
+# stamp and a receipt object beside this stamp's prefix. Neither belongs to the stamp's listing.
+gcs_case() { # name
+  new_case "$1"
+  GCS_REMOTE="${CASE}/gcs/parkio-synthetic-backups/stamps/${STAMP}"
+  mkdir -p "${CASE}/gcs/parkio-synthetic-backups/stamps/2020-01-01T00-00-00Z"
+  cp -a "${CASE}/backups/${STAMP}" "${GCS_REMOTE}"
+  printf 'stamp=2020-01-01T00-00-00Z\n' > "${CASE}/gcs/parkio-synthetic-backups/stamps/2020-01-01T00-00-00Z/COMPLETE"
+  printf '{}\n' > "${GCS_REMOTE}.offsite-receipt.json"
+}
+gcs_case gcs-backup-host
+KIND=gcs backup_host --decrypt
+[ "${rc}" -eq 4 ] && [ "$(results)" = "complete=PASS remote-presence=PASS remote-integrity=PASS decrypt=PASS isolated-restore=NOT_RUN verdict=INCOMPLETE" ] \
+  && grep -q '"offsiteKind": "gcs"' "${REPORT}" \
+  && ok "with the gcs kind the backup host lists and pulls the stamp from gs:// and passes outcomes 1-4" \
+  || bad "gcs backup host (rc=${rc}): $(results 2>/dev/null) ${out}"
+gcs_case gcs-missing-object
+rm "${GCS_REMOTE}/parking.sql.gz.enc"
+KIND=gcs backup_host --decrypt
+[ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && grep -q "missing=\['parking.sql.gz.enc'\]" "${REPORT}" \
+  && ok "a gcs object missing from the stamp fails presence and integrity" || bad "gcs missing object (rc=${rc}): $(results)"
+gcs_case gcs-nested-object
+mkdir -p "${GCS_REMOTE}/nested"
+printf 'plaintext\n' > "${GCS_REMOTE}/nested/object.bin"
+KIND=gcs backup_host --decrypt
+[ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && grep -q "unexpected=\['nested/object.bin'\]" "${REPORT}" && [ ! -e "${CASE}/work/pulled/nested" ] \
+  && ok "a nested gcs object is unexpected for presence, and the pull refuses it" || bad "gcs nested object (rc=${rc}): $(results)"
+gcs_case gcs-listing-scope
+FAKE_GCS_LIST_SCOPE=bucket KIND=gcs backup_host
+[ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && grep -q "offsite listing failed" "${REPORT}" \
+  && ok "a gcs listing that returns objects outside the stamp's prefix is refused, not trusted" \
+  || bad "gcs listing scope (rc=${rc}): $(results)"
+gcs_case gcs-listing-no-size
+FAKE_GCS_LIST_SIZE=omit KIND=gcs backup_host
+[ "${rc}" -eq 1 ] && [ "$(results)" = "complete=PASS remote-presence=FAIL remote-integrity=FAIL decrypt=NOT_RUN isolated-restore=NOT_RUN verdict=FAIL" ] \
+  && grep -q "offsite listing failed" "${REPORT}" \
+  && ok "a gcs listing without byte sizes is refused, not read as a size mismatch" \
+  || bad "gcs listing without sizes (rc=${rc}): $(results)"
 
 # ---- 7. backup host: passphrase, local stamp, no offsite ---------------------------------------
 new_case wrong-passphrase

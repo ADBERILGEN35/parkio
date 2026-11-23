@@ -269,6 +269,97 @@ exit 0
 EOF
 chmod +x "${BIN}/mc"
 
+# Fake gcloud over a filesystem bucket: gs://<bucket>/<name> is FAKE_GCS_ROOT/<bucket>/<name>. It serves
+# only what the gcs offsite kind may call: storage cp (one source, one destination) and
+# storage objects list <url>/** --format=json(name,size). Each call is logged after the parallel
+# composite upload setting it ran with; any other call (rm, rsync, buckets, ...) exits 2.
+# FAKE_GCS_EXISTING=<name> gives that object a foreign live version before the first copy to it;
+# FAKE_GCS_FAIL_NAME=<name> fails the upload of that object; FAKE_GCS_SHORT_NAME=<name> stores it one
+# byte short; FAKE_GCS_LIST_FAIL=1 fails every listing.
+cat > "${BIN}/gcloud" <<'PY'
+#!/usr/bin/env python3
+import json, os, shutil, sys
+
+args = sys.argv[1:]
+with open(os.environ.get("GCLOUD_LOG", os.devnull), "a") as log:
+    log.write("pcu=%s %s\n" % (os.environ.get("CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED", "<unset>"),
+                               " ".join(args)))
+
+
+def die(code, message):
+    sys.stderr.write(message + "\n")
+    sys.exit(code)
+
+
+def local(url):
+    if not url.startswith("gs://"):
+        die(2, "fake gcloud: not a gs:// URL: " + url)
+    return os.path.join(os.environ["FAKE_GCS_ROOT"], url[len("gs://"):])
+
+
+if args[:2] == ["storage", "cp"]:
+    generation, no_clobber, paths = None, False, []
+    for arg in args[2:]:
+        if arg.startswith("--if-generation-match="):
+            generation = arg.split("=", 1)[1]
+        elif arg in ("--no-clobber", "-n"):
+            no_clobber = True
+        elif arg.startswith("-"):
+            die(2, "fake gcloud: unexpected cp flag " + arg)
+        else:
+            paths.append(arg)
+    if len(paths) != 2:
+        die(2, "fake gcloud: cp takes one source and one destination, got %r" % paths)
+    src, dst = paths
+    if dst.startswith("gs://") and not src.startswith("gs://"):
+        target, name = local(dst), dst.rsplit("/", 1)[-1]
+        if name == os.environ.get("FAKE_GCS_FAIL_NAME"):
+            die(1, "ERROR: (gcloud.storage.cp) HTTPError 503: simulated failure uploading " + name)
+        if name == os.environ.get("FAKE_GCS_EXISTING") and not os.path.exists(target):
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w") as handle:
+                handle.write("foreign-object\n")
+        if os.path.exists(target):
+            if generation == "0":
+                die(1, "ERROR: (gcloud.storage.cp) HTTPError 412: At least one of the pre-conditions you specified did not hold.")
+            if no_clobber:
+                print("Skipping existing destination item (no-clobber): " + dst)
+                sys.exit(0)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(src, target)
+        if name == os.environ.get("FAKE_GCS_SHORT_NAME"):
+            with open(target, "r+b") as handle:
+                handle.truncate(max(os.path.getsize(target) - 1, 0))
+        sys.exit(0)
+    if src.startswith("gs://") and not dst.startswith("gs://"):
+        if not os.path.isfile(local(src)):
+            die(1, "ERROR: (gcloud.storage.cp) The following URLs matched no objects or files: " + src)
+        shutil.copyfile(local(src), dst)
+        sys.exit(0)
+    die(2, "fake gcloud: unsupported cp %s -> %s" % (src, dst))
+
+if args[:3] == ["storage", "objects", "list"]:
+    rest = args[3:]
+    if len(rest) != 2 or not rest[0].endswith("/**") or rest[1] != "--format=json(name,size)":
+        die(2, "fake gcloud: unexpected objects list arguments %r" % rest)
+    if os.environ.get("FAKE_GCS_LIST_FAIL") == "1":
+        die(1, "ERROR: (gcloud.storage.objects.list) HTTPError 503: simulated listing failure")
+    bucket_root = local("gs://" + rest[0][len("gs://"):].split("/", 1)[0])
+    found = []
+    for walk_root, _, files in os.walk(local(rest[0][:-2])):
+        for name in files:
+            path = os.path.join(walk_root, name)
+            found.append({"name": os.path.relpath(path, bucket_root).replace(os.sep, "/"),
+                          "size": os.path.getsize(path)})
+    if not found:
+        die(1, "ERROR: (gcloud.storage.objects.list) One or more URLs matched no objects.")
+    print(json.dumps(sorted(found, key=lambda item: item["name"]), indent=2))
+    sys.exit(0)
+
+die(2, "fake gcloud: unexpected call: " + " ".join(args))
+PY
+chmod +x "${BIN}/gcloud"
+
 cat > "${BIN}/openssl" <<EOF
 #!/usr/bin/env bash
 set -e
@@ -322,7 +413,7 @@ reset_fakes() {
   export FAKE_OPENSSL_SEAL_FAIL=0
   export FAKE_INTEGRITY_SHA_FAIL=0
   export FAKE_RECEIPT_FAIL=0
-  unset FAKE_DUMP_FAIL FAKE_DUMP_SLEEP
+  unset FAKE_DUMP_FAIL FAKE_DUMP_SLEEP FAKE_GCS_EXISTING FAKE_GCS_FAIL_NAME FAKE_GCS_SHORT_NAME FAKE_GCS_LIST_FAIL
 }
 
 plant_old_good() {
@@ -374,11 +465,14 @@ metric() {
 # was uploaded and binds the sealed digest. The stamp itself still matches SHA256SUMS
 # exactly (no extra file inside it), COMPLETE still binds SHA256SUMS, and the remote
 # COMPLETE is the local one. Prints the first problem and returns 1.
+# Usage: check_receipt <stamp dir> <remote dir holding <stamp>/> [kind (s3)] [target base (remote dir)]
 check_receipt() {
-  python3 - "$1" "$2" <<'PY'
+  python3 - "$@" <<'PY'
 import hashlib, json, pathlib, re, sys
 
 stamp, dest = pathlib.Path(sys.argv[1]), sys.argv[2]
+kind = sys.argv[3] if len(sys.argv) > 3 else "s3"
+target_base = sys.argv[4] if len(sys.argv) > 4 else dest
 receipt = stamp.parent / (stamp.name + ".offsite-receipt.json")
 
 def fail(message):
@@ -393,7 +487,7 @@ expected = {
     "schemaVersion": 1,
     "stamp": stamp.name,
     "uploaded": True,
-    "offsite": {"kind": "s3", "target": f"{dest}/{stamp.name}"},
+    "offsite": {"kind": kind, "target": f"{target_base}/{stamp.name}"},
     "sealed": {"complete": "COMPLETE", "sha256sums": digest},
 }
 for key, value in expected.items():
@@ -450,6 +544,48 @@ run_hosted() {
     export BACKUP_MC_URL="${CASE_MC_URL}"
   fi
   bash "${ROOT}/scripts/backup-hosted-beta.sh" "$@"
+}
+
+# The gcs kind against the fake gcloud (first on PATH). The synthetic bucket lives in
+# <case>/gcs; CASE_GCS_DEST, when set (even empty), replaces the destination.
+GCS_DEST=gs://parkio-synthetic-backups/stamps
+run_hosted_gcs() {
+  local case_dir="$1" rc=0
+  shift
+  mkdir -p "${case_dir}/gcs"
+  export BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${CASE_GCS_DEST-${GCS_DEST}}"
+  export FAKE_GCS_ROOT="${case_dir}/gcs" GCLOUD_LOG="${case_dir}/gcloud.log"
+  run_hosted "${case_dir}" "$@" || rc=$?
+  export BACKUP_OFFSITE_KIND=s3
+  unset BACKUP_GCS_DEST FAKE_GCS_ROOT GCLOUD_LOG
+  return "${rc}"
+}
+
+# The gcloud calls of one successful gcs run, in order: one create-only upload per stamp file except
+# COMPLETE (by name), a listing, COMPLETE, a listing. Every call disables parallel composite uploads.
+check_gcloud_calls() { # log stamp-dir
+  python3 - "$1" "$2" "${GCS_DEST}" <<'PY'
+import os, sys
+
+log, stamp, dest = sys.argv[1:]
+name = os.path.basename(stamp)
+if not os.path.isfile(log):
+    print("no gcloud call was logged")
+    sys.exit(1)
+calls = [line.rstrip("\n") for line in open(log) if line.strip()]
+if any(not call.startswith("pcu=False ") for call in calls):
+    print("a gcloud call ran without CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED=False")
+    sys.exit(1)
+calls = [call.split(" ", 1)[1] for call in calls]
+upload = "storage cp --if-generation-match=0 {0}/{1} {2}/{3}/{1}"
+listing = "storage objects list %s/%s/** --format=json(name,size)" % (dest, name)
+expected = [upload.format(stamp, f, dest, name) for f in sorted(os.listdir(stamp)) if f != "COMPLETE"]
+expected += [listing, upload.format(stamp, "COMPLETE", dest, name), listing]
+if calls != expected:
+    extra = [call for call in calls if call not in expected]
+    print("%d gcloud calls, expected %d; first unexpected: %r" % (len(calls), len(expected), extra[:1]))
+    sys.exit(1)
+PY
 }
 
 run_db_only() {
@@ -790,6 +926,176 @@ if [ "${rc}" -eq 0 ] && [ -n "${stamp_dmc}" ] \
   ok "docker mc upload writes only under the new stamp's prefix and removes nothing"
 else
   bad "docker mc upload must stay under the new stamp's prefix (rc=${rc})"
+fi
+
+# --- #520 gcs offsite kind: keyless gcloud storage, create-only objects, COMPLETE last ---
+reset_fakes
+case_gcs="${WORK}/gcs-ok"
+plant_old_good "${case_gcs}/backups" > /dev/null
+rc=0
+run_hosted_gcs "${case_gcs}" > "${case_gcs}.log" 2>&1 || rc=$?
+stamp_gcs="$(latest_stamp_dir "${case_gcs}/backups" || true)"
+remote_gcs="${case_gcs}/gcs/parkio-synthetic-backups/stamps"
+ms="$(metric "${case_gcs}/textfile/parkio_backup.prom" 'parkio_backup_last_success' 2>/dev/null || true)"
+os="$(metric "${case_gcs}/textfile/parkio_backup.prom" 'parkio_backup_offsite_last_success' 2>/dev/null || true)"
+why=""
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_gcs}" ] && [ "${ms}" = "1" ] && [ "${os}" = "1" ] \
+  && diff -r "${stamp_gcs}" "${remote_gcs}/$(basename "${stamp_gcs}")" > /dev/null \
+  && why="$(check_receipt "${stamp_gcs}" "${remote_gcs}" gcs "${GCS_DEST}")"; then
+  ok "gcs run uploads the stamp byte for byte, writes a gs:// receipt beside it and reports success"
+else
+  bad "gcs run must upload the stamp and write its receipt (rc=${rc} metrics=${ms:-none}/${os:-none} ${why})"
+fi
+why="no stamp"
+if [ -n "${stamp_gcs}" ] && why="$(check_gcloud_calls "${case_gcs}/gcloud.log" "${stamp_gcs}" 2>&1)"; then
+  ok "gcs upload: one create-only copy per file, a listing, COMPLETE last, a second listing; composite uploads off"
+else
+  bad "gcs upload calls: ${why}"
+fi
+offsite_gcs="$(python3 -c 'import json,sys; o=json.load(open(sys.argv[1]))["offsite"]; print(o["kind"], o["uploaded"])' \
+  "${case_gcs}/artifacts/backup-current.json" 2>/dev/null || true)"
+if [ "${offsite_gcs}" = "gcs True" ]; then
+  ok "the live manifest records offsite kind gcs, uploaded"
+else
+  bad "the live manifest must record offsite kind gcs, uploaded (got '${offsite_gcs}')"
+fi
+name_gcs="$(basename "${stamp_gcs:-none}")"
+listing_gcs="$(BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_DEST}" FAKE_GCS_ROOT="${case_gcs}/gcs" \
+  parkio_backup_offsite_list "${name_gcs}" 2>&1 | LC_ALL=C sort || true)"
+want_gcs="$(find "${stamp_gcs:-${WORK}/none}" -mindepth 1 -maxdepth 1 -type f -printf '%f\t%s\n' 2>/dev/null | LC_ALL=C sort)"
+if [ -n "${want_gcs}" ] && [ "${listing_gcs}" = "${want_gcs}" ]; then
+  ok "gcs listing gives every object of the stamp: its name relative to the stamp and its byte size"
+else
+  bad "gcs listing must match the local stamp (got '${listing_gcs:0:160}')"
+fi
+rc=0
+BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_DEST}" FAKE_GCS_ROOT="${case_gcs}/gcs" GCLOUD_LOG="${case_gcs}/gcloud-pull.log" \
+  bash "${ROOT}/scripts/backup-offsite-pull.sh" --stamp "${name_gcs}" --dest "${case_gcs}/pulled" > "${case_gcs}-pull.log" 2>&1 || rc=$?
+other_calls="$(grep -c -v -e '^pcu=False storage objects list ' -e '^pcu=False storage cp gs://' "${case_gcs}/gcloud-pull.log" 2>/dev/null || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_gcs}" ] && diff -r "${stamp_gcs}" "${case_gcs}/pulled" > /dev/null \
+  && [ "${other_calls}" = 0 ]; then
+  ok "gcs pull copies the stamp into a new directory and verifies it, with listings and downloads only"
+else
+  bad "gcs pull must restore the stamp byte for byte (rc=${rc}, other gcloud calls: ${other_calls:-no log})"
+fi
+
+# A missing gcloud or a bad destination stops the run at preflight, before anything is written.
+gcs_nothing_written() { # case-dir
+  [ "$(find "$1/backups" "$1/artifacts" "$1/textfile" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')" = 0 ] \
+    && [ ! -s "$1/gcloud.log" ]
+}
+i=0
+for gcloud_bin in "${WORK}/no-such-dir/gcloud" "bin/gcloud" "${BIN}"; do
+  i=$((i + 1))
+  case_ng="${WORK}/gcs-gcloud-${i}"
+  rc=0
+  BACKUP_GCLOUD_BIN="${gcloud_bin}" run_hosted_gcs "${case_ng}" > "${case_ng}.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 2 ] && gcs_nothing_written "${case_ng}" && grep -q 'needs gcloud' "${case_ng}.log"; then
+    ok "BACKUP_GCLOUD_BIN=${gcloud_bin#"${WORK}"/} (no executable gcloud) exits 2 before writing anything"
+  else
+    bad "BACKUP_GCLOUD_BIN=${gcloud_bin} must exit 2 before writing (rc=${rc})"
+  fi
+done
+i=0
+for bad_dest in "" "parkio-synthetic-backups/stamps" "s3://parkio-synthetic-backups/stamps" \
+  "gs://parkio-synthetic-backups" "gs://parkio-synthetic-backups/" "gs://parkio-Synthetic/stamps" "gs://ab/stamps" \
+  "gs://parkio-synthetic-backups/stamps/*" "gs://parkio-synthetic-backups/../stamps" \
+  "gs://parkio-synthetic-backups//stamps" "gs://parkio-synthetic-backups/stamps#1" \
+  "gs://parkio-synthetic-backups/stamps x"; do
+  i=$((i + 1))
+  case_bd="${WORK}/gcs-bad-dest-${i}"
+  rc=0
+  CASE_GCS_DEST="${bad_dest}" run_hosted_gcs "${case_bd}" > "${case_bd}.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 2 ] && gcs_nothing_written "${case_bd}" && grep -q 'BACKUP_GCS_DEST must be gs://' "${case_bd}.log"; then
+    ok "BACKUP_GCS_DEST='${bad_dest}' exits 2 before writing anything"
+  else
+    bad "BACKUP_GCS_DEST='${bad_dest}' must exit 2 before writing (rc=${rc})"
+  fi
+done
+case_bd="${WORK}/gcs-bad-dest-not-production"
+rc=0
+BACKUP_PRODUCTION_MODE=0 CASE_GCS_DEST=gs://parkio-synthetic-backups run_hosted_gcs "${case_bd}" > "${case_bd}.log" 2>&1 || rc=$?
+if [ "${rc}" -eq 2 ] && gcs_nothing_written "${case_bd}"; then
+  ok "a bad BACKUP_GCS_DEST also stops a run outside production mode"
+else
+  bad "a bad BACKUP_GCS_DEST must stop a run outside production mode too (rc=${rc})"
+fi
+# Like BACKUP_MC_DEST, a destination the caller sets wins over a blank placeholder in the env file.
+reset_fakes
+case_gp="${WORK}/gcs-env-placeholder"
+mkdir -p "${case_gp}"
+printf 'BACKUP_GCS_DEST=\n' > "${case_gp}.env"
+rc=0
+run_hosted_gcs "${case_gp}" --env-file "${case_gp}.env" > "${case_gp}.log" 2>&1 || rc=$?
+stamp_gp="$(latest_stamp_dir "${case_gp}/backups" || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_gp}" ] \
+  && [ -f "${case_gp}/gcs/parkio-synthetic-backups/stamps/$(basename "${stamp_gp}")/COMPLETE" ]; then
+  ok "a blank BACKUP_GCS_DEST= in the env file does not wipe the caller's destination"
+else
+  bad "the caller's BACKUP_GCS_DEST must survive a blank env file placeholder (rc=${rc})"
+fi
+
+# An upload that fails, or a listing that does not show every file at its size, stops before COMPLETE.
+for failure in FAKE_GCS_FAIL_NAME=minio.tar.gz.enc FAKE_GCS_SHORT_NAME=minio.tar.gz.enc FAKE_GCS_LIST_FAIL=1; do
+  reset_fakes
+  case_gf="${WORK}/gcs-${failure%%=*}"
+  old_gf="$(plant_old_good "${case_gf}/backups")"
+  rc=0
+  export "${failure?}"
+  run_hosted_gcs "${case_gf}" > "${case_gf}.log" 2>&1 || rc=$?
+  unset "${failure%%=*}"
+  stamp_gf="$(latest_stamp_dir "${case_gf}/backups" || true)"
+  remote_gf="${case_gf}/gcs/parkio-synthetic-backups/stamps/$(basename "${stamp_gf:-none}")"
+  ms="$(metric "${case_gf}/textfile/parkio_backup.prom" 'parkio_backup_last_success' 2>/dev/null || true)"
+  os="$(metric "${case_gf}/textfile/parkio_backup.prom" 'parkio_backup_offsite_last_success' 2>/dev/null || true)"
+  if [ "${rc}" -ne 0 ] && [ -n "${stamp_gf}" ] && [ -f "${stamp_gf}/COMPLETE" ] \
+    && [ -f "${remote_gf}/backup-manifest.json" ] && [ ! -e "${remote_gf}/COMPLETE" ] \
+    && no_receipt "${stamp_gf}" && [ "${ms}" = "0" ] && [ "${os}" = "0" ] \
+    && [ ! -f "${case_gf}/artifacts/backup-current.json" ] && [ -f "${old_gf}/COMPLETE" ]; then
+    ok "${failure}: the run fails before the remote COMPLETE; no receipt, no current pointer, no prune"
+  else
+    bad "${failure} must fail closed before COMPLETE (rc=${rc} metrics=${ms:-none}/${os:-none})"
+  fi
+done
+case_gf="${WORK}/gcs-FAKE_GCS_FAIL_NAME"
+stamp_gf="$(latest_stamp_dir "${case_gf}/backups" || true)"
+remote_gf="${case_gf}/gcs/parkio-synthetic-backups/stamps/$(basename "${stamp_gf:-none}")"
+if [ -n "${stamp_gf}" ] && [ -f "${remote_gf}/backup-manifest.json" ] && [ ! -e "${remote_gf}/minio.tar.gz.enc" ] \
+  && [ ! -e "${remote_gf}/user.sql.gz.enc" ]; then
+  ok "a failed gcs upload stops at that object; later objects are not sent"
+else
+  bad "a failed gcs upload must stop at the failed object"
+fi
+
+# An object that already exists under the new stamp is never replaced and fails the run.
+for existing in backup-manifest.json COMPLETE; do
+  reset_fakes
+  case_ge="${WORK}/gcs-existing-${existing}"
+  old_ge="$(plant_old_good "${case_ge}/backups")"
+  rc=0
+  FAKE_GCS_EXISTING="${existing}" run_hosted_gcs "${case_ge}" > "${case_ge}.log" 2>&1 || rc=$?
+  stamp_ge="$(latest_stamp_dir "${case_ge}/backups" || true)"
+  remote_ge="${case_ge}/gcs/parkio-synthetic-backups/stamps/$(basename "${stamp_ge:-none}")"
+  ms="$(metric "${case_ge}/textfile/parkio_backup.prom" 'parkio_backup_last_success' 2>/dev/null || true)"
+  os="$(metric "${case_ge}/textfile/parkio_backup.prom" 'parkio_backup_offsite_last_success' 2>/dev/null || true)"
+  kept="$(cat "${remote_ge}/${existing}" 2>/dev/null || true)"
+  if [ "${rc}" -ne 0 ] && [ -n "${stamp_ge}" ] && [ "${kept}" = "foreign-object" ] \
+    && { [ "${existing}" = COMPLETE ] || [ ! -e "${remote_ge}/COMPLETE" ]; } \
+    && no_receipt "${stamp_ge}" && [ "${ms}" = "0" ] && [ "${os}" = "0" ] && [ -f "${old_ge}/COMPLETE" ]; then
+    ok "an existing remote ${existing} fails the gcs upload closed: it is kept, no receipt, no prune"
+  else
+    bad "an existing remote ${existing} must fail closed (rc=${rc} remote: ${kept:-missing} metrics=${ms:-none}/${os:-none})"
+  fi
+done
+
+# Statically too: the gcs code runs gcloud only through its wrapper, for copies and listings.
+gcloud_uses="$(grep -v '^[[:space:]]*#' "${ROOT}/scripts/lib/backup-common.sh" \
+  | grep -oE 'parkio_backup_gcloud storage [a-z]+( [a-z]+)?' | LC_ALL=C sort -u | paste -sd'|' - || true)"
+if [ "${gcloud_uses}" = "parkio_backup_gcloud storage cp|parkio_backup_gcloud storage objects list" ] \
+  && ! grep -v '^[[:space:]]*#' "${ROOT}/scripts/lib/backup-common.sh" | grep -q -e '--no-clobber'; then
+  ok "backup-common.sh calls gcloud only for storage cp and storage objects list, never with --no-clobber"
+else
+  bad "backup-common.sh gcloud calls must be storage cp and storage objects list only (got '${gcloud_uses}')"
 fi
 
 # --- partial MinIO then failure ---
