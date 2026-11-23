@@ -12,6 +12,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Project, bucket, retention, trust document and producer key id are operator inputs with no
  * defaults; when enabled, a missing one stops the service at startup. Credentials use Application
  * Default Credentials (workload identity / service account) — not the erasure trust HMAC keys.
+ * {@code list-max-pages} and {@code list-deadline} bound one bucket listing (#493) and default to
+ * {@link GcsObjectRetentionBucket.ListBounds#DEFAULT}.
  */
 @ConfigurationProperties(prefix = "parkio.privacy.account-erasure.durable-store.gcs")
 public class GcsDurableStoreProperties {
@@ -25,6 +27,8 @@ public class GcsDurableStoreProperties {
     private Duration retention;
     private String trustFile = "";
     private String producerKeyId = "";
+    private int listMaxPages = GcsObjectRetentionBucket.ListBounds.DEFAULT.maxPages();
+    private Duration listDeadline = GcsObjectRetentionBucket.ListBounds.DEFAULT.deadline();
 
     List<String> problems() {
         List<String> problems = new ArrayList<>();
@@ -37,6 +41,12 @@ public class GcsDurableStoreProperties {
         }
         if (retention == null || retention.isZero() || retention.isNegative()) {
             problems.add("retention (positive duration)");
+        }
+        if (listMaxPages < 1) {
+            problems.add("list-max-pages (at least 1)");
+        }
+        if (listDeadline == null || listDeadline.isZero() || listDeadline.isNegative()) {
+            problems.add("list-deadline (positive duration)");
         }
         return problems;
     }
@@ -101,5 +111,21 @@ public class GcsDurableStoreProperties {
 
     public void setProducerKeyId(String producerKeyId) {
         this.producerKeyId = producerKeyId;
+    }
+
+    public int getListMaxPages() {
+        return listMaxPages;
+    }
+
+    public void setListMaxPages(int listMaxPages) {
+        this.listMaxPages = listMaxPages;
+    }
+
+    public Duration getListDeadline() {
+        return listDeadline;
+    }
+
+    public void setListDeadline(Duration listDeadline) {
+        this.listDeadline = listDeadline;
     }
 }

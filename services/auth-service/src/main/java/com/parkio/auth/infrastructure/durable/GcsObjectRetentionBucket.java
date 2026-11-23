@@ -7,9 +7,11 @@ import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
@@ -29,6 +31,12 @@ import java.util.function.LongSupplier;
  * the erasure commit on the request thread, so before enablement (#365, #492) the total pause must
  * be bounded per operation or that path must fail fast to the retry worker.
  *
+ * <p>A listing ({@link #keys}, {@link #oldest}, {@link #allVersions}, {@link #versionCount}) also
+ * runs under that lock, so it stays within {@link ListBounds} (#493): it fails closed with
+ * {@link AuthErrorCode#DURABLE_RECORDING_UNAVAILABLE} instead of following a page token it has
+ * already followed, fetching more than the maximum number of pages, or requesting another page once
+ * its deadline has passed.
+ *
  * <p>This class does not claim real-provider immutability acceptance; that remains #483.
  */
 final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
@@ -44,9 +52,19 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
         void sleep(Duration duration) throws InterruptedException;
     }
 
-    /** Bounds one listing: how many pages it may fetch and how long it may keep paging. */
+    /**
+     * Bounds one listing: how many pages of {@link GcsObjectRetentionBucket#LIST_PAGE_SIZE} generations it may fetch, and
+     * for how long after it started it may still request another page. The deadline is checked
+     * between pages; a request in flight is bounded by the client's own timeouts.
+     */
     record ListBounds(int maxPages, Duration deadline) {
 
+        /**
+         * 100,000 generations: the frontier history of about 50,000 records at two frontier writes
+         * per record, far above erasure volumes, while a provider that repeats or never ends its
+         * pages is stopped within 30 s and the request stays {@code PENDING_DURABLE} for the retry
+         * worker.
+         */
         static final ListBounds DEFAULT = new ListBounds(1_000, Duration.ofSeconds(30));
 
         ListBounds {
@@ -67,7 +85,11 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     private final ConcurrentHashMap<String, StoredVersion> versionCache = new ConcurrentHashMap<>();
 
     GcsObjectRetentionBucket(GcsObjectRetentionTransport transport) {
-        this(transport, duration -> Thread.sleep(duration.toMillis()));
+        this(transport, ListBounds.DEFAULT);
+    }
+
+    GcsObjectRetentionBucket(GcsObjectRetentionTransport transport, ListBounds listBounds) {
+        this(transport, duration -> Thread.sleep(duration.toMillis()), listBounds, System::nanoTime);
     }
 
     GcsObjectRetentionBucket(GcsObjectRetentionTransport transport, Pause pause) {
@@ -179,14 +201,33 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     private List<GcsObjectRetentionTransport.ListedGeneration> listAll(String prefix) {
         return call("list " + prefix, () -> {
             List<GcsObjectRetentionTransport.ListedGeneration> all = new ArrayList<>();
+            Set<String> followed = new HashSet<>();
+            long started = nanoTime.getAsLong();
             Optional<String> token = Optional.empty();
-            do {
+            for (int pages = 1; ; pages++) {
                 GcsObjectRetentionTransport.ListPage page = transport.listGenerations(prefix, token, LIST_PAGE_SIZE);
                 all.addAll(page.items());
                 token = page.nextPageToken();
-            } while (token.isPresent());
-            return all;
+                if (token.isEmpty()) {
+                    return all;
+                }
+                if (!followed.add(token.get())) {
+                    throw listRefused(prefix, "page token repeated");
+                }
+                if (pages >= listBounds.maxPages()) {
+                    throw listRefused(prefix, "more than " + listBounds.maxPages() + " pages");
+                }
+                if (Duration.ofNanos(nanoTime.getAsLong() - started).compareTo(listBounds.deadline()) >= 0) {
+                    throw listRefused(prefix, "deadline " + listBounds.deadline() + " passed");
+                }
+            }
         });
+    }
+
+    /** The page token itself is opaque provider state and stays out of the message. */
+    private static AuthException listRefused(String prefix, String reason) {
+        return new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                "durable store list " + prefix + " failed: " + reason);
     }
 
     private StoredVersion read(String key, long generation) {

@@ -59,7 +59,8 @@ class GcsDurableStoreConfig {
                 .build()
                 .getService();
         GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(
-                new GoogleCloudStorageTransport(storage, properties.getBucket()));
+                new GoogleCloudStorageTransport(storage, properties.getBucket()),
+                new GcsObjectRetentionBucket.ListBounds(properties.getListMaxPages(), properties.getListDeadline()));
         bucket.requireRetentionFeature();
         return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(),
                 EvidenceRetentionMode.parse(properties.getRetentionMode()), properties.getRetention(), clock);
