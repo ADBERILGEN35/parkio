@@ -22,6 +22,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -354,7 +355,12 @@ class GcsObjectRetentionBucketTest {
 
         @Override
         public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode,
-                                     Instant retainUntil) {
+                                     Instant retainUntil, OptionalLong ifGenerationMatch) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<GenerationBytes> liveGeneration(String objectName) {
             throw new UnsupportedOperationException();
         }
 
@@ -401,11 +407,16 @@ class GcsObjectRetentionBucketTest {
 
         @Override
         public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode,
-                                     Instant retainUntil) {
+                                     Instant retainUntil, OptionalLong ifGenerationMatch) {
             if (attempts.incrementAndGet() <= refusals) {
                 throw new StorageException(code, "refused by the test transport");
             }
-            return delegate.createGeneration(objectName, bytes, mode, retainUntil);
+            return delegate.createGeneration(objectName, bytes, mode, retainUntil, ifGenerationMatch);
+        }
+
+        @Override
+        public Optional<GenerationBytes> liveGeneration(String objectName) {
+            return delegate.liveGeneration(objectName);
         }
 
         @Override

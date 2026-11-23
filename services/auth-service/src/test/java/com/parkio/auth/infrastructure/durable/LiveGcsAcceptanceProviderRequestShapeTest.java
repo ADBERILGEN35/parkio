@@ -33,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -107,9 +108,9 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         GcsObjectRetentionTransport transport = provider.transport(Identity.WRITER, BUCKET);
 
         long locked = transport.createGeneration(NAME, "{\"a\":1}".getBytes(StandardCharsets.UTF_8),
-                EvidenceRetentionMode.COMPLIANCE, UNTIL);
+                EvidenceRetentionMode.COMPLIANCE, UNTIL, OptionalLong.empty());
         transport.createGeneration(NAME, "{\"a\":2}".getBytes(StandardCharsets.UTF_8),
-                EvidenceRetentionMode.GOVERNANCE, UNTIL);
+                EvidenceRetentionMode.GOVERNANCE, UNTIL, OptionalLong.empty());
 
         assertThat(locked).isEqualTo(1761123456000001L);
         Recorded upload = requests.get(0);
@@ -119,6 +120,43 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         assertThat(upload.body()).contains("\"retention\"").contains("\"mode\":\"Locked\"")
                 .contains("2026-10-22T11:00:00").contains(NAME);
         assertThat(requests.get(1).body()).contains("\"mode\":\"Unlocked\"");
+    }
+
+    @Test
+    void conditionalUploadsCarryTheirGenerationPreconditionAndARefusedOneWritesNothing() {
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET));
+
+        Optional<DurableEvidenceBucket.Written> created = bucket.putIfAbsent(NAME,
+                "{\"a\":1}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+        Optional<DurableEvidenceBucket.Written> replaced = bucket.putIfCurrent(NAME,
+                "{\"a\":2}".getBytes(StandardCharsets.UTF_8), "1761123456000001", EvidenceRetentionMode.GOVERNANCE,
+                UNTIL.atZone(ZoneOffset.UTC));
+        uploadStatuses.add(412);
+        Optional<DurableEvidenceBucket.Written> refused = bucket.putIfAbsent(NAME,
+                "{\"a\":3}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+
+        assertThat(requests.get(0).query()).containsEntry("ifGenerationMatch", "0");
+        assertThat(requests.get(1).query()).containsEntry("ifGenerationMatch", "1761123456000001");
+        assertThat(created).map(DurableEvidenceBucket.Written::versionId).contains("1761123456000001");
+        assertThat(replaced).map(DurableEvidenceBucket.Written::matchToken).contains("1761123456000002");
+        // A failed precondition is final: neither the client nor the adapter sends it again.
+        assertThat(refused).isEmpty();
+        assertThat(requests).hasSize(3);
+    }
+
+    @Test
+    void theLiveGenerationIsReadByNameAndThenAddressedByItsGeneration() {
+        GcsObjectRetentionTransport transport = provider.transport(Identity.READER, BUCKET);
+
+        GcsObjectRetentionTransport.GenerationBytes live = transport.liveGeneration(NAME).orElseThrow();
+
+        assertThat(live.generation()).isEqualTo(5L);
+        assertThat(new String(live.bytes(), StandardCharsets.UTF_8)).isEqualTo("generation-5");
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(0).method()).isEqualTo("GET");
+        assertThat(requests.get(0).path()).isEqualTo("/storage/v1/b/" + BUCKET + "/o/" + NAME);
+        assertThat(requests.get(0).query()).doesNotContainKey("generation").doesNotContainKey("alt");
+        assertThat(requests.get(1).query()).containsEntry("generation", "5").containsEntry("alt", "media");
     }
 
     @Test

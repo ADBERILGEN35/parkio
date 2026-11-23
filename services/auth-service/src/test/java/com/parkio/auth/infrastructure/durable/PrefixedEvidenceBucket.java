@@ -64,6 +64,24 @@ final class PrefixedEvidenceBucket implements DurableEvidenceBucket {
     }
 
     @Override
+    public Optional<Current> current(String key) {
+        return delegate.current(prefix + key)
+                .map(current -> new Current(strip(current.version()), current.matchToken()));
+    }
+
+    @Override
+    public Optional<Written> putIfAbsent(String key, byte[] bytes, EvidenceRetentionMode mode,
+                                         ZonedDateTime retainUntil) {
+        return delegate.putIfAbsent(prefix + key, bytes, mode, retainUntil);
+    }
+
+    @Override
+    public Optional<Written> putIfCurrent(String key, byte[] bytes, String matchToken, EvidenceRetentionMode mode,
+                                          ZonedDateTime retainUntil) {
+        return delegate.putIfCurrent(prefix + key, bytes, matchToken, mode, retainUntil);
+    }
+
+    @Override
     public RetentionLock retention(String key, String versionId) {
         return delegate.retention(prefix + key, versionId);
     }

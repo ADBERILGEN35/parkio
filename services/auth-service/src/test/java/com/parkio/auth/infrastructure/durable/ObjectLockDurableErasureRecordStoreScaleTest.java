@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
@@ -25,9 +26,10 @@ import org.junit.jupiter.api.Timeout;
 /**
  * Requests per store operation with 1,000 and then 10,000 recorded erasures (#494), on the GCS
  * adapter over the in-memory transport. The history is written straight to the transport in the
- * store's own format: per erasure a sequence marker, the signed pending record and the two frontier
- * generations that {@code putIfAbsent} leaves. Only the measured operations go through the store,
- * and every transport call they make is counted.
+ * store's own format: per erasure a sequence marker, the signed pending record and two frontier
+ * generations, as the protocol before #494 left them (the current one leaves one), so the
+ * frontier history is as long as it can get. Only the measured operations go through the store,
+ * and every provider request they make is counted.
  */
 class ObjectLockDurableErasureRecordStoreScaleTest {
 
@@ -94,7 +96,7 @@ class ObjectLockDurableErasureRecordStoreScaleTest {
         return requests;
     }
 
-    /** Erasures {@code first} through {@code last}, each as {@code putIfAbsent} leaves it. */
+    /** Erasures {@code first} through {@code last}, each as the protocol before #494 left it. */
     private static void writeHistory(InMemoryGcsObjectRetentionTransport memory, long first, long last) {
         for (long sequence = first; sequence <= last; sequence++) {
             DurableErasureRecord record = historicRecord(sequence);
@@ -116,7 +118,8 @@ class ObjectLockDurableErasureRecordStoreScaleTest {
     }
 
     private static void write(InMemoryGcsObjectRetentionTransport memory, String key, byte[] bytes) {
-        memory.createGeneration(key, bytes, EvidenceRetentionMode.GOVERNANCE, CLOCK.instant().plus(RETENTION));
+        memory.createGeneration(key, bytes, EvidenceRetentionMode.GOVERNANCE, CLOCK.instant().plus(RETENTION),
+                OptionalLong.empty());
     }
 
     private static long highestMarker(InMemoryGcsObjectRetentionTransport memory) {
@@ -156,9 +159,16 @@ class ObjectLockDurableErasureRecordStoreScaleTest {
 
         @Override
         public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode,
-                                     Instant retainUntil) {
+                                     Instant retainUntil, OptionalLong ifGenerationMatch) {
             requests++;
-            return delegate.createGeneration(objectName, bytes, mode, retainUntil);
+            return delegate.createGeneration(objectName, bytes, mode, retainUntil, ifGenerationMatch);
+        }
+
+        /** Two requests, as GoogleCloudStorageTransport sends them: the live generation, then its bytes. */
+        @Override
+        public Optional<GenerationBytes> liveGeneration(String objectName) {
+            requests += 2;
+            return delegate.liveGeneration(objectName);
         }
 
         @Override
