@@ -36,8 +36,8 @@ The isolated drill of #296 measured RTO 234 s, data RPO 165 s and erasure RPO 0 
 production acceptance ([disaster-recovery-runbook.md](../operations/disaster-recovery-runbook.md), "RPO / RTO").
 
 **The refusal covers the scripted restore path only.**
-- The production VM's disk has daily snapshots, kept for 14 days. The Docker volumes are on that disk, and so is
-  all personal data.
+- The production VM's disk has daily snapshots, kept for 14 days. The Docker volumes are on that disk, and with
+  them the personal data on the host.
 - Restoring a snapshot is a full data restore that no repository script refuses (D5).
 
 ### Layer status (2026-11-23)
@@ -71,7 +71,7 @@ Each of these copies binds D1 and the counsel questions.
 
 | Copy | How long it can hold an erased account (2026-11-23) |
 |---|---|
-| Offsite backups: a Cloud Storage bucket in the same Google Cloud project as production | A 14-day bucket retention policy (unlocked) keeps objects from being deleted or overwritten for 14 days. A lifecycle rule deletes them at 35 days, and a 7-day soft delete keeps a deleted object recoverable. So a copy can exist for up to about 42 days after upload |
+| Offsite backups: a Cloud Storage bucket in the same Google Cloud project as production | A 14-day bucket retention policy (unlocked) keeps objects from being deleted or overwritten for 14 days. A lifecycle rule deletes them at 35 days, and a 7-day soft delete keeps a deleted object recoverable. So a copy can exist for up to about 42 days **after upload**. The outage-period stamps were uploaded on 2026-11-23, the oldest from 2026-09-30, and stay until about 2027-01-04. So the bucket holds data up to about 96 days old (#520) |
 | Local backup stamps on the production host | Pruned after `BACKUP_RETENTION_DAYS` (default 14, `scripts/backup-hosted-beta.sh`), but only after a successful offsite step. The old offsite target failed for weeks, so no local prune has run, and older stamps remain. Pruning resumes once the reviewed `gcs` offsite kind (PR #575, Refs #520) is live |
 | Production VM disk snapshots | Daily, kept 14 days. They contain every Docker volume |
 | Live tombstone tables (`erased_user_tombstones` in auth and the participants' tombstones) | `{authUserId, erased_at}` kept with no expiry; no service deletes tombstones |
@@ -90,20 +90,32 @@ This matters for the legal questions in D1.
 - There are no e-mail addresses, names or user content.
 - After erasure, the auth row stays only as an `ERASED` tombstone without a recoverable e-mail
   ([priv-001-account-data-erasure.md](priv-001-account-data-erasure.md)).
+- **Nothing deletes evidence.** The bucket has no lifecycle rule (D3.5), and the adapters never delete. Both
+  verifiers return `BLOCKED` on any gap in sequences `1..expectedThrough` (`DurableErasureEvidenceVerifier`,
+  `scripts/lib/recovery_persist_protocol.py`). So every record, checkpoint and marker is kept indefinitely,
+  and the D1 period is only a lock period: how long an object cannot be deleted. Deleting evidence after its
+  lock expires would break the chain and block every later recovery.
 - **Checkpoints re-copy every erased id.** Every checkpoint copies the whole tombstone ledger, and tombstones
-  are never deleted. So each new checkpoint writes and locks every erased user's id again. The D1 period
-  applies to each object, which means an erased id stays in the locked store as long as checkpoints keep being
-  written, plus the period.
+  are never deleted. So each new checkpoint writes and locks every erased user's id again. With periodic
+  checkpoints, every erased id is also under a live lock at all times.
 
 ## 2. Decisions needed
 
 Each decision is listed with its options and the technical consequence of each. Legal and custody items are
 questions for the owner and counsel; this memo answers none of them.
 
-### D1. Legal retention duration for durable erasure evidence
+### D1. Lock period and retention of durable erasure evidence
 
 **Facts that bind the choice:**
-- **The evidence must outlive every copy it may have to correct** (the table in §1).
+- **The period is a lock period, and retention is indefinite.** Nothing deletes evidence (§1).
+  - During the lock, nobody can delete an object.
+  - After it, the object stays in the bucket, protected only by IAM: the production writer holds
+    `storage.objects.delete` (finding 4). With soft delete off, a deletion would be final, and it would block
+    every later recovery.
+  - Deleting evidence after a maximum period is therefore not possible in the current design. It would need a
+    design change to the store and both verifiers. Whether a maximum is required is for the owner and counsel
+    (question 5); this memo cannot offer it as an option.
+- **The lock should cover every copy a restore may have to correct** (the table in §1).
   - The engineering floors on record were derived from the old 14-day offsite window, as offsite retention plus
     30 days to investigate and recover (#366,
     [erasure-evidence-key-custody.md](../operations/erasure-evidence-key-custody.md)). They are:
@@ -119,15 +131,15 @@ questions for the owner and counsel; this memo answers none of them.
   - After the retain-until passes, any identity with `storage.objects.delete` can delete the object, the
     production writer included (finding 4).
   - With soft delete off, that deletion is final.
-- **Checkpoints extend how long an id stays.** Each checkpoint re-copies and re-locks every erased id (§1), so
-  the checkpoint cadence (D3.2) decides how long an erased id stays in the store as much as the period does.
-- **Cost.** Every write is retained for the period, frontier rewrites and markers included. Storage volume is
-  tiny; the cost comes from operations and retained generations (#494).
+- **Checkpoints keep every erased id under a live lock.** Periodic checkpoints re-copy and re-lock every erased
+  id (§1).
+- **Cost.** Every write is kept indefinitely, frontier rewrites and markers included. Storage volume is tiny;
+  the cost comes from operations and the growing number of retained generations (#494).
 
-| Option | Consequence |
+| Option (lock period) | Consequence |
 |---|---|
-| R1. A period tied to the longest restorable copy plus a margin, re-derived by engineering from today's settings | Shortest exposure and lowest cost. Any later increase of backup or snapshot retention must raise the evidence period first, or older copies lose their proof |
-| R2. A fixed period set by counsel | Follows counsel exactly. If it is longer than R1, the extra time cannot be shortened later for objects already written under Locked mode |
+| R1. A lock tied to the longest restorable copy plus a margin, re-derived by engineering from today's settings | The lock protects the evidence while a restorable copy may need it. After that the evidence stays, protected only by IAM. Any later increase of backup or snapshot retention must raise the lock first, or older copies lose their protected proof |
+| R2. A lock period set by counsel | Follows counsel exactly. If it is longer than R1, the extra lock time cannot be shortened later for objects already written under Locked mode, so a deletion demand in that time cannot be met |
 
 **Questions for counsel (KVKK and GDPR).** These are questions only:
 1. **Applicable law.** Do KVKK (Law No. 6698) and the GDPR both apply to Parkio's processing? Parkio is offered
@@ -136,22 +148,30 @@ questions for the owner and counsel; this memo answers none of them.
 2. **Erasure obligation.** After a user's erasure, is it compatible with the erasure obligations (KVKK Art. 7
    and the regulation on erasure, destruction or anonymization; GDPR Art. 17) to keep that user's random
    `authUserId` and erasure time? The purpose is to prove and re-apply the erasure after a disaster restore.
-   Note that periodic checkpoints write and lock the same id again and again.
+   Note that the evidence is kept indefinitely, and periodic checkpoints write and lock the same id again and
+   again.
 3. **Lawful basis.** If keeping it is permitted, which lawful basis applies, if any? What documentation does
    that basis require (for example a balancing test, or an entry in the retention and destruction policy)?
 4. **Personal data.** Is `authUserId` still personal data once the account is erased? These copies still hold
    the account or the id:
-   - offsite backups, for up to about 42 days;
+   - offsite backups, for up to about 42 days after upload; the outage-period stamps hold data up to about
+     96 days old;
    - local backup stamps, longer while local pruning is paused;
    - VM disk snapshots, for 14 days;
    - the live tombstone tables, with no expiry;
+   - the evidence store, indefinitely;
    - logs, within their own retention.
-5. **Maximum period.** What is the longest acceptable retention period for this evidence? Must it follow the
-   backup and snapshot retention? Does it bound each checkpoint object or each erased id?
+5. **Retention and lock period.** The current design keeps the evidence, and so the erased ids,
+   indefinitely; only the lock period can be set.
+   - Is indefinite retention acceptable?
+   - If not, what maximum applies? Meeting it needs a design change, which is a decision for the owner.
+   - How long must the lock last at least, and must it follow the backup and snapshot retention?
 6. **Irreversible lock.** Is an irreversible lock acceptable? A Locked object cannot be deleted before its
-   retain-until, even on a data subject request, a KVKK Board decision or a court order.
-7. **Transfers abroad.** Does storing this evidence, the backups (#520) and the VM disk snapshots in EU regions
-   count as a transfer abroad under KVKK Art. 9? If so, which instrument is needed?
+   retain-until, even on a data subject request, a KVKK Board decision or a court order. If counsel rejects
+   it, owner decision B2 and D3.5 must be revisited.
+7. **Transfers abroad.** Does hosting these in EU regions count as a transfer abroad under KVKK Art. 9: the
+   production host, the backups (#520), the VM disk snapshots and this evidence? If so, which instrument is
+   needed?
 8. **Registers and notices.** Does this processing need to appear in:
    - the VERBIS registry and the personal data processing inventory (KVKK Art. 16);
    - the record of processing activities (GDPR Art. 30);
@@ -247,10 +267,13 @@ Decisions needed:
 - the caller: a schedule inside auth-service, or an operator-run command. Either needs new code.
 - the cadence, including that first checkpoint.
 
+Every recovery verifies the full chain and replays the full erasure set, so the cadence does not shorten a
+replay. What it changes:
+
 | Cadence | Consequence |
 |---|---|
-| Higher | Shorter replay and less reliance on records alone. More retained generations, and every erased id is re-locked more often (D1) |
-| Lower | Fewer generations and less re-locking. More records to replay, and longer stretches that depend on the record chain |
+| Higher | Unrecorded erasures, from before enablement or from a rollback, get covered sooner. The capture's SHARE lock on the tombstone table holds back new deletion requests more often; each capture is bounded by the 12 s lock timeout and the 20 s statement timeout. More retained generations, more re-locking of erased ids (D1), and more exposure to finding 3's extra sequences |
+| Lower | Fewer captures, generations and re-locks. Unrecorded erasures wait longer for coverage |
 
 **D3.3 Project.**
 
@@ -284,8 +307,9 @@ retention:
 | Uniform bucket-level access | On |
 | Public access prevention | Enforced |
 | Bucket Lock retention policy | None |
+| Lifecycle rules | None: nothing deletes evidence (§1) |
 
-- Retention mode: COMPLIANCE (Locked), per owner decision B2. The duration comes from D1.
+- Retention mode: COMPLIANCE (Locked), per owner decision B2. The lock period comes from D1.
 - Store authentication: the production VM's attached service account through ADC, with custom roles modelled on
   the #483 plan (§7.4).
 
@@ -357,7 +381,7 @@ that permission, so retention protects the evidence, not IAM. #483 measures this
 
 | Option | Consequence |
 |---|---|
-| S-A. An owner rule in the disaster recovery runbook: restoring data from a snapshot counts as a production data restore and stays refused until coverage exists, except into an isolated environment | No infrastructure change. The rule is procedural, since no script enforces it |
+| S-A. An owner rule in the disaster recovery runbook: restoring data from a snapshot counts as a production data restore and stays refused until coverage exists | No infrastructure change. The rule is procedural, since no script enforces it. Restoring onto another host, even an isolated one, is not an exception: D-DP1 forbids moving real production data to another host ([f27 design matrix](../operations/f27-production-recovery-coverage-design-matrix.md) §5) |
 | S-B. Exclude the data from snapshots, for example by moving the Docker volumes to a separate disk without a snapshot schedule, and rely on backups | One copy fewer, and the scripted refusal then covers data restores. Loses the fast whole-disk recovery path, and needs a migration on the production host |
 | S-C. Keep snapshots and restrict who may restore them (IAM), with S-A's rule | Narrows who can take the unrefused path. Still procedural |
 
@@ -369,7 +393,7 @@ Steps 1 to 3 can run in parallel. The rest are ordered.
    the S3 contingency.
 2. Merge #493 and #494.
 3. Counsel answers D1. The owner records on #365:
-   - D1: the retention duration and the lawful-basis outcome;
+   - D1: the lock period, the answer on indefinite retention, and the lawful-basis outcome;
    - D2: the custody choices;
    - D3: approval, checkpoint caller and cadence, project, region, public status and exposure owner;
    - D5: snapshot restores.
