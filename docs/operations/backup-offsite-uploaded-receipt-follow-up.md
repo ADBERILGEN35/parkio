@@ -38,6 +38,8 @@ the stamp, at `<BACKUP_DIR>/<stamp>.offsite-receipt.json`:
 ```
 
 For Azure, `target` is `azure://<container>/<stamp>`. The storage account is left out, as in the upload log.
+For the `gcs` kind, `target` is `gs://<bucket>/<prefix>/<stamp>`, and its upload returns 0 only after
+a listing showed every file of the stamp at its local byte size.
 
 Rules (`parkio_backup_write_offsite_receipt` in `scripts/lib/backup-common.sh`):
 

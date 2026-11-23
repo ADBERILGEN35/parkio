@@ -48,7 +48,7 @@ CI weekly drill: `.github/workflows/backup-restore-drill.yml` at `23 4 * * 1` (U
 `BACKUP_PRODUCTION_MODE=1` (required on azure-hosted-beta cron):
 
 - `BACKUP_ENCRYPT_PASSPHRASE` must be set — otherwise **backup fails** (no plaintext dumps)
-- offsite must be configured (`BACKUP_MC_DEST` **or** Azure Blob) — otherwise **backup fails**
+- offsite must be configured (`BACKUP_MC_DEST`, Azure Blob, **or** `BACKUP_OFFSITE_KIND=gcs` with `BACKUP_GCS_DEST`) — otherwise **backup fails**
 - offsite upload failure → overall backup **FAILED** (local-only is not “protected”)
 - dump checksums are required
 - stamp is incomplete until `COMPLETE` exists
@@ -78,17 +78,22 @@ Consumers must refuse a remote stamp without `COMPLETE`.
 
 ## Offsite destination (approved)
 
+Since 2026-11-23 production runs on Google Compute Engine and the offsite copy goes to Google
+Cloud Storage (owner decision). The earlier Azure Blob target no longer exists; the `azure` kind
+stays in the scripts, and `s3`/mc is what the CI drill uses. See
+[Google Cloud Storage offsite](#google-cloud-storage-offsite-gcs).
+
 | Property | Value |
 |----------|--------|
-| Provider | Azure Blob Storage (S3/mc also supported for CI) |
-| Failure domain | Dedicated resource group `rg-parkio-backups`, region **westeurope** (VM is **francecentral**) |
-| TLS | HTTPS, TLS 1.2+, Azure CLI default verification (do not disable) |
-| Encryption at rest | Azure SSE (Microsoft-managed); DB dumps also client-side AES-256-CBC |
-| Versioning | Enabled on the backup account |
-| Retention | 14 days blob lifecycle (offsite) + 14 days local prune |
-| Cost | Standard LRS; cents/month at current dump size |
+| Provider | Google Cloud Storage, offsite kind `gcs` |
+| Failure domain | Bucket in **europe-west1**; the VM runs in **europe-west4** |
+| TLS | HTTPS through `gcloud storage` (default certificate verification; do not disable) |
+| Encryption at rest | Cloud Storage default encryption; DB dumps and the MinIO artifact also client-side AES-256-CBC |
+| Protection | 14-day bucket retention policy, 7-day soft delete, uniform access, public access prevention |
+| Retention | Bucket lifecycle deletes objects at 35 days; local prune at 14 days |
+| Credentials | None stored: the VM's attached service account (create, read and list objects only) |
 
-Account/container names are operator config (not committed with keys).
+Bucket and prefix are operator config in the env file.
 
 MinIO objects are **not** client-side encrypted by backup scripts. Protection = TLS in transit + Azure SSE at rest. Do not claim `.enc` covers MinIO.
 
@@ -101,7 +106,9 @@ MinIO objects are **not** client-side encrypted by backup scripts. Protection = 
 | `BACKUP_OFFSITE_RETENTION_DAYS` | Documented offsite lifecycle | `14` |
 | `BACKUP_PRODUCTION_MODE` | Fail-closed encrypt+offsite | `0` (dev) |
 | `BACKUP_ENCRYPT_PASSPHRASE` | AES-256-CBC PBKDF2 for **DB dumps** and **MinIO** offsite artifact | empty (off) |
-| `BACKUP_OFFSITE_KIND` | `s3` / `azure` / empty=auto | auto |
+| `BACKUP_OFFSITE_KIND` | `s3` / `azure` / `gcs` / empty=auto (auto never picks `gcs`) | auto |
+| `BACKUP_GCS_DEST` | `gs://<bucket>/<prefix>` for the `gcs` kind | empty |
+| `BACKUP_GCLOUD_BIN` | Absolute path of `gcloud` for the `gcs` kind (optional) | `gcloud` on `PATH`, then `/snap/bin/gcloud` |
 | `BACKUP_MC_DEST` | `mc` alias/bucket | empty |
 | `BACKUP_AZURE_STORAGE_ACCOUNT` | Azure account | empty |
 | `BACKUP_AZURE_CONTAINER` | Azure container | empty |
@@ -209,8 +216,79 @@ caller's value. Make the first run against the restored target a bounded run wit
 
 The upload never touches another stamp. Azure `upload-batch` and `upload` write only under
 `<container>/<stamp>/`; `mc mirror` (without `--remove`) and `mc cp` write only under
-`<BACKUP_MC_DEST>/<stamp>/`. The backup scripts never delete remote objects. `--overwrite`
-can replace objects only under a stamp of the same name. A stamp name is the run's start
+`<BACKUP_MC_DEST>/<stamp>/`; `gcs` creates only new objects under `<BACKUP_GCS_DEST>/<stamp>/`
+and fails rather than replace one. The backup scripts never delete remote objects. `--overwrite`
+(azure, s3) can replace objects only under a stamp of the same name. A stamp name is the run's start
 time in UTC seconds, so that takes two runs starting in the same second; runs that take the
-shared lock cannot. Old remote objects expire through the destination account's lifecycle
+shared lock cannot. Old remote objects expire through the destination's lifecycle
 rule (see Offsite destination), not through these scripts.
+
+## Google Cloud Storage offsite (`gcs`)
+
+In the env file the backup uses:
+
+```bash
+BACKUP_OFFSITE_KIND=gcs
+BACKUP_GCS_DEST=gs://parkio-prod-backups-euw1/stamps
+# BACKUP_GCLOUD_BIN=/snap/bin/gcloud   # optional: without it, gcloud on PATH, then /snap/bin/gcloud
+```
+
+`gcs` is used only when `BACKUP_OFFSITE_KIND=gcs` says so; it is never picked from other
+settings. A run with a malformed `BACKUP_GCS_DEST` (it must be `gs://<bucket>/<prefix>`) or
+without an executable `gcloud` stops at preflight with exit 2, before it dumps anything, in
+production mode and outside it. `--dry-run` runs that preflight and writes only a dry-run manifest.
+Cron's `PATH` (`/usr/bin:/bin`) has no `/snap/bin`, which is why the script looks there too.
+
+**Keyless.** No key, token or HMAC secret is stored, and the scripts pass no credential to
+`gcloud`: it uses its active account. On the VM that is the attached service account, through
+the metadata server. Its only roles on the bucket are `roles/storage.objectCreator` and
+`roles/storage.objectViewer`: it can create, read and list objects, but cannot delete or replace
+them or read the bucket's metadata. On the host, as root (the backup's user), `gcloud auth list`
+must show that service account as the only credentialed account, and the env file must set no
+`CLOUDSDK_AUTH_*` variable.
+
+**Bucket protections**, set on the bucket and not by these scripts:
+
+- a 14-day bucket retention policy: no object can be deleted or replaced for 14 days after upload;
+- 7-day soft delete: a deleted object can be restored for 7 more days;
+- a lifecycle rule that deletes objects 35 days after upload, which is what ages old stamps out;
+- uniform bucket-level access and public access prevention.
+
+**What a run uploads.** Each file of the sealed stamp becomes one object, `<prefix>/<stamp>/<file>`,
+copied with `gcloud storage cp --if-generation-match=0`. If that object already exists, the copy
+fails (HTTP 412) and the object is kept; the run then counts as an offsite failure (no receipt,
+no prune, `parkio_backup_offsite_last_success=0`). `--no-clobber` is not used, because it skips an
+existing object and still succeeds. Parallel composite uploads are off: they would need bucket
+reads and object deletes. The stamp must be flat (regular files only), as an encrypted production
+stamp is. `COMPLETE` goes last, and only after a listing shows every other file at its local size.
+A second listing must then show the whole stamp before the receipt beside it
+(`<stamp>.offsite-receipt.json`, target `gs://<bucket>/<prefix>/<stamp>`) is written.
+
+**Verify a stamp remotely.** These only read; the service account may run them.
+
+- Names and sizes: `gcloud storage ls --long --recursive gs://parkio-prod-backups-euw1/stamps/<stamp>/`.
+- The dated record: `scripts/backup-dated-acceptance.sh --stamp-dir /var/backups/parkio/<stamp> ...`
+  compares the listing with `SHA256SUMS` (outcome 2) and verifies a pulled copy (outcome 3); see
+  [backup-dated-acceptance.md](./backup-dated-acceptance.md).
+- A copy: `scripts/backup-offsite-pull.sh --stamp <stamp> --dest <new directory>` downloads each
+  object and runs `sha256sum -c SHA256SUMS`.
+
+**Replacing the interim job.** Until this kind is deployed, `/etc/cron.d/parkio-gcs-interim` runs
+`/usr/local/sbin/parkio-gcs-interim-sync.sh` at 04:20 UTC under the backup lock. It copies
+`/var/backups/parkio` into `gs://parkio-prod-backups-euw1/stamps` without replacing objects: the
+same `stamps/<stamp>/` layout, plus each `<stamp>.offsite-receipt.json` beside its stamp prefix,
+outside every stamp's listing. The outage stamps are also archived under `archive/civo-outage-20261123/`.
+Once the env file says `gcs`, a scheduled run prunes, so do steps 1 to 4 with the schedule held,
+or all of them before the next 03:30 UTC run:
+
+1. Update the checkout with the `gcs` kind and set the env lines above. Remove the Azure lines;
+   that subscription no longer exists.
+2. Run `backup-hosted-beta.sh --dry-run` under the lock, with the scheduled run's environment. The
+   preflight must pass.
+3. Make the first real run the bounded `--no-prune` run of [Offsite outage](#offsite-outage).
+4. Verify that stamp remotely, as above.
+5. Then remove the interim job: delete `/etc/cron.d/parkio-gcs-interim` and
+   `/usr/local/sbin/parkio-gcs-interim-sync.sh`. While both run, the 03:30 run uploads its stamp
+   first and the 04:20 copy skips those objects. If a `gcs` upload stops partway, the next interim
+   copy completes that stamp, `COMPLETE` included, but no receipt is written for it.
+6. Release the schedule. Pruning resumes with the next scheduled run (Offsite outage, step 5).
