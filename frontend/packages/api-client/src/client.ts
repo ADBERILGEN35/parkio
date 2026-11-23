@@ -29,7 +29,8 @@ type RefreshHandler = () => Promise<string | null>;
  * specific account (e.g. registration-captured profile fields). Unbound
  * requests keep the default behaviour: Authorization is read from token
  * storage when the request interceptor runs, and a 401 is retried once with
- * whatever token the shared refresh returns.
+ * whatever token the shared refresh returns (a 401 `INVALID_CREDENTIALS` is
+ * never refreshed or retried, see `isFailedPasswordCheck`).
  *
  * A bound request instead:
  * - is stamped with `accessToken` (captured when the caller verified the
@@ -111,6 +112,21 @@ function isRefreshExempt(url: string | undefined): boolean {
   return Boolean(url && REFRESH_EXEMPT_PATHS.some((path) => url.includes(path)));
 }
 
+/**
+ * A 401 `INVALID_CREDENTIALS` never triggers a silent refresh, on any path.
+ * auth-service answers a failed password check with it (a wrong current
+ * password on change-password, a wrong password on account deletion), and an
+ * attempt the login throttle refused gets the same answer. On these protected
+ * routes the gateway has already accepted the access token, so a refresh cannot
+ * help, and a resend would check the same password again and count it twice on
+ * the throttle budget it shares with login. The gateway rejects a missing,
+ * invalid, expired or revoked access token with other codes (`MISSING_TOKEN`,
+ * `INVALID_TOKEN`, `TOKEN_REVOKED`), which still refresh and retry once.
+ */
+function isFailedPasswordCheck(error: { readonly code: string }): boolean {
+  return error.code === 'INVALID_CREDENTIALS';
+}
+
 export function createApiClient(options: ApiClientOptions): AxiosInstance {
   const { tokenStorage, onAuthFailure, onAccountNotActive, defaultHeaders } = options;
   const { baseURL } = options;
@@ -150,7 +166,8 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
         original &&
         !original._retry &&
         refreshHandler &&
-        !isRefreshExempt(original.url)
+        !isRefreshExempt(original.url) &&
+        !isFailedPasswordCheck(parkioError)
       ) {
         original._retry = true;
 
