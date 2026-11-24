@@ -29,6 +29,7 @@ from recovery_evidence_contract import (  # noqa: E402
     REQUIRED_PARTICIPANTS,
     persist_before_ack_is_not_implemented,
     restore_erasure_ledger_still_unverified,
+    sha256_hex,
 )
 from recovery_persist_protocol import (  # noqa: E402
     FRONTIER_KEY,
@@ -41,7 +42,14 @@ from recovery_persist_protocol import (  # noqa: E402
     erasure_record_id,
     fixture_keys_stay_in_tests,
     production_durable_recording_is_disabled,
+    checkpoint_key,
+    checkpoint_reservation,
+    checkpoint_reservation_key,
     recover_latest_trusted,
+    reservation_key,
+    sequence_key,
+    sequence_reservation,
+    verify_frontier,
     TrustedKey,
 )
 
@@ -198,8 +206,7 @@ class PersistProtocolTest(unittest.TestCase):
             worker.join()
         self.assertEqual(sorted(allocated), [1, 2])
         self.assertEqual(len(set(allocated)), 2)
-        allocator = SequenceAllocator(self.store)
-        self.assertEqual(allocator.highest_allocated(), 2)
+        self.assertEqual(self.store.list_prefix("sequences/"), [sequence_key(1), sequence_key(2)])
 
     def test_gap_is_not_completeness_and_unknown_tail_blocks(self):
         self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
@@ -531,6 +538,169 @@ class TrustDocumentTest(unittest.TestCase):
                     EvidenceTrust.from_document(document)
                 self.assertIn(problem, str(ctx.exception))
                 self.assertNotIn(self.SECRET[:16], str(ctx.exception))
+
+
+class CountingMemoryStore:
+    """The model store's interface in memory, counting every request a writer sends."""
+
+    def __init__(self):
+        self.objects = {}
+        self.requests = 0
+
+    def put_if_absent(self, key, data):
+        self.requests += 1
+        if key in self.objects:
+            return {"publicationId": key, "etag": None, "created": False, "existed": True}
+        self.objects[key] = data
+        return {"publicationId": key, "etag": None, "created": True, "existed": False}
+
+    def put_if_match(self, key, data, etag):
+        self.requests += 1
+        current = self.objects.get(key)
+        if current is None or sha256_hex(current) != etag:
+            return {"publicationId": key, "etag": None, "created": False, "existed": current is not None}
+        self.objects[key] = data
+        return {"publicationId": key, "etag": sha256_hex(data), "created": True, "existed": True}
+
+    def get_with_etag(self, key):
+        self.requests += 1
+        data = self.objects.get(key)
+        return None if data is None else (data, sha256_hex(data))
+
+    def get(self, key):
+        data = self.get_optional(key)
+        if data is None:
+            raise ContractError(f"missing publication {key}")
+        return data
+
+    def get_optional(self, key):
+        self.requests += 1
+        return self.objects.get(key)
+
+    def exists(self, key):
+        self.requests += 1
+        return key in self.objects
+
+    def list_prefix(self, prefix):
+        self.requests += 1
+        return sorted(key for key in self.objects if key.startswith(prefix))
+
+
+class ConditionalWriteProtocolTest(unittest.TestCase):
+    """#494: allocation starts above the signed frontier, objects are created only if absent,
+    the frontier is raised once, after publication, by compare-and-swap, and a reservation whose
+    writer stopped is indexed by the next writer that passes it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "store"
+        self.store = IsolatedVersionedStore(self.root)
+        self.trust = EvidenceTrust(DB, [TrustedKey(KEY_ID, PRODUCER, KEY, NOT_BEFORE)])
+        self.coord = IsolatedErasureCoordinator(self.store, self.trust, KEY_ID)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _stopping_coordinator(self):
+        """A writer that stops before its record: every record write fails."""
+        return IsolatedErasureCoordinator(
+            IsolatedVersionedStore(self.root, fail_on_prefix="records/"), self.trust, KEY_ID)
+
+    def test_a_reservation_whose_record_was_lost_is_indexed_by_the_next_writer_and_filled_by_its_retry(self):
+        with self.assertRaises(PersistFailed):
+            self._stopping_coordinator().request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        lost = recover_latest_trusted(self.store, self.trust)
+        self.assertEqual(lost["verdict"], "BLOCKED")
+        self.assertEqual(lost["expectedThrough"], 0)
+        self.assertEqual(lost["abandonedReservations"], [1])
+
+        self.assertEqual(self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")["sequence"], 2)
+        self.assertEqual(self.store.get(reservation_key(REQ1)), sequence_reservation(1, REQ1))
+        gap = recover_latest_trusted(self.store, self.trust)
+        self.assertEqual(gap["verdict"], "BLOCKED")
+        self.assertEqual(gap["gaps"], [1])
+
+        self.assertEqual(self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")["sequence"], 1)
+        complete = recover_latest_trusted(self.store, self.trust)
+        self.assertEqual(complete["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(complete["expectedThrough"], 2)
+        self.assertEqual(self.store.list_prefix("sequences/"), [sequence_key(1), sequence_key(2)])
+
+    def test_a_retry_whose_marker_is_still_above_the_frontier_takes_it_again(self):
+        with self.assertRaises(PersistFailed):
+            self._stopping_coordinator().request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+
+        self.assertEqual(self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")["sequence"], 1)
+
+        self.assertEqual(self.store.list_prefix("reservations/"), [])
+        self.assertEqual(recover_latest_trusted(self.store, self.trust)["verdict"], "ACCEPT_ISOLATED")
+
+    def test_a_checkpoint_reservation_passed_by_a_record_is_indexed_and_filled_by_the_next_checkpoint(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        self.assertEqual(self.coord.allocator.allocate(CHECKPOINT_RESERVATION_ID), 2)
+        # The checkpoint writer stops after its marker; a record passes it.
+        self.assertEqual(self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")["sequence"], 3)
+        self.assertEqual(self.store.get(checkpoint_reservation_key(2)), checkpoint_reservation(2))
+        self.assertEqual(recover_latest_trusted(self.store, self.trust)["gaps"], [2])
+
+        sequence = self.coord.allocator.allocate(CHECKPOINT_RESERVATION_ID)
+        self.assertEqual(sequence, 2)
+        self.coord.publish_checkpoint(sequence, [{"authUserId": ERASED, "erasedAt": "2026-09-27T10:00:00Z"}])
+        self.assertTrue(self.store.exists(checkpoint_key(2)))
+        recovered = recover_latest_trusted(self.store, self.trust)
+        self.assertEqual(recovered["verdict"], "ACCEPT_ISOLATED")
+        self.assertEqual(recovered["expectedThrough"], 3)
+        self.assertEqual(self.coord.allocator.allocate(CHECKPOINT_RESERVATION_ID), 4)
+
+    def test_the_frontier_is_replaced_only_while_it_is_the_version_read(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        raw, etag = self.store.get_with_etag(FRONTIER_KEY)
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+
+        self.assertFalse(self.store.put_if_match(FRONTIER_KEY, raw, etag)["created"])
+        self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 2)
+
+    def test_a_frontier_read_never_goes_below_a_boundary_this_coordinator_has_seen(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        older = self.store.get(FRONTIER_KEY)
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        # An older valid frontier is live again, as after a replay.
+        self.store.put(FRONTIER_KEY, older)
+
+        self.assertEqual(self.coord.request_deletion(THIRD, REQ3, "2026-09-27T12:00:00Z")["sequence"], 3)
+
+        # The walk started above sequence 2: it passed no marker, so it indexed none.
+        self.assertEqual(self.store.list_prefix("reservations/"), [])
+        self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 3)
+
+    def test_a_frontier_that_keeps_changing_fails_the_write_and_the_retry_completes_it(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        live = self.store.get_with_etag
+        self.store.get_with_etag = lambda key: (live(key)[0], "changed-in-between")
+        with self.assertRaisesRegex(PersistFailed, "frontier kept changing"):
+            self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 1)
+
+        self.store.get_with_etag = live
+        self.coord.retry_persist(REQ2)
+        self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 2)
+
+    def test_requests_per_erasure_do_not_grow_from_1000_to_10000_recorded_erasures(self):
+        store = CountingMemoryStore()
+        coord = IsolatedErasureCoordinator(store, self.trust, KEY_ID)
+        measured = {}
+        recorded = 0
+        for target in (1_000, 10_000):
+            while recorded < target:
+                recorded += 1
+                coord.request_deletion(ERASED, f"00000000-0000-4000-8000-{recorded:012d}", "2026-09-27T10:00:00Z")
+            store.requests = 0
+            view = coord.request_deletion(OTHER, f"10000000-0000-4000-8000-{target:012d}", "2026-09-27T11:00:00Z")
+            measured[target] = store.requests
+            recorded += 1
+            self.assertEqual(view["recording"], "DURABLY_RECORDED")
+        self.assertEqual(measured[1_000], measured[10_000])
+        self.assertLessEqual(measured[10_000], 12)
 
 
 if __name__ == "__main__":

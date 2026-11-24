@@ -8,8 +8,10 @@ import io.minio.GetObjectResponse;
 import io.minio.GetObjectRetentionArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
+import io.minio.ObjectWriteResponse;
 import io.minio.PutObjectArgs;
 import io.minio.Result;
+import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import io.minio.messages.Retention;
 import io.minio.messages.RetentionMode;
@@ -18,6 +20,7 @@ import java.security.MessageDigest;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +32,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * S3/MinIO Object Lock implementation of {@link DurableEvidenceBucket}. Every write creates a new
  * version under a retention lock; versions are never overwritten or deleted by this class. The
  * <em>oldest</em> version of a key is its canonical content.
+ *
+ * <p>Conditional writes send S3's {@code If-None-Match: *} ({@link #putIfAbsent}) or
+ * {@code If-Match} with the live version's ETag ({@link #putIfCurrent}); a precondition that no
+ * longer holds is answered {@code 412 PreconditionFailed}, writes nothing and returns empty.
  */
 final class ObjectLockBucket implements DurableEvidenceBucket {
 
@@ -71,14 +78,14 @@ final class ObjectLockBucket implements DurableEvidenceBucket {
     @Override
     public Optional<StoredVersion> oldest(String key) {
         List<Item> versions = objectVersions(key);
-        return versions.isEmpty() ? Optional.empty() : Optional.of(read(versions.get(versions.size() - 1)));
+        return versions.isEmpty() ? Optional.empty() : Optional.of(cached(versions.get(versions.size() - 1)));
     }
 
     @Override
     public List<StoredVersion> allVersions(String key) {
         List<StoredVersion> all = new ArrayList<>();
         for (Item item : objectVersions(key)) {
-            all.add(versionCache.computeIfAbsent(key + "\n" + item.versionId(), ignored -> read(item)));
+            all.add(cached(item));
         }
         return all;
     }
@@ -100,6 +107,78 @@ final class ObjectLockBucket implements DurableEvidenceBucket {
                         .retention(new Retention(minioMode, retainUntil))
                         .build()))
                 .versionId();
+    }
+
+    @Override
+    public Optional<Current> current(String key) {
+        return call("get live " + key, () -> {
+            try (GetObjectResponse response = client.getObject(GetObjectArgs.builder()
+                    .bucket(bucket).object(key).build())) {
+                String versionId = response.headers().get("x-amz-version-id");
+                String etag = unquote(response.headers().get("ETag"));
+                if (versionId == null || etag == null) {
+                    throw new IllegalStateException("live version without version id or ETag");
+                }
+                StoredVersion version = new StoredVersion(key, versionId, response.readAllBytes());
+                versionCache.putIfAbsent(key + "\n" + versionId, version);
+                return Optional.of(new Current(version, etag));
+            } catch (ErrorResponseException ex) {
+                // No version, or a delete marker as the live version.
+                if ("NoSuchKey".equals(ex.errorResponse().code())) {
+                    return Optional.<Current>empty();
+                }
+                throw ex;
+            }
+        });
+    }
+
+    @Override
+    public Optional<Written> putIfAbsent(String key, byte[] bytes, EvidenceRetentionMode mode,
+                                         ZonedDateTime retainUntil) {
+        return conditionalPut(key, bytes, mode, retainUntil, "If-None-Match", "*");
+    }
+
+    @Override
+    public Optional<Written> putIfCurrent(String key, byte[] bytes, String matchToken, EvidenceRetentionMode mode,
+                                          ZonedDateTime retainUntil) {
+        return conditionalPut(key, bytes, mode, retainUntil, "If-Match", "\"" + unquote(matchToken) + "\"");
+    }
+
+    /** A version this process wrote is cached, so reading it back costs no request. */
+    private Optional<Written> conditionalPut(String key, byte[] bytes, EvidenceRetentionMode mode,
+                                             ZonedDateTime retainUntil, String condition, String value) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-MD5", contentMd5(bytes));
+        headers.put(condition, value);
+        RetentionMode minioMode = RetentionMode.valueOf(mode.name());
+        return call("put " + key, () -> {
+            ObjectWriteResponse response;
+            try {
+                response = client.putObject(PutObjectArgs.builder()
+                        .bucket(bucket)
+                        .object(key)
+                        .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                        .contentType("application/json")
+                        .headers(headers)
+                        .retention(new Retention(minioMode, retainUntil))
+                        .build());
+            } catch (ErrorResponseException ex) {
+                if ("PreconditionFailed".equals(ex.errorResponse().code())) {
+                    return Optional.<Written>empty();
+                }
+                throw ex;
+            }
+            if (response.versionId() == null || response.etag() == null) {
+                throw new IllegalStateException("write without version id or ETag");
+            }
+            versionCache.putIfAbsent(key + "\n" + response.versionId(),
+                    new StoredVersion(key, response.versionId(), bytes.clone()));
+            return Optional.of(new Written(response.versionId(), unquote(response.etag())));
+        });
+    }
+
+    private static String unquote(String etag) {
+        return etag == null ? null : etag.replace("\"", "");
     }
 
     @Override
@@ -134,6 +213,11 @@ final class ObjectLockBucket implements DurableEvidenceBucket {
             }
             return items;
         });
+    }
+
+    /** Versions never change, so each is read at most once. */
+    private StoredVersion cached(Item item) {
+        return versionCache.computeIfAbsent(item.objectName() + "\n" + item.versionId(), ignored -> read(item));
     }
 
     private StoredVersion read(Item item) {

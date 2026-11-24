@@ -24,6 +24,17 @@ interface DurableEvidenceBucket {
     record RetentionLock(EvidenceRetentionMode mode, Instant retainUntil) {
     }
 
+    /**
+     * A version a conditional write created: its id, and the token a later
+     * {@link #putIfCurrent} must name to replace it (GCS: the generation; S3: the ETag).
+     */
+    record Written(String versionId, String matchToken) {
+    }
+
+    /** The live (current) version of a key and the token a conditional replace must name. */
+    record Current(StoredVersion version, String matchToken) {
+    }
+
     String bucket();
 
     /** Fails unless the bucket has the provider's retention-lock feature enabled. */
@@ -45,6 +56,29 @@ interface DurableEvidenceBucket {
 
     /** Writes a new locked version and returns its opaque version/generation id. */
     String put(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil);
+
+    /**
+     * The live version of {@code key}, as a read without a version id returns it; empty when the
+     * key has none. This is the version {@link #putIfCurrent} compares against, not necessarily the
+     * canonical {@link #oldest(String)}.
+     */
+    Optional<Current> current(String key);
+
+    /**
+     * Writes a locked version only while {@code key} has no live version (GCS
+     * {@code ifGenerationMatch=0}, S3 {@code If-None-Match: *}); empty when it has one, and nothing
+     * is written. A key whose live version was deleted can still hold older versions: the canonical
+     * version stays {@link #oldest(String)}.
+     */
+    Optional<Written> putIfAbsent(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil);
+
+    /**
+     * Writes a locked version only while the live version of {@code key} is still the one
+     * {@code matchToken} names (GCS {@code ifGenerationMatch}, S3 {@code If-Match}); empty when it
+     * changed, and nothing is written.
+     */
+    Optional<Written> putIfCurrent(String key, byte[] bytes, String matchToken, EvidenceRetentionMode mode,
+                                   ZonedDateTime retainUntil);
 
     /** Retention lock on an existing version; missing lock is a contract failure for evidence. */
     RetentionLock retention(String key, String versionId);

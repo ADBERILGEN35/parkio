@@ -777,9 +777,9 @@ final class GcsAcceptanceCases {
                 Kind.ASSERTION, Identity.WRITER, ev -> lostResponse(ev));
         run("S5", "One checkpoint call through the production path, unpaced, completes under the per-object write"
                         + " limit and leaves the frontier covering it", Kind.ASSERTION, Identity.WRITER, ev -> {
-                    // Production publishes a checkpoint on its own, well after the last store write.
-                    provider.sleep(SAME_OBJECT_SPACING);
-                    ev.put("gapBeforeCallMs", SAME_OBJECT_SPACING.toMillis());
+                    // A call writes the frontier once (#494), so the limit is met across calls: the
+                    // checkpoint follows S4's record call, whose last write raised the frontier.
+                    ev.put("gapBeforeCallMs", 0);
                     long throttledBefore = ledger.outcomes("objects.insert", "429");
                     int before = ledger.created().size();
                     DurableErasureCheckpoint published;

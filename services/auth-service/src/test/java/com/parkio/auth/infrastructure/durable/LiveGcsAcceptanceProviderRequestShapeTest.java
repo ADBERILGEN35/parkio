@@ -9,6 +9,7 @@ import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpRequest;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.parkio.auth.domain.exception.AuthException;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Caps;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.Identity;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceProvider.ProbeOutcome;
@@ -33,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -44,8 +46,10 @@ import org.junit.jupiter.api.Test;
 /**
  * What the real Cloud Storage client sends for the merged adapter's transport and for the
  * harness's probes, recorded by a local HTTP endpoint before any paid run: discovery asks for
- * Object Retention and Versioning, uploads carry the retention, a throttled upload is resent by the
- * adapter and not by the client, reads and deletes address one generation, retention changes patch
+ * Object Retention and Versioning, uploads carry the retention, the store's conditional uploads
+ * carry {@code ifGenerationMatch}, a throttled upload (conditional or not) is resent by the adapter
+ * and never by the client, any other failed upload is not resent at all, reads and deletes address
+ * one generation, retention changes patch
  * the live object under {@code ifGenerationMatch} or address one generation with the JSON API's
  * {@code generation} parameter, a refusal keeps the provider's status and reason, the stop gate
  * refuses requests before they are sent, and only keyless credentials are accepted. Local
@@ -107,9 +111,9 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         GcsObjectRetentionTransport transport = provider.transport(Identity.WRITER, BUCKET);
 
         long locked = transport.createGeneration(NAME, "{\"a\":1}".getBytes(StandardCharsets.UTF_8),
-                EvidenceRetentionMode.COMPLIANCE, UNTIL);
+                EvidenceRetentionMode.COMPLIANCE, UNTIL, OptionalLong.empty());
         transport.createGeneration(NAME, "{\"a\":2}".getBytes(StandardCharsets.UTF_8),
-                EvidenceRetentionMode.GOVERNANCE, UNTIL);
+                EvidenceRetentionMode.GOVERNANCE, UNTIL, OptionalLong.empty());
 
         assertThat(locked).isEqualTo(1761123456000001L);
         Recorded upload = requests.get(0);
@@ -119,6 +123,43 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         assertThat(upload.body()).contains("\"retention\"").contains("\"mode\":\"Locked\"")
                 .contains("2026-10-22T11:00:00").contains(NAME);
         assertThat(requests.get(1).body()).contains("\"mode\":\"Unlocked\"");
+    }
+
+    @Test
+    void conditionalUploadsCarryTheirGenerationPreconditionAndARefusedOneWritesNothing() {
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET));
+
+        Optional<DurableEvidenceBucket.Written> created = bucket.putIfAbsent(NAME,
+                "{\"a\":1}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+        Optional<DurableEvidenceBucket.Written> replaced = bucket.putIfCurrent(NAME,
+                "{\"a\":2}".getBytes(StandardCharsets.UTF_8), "1761123456000001", EvidenceRetentionMode.GOVERNANCE,
+                UNTIL.atZone(ZoneOffset.UTC));
+        uploadStatuses.add(412);
+        Optional<DurableEvidenceBucket.Written> refused = bucket.putIfAbsent(NAME,
+                "{\"a\":3}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+
+        assertThat(requests.get(0).query()).containsEntry("ifGenerationMatch", "0");
+        assertThat(requests.get(1).query()).containsEntry("ifGenerationMatch", "1761123456000001");
+        assertThat(created).map(DurableEvidenceBucket.Written::versionId).contains("1761123456000001");
+        assertThat(replaced).map(DurableEvidenceBucket.Written::matchToken).contains("1761123456000002");
+        // A failed precondition is final: neither the client nor the adapter sends it again.
+        assertThat(refused).isEmpty();
+        assertThat(requests).hasSize(3);
+    }
+
+    @Test
+    void theLiveGenerationIsReadByNameAndThenAddressedByItsGeneration() {
+        GcsObjectRetentionTransport transport = provider.transport(Identity.READER, BUCKET);
+
+        GcsObjectRetentionTransport.GenerationBytes live = transport.liveGeneration(NAME).orElseThrow();
+
+        assertThat(live.generation()).isEqualTo(5L);
+        assertThat(new String(live.bytes(), StandardCharsets.UTF_8)).isEqualTo("generation-5");
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(0).method()).isEqualTo("GET");
+        assertThat(requests.get(0).path()).isEqualTo("/storage/v1/b/" + BUCKET + "/o/" + NAME);
+        assertThat(requests.get(0).query()).doesNotContainKey("generation").doesNotContainKey("alt");
+        assertThat(requests.get(1).query()).containsEntry("generation", "5").containsEntry("alt", "media");
     }
 
     @Test
@@ -194,19 +235,73 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
     }
 
     @Test
-    void aThrottledUploadIsResentByTheAdapterAndNeverByTheClient() {
+    void aThrottledConditionalUploadIsResentByTheAdapterAndNeverByTheClient() {
         uploadStatuses.add(429);
         List<Duration> pauses = new ArrayList<>();
         GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET),
                 pauses::add);
 
-        String generation = bucket.put(NAME, "{\"a\":1}".getBytes(StandardCharsets.UTF_8),
-                EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+        Optional<DurableEvidenceBucket.Written> created = bucket.putIfAbsent(NAME,
+                "{\"a\":1}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
 
-        assertThat(requests).hasSize(2)
-                .allMatch(request -> request.method().equals("POST") && request.path().startsWith("/upload/"));
+        assertThat(requests).hasSize(2).allMatch(request -> request.method().equals("POST")
+                && request.path().startsWith("/upload/") && "0".equals(request.query().get("ifGenerationMatch")));
         assertThat(pauses).containsExactly(Duration.ofMillis(1_100));
-        assertThat(generation).isEqualTo("1761123456000002");
+        assertThat(created).map(DurableEvidenceBucket.Written::versionId).contains("1761123456000002");
+    }
+
+    @Test
+    void aThrottledCompareAndSwapIsResentByTheAdapterAndNeverByTheClient() {
+        uploadStatuses.add(429);
+        List<Duration> pauses = new ArrayList<>();
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET),
+                pauses::add);
+
+        Optional<DurableEvidenceBucket.Written> replaced = bucket.putIfCurrent(NAME,
+                "{\"a\":2}".getBytes(StandardCharsets.UTF_8), "1761123456000001", EvidenceRetentionMode.COMPLIANCE,
+                UNTIL.atZone(ZoneOffset.UTC));
+
+        assertThat(requests).hasSize(2).allMatch(request ->
+                "1761123456000001".equals(request.query().get("ifGenerationMatch")));
+        assertThat(pauses).containsExactly(Duration.ofMillis(1_100));
+        assertThat(replaced).isPresent();
+    }
+
+    @Test
+    void aConditionalUploadThrottledEveryTimeIsSentFiveTimesInAllAndFails() {
+        for (int i = 0; i < GcsObjectRetentionBucket.RATE_LIMIT_PAUSES.size() + 1; i++) {
+            uploadStatuses.add(429);
+        }
+        List<Duration> pauses = new ArrayList<>();
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET),
+                pauses::add);
+
+        assertThatThrownBy(() -> bucket.putIfAbsent(NAME, "{\"a\":1}".getBytes(StandardCharsets.UTF_8),
+                EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC)))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store put " + NAME + " failed: StorageException");
+        // The adapter's four pauses (16.5 s in all) are the only waits: five sends, none from the client.
+        assertThat(requests).hasSize(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES.size() + 1);
+        assertThat(pauses).isEqualTo(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES);
+    }
+
+    @Test
+    void anotherFailedConditionalUploadIsNotResentAtAll() {
+        uploadStatuses.add(503);
+        uploadStatuses.add(503);
+        List<Duration> pauses = new ArrayList<>();
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.WRITER, BUCKET),
+                pauses::add);
+
+        assertThatThrownBy(() -> bucket.putIfAbsent(NAME, "{\"a\":1}".getBytes(StandardCharsets.UTF_8),
+                EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC)))
+                .isInstanceOf(AuthException.class);
+        assertThatThrownBy(() -> bucket.putIfCurrent(NAME, "{\"a\":2}".getBytes(StandardCharsets.UTF_8),
+                "1761123456000001", EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC)))
+                .isInstanceOf(AuthException.class);
+
+        assertThat(requests).hasSize(2);
+        assertThat(pauses).isEmpty();
     }
 
     @Test

@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,14 +23,23 @@ import java.util.function.LongSupplier;
  * key (oldest write), never the listing order — GCS list pages may return newest-first or be
  * paginated arbitrarily.
  *
- * <p>Cloud Storage allows about one write per second to one object name and answers a faster
- * write with HTTP 429 without writing it. The store writes its frontier twice per record and per
- * checkpoint, so a refused write is sent again after {@link #RATE_LIMIT_PAUSES}; the client
- * library does not retry these writes itself, because an insert without a precondition is not
- * idempotent. The resend keeps the bytes and the retain-until computed for the first send. While
- * it waits (up to 16.5 s per write) the caller keeps the store's lock; the record path runs after
- * the erasure commit on the request thread, so before enablement (#365, #492) the total pause must
- * be bounded per operation or that path must fail fast to the retry worker.
+ * <p>Conditional writes ({@link #putIfAbsent}, {@link #putIfCurrent}) send Cloud Storage's
+ * {@code ifGenerationMatch} precondition: {@code 0} for an object without a live generation, else
+ * the live generation read before. A precondition that no longer holds (HTTP 412) writes nothing
+ * and returns empty. A write whose response is lost fails the call; the next call's conditional
+ * write then finds that generation live (412), and the store resolves it by reading back.
+ *
+ * <p>Only this adapter resends a write. The client would retry a conditional insert, which it
+ * treats as idempotent, for up to its 50 s budget, so {@link GoogleCloudStorageTransport} sends
+ * every insert through a copy of the client with one attempt per request. Cloud Storage allows
+ * about one write per second to one object name and answers a faster write with HTTP 429 without
+ * writing it; the store writes the frontier once per record and per checkpoint, and two calls in a
+ * row can meet that limit. A write refused with 429 is sent again after each of
+ * {@link #RATE_LIMIT_PAUSES}, with the same bytes, precondition and retain-until; any other failure
+ * fails at once. One write therefore makes at most five sends, each within the client's request
+ * timeouts, and pauses at most 16.5 s. The caller keeps the store's lock meanwhile, on the request
+ * thread for records after the erasure commit, so before enablement (#365, #492) the total pause
+ * must be bounded per operation or that path must fail fast to the retry worker.
  *
  * <p>A listing ({@link #keys}, {@link #oldest}, {@link #allVersions}, {@link #versionCount}) also
  * runs under that lock, so it stays within {@link ListBounds} (#493): it fails closed with
@@ -60,10 +70,11 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     record ListBounds(int maxPages, Duration deadline) {
 
         /**
-         * 100,000 generations: the frontier history of about 50,000 records at two frontier writes
-         * per record, far above erasure volumes, while a provider that repeats or never ends its
-         * pages is stopped within 30 s and the request stays {@code PENDING_DURABLE} for the retry
-         * worker.
+         * 100,000 generations, while a provider that repeats or never ends its pages is stopped
+         * within 30 s and the request stays {@code PENDING_DURABLE} for the retry worker. Since #494
+         * the store's normal path lists no history; the full listings left are recovery's and the
+         * store's fallback read of the frontier, whose history grows by one generation per record
+         * and per checkpoint.
          */
         static final ListBounds DEFAULT = new ListBounds(1_000, Duration.ofSeconds(30));
 
@@ -165,11 +176,63 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
 
     @Override
     public String put(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil) {
-        long generation = call("put " + key, () -> {
+        return Long.toString(create(key, bytes, mode, retainUntil, OptionalLong.empty()).orElseThrow());
+    }
+
+    @Override
+    public Optional<Current> current(String key) {
+        return call("get live " + key, () -> transport.liveGeneration(key)).map(live -> {
+            StoredVersion version = new StoredVersion(key, Long.toString(live.generation()), live.bytes());
+            versionCache.putIfAbsent(key + "\n" + live.generation(), version);
+            return new Current(version, version.versionId());
+        });
+    }
+
+    @Override
+    public Optional<Written> putIfAbsent(String key, byte[] bytes, EvidenceRetentionMode mode,
+                                         ZonedDateTime retainUntil) {
+        return written(key, bytes, create(key, bytes, mode, retainUntil, OptionalLong.of(0)));
+    }
+
+    @Override
+    public Optional<Written> putIfCurrent(String key, byte[] bytes, String matchToken, EvidenceRetentionMode mode,
+                                          ZonedDateTime retainUntil) {
+        long live;
+        try {
+            live = Long.parseLong(matchToken);
+        } catch (NumberFormatException ex) {
+            live = 0;
+        }
+        if (live <= 0) {
+            throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
+                    "durable store put " + key + " failed: invalid generation");
+        }
+        return written(key, bytes, create(key, bytes, mode, retainUntil, OptionalLong.of(live)));
+    }
+
+    /** A version this process wrote is cached, so reading it back costs no request. */
+    private Optional<Written> written(String key, byte[] bytes, OptionalLong generation) {
+        if (generation.isEmpty()) {
+            return Optional.empty();
+        }
+        String versionId = Long.toString(generation.getAsLong());
+        versionCache.putIfAbsent(key + "\n" + versionId, new StoredVersion(key, versionId, bytes.clone()));
+        return Optional.of(new Written(versionId, versionId));
+    }
+
+    /** The new generation, or empty when {@code ifGenerationMatch} did not hold (HTTP 412). */
+    private OptionalLong create(String key, byte[] bytes, EvidenceRetentionMode mode, ZonedDateTime retainUntil,
+                                OptionalLong ifGenerationMatch) {
+        return call("put " + key, () -> {
             for (int resends = 0; ; resends++) {
                 try {
-                    return transport.createGeneration(key, bytes, mode, retainUntil.toInstant());
+                    return OptionalLong.of(transport.createGeneration(key, bytes, mode, retainUntil.toInstant(),
+                            ifGenerationMatch));
                 } catch (StorageException ex) {
+                    if (ex.getCode() == GcsObjectRetentionTransport.PRECONDITION_FAILED
+                            && ifGenerationMatch.isPresent()) {
+                        return OptionalLong.empty();
+                    }
                     if (ex.getCode() != 429 || resends == RATE_LIMIT_PAUSES.size()) {
                         throw ex;
                     }
@@ -177,7 +240,6 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
                 }
             }
         });
-        return Long.toString(generation);
     }
 
     @Override

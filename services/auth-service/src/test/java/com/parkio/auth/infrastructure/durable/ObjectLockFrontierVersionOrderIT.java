@@ -95,10 +95,11 @@ class ObjectLockFrontierVersionOrderIT {
         for (DurableErasureRecord record : records) {
             assertThat(store.findByRequestId(record.erasureRequestId())).as("durable").contains(record);
         }
-        // Every version a monotonic writer produces for three puts, in any listing order: no
-        // version below one the store had already written (a stale read would add (0,2), (0,3)).
+        // Every version a monotonic writer produces for three puts, in any listing order: the zero
+        // boundary before the first reservation, then one raise per put after its record (#494).
+        // No version is below one the store had already written (a stale read would repeat one).
         assertThat(frontierVersions()).containsExactlyInAnyOrder(
-                List.of(0L, 1L), List.of(1L, 1L), List.of(1L, 2L), List.of(2L, 2L), List.of(2L, 3L), List.of(3L, 3L));
+                List.of(0L, 0L), List.of(1L, 1L), List.of(2L, 2L), List.of(3L, 3L));
     }
 
     @Test

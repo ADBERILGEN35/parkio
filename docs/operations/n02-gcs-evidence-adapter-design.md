@@ -22,12 +22,13 @@ Same as MinIO `ObjectLockBucket`, via `DurableEvidenceBucket`:
 3. **Retention inspect** — receipt requires a lock on the canonical generation.
 4. **List + pagination** — transport pages generations; adapter aggregates pages. One listing fails closed (`DURABLE_RECORDING_UNAVAILABLE`) on a page token it has already followed, when it would need more than `list-max-pages` pages, or when `list-deadline` has passed before its next page (#493).
 5. **Canonical oldest** — **lowest generation number**, never list encounter order (GCS may return newest-first).
-6. **Frontier chains** — all generations of `frontier/expected-through.json` via `allVersions` / `findAll`.
+6. **Frontier chains** — recovery reads all generations of `frontier/expected-through.json` via `allVersions` / `findAll`; the store reads only the live generation and falls back to all of them when it does not verify (#494).
 7. **Concurrent / retry** — first generation wins; identical body → existing; different body → conflict.
 8. **Auth** — ADC / workload identity for storage; trust HMAC keys remain separate (custody doc).
 9. **Failures** — missing perms / unavailable → `DURABLE_RECORDING_UNAVAILABLE` (no secret leakage).
 10. **Mutual exclusion** — `durable-store.gcs.enabled` XOR `durable-store.object-lock.enabled`.
 11. **Recovery replay** — GCS writer is in `RecoveryReplayPreflight.WRITERS` (must be off on restored copies).
+12. **Conditional writes** (#494, `docs/architecture/erasure-evidence-conditional-writes.md`) — markers, records, checkpoints and reservation index entries are created with `ifGenerationMatch=0`; the frontier is replaced with `ifGenerationMatch=<live generation>`; a failed precondition (412) writes nothing. The live generation is read by name, then its bytes by generation.
 
 ## Explicit non-translations from S3
 

@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -260,7 +261,8 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         }
 
         @Override
-        public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil) {
+        public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil,
+                                     OptionalLong ifGenerationMatch) {
             synchronized (OfflineGcsAcceptanceProvider.this) {
                 BucketModel model = model(bucket);
                 boolean readerMayCreate = identity == Identity.READER && defects.contains(Defect.READER_MAY_CREATE);
@@ -269,6 +271,12 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     require(identity, bucket, "storage.objects.setRetention");
                 }
                 Optional<Gen> live = model.live(objectName);
+                // ifGenerationMatch: 0 while no generation is live, else the live generation.
+                if (ifGenerationMatch.isPresent()
+                        && ifGenerationMatch.getAsLong() != live.map(gen -> gen.generation).orElse(0L)) {
+                    throw new StorageException(GcsObjectRetentionTransport.PRECONDITION_FAILED,
+                            "At least one of the pre-conditions you specified did not hold.");
+                }
                 if (live.isPresent() && !readerMayCreate) {
                     require(identity, bucket, "storage.objects.delete");
                 }
@@ -289,6 +297,15 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                 }
                 model.objects.computeIfAbsent(objectName, ignored -> new ArrayList<>()).add(gen);
                 return gen.generation;
+            }
+        }
+
+        @Override
+        public Optional<GenerationBytes> liveGeneration(String objectName) {
+            synchronized (OfflineGcsAcceptanceProvider.this) {
+                BucketModel model = model(bucket);
+                require(identity, bucket, "storage.objects.get");
+                return model.live(objectName).map(gen -> new GenerationBytes(gen.generation, gen.bytes.clone()));
             }
         }
 

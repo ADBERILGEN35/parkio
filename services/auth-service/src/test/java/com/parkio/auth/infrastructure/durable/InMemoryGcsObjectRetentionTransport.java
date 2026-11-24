@@ -8,12 +8,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -26,7 +28,8 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
 
     private final String bucket;
     private final AtomicLong generationSeq = new AtomicLong(1_000);
-    private final Map<String, List<Stored>> objects = new ConcurrentHashMap<>();
+    /** Sorted by object name, so a prefix listing reads only the names under that prefix. */
+    private final ConcurrentNavigableMap<String, List<Stored>> objects = new ConcurrentSkipListMap<>();
     private final ReentrantLock lock = new ReentrantLock();
     private boolean objectRetentionEnabled = true;
     private boolean versioningEnabled = true;
@@ -96,7 +99,8 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
     }
 
     @Override
-    public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil) {
+    public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode, Instant retainUntil,
+                                 OptionalLong ifGenerationMatch) {
         failIfUnavailable();
         if (missingWritePermission) {
             throw new AuthException(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE,
@@ -104,6 +108,12 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         }
         lock.lock();
         try {
+            // ifGenerationMatch: 0 while no generation is live, else the live generation.
+            if (ifGenerationMatch.isPresent()
+                    && ifGenerationMatch.getAsLong() != live(objectName).map(stored -> stored.generation).orElse(0L)) {
+                throw new StorageException(PRECONDITION_FAILED,
+                        "At least one of the pre-conditions you specified did not hold.");
+            }
             if (writeRateClock != null) {
                 Instant now = writeRateClock.instant();
                 Instant previous = lastWrite.get(objectName);
@@ -119,6 +129,23 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         } finally {
             lock.unlock();
         }
+    }
+
+    @Override
+    public Optional<GenerationBytes> liveGeneration(String objectName) {
+        failIfUnavailable();
+        lock.lock();
+        try {
+            return live(objectName).map(stored -> new GenerationBytes(stored.generation, stored.bytes.clone()));
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** The live generation: the newest one, since this stub never deletes. */
+    private Optional<Stored> live(String objectName) {
+        List<Stored> gens = objects.get(objectName);
+        return gens == null || gens.isEmpty() ? Optional.empty() : Optional.of(gens.get(gens.size() - 1));
     }
 
     @Override
@@ -140,8 +167,9 @@ final class InMemoryGcsObjectRetentionTransport implements GcsObjectRetentionTra
         List<ListedGeneration> flat = new ArrayList<>();
         lock.lock();
         try {
-            for (Map.Entry<String, List<Stored>> entry : new LinkedHashMap<>(objects).entrySet()) {
-                if (!entry.getKey().startsWith(prefix) && !entry.getKey().equals(prefix)) {
+            for (Map.Entry<String, List<Stored>> entry
+                    : objects.subMap(prefix, true, prefix + Character.MAX_VALUE, true).entrySet()) {
+                if (!entry.getKey().startsWith(prefix)) {
                     continue;
                 }
                 List<Stored> gens = new ArrayList<>(entry.getValue());

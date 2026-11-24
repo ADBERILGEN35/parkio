@@ -244,6 +244,36 @@ class ObjectLockDurableErasureRecordStoreIT {
         assertThat(bucket.keys("sequences/")).hasSize(2);
     }
 
+    /**
+     * The pinned MinIO image enforces both preconditions the store relies on (#494): without them
+     * the frontier's compare-and-swap would silently become last-writer-wins.
+     */
+    @Test
+    void theMinioImageRefusesACreateOnALiveKeyAndAReplaceOfAStaleVersion() {
+        var until = clock.instant().plus(RETENTION).atZone(ZoneOffset.UTC);
+        String key = "probes/conditional-write.json";
+        DurableEvidenceBucket.Written first = bucket.putIfAbsent(key, "{\"n\":1}".getBytes(StandardCharsets.UTF_8),
+                EvidenceRetentionMode.GOVERNANCE, until).orElseThrow();
+
+        // If-None-Match: * on a live key is refused (412) and writes no version.
+        assertThat(bucket.putIfAbsent(key, "{\"n\":2}".getBytes(StandardCharsets.UTF_8),
+                EvidenceRetentionMode.GOVERNANCE, until)).isEmpty();
+        assertThat(bucket.versionCount(key)).isOne();
+
+        // If-Match with the live ETag replaces it; the same, now stale, ETag is refused (412).
+        DurableEvidenceBucket.Written replaced = bucket.putIfCurrent(key, "{\"n\":3}".getBytes(StandardCharsets.UTF_8),
+                first.matchToken(), EvidenceRetentionMode.GOVERNANCE, until).orElseThrow();
+        assertThat(bucket.putIfCurrent(key, "{\"n\":4}".getBytes(StandardCharsets.UTF_8), first.matchToken(),
+                EvidenceRetentionMode.GOVERNANCE, until)).isEmpty();
+        assertThat(bucket.versionCount(key)).isEqualTo(2);
+
+        DurableEvidenceBucket.Current live = bucket.current(key).orElseThrow();
+        assertThat(live.version().versionId()).isEqualTo(replaced.versionId());
+        assertThat(live.matchToken()).isEqualTo(replaced.matchToken());
+        assertThat(live.version().bytes()).isEqualTo("{\"n\":3}".getBytes(StandardCharsets.UTF_8));
+        assertThat(bucket.oldest(key).orElseThrow().versionId()).isEqualTo(first.versionId());
+    }
+
     @Test
     void recoveryAfterPrimaryHostLossNeedsOnlyTheBucket() {
         for (String erasedAt : new String[] {"2026-09-29T08:15:30.123456Z", "2026-09-29T08:16:00Z", "2026-09-29T08:17:45.120Z"}) {

@@ -40,6 +40,16 @@ PUBLIC_COMPLETE = "COMPLETE"
 INTERNAL_PENDING = "PENDING_DURABLE"
 INTERNAL_RECORDED = "DURABLY_RECORDED"
 FRONTIER_KEY = "frontier/expected-through.json"
+KIND_SEQUENCE_ALLOCATION = "sequence-allocation"
+# Writer state beside the evidence (#494): unsigned, create-only, never exported or verified. A
+# writer that walks past a marker whose writer stopped before publishing indexes it here, so its
+# request (or the next checkpoint) finds the reservation without listing the recorded markers.
+KIND_SEQUENCE_RESERVATION = "sequence-reservation"
+KIND_CHECKPOINT_RESERVATION = "checkpoint-reservation"
+RESERVATIONS_PREFIX = "reservations/"
+CHECKPOINT_RESERVATIONS_PREFIX = "reservations/checkpoints/"
+# Conditional frontier writes before the writer gives up on a frontier that keeps changing.
+FRONTIER_WRITE_ATTEMPTS = 3
 SIGNED_PENDING = (
     "schemaVersion", "kind", "erasureRecordId", "erasureRequestId",
     "authUserId", "sequence", "databaseIdentity", "producerId", "keyId", "bodyDigest",
@@ -82,6 +92,38 @@ def sequence_key(sequence):
 
 def checkpoint_key(sequence):
     return f"checkpoints/{int(sequence):016d}.json"
+
+
+def reservation_key(erasure_request_id):
+    """Where a request's reservation is indexed: one request, one key."""
+    return f"{RESERVATIONS_PREFIX}{erasure_request_id.lower()}.json"
+
+
+def checkpoint_reservation_key(sequence):
+    return f"{CHECKPOINT_RESERVATIONS_PREFIX}{int(sequence):016d}.json"
+
+
+def sequence_marker(sequence, erasure_request_id):
+    """The unsigned create-only marker that reserves ``sequence`` for one request."""
+    return canonical_bytes({
+        "kind": KIND_SEQUENCE_ALLOCATION,
+        "sequence": int(sequence),
+        "erasureRequestId": erasure_request_id.lower(),
+    })
+
+
+def sequence_reservation(sequence, erasure_request_id):
+    """The unsigned index entry naming the sequence ``erasure_request_id`` reserved."""
+    return canonical_bytes({
+        "kind": KIND_SEQUENCE_RESERVATION,
+        "sequence": int(sequence),
+        "erasureRequestId": erasure_request_id.lower(),
+    })
+
+
+def checkpoint_reservation(sequence):
+    """The unsigned index entry of a sequence reserved for a checkpoint."""
+    return canonical_bytes({"kind": KIND_CHECKPOINT_RESERVATION, "sequence": int(sequence)})
 
 
 def signed_subset(body, fields):
@@ -266,7 +308,7 @@ class IsolatedVersionedStore:
         }
 
     def put(self, key, data):
-        """Overwrite put used only for the signed expected-boundary frontier."""
+        """Unconditional overwrite; the writer replaces the frontier only with put_if_match."""
         dest = self._prepare_put(key)
         with self._io:
             dest.write_bytes(data)
@@ -276,6 +318,25 @@ class IsolatedVersionedStore:
             "created": True,
             "existed": False,
         }
+
+    def put_if_match(self, key, data, etag):
+        """Replace ``key`` only while its live bytes still have ``etag`` (GCS ifGenerationMatch,
+        S3 If-Match). ``created`` is False, and nothing is written, when they changed or are gone."""
+        dest = self._prepare_put(key)
+        with self._io:
+            if not dest.is_file() or sha256_hex(dest.read_bytes()) != etag:
+                return {"publicationId": key, "etag": None, "created": False, "existed": dest.is_file()}
+            dest.write_bytes(data)
+        return {"publicationId": key, "etag": sha256_hex(data), "created": True, "existed": True}
+
+    def get_with_etag(self, key):
+        """The live bytes of ``key`` and their etag, or None."""
+        dest = self._path(key)
+        with self._io:
+            if not dest.is_file():
+                return None
+            data = dest.read_bytes()
+        return data, sha256_hex(data)
 
     def get(self, key):
         dest = self._path(key)
@@ -306,50 +367,98 @@ class IsolatedVersionedStore:
 
 
 class SequenceAllocator:
-    """Allocates exclusive integer sequences via if-not-exists markers."""
+    """Allocates exclusive integer sequences with create-only markers (#494).
 
-    def __init__(self, store):
+    No allocation lists the recorded markers. A request first looks up its index entry; a new
+    sequence starts just above the signed frontier's highestReserved (``highest_reserved``, a
+    callable; 0 without one). The writer raises the frontier only after it published, so a marker
+    found above the frontier belongs to a writer that stopped before publishing: an earlier
+    attempt of the same request reuses it, any other caller indexes it for its owner and moves on,
+    because its own frontier raise is about to pass it. Java's ObjectLockDurableErasureRecordStore
+    follows the same steps.
+    """
+
+    def __init__(self, store, highest_reserved=None):
         self.store = store
+        self._highest_reserved = highest_reserved or (lambda: 0)
         self._lock = threading.Lock()
 
-    def highest_allocated(self):
-        keys = self.store.list_prefix("sequences/")
-        numbers = []
-        for key in keys:
-            name = Path(key).stem
-            if name.isdigit():
-                numbers.append(int(name))
-        return max(numbers) if numbers else 0
-
     def reservation_for(self, erasure_request_id):
+        """The sequence this request's index entry names, once its marker confirms it."""
         request_id = erasure_request_id.lower()
-        for key in self.store.list_prefix("sequences/"):
-            raw = self.store.get(key)
-            body = json.loads(raw.decode("utf-8"))
-            if body.get("erasureRequestId") == request_id:
-                return int(body["sequence"])
-        return None
+        raw = self.store.get_optional(reservation_key(request_id))
+        if raw is None:
+            return None
+        sequence = _indexed_sequence(raw)
+        if self._owner(sequence) != request_id:
+            raise ContractError("reservation index entry names another request's marker")
+        return sequence
 
     def allocate(self, erasure_request_id):
         request_id = erasure_request_id.lower()
+        if request_id == CHECKPOINT_RESERVATION_ID:
+            return self.allocate_checkpoint()
         with self._lock:
             existing = self.reservation_for(request_id)
             if existing is not None:
                 return existing
-            nxt = self.highest_allocated() + 1
+            nxt = int(self._highest_reserved()) + 1
             while True:
-                marker = canonical_bytes({
-                    "kind": "sequence-allocation",
-                    "sequence": nxt,
-                    "erasureRequestId": request_id,
-                })
-                try:
-                    receipt = self.store.put_if_absent(sequence_key(nxt), marker)
-                except PersistFailed:
-                    raise
-                if receipt["created"]:
+                owner, _created = self._claim(nxt, request_id)
+                if owner == request_id:
                     return nxt
+                self._index_for_its_owner(nxt, owner)
                 nxt += 1
+
+    def allocate_checkpoint(self):
+        """The lowest indexed checkpoint reservation without its checkpoint, else the next free
+        sequence; a checkpoint marker found above the frontier without its checkpoint is taken."""
+        with self._lock:
+            reserved = {_key_sequence(key) for key in self.store.list_prefix(CHECKPOINT_RESERVATIONS_PREFIX)}
+            if reserved:
+                reserved -= {_key_sequence(key) for key in self.store.list_prefix("checkpoints/")}
+            if reserved:
+                sequence = min(reserved)
+                if self._owner(sequence) != CHECKPOINT_RESERVATION_ID:
+                    raise ContractError("checkpoint reservation names a request's marker")
+                return sequence
+            nxt = int(self._highest_reserved()) + 1
+            while True:
+                owner, created = self._claim(nxt, CHECKPOINT_RESERVATION_ID)
+                if owner == CHECKPOINT_RESERVATION_ID and (created or not self.store.exists(checkpoint_key(nxt))):
+                    return nxt
+                self._index_for_its_owner(nxt, owner)
+                nxt += 1
+
+    def _claim(self, sequence, owner):
+        receipt = self.store.put_if_absent(sequence_key(sequence), sequence_marker(sequence, owner))
+        return self._owner(sequence), receipt["created"]
+
+    def _owner(self, sequence):
+        raw = self.store.get_optional(sequence_key(sequence))
+        if raw is None:
+            raise ContractError(f"no marker for sequence {sequence}")
+        body = json.loads(raw.decode("utf-8"))
+        if body.get("kind") != KIND_SEQUENCE_ALLOCATION:
+            raise ContractError("not a sequence marker")
+        return str(body.get("erasureRequestId", "")).lower()
+
+    def _index_for_its_owner(self, sequence, owner):
+        if owner == CHECKPOINT_RESERVATION_ID:
+            self.store.put_if_absent(checkpoint_reservation_key(sequence), checkpoint_reservation(sequence))
+        else:
+            self.store.put_if_absent(reservation_key(owner), sequence_reservation(sequence, owner))
+
+
+def _indexed_sequence(raw):
+    sequence = json.loads(raw.decode("utf-8")).get("sequence")
+    if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+        raise ContractError("reservation index entry has no sequence")
+    return sequence
+
+
+def _key_sequence(key):
+    return int(Path(key).stem)
 
 
 def frontier_digest(expected_through, highest_reserved):
@@ -459,9 +568,11 @@ class IsolatedErasureCoordinator:
         self.clock = clock
         self.enabled = enabled
         self.required = required
-        self.allocator = SequenceAllocator(store)
+        self.allocator = SequenceAllocator(store, highest_reserved=self._highest_reserved)
         self._lock = threading.Lock()
         self._frontier_lock = threading.Lock()
+        self._seen_lock = threading.Lock()
+        self._highest_seen = (0, 0)
         self._requests = {}
 
     def request_deletion(self, auth_user_id, erasure_request_id, erased_at):
@@ -545,30 +656,61 @@ class IsolatedErasureCoordinator:
     def advance_frontier(self, expected_through=None, highest_reserved=None):
         """Write the independently durable expected boundary. Not derived from listing.
 
-        Concurrent updates take a lock and never decrease either field. Signing
-        and monotonic writes do not prevent replacing the whole visible store
-        with an older snapshot.
+        The write replaces the frontier only while it is still the version read
+        (compare-and-swap, #494): a frontier that changed in between is read
+        again, at most FRONTIER_WRITE_ATTEMPTS times. Neither field ever
+        decreases, and the write builds on a boundary never below one this
+        coordinator has read or written, as Java's highestSeen. The model store
+        keeps one frontier version, so a frontier that fails verification fails
+        the write: Java's fallback to another verified version has nothing to
+        read here. Signing and monotonic writes do not prevent replacing the
+        whole visible store with an older snapshot.
         """
-        with self.store._io:
-            existing = verify_frontier(self.store, self.trust, at=self.clock())
-            old_expected = 0 if existing is None else int(existing["expectedThrough"])
-            old_reserved = 0 if existing is None else int(existing["highestReserved"])
-            new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
-            new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
-            new_reserved = max(new_reserved, new_expected)
-            body = {
-                "schemaVersion": SCHEMA_VERSION,
-                "kind": KIND_FRONTIER,
-                "expectedThrough": new_expected,
-                "highestReserved": new_reserved,
-                "databaseIdentity": self.expected_db,
-                "producerId": self.producer_id,
-                "keyId": self.signing_key.key_id,
-                "frontierDigest": frontier_digest(new_expected, new_reserved),
-            }
-            self._sign(body, SIGNED_FRONTIER)
-            self.store.put(FRONTIER_KEY, canonical_bytes(body))
-            return body
+        with self._frontier_lock:
+            for attempt in range(1, FRONTIER_WRITE_ATTEMPTS + 1):
+                live = self.store.get_with_etag(FRONTIER_KEY)
+                existing = None if live is None else _verify_frontier_body(
+                    json.loads(live[0].decode("utf-8")), self.trust, self.clock())
+                live_boundary = None if existing is None else (
+                    int(existing["expectedThrough"]), int(existing["highestReserved"]))
+                old_expected, old_reserved = self._seen(live_boundary or (0, 0))
+                new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
+                new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
+                new_reserved = max(new_reserved, new_expected)
+                if live_boundary == (new_expected, new_reserved):
+                    return existing
+                body = {
+                    "schemaVersion": SCHEMA_VERSION,
+                    "kind": KIND_FRONTIER,
+                    "expectedThrough": new_expected,
+                    "highestReserved": new_reserved,
+                    "databaseIdentity": self.expected_db,
+                    "producerId": self.producer_id,
+                    "keyId": self.signing_key.key_id,
+                    "frontierDigest": frontier_digest(new_expected, new_reserved),
+                }
+                self._sign(body, SIGNED_FRONTIER)
+                data = canonical_bytes(body)
+                receipt = (self.store.put_if_absent(FRONTIER_KEY, data) if live is None
+                           else self.store.put_if_match(FRONTIER_KEY, data, live[1]))
+                if receipt["created"]:
+                    self._seen((new_expected, new_reserved))
+                    return body
+            raise PersistFailed("frontier kept changing while it was written")
+
+    def _highest_reserved(self):
+        """Where the allocator starts: the signed frontier's highestReserved, never below a
+        boundary this coordinator has read or written; 0 without either."""
+        frontier = verify_frontier(self.store, self.trust, at=self.clock())
+        read = (0, 0) if frontier is None else (int(frontier["expectedThrough"]), int(frontier["highestReserved"]))
+        return self._seen(read)[1]
+
+    def _seen(self, boundary):
+        """The highest (expectedThrough, highestReserved) read or written so far, ``boundary``
+        included; ordered as recovery orders frontier versions."""
+        with self._seen_lock:
+            self._highest_seen = max(self._highest_seen, boundary)
+            return self._highest_seen
 
     def internal(self, erasure_request_id):
         return dict(self._require(erasure_request_id))
@@ -606,8 +748,13 @@ class IsolatedErasureCoordinator:
             row["sequence"] = existing["sequence"]
             row["recording"] = INTERNAL_RECORDED
             return existing
+        if self.store.get_optional(FRONTIER_KEY) is None:
+            # The first reservation of a store writes the boundary (0, 0) first, so a reservation
+            # lost before its record leaves a present, incomplete boundary (BLOCKED), not UNKNOWN.
+            self.advance_frontier(expected_through=0, highest_reserved=0)
         sequence = self.allocator.allocate(row["erasureRequestId"])
-        self.advance_frontier(highest_reserved=sequence)
+        # The frontier is raised only after publication (#494): a marker above it always belongs
+        # to a writer that stopped before publishing, which the next allocation walks past and indexes.
         body = {
             "schemaVersion": SCHEMA_VERSION,
             "kind": KIND_PENDING,
