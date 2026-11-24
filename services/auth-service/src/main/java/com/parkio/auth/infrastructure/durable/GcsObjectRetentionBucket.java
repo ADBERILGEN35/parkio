@@ -26,17 +26,20 @@ import java.util.function.LongSupplier;
  * <p>Conditional writes ({@link #putIfAbsent}, {@link #putIfCurrent}) send Cloud Storage's
  * {@code ifGenerationMatch} precondition: {@code 0} for an object without a live generation, else
  * the live generation read before. A precondition that no longer holds (HTTP 412) writes nothing
- * and returns empty. The client library may resend such a write after a lost response; the resend
- * then finds its own generation live and ends with 412, which the store resolves by reading back.
+ * and returns empty. A write whose response is lost fails the call; the next call's conditional
+ * write then finds that generation live (412), and the store resolves it by reading back.
  *
- * <p>Cloud Storage allows about one write per second to one object name and answers a faster
- * write with HTTP 429 without writing it. The store writes its frontier twice per record and per
- * checkpoint, so a refused write is sent again after {@link #RATE_LIMIT_PAUSES}; the client
- * library does not retry an unconditional insert itself, because it is not idempotent. The
- * resend keeps the bytes, the precondition and the retain-until computed for the first send. While
- * it waits (up to 16.5 s per write) the caller keeps the store's lock; the record path runs after
- * the erasure commit on the request thread, so before enablement (#365, #492) the total pause must
- * be bounded per operation or that path must fail fast to the retry worker.
+ * <p>Only this adapter resends a write. The client would retry a conditional insert, which it
+ * treats as idempotent, for up to its 50 s budget, so {@link GoogleCloudStorageTransport} sends
+ * every insert through a copy of the client with one attempt per request. Cloud Storage allows
+ * about one write per second to one object name and answers a faster write with HTTP 429 without
+ * writing it; the store writes the frontier once per record and per checkpoint, and two calls in a
+ * row can meet that limit. A write refused with 429 is sent again after each of
+ * {@link #RATE_LIMIT_PAUSES}, with the same bytes, precondition and retain-until; any other failure
+ * fails at once. One write therefore makes at most five sends, each within the client's request
+ * timeouts, and pauses at most 16.5 s. The caller keeps the store's lock meanwhile, on the request
+ * thread for records after the erasure commit, so before enablement (#365, #492) the total pause
+ * must be bounded per operation or that path must fail fast to the retry worker.
  *
  * <p>A listing ({@link #keys}, {@link #oldest}, {@link #allVersions}, {@link #versionCount}) also
  * runs under that lock, so it stays within {@link ListBounds} (#493): it fails closed with
@@ -67,10 +70,11 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     record ListBounds(int maxPages, Duration deadline) {
 
         /**
-         * 100,000 generations: the frontier history of about 50,000 records at two frontier writes
-         * per record, far above erasure volumes, while a provider that repeats or never ends its
-         * pages is stopped within 30 s and the request stays {@code PENDING_DURABLE} for the retry
-         * worker.
+         * 100,000 generations, while a provider that repeats or never ends its pages is stopped
+         * within 30 s and the request stays {@code PENDING_DURABLE} for the retry worker. Since #494
+         * the store's normal path lists no history; the full listings left are recovery's and the
+         * store's fallback read of the frontier, whose history grows by one generation per record
+         * and per checkpoint.
          */
         static final ListBounds DEFAULT = new ListBounds(1_000, Duration.ofSeconds(30));
 

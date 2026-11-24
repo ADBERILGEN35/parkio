@@ -216,7 +216,7 @@ public final class ObjectLockDurableErasureRecordStore
         Optional<Written> written = publishIfAbsent(key, bytes);
         StoredVersion canonical = bucket.oldest(key)
                 .orElseThrow(() -> unavailable("checkpoint " + key + " is not readable after publication"));
-        // A resend after a lost response finds its own checkpoint in place: same bytes.
+        // Bytes equal to these mean this checkpoint is already in place (a write sent twice).
         boolean ours = written.map(w -> canonical.versionId().equals(w.versionId()))
                 .orElseGet(() -> Arrays.equals(canonical.bytes(), bytes));
         if (!ours) {
@@ -438,7 +438,7 @@ public final class ObjectLockDurableErasureRecordStore
      * Raises the signed boundary; it never decreases and highestReserved never trails it. The
      * write names the live version it builds on; if that version is no longer live, the frontier
      * is read again and the write repeated, at most {@link #FRONTIER_WRITE_ATTEMPTS} times. A
-     * resend after a lost response finds its own write live and stops there.
+     * frontier read that already shows the boundary to write ends the loop without a write.
      */
     private FrontierState advanceFrontier(FrontierState frontier, Long expectedThrough, long highestReserved) {
         FrontierState current = frontier;

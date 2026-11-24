@@ -9,6 +9,7 @@ import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.StorageException;
+import com.google.cloud.storage.StorageOptions;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -21,15 +22,31 @@ import java.util.OptionalLong;
 /**
  * Production {@link GcsObjectRetentionTransport} over {@link Storage}. Enabled only through
  * {@link GcsDurableStoreConfig}. Does not provision buckets or enable Object Retention Lock.
+ *
+ * <p>Reads keep the client's retries. Inserts go through a copy of the client with one attempt per
+ * request ({@link #withoutRetries}): the client treats an insert with {@code ifGenerationMatch} as
+ * idempotent and would retry it for up to its 50 s budget, so only {@link GcsObjectRetentionBucket}
+ * resends a write, with its documented pauses (#494).
  */
 final class GoogleCloudStorageTransport implements GcsObjectRetentionTransport {
 
     private final Storage storage;
+    private final Storage writes;
     private final String bucket;
 
     GoogleCloudStorageTransport(Storage storage, String bucket) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.writes = withoutRetries(storage);
         this.bucket = Objects.requireNonNull(bucket, "bucket");
+    }
+
+    /** The same client (credentials, endpoint, transport and timeouts) with one attempt per request. */
+    static Storage withoutRetries(Storage storage) {
+        StorageOptions options = storage.getOptions();
+        return options.toBuilder()
+                .setRetrySettings(options.getRetrySettings().toBuilder().setMaxAttempts(1).build())
+                .build()
+                .getService();
     }
 
     @Override
@@ -78,7 +95,7 @@ final class GoogleCloudStorageTransport implements GcsObjectRetentionTransport {
                 : new Storage.BlobTargetOption[] {ifGenerationMatch.getAsLong() == 0
                         ? Storage.BlobTargetOption.doesNotExist()
                         : Storage.BlobTargetOption.generationMatch()};
-        Blob created = storage.create(info, bytes, options);
+        Blob created = writes.create(info, bytes, options);
         return Objects.requireNonNull(created.getGeneration(), "generation");
     }
 
