@@ -206,6 +206,130 @@ grep -q 'parkio_backup_allow_complete "${DEST_DIR}" "${DB_FAILED}" "${MINIO_OK}"
   && ok "hosted-beta passes MINIO_OK into allow_complete" \
   || bad "hosted-beta must gate COMPLETE on MINIO_OK"
 
+# --- #520 gcs offsite kind: chosen explicitly, checked at preflight, refused on unsafe input ---
+# A gcloud stub that only logs: preflight must not run gcloud, and a refused upload must not reach it.
+cat > "${BIN}/gcloud" <<'EOF'
+#!/usr/bin/env bash
+echo "gcloud $*" >> "${GCLOUD_LOG:-/dev/null}"
+exit 0
+EOF
+chmod +x "${BIN}/gcloud"
+export GCLOUD_LOG="${WORK}/gcloud.log"
+GCS_OK_DEST=gs://parkio-synthetic-backups/stamps
+
+# One preflight in a subshell with only the given offsite settings; prints its exit status.
+gcs_preflight() {
+  (
+    unset BACKUP_OFFSITE_KIND BACKUP_MC_DEST BACKUP_AZURE_STORAGE_ACCOUNT BACKUP_AZURE_CONTAINER \
+      BACKUP_GCS_DEST BACKUP_GCLOUD_BIN
+    export BACKUP_PRODUCTION_MODE=1 BACKUP_ENCRYPT_PASSPHRASE="fu1-test-not-a-secret"
+    for assignment in "$@"; do export "${assignment?}"; done
+    status=0
+    parkio_backup_preflight 2>/dev/null || status=$?
+    echo "${status}"
+  )
+}
+
+if [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}")" = 0 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}/")" = 0 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST=gs://parkio.synthetic_backups/a/b-c.d)" = 0 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN="${BIN}/gcloud")" = 0 ]; then
+  ok "production preflight accepts BACKUP_OFFSITE_KIND=gcs with a gs://<bucket>/<prefix> destination and gcloud"
+else
+  bad "production preflight must accept a valid gcs destination"
+fi
+kind_auto="$(unset BACKUP_OFFSITE_KIND BACKUP_MC_DEST BACKUP_AZURE_STORAGE_ACCOUNT BACKUP_AZURE_CONTAINER
+  BACKUP_GCS_DEST="${GCS_OK_DEST}" parkio_backup_offsite_kind)"
+auto_msg="$( (unset BACKUP_OFFSITE_KIND BACKUP_MC_DEST BACKUP_AZURE_STORAGE_ACCOUNT BACKUP_AZURE_CONTAINER
+  export BACKUP_PRODUCTION_MODE=1 BACKUP_ENCRYPT_PASSPHRASE="fu1-test-not-a-secret" BACKUP_GCS_DEST="${GCS_OK_DEST}"
+  parkio_backup_preflight) 2>&1 >/dev/null || true)"
+if [ "${kind_auto}" = none ] && [ "$(gcs_preflight BACKUP_GCS_DEST="${GCS_OK_DEST}")" = 2 ] \
+  && grep -q 'BACKUP_OFFSITE_KIND=gcs' <<< "${auto_msg}"; then
+  ok "BACKUP_GCS_DEST alone selects no offsite: production preflight fails and names BACKUP_OFFSITE_KIND=gcs"
+else
+  bad "gcs must be chosen explicitly (kind without it: ${kind_auto}; message: ${auto_msg})"
+fi
+gcs_bad_dest=0
+for dest in "" "gs://parkio-synthetic-backups" "gs://parkio-synthetic-backups/" "gs://-parkio/stamps" \
+  "gs://parkio-synthetic-/stamps" "gs://parkio..synthetic/stamps" \
+  "gs://parkio-synthetic-backups/stamps/**" "gs://parkio-synthetic-backups/./stamps" \
+  "gs://parkio-synthetic-backups/stamps/.." "gs://parkio-synthetic-backups/st?mps" \
+  "gs://parkio-synthetic-backups/[a]" "gs://parkio-synthetic-backups/stamps"$'\n'"x"; do
+  for production in 1 0; do
+    if [ "$(gcs_preflight BACKUP_PRODUCTION_MODE="${production}" BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${dest}")" != 2 ]; then
+      gcs_bad_dest=$((gcs_bad_dest + 1))
+      echo "  accepted BACKUP_GCS_DEST='${dest}' (production=${production})"
+    fi
+  done
+done
+if [ "${gcs_bad_dest}" -eq 0 ]; then
+  ok "preflight refuses a missing or malformed BACKUP_GCS_DEST, in production mode and outside it"
+else
+  bad "preflight accepted ${gcs_bad_dest} malformed BACKUP_GCS_DEST values"
+fi
+mkdir -p "${WORK}/not-gcloud"
+printf '#!/bin/sh\nexit 0\n' > "${WORK}/not-gcloud/gcloud"
+if [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN="${WORK}/missing/gcloud")" = 2 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN=gcloud)" = 2 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN="${WORK}/not-gcloud")" = 2 ] \
+  && [ "$(gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN="${WORK}/not-gcloud/gcloud")" = 2 ] \
+  && [ "$(cd "${BIN}" && gcs_preflight BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}" BACKUP_GCLOUD_BIN=gcloud)" = 2 ]; then
+  ok "preflight refuses a BACKUP_GCLOUD_BIN that is missing, relative (even if it resolves), a directory or not executable"
+else
+  bad "preflight must refuse a BACKUP_GCLOUD_BIN that is not an executable absolute path"
+fi
+
+# The real upload (re-sourced: the simulation above replaced parkio_backup_offsite_upload) refuses
+# what it cannot upload as one flat, create-only stamp, before any gcloud call.
+gcs_upload() { # stamp-dir [stamp]; prints the exit status
+  (
+    # shellcheck source=lib/backup-common.sh
+    source "${ROOT}/scripts/lib/backup-common.sh"
+    export BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}"
+    status=0
+    parkio_backup_offsite_upload "$1" "" "${2:-$(basename "$1")}" > /dev/null 2>&1 || status=$?
+    echo "${status}"
+  )
+}
+fake_seal() { printf 'stamp=%s\nsha256sums=%064d\n' "$(basename "$1")" 0 > "$1/COMPLETE"; }
+up="${WORK}/gcs-upload"
+mkdir -p "${up}/unsealed" "${up}/nested/sub" "${up}/spaced" "${up}/flat"
+printf 'x\n' > "${up}/unsealed/data.bin"
+printf 'x\n' > "${up}/nested/sub/data.bin"
+printf 'x\n' > "${up}/spaced/a b.bin"
+printf 'x\n' > "${up}/flat/data.bin"
+fake_seal "${up}/nested"
+fake_seal "${up}/spaced"
+fake_seal "${up}/flat"
+: > "${GCLOUD_LOG}"
+if [ "$(gcs_upload "${up}/unsealed")" != 0 ] && [ "$(gcs_upload "${up}/nested")" != 0 ] \
+  && [ "$(gcs_upload "${up}/spaced")" != 0 ] && [ "$(gcs_upload "${up}/flat" "../escape")" != 0 ] \
+  && [ "$(gcs_upload "${up}/flat" "2026-01-01T00-00-00Z/x")" != 0 ] && [ ! -s "${GCLOUD_LOG}" ]; then
+  ok "gcs upload refuses an unsealed stamp, a nested file, an unsafe name or stamp, before calling gcloud"
+else
+  bad "gcs upload must refuse unsafe input before calling gcloud ($(wc -l < "${GCLOUD_LOG}") calls)"
+fi
+gcs_read() { # list|pull stamp; prints the exit status
+  (
+    export BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_OK_DEST}"
+    status=0
+    if [ "$1" = list ]; then
+      parkio_backup_offsite_list "$2" > /dev/null 2>&1 || status=$?
+    else
+      parkio_backup_offsite_pull "${up}/pulled-$$" "$2" > /dev/null 2>&1 || status=$?
+    fi
+    echo "${status}"
+  )
+}
+: > "${GCLOUD_LOG}"
+if [ "$(gcs_read list '*')" != 0 ] && [ "$(gcs_read list '2026-01-01T00-00-00Z/..')" != 0 ] \
+  && [ "$(gcs_read list '..')" != 0 ] && [ "$(gcs_read pull '..')" != 0 ] && [ "$(gcs_read pull 'a/b')" != 0 ] \
+  && [ ! -s "${GCLOUD_LOG}" ]; then
+  ok "gcs listing and pull refuse a stamp that is not one safe path segment, before calling gcloud"
+else
+  bad "gcs listing and pull must refuse an unsafe stamp before calling gcloud ($(wc -l < "${GCLOUD_LOG}") calls)"
+fi
+
 echo
 echo "=== backup production fail-closed: pass=${pass} fail=${fail} ==="
 if [ "${fail}" -ne 0 ]; then

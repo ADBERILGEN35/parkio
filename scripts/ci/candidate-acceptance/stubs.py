@@ -15,6 +15,10 @@ from urllib.error import HTTPError, URLError
 AUTH_UPSTREAM = "http://auth-service:8081"
 MODE = {"epoch": "proxy"}  # proxy|null|malformed|mismatch|empty|missing|http500
 LOCK = threading.Lock()
+# Not relayed from auth-service's response: hop-by-hop headers, and the headers this stub writes itself
+# (send_response writes Server and Date, _proxy computes Content-Length). A relayed Content-Length beside
+# the computed one makes the gateway's Netty client refuse the response, even when both are equal.
+NOT_RELAYED = {"connection", "transfer-encoding", "content-length", "date", "server"}
 
 
 def _read(handler: BaseHTTPRequestHandler) -> bytes:
@@ -129,7 +133,7 @@ class AuthInterceptHandler(BaseHTTPRequestHandler):
                 payload = resp.read()
                 self.send_response(resp.status)
                 for hk, hv in resp.headers.items():
-                    if hk.lower() in {"transfer-encoding", "connection"}:
+                    if hk.lower() in NOT_RELAYED:
                         continue
                     self.send_header(hk, hv)
                 self.send_header("Content-Length", str(len(payload)))
