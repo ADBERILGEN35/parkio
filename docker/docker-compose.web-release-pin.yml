@@ -1,15 +1,16 @@
 # Parkio hosted-beta web release pin.
-# #419 current pin: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate 38779134465; publish 38780810494.
+# Current pin: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278.
+# Record (digest kind, config digest, rollback): docs/releases/pin-evidence-web-0438b3754203.md.
 # Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
 # Recreate with PARKIO_WEB_EXPECTED_MAP_KEY_FINGERPRINT matching the baked key.
 # Applied last in docker/compose.production.files via scripts/parkio-prod-compose.sh.
 #
 # Practical digest update: change ONLY the services.web.image line below.
-# #419 pin record web: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:d154fbd5df9c5b1185701b99c4e61b32d1a64b7a8101112e0d74504c07c271b7; image id=config digest sha256:8e267d781562d4977d33607a2a1aa2f5113d500b81c63ec1f29c69d2ff66a58d); rollback ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6
+# pin record web: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/web@sha256:cb23b8749ac6b04b52137a6f7a97d3131d24d3f5831ee152f2a02c3c64a9a6a4; config=sha256:7a9e42eda300d7568a2c7e924e238b90bf48ca22d016e2c7fc2e7843f261082d); rollback ghcr.io/adberilgen35/parkio/web@sha256:08811c39cd5a0a483415b136d1f6bcfd7120e97a94b71ec77d20b63ac15cdea6 (source f888a81b, running now); not attested (candidate-publish.yml attests *-service images only)
 
 name: parkio
 
 services:
   web:
-    image: ghcr.io/adberilgen35/parkio/web@sha256:d154fbd5df9c5b1185701b99c4e61b32d1a64b7a8101112e0d74504c07c271b7
+    image: ghcr.io/adberilgen35/parkio/web@sha256:cb23b8749ac6b04b52137a6f7a97d3131d24d3f5831ee152f2a02c3c64a9a6a4
     pull_policy: never
