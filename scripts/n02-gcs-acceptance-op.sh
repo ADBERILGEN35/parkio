@@ -6,8 +6,9 @@
 # default gcloud configuration or Application Default Credentials. State (project number, lien
 # baseline, IAM policies, run records) is kept outside the repository in N02_STATE_DIR.
 #
-#   preflight        read-only: tools (the gcloud alpha component the lien commands need), credential
-#                    isolation, account, billing accounts, project ID
+#   preflight        read-only: tools (a gcloud that sets bucket labels at creation, and its alpha
+#                    component for the lien commands), credential isolation, account, billing
+#                    accounts, project ID
 #   provision        create the project, link billing, enable APIs, buckets, service accounts,
 #                    custom roles and bindings; records identities and the lien baseline. A rerun
 #                    after a failure resumes on the recorded project (or adopts the project whose
@@ -253,6 +254,15 @@ require_alpha() {
     || die "${GCLOUD} alpha resource-manager liens is not available: install the alpha component (gcloud components install alpha)"
 }
 
+# Bucket labels are set at creation (`storage buckets create --labels`, present in 594.0.1 and absent
+# from 590.0.0). Read-only: the command's help must offer the flag.
+require_labels_at_creation() {
+  local help
+  help="$(g storage buckets create --help < /dev/null 2>/dev/null)" || help=""
+  grep -q -- '--labels=' <<<"${help}" \
+    || die "this gcloud cannot set labels at bucket creation (storage buckets create offers no --labels); install the current archive verified against the SHA-256 published on the install page (594.0.1 was used on 2026-11-24)"
+}
+
 # Whether a bucket description (a file) carries exactly the approved labels: true or false.
 has_approved_labels() {
   python3 -I -c 'import json,sys
@@ -324,6 +334,7 @@ require_cleanup_liens() {
 
 cmd_preflight() {
   require_isolation
+  require_labels_at_creation
   require_alpha
   local account file
   account="$(active_account)"
@@ -345,10 +356,11 @@ cmd_provision() {
   [ ! -e "$(state_file cleanup-started)" ] \
     || die "cleanup has started; provision would re-create what it deleted (a late lien: record-liens)"
   [ "${N02_CONFIRM:-}" = "provision-${PROJECT_ID}" ] || die "N02_CONFIRM must be provision-${PROJECT_ID}"
+  require_labels_at_creation
   require_alpha
   local billing="${N02_BILLING_ACCOUNT:-}"
   [[ "${billing}" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]] || die "N02_BILLING_ACCOUNT must look like XXXXXX-XXXXXX-XXXXXX"
-  local account file name role bucket created_any polls found present baseline
+  local account file name role bucket created_any polls found present baseline unlabelled
   account="$(active_account)"
   file="$(mktemp)"
 
@@ -400,14 +412,16 @@ cmd_provision() {
   # back, objectRetention included, which Google refuses once Object Retention Lock is enabled; an
   # existing bucket without the labels is therefore never relabelled.
   present="$(project_buckets)"
+  unlabelled=""
   for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
     grep -qx "${bucket}" <<<"${present}" || continue
     g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}" || die "cannot describe gs://${bucket}"
     [ "$(has_approved_labels "${file}")" = "true" ] && continue
     found="$(generations_in "${bucket}")"
     [ "${found}" = "0" ] || die "gs://${bucket} exists without exactly the labels ${LABELS} and holds ${found} object generations; nothing was changed, stop and report"
-    die "gs://${bucket} exists without exactly the labels ${LABELS}, which are set only at creation; nothing was changed. It holds no object: delete it (gcloud storage buckets delete gs://${bucket} --project=${PROJECT_ID}) and rerun provision"
+    unlabelled="${unlabelled} gs://${bucket}"
   done
+  [ -z "${unlabelled}" ] || die "existing buckets without exactly the labels ${LABELS}:${unlabelled}. Labels are set only at creation; nothing was changed. None of them holds an object: delete them (gcloud storage buckets delete${unlabelled} --project=${PROJECT_ID}) and rerun provision"
   if ! grep -qx "${BUCKET}" <<<"${present}"; then
     g storage buckets create "gs://${BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
       --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \

@@ -242,9 +242,9 @@ a throttled read shows only in the gate's total (`throttledHttp`), not in the in
   (21: what the real client sends, conditional uploads, resends by the adapter only, 429s counted at the gate
   and by the adapter, a read the client resends itself, generation-addressed PATCH, storage and token gate,
   keyless credentials), `GcsObjectRetentionBucketTest` (17)
-  and `scripts/test-n02-gcs-acceptance-op.sh` (120, a fake gcloud that behaves like 590.0.0, and like 594.0.1
-  for label updates and a missing alpha component, with lost responses, failures in mid-command, a missing or
-  late lien, buckets without their labels). Mutation records:
+  and `scripts/test-n02-gcs-acceptance-op.sh` (124, a fake gcloud that behaves like 594.0.1, the version the
+  operation runs with, with lost responses, failures in mid-command, a missing or late lien, buckets without
+  their labels, a missing alpha component and a 590.0.0 without `create --labels`). Mutation records:
   agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
@@ -313,14 +313,18 @@ needs `storage.objects.list/delete`, `storage.buckets.delete`, `iam.serviceAccou
 
 ### 7.5 Credentials
 
-- Google Cloud CLI is installed for the operator user from Google's Linux archive
-  (`google-cloud-cli-linux-x86_64.tar.gz`, `install.sh --path-update=false`); `sudo` is not available for the
-  apt package. The plan pinned 590.0.0, whose archive had SHA-256
-  `351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f` as published on 2026-10-22. That pin
-  could not be reproduced: by the run the rapid channel had moved on, and the versioned 590.0.0 archive has a
-  different hash, as foreseen. The run of 2026-11-24 used **594.0.1**, whose archive SHA-256
-  `c6fdba4cb1551b0da7c1d744eb0dfaf68b59861238d6a6b5ef6bad1ba596b567` matched the value published on the
-  install page that day.
+- The operation runs with Google Cloud CLI **594.0.1**, installed for the operator user from Google's Linux
+  archive (`google-cloud-cli-linux-x86_64.tar.gz`, `install.sh --path-update=false`; `sudo` is not available
+  for the apt package). Its archive SHA-256 `c6fdba4cb1551b0da7c1d744eb0dfaf68b59861238d6a6b5ef6bad1ba596b567`
+  matched the value published on the install page on 2026-11-24 (operator record in the run's evidence).
+- 594.0.1 replaces the 590.0.0 pin of 2026-10-22 (archive SHA-256
+  `351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f`) for two reasons. The versioned 590.0.0
+  archive has a different hash, so the pin cannot be reproduced. And 590.0.0's `storage buckets create` has no
+  `--labels`, which this operation needs. The operator recorded the deviation with the run's evidence on
+  2026-11-24; this revision of the plan adopts it.
+- Reinstall rule: install the current archive, verify it against the SHA-256 on the official install page,
+  and record its version and hash with the run's evidence. `preflight` and `provision` check, read-only
+  and before any change, that `storage buckets create --help` offers `--labels`, and stop otherwise.
 - The lien commands exist only in the CLI's alpha component (`gcloud alpha resource-manager liens`), which
   the archive install lacks: install it in the same installation (`gcloud components install alpha`)
   before `preflight`. `preflight` and `provision` stop without it, before any change.
