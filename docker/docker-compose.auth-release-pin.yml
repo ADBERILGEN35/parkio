@@ -1,17 +1,17 @@
 # Parkio hosted-beta auth release pin.
-# Current pin: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655 (#471).
-# Record (digest kind, config digest, rollback): docs/releases/pin-evidence-auth-service-fdce6ba00373.md.
-# The #419 record below is the previous pin (rollback target).
+# Current pin: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278.
+# Record (digest kind, config digest, rollback): docs/releases/pin-evidence-auth-service-0438b3754203.md.
+# Rollback target is the image production runs now (the pin record below and the evidence file's rollback row); the earlier fdce6ba0 and #419 pins were never deployed.
 # Digest kind: platform manifest linux/amd64 (pin=@sha256 manifest digest; image id=config digest).
 # Needs PARKIO_LOGIN_THROTTLE_HMAC_KEY in the host env (preflight refuses without it).
 # Applied via docker/compose.production.files (after GMP pins, with web pin).
 #
 # Practical digest update: change ONLY the services.auth-service.image line below.
-# #419 pin record auth-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:a349d8106865187ec08f14367235bc8a71a908246c289affe61f9b96f7a3d509; image id=config digest sha256:661f0b9e4946b7d4e8879d511ab0f0563bc8a91c5c88e0b79bce79609ea9da5b); rollback ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616
+# pin record auth-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/auth-service@sha256:290867b4e0a54ffec572e5f1074af3c6183f14e2e712f2a1d8e3577a933c4a5a; config=sha256:2b4c47650e2f4e48e1b71665fb095009c8cda643deb5ce7147d59561dd15268c); rollback ghcr.io/adberilgen35/parkio/auth-service@sha256:2091de2e7efed0b6814a312bf5d74690274d778e6438491eb3884d9d710f3616 (source 504b9cb4, running now); cosign_verify_attestation=PASS (publish run 45349988278)
 
 name: parkio
 
 services:
   auth-service:
-    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:3d4e9ae69a23f8fdd3428ce7acb7ce6a7242b1ae0cc2fc00329f89519791ea74
+    image: ghcr.io/adberilgen35/parkio/auth-service@sha256:290867b4e0a54ffec572e5f1074af3c6183f14e2e712f2a1d8e3577a933c4a5a
     pull_policy: never

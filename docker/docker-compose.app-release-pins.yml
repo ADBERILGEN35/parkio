@@ -1,44 +1,43 @@
 # Parkio app release pins (U13, CL-F11): the six app services.
-# Current pins: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655 (#469, #470, #472, #475, #476, #478).
-# One record per service (digest kind, config digest, rollback): docs/releases/pin-evidence-<service>-fdce6ba00373.md.
+# Current pins: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278.
+# One record per service (digest kind, config digest, rollback): docs/releases/pin-evidence-<service>-0438b3754203.md.
 # Digest kind for each pin: platform manifest linux/amd64 (compose pin uses registry
 # manifest digest @sha256; image id below is the config digest from publish).
-# Rollback targets are the previous pins: the #419 records below (each evidence file's rollback row).
+# Rollback targets are the host-local images production runs now, parkio-<service>:rollback-f888a81b (the pin records below and each evidence file's rollback row); the earlier fdce6ba0 and #419 pins were never deployed.
 # ONLY the six app services' image references. Do not broaden.
 # Applied via docker/compose.production.files (after the GMP pins, before the auth/web pins).
 #
-# pin record ai-validation-service: source/OCI fdce6ba003735cf96e75013584e582c7df4c8a91; candidate run 39465850756; publish run 39470264655; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:00343958e0f9d103e9a4cb965e4803098e979d58861e4627b11af85cb01f003d; config=sha256:4f1738026090fe5c68893036078bac7b10313e87b464b91ee55e848cdb689898); rollback ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b; cosign_verify_attestation=PASS
+# pin record user-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/user-service@sha256:65913593b2a74895392ccb9cc3ab7831093371ed344d53f99c4a2920b0deb6c7; config=sha256:1ec670c1a59f0da781430fd762cf62c32b2ca2834324198caa82cc79a2bdff80); rollback host-local parkio-user-service:rollback-f888a81b (image id sha256:f699b9866e1e54a2…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
+# pin record gamification-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/gamification-service@sha256:4e4ae5ba2f90fd0c0d14967fa3fd060c503d62a47f4cab49329b88cd87e04c90; config=sha256:c18cf623aa5697347c5b696df7acad9b036775d5f7c3e63f5c761144237efe5a); rollback host-local parkio-gamification-service:rollback-f888a81b (image id sha256:adb2efbca96b1d84…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
+# pin record notification-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/notification-service@sha256:7060d43757d2f35c3ebba7646981d3ddadeb6ed7ecccd01bc39c4d43aafdd354; config=sha256:49337bca862a6a8fdeb8be09fa7d58019eedb0eed95136a2694a9d0c5d3cc2dd); rollback host-local parkio-notification-service:rollback-f888a81b (image id sha256:df23b8da8c9751a4…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
+# pin record moderation-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/moderation-service@sha256:3aaf4360bad2a1edc979dcd534e8d3bb3052499a8dd4e8ddef9550d58036e8b9; config=sha256:a53625b80500d4325e121b0264c97ef994f7189c1b7b53603ddfb6cdb883f315); rollback host-local parkio-moderation-service:rollback-f888a81b (image id sha256:0d77f5cbab954d74…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
+# pin record ai-validation-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:6bf44fb1b9a206e290da63a93e68704ca7a94d3d27fe4bd0c968bb37b85de82d; config=sha256:79a5cb6bbaf16b6ba06644c9fabcd393092fb44131dcca646ab26491fe29c3fc); rollback host-local parkio-ai-validation-service:rollback-f888a81b (image id sha256:c9ee9a69e5dfb039…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
+# pin record analytics-service: source/OCI 0438b37542035778afe37a7cea38642ebed65db3; candidate run 45348570783; publish run 45349988278; digest kind=platform manifest linux/amd64 (pin=ghcr.io/adberilgen35/parkio/analytics-service@sha256:a235a0749a202450940096c9a678e363ad60e1f41466f3774d29e5131497897b; config=sha256:7ab9aa4deb3d21a93c907c3274460dd4c737d16d8a201f6d6a839373ffc6f83b); rollback host-local parkio-analytics-service:rollback-f888a81b (image id sha256:86ffd98aab2871be…, built from f888a81b, in no registry; running now); cosign_verify_attestation=PASS (publish run 45349988278)
 # Practical digest update: change ONLY the services.<service>.image lines below.
-# #419 pin record user-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:85e9507644a8da4110bfb1bc8e2453a6f5fdeb4f3b4566544feb94a58177fe59; image id=config digest sha256:f48913b9a5c38e451167d2fae0575d0cdb45427a774062dfdacf46682539c136); rollback ghcr.io/adberilgen35/parkio/user-service@sha256:0f9d34a68f33f41e45404c404e7e5aa0ca48e0f895b3e86bd63be0a8ae1aec21
-# #419 pin record gamification-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:cfb33e0e34db279a021ae63e45d1699b957d8d4968dd83b14438671c64bb7bf7; image id=config digest sha256:dc21efb0ea0bde0cdde26228c9989974163d6b82b4408986289f1c8336893f7f); rollback ghcr.io/adberilgen35/parkio/gamification-service@sha256:47e2425ff43d964de15e99a0218dae3f0fa7874525cd91e61ef0a23b03473753
-# #419 pin record notification-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:4e784f81b19168efa1c5bdbe9cafe48ff45bc3f0c95fff9cab1977877e43e339; image id=config digest sha256:685bb0601bf02a03012ad1af9a6c616f864d2e98cf2b7ad641b35ee5598fe0bb); rollback ghcr.io/adberilgen35/parkio/notification-service@sha256:ff822479048094fa688ae2f7ea27024cf57b9dd17af1562ed73c015a0c0e8942
-# #419 pin record moderation-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:46e6b2c49fcf3ac6ef09c5a329cdfef359f7451a0930405960dae88f0e466b4c; image id=config digest sha256:a853998442d541267acab4af7ab2a6b4868c2a9a9f74d372db7bc41f0c76e428); rollback ghcr.io/adberilgen35/parkio/moderation-service@sha256:e2b0ff6471f0098aab3f70495e53bd84459980bcc08c8bfc344098c2531d2e38
-# #419 pin record ai-validation-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:1cf96196285a58d7beeaee53034abd31bb74a88c0a94f5d70472edceb6cbd87b; image id=config digest sha256:7295afb110d22da4e6add17a1cf52edc86b8099ca21d28b5a81e42e901b9a0e6); rollback ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:8a2b091f5bbc25f5f3e7721ff97521713bfc281d6c1f65c0551f94e67a53e640
-# #419 pin record analytics-service: source/OCI 3d47791818d68154e098da0513a083194f714def; candidate run 38779134465; publish run 38780810494; digest kind=platform manifest linux/amd64 (pin=@sha256 manifest digest sha256:a9fc0a2bb8e99c1ddf816038568a43889f8927d86ec62b13b5dee39a411bb611; image id=config digest sha256:61e2cc1b029e8d03ceb8b782acfb32d37b9239301b38bcff1d2912d1bfaaf9ba); rollback ghcr.io/adberilgen35/parkio/analytics-service@sha256:ec01d727c0a06c6f4c7af3644ead17a1b79df022241e7c55be992e272a714d3a
 
 name: parkio
 
 services:
   user-service:
-    image: ghcr.io/adberilgen35/parkio/user-service@sha256:8b7f1237f2b333a6607b92f60d3c293d57cf57b9d6bfce8ebba08ed5a434f3f5
+    image: ghcr.io/adberilgen35/parkio/user-service@sha256:65913593b2a74895392ccb9cc3ab7831093371ed344d53f99c4a2920b0deb6c7
     pull_policy: never
 
   gamification-service:
-    image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:b1c0903e36540e0c8004458dedd58ad6b051b91b371dc57fb204212545a053f1
+    image: ghcr.io/adberilgen35/parkio/gamification-service@sha256:4e4ae5ba2f90fd0c0d14967fa3fd060c503d62a47f4cab49329b88cd87e04c90
     pull_policy: never
 
   notification-service:
-    image: ghcr.io/adberilgen35/parkio/notification-service@sha256:2f61bb186f0f4b8dbf5f9974ef51263d19408bcc9d8a9458713c8f8196d6d241
+    image: ghcr.io/adberilgen35/parkio/notification-service@sha256:7060d43757d2f35c3ebba7646981d3ddadeb6ed7ecccd01bc39c4d43aafdd354
     pull_policy: never
 
   moderation-service:
-    image: ghcr.io/adberilgen35/parkio/moderation-service@sha256:9be1b33623b12d756b45eb9e012ca188fbf5fb58f6bc888aa5dbed7414af20b8
+    image: ghcr.io/adberilgen35/parkio/moderation-service@sha256:3aaf4360bad2a1edc979dcd534e8d3bb3052499a8dd4e8ddef9550d58036e8b9
     pull_policy: never
 
   ai-validation-service:
-    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:00343958e0f9d103e9a4cb965e4803098e979d58861e4627b11af85cb01f003d
+    image: ghcr.io/adberilgen35/parkio/ai-validation-service@sha256:6bf44fb1b9a206e290da63a93e68704ca7a94d3d27fe4bd0c968bb37b85de82d
     pull_policy: never
 
   analytics-service:
-    image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:ce1a2d691691338b71e6b2dc32a349d76dc7a88fcc66dba8cf561e214a72b07f
+    image: ghcr.io/adberilgen35/parkio/analytics-service@sha256:a235a0749a202450940096c9a678e363ad60e1f41466f3774d29e5131497897b
     pull_policy: never
