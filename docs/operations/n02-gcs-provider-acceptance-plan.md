@@ -242,8 +242,9 @@ a throttled read shows only in the gate's total (`throttledHttp`), not in the in
   (21: what the real client sends, conditional uploads, resends by the adapter only, 429s counted at the gate
   and by the adapter, a read the client resends itself, generation-addressed PATCH, storage and token gate,
   keyless credentials), `GcsObjectRetentionBucketTest` (17)
-  and `scripts/test-n02-gcs-acceptance-op.sh` (108, a fake gcloud that behaves like 590.0.0, with lost
-  responses, failures in mid-command, a missing or late lien). Mutation records:
+  and `scripts/test-n02-gcs-acceptance-op.sh` (124, a fake gcloud that behaves like 594.0.1, the version the
+  operation runs with, with lost responses, failures in mid-command, a missing or late lien, buckets without
+  their labels, a missing alpha component and a 590.0.0 without `create --labels`). Mutation records:
   agent-tools evidence of #483.
 
 ## 7. Execution proposal (awaiting owner approval)
@@ -272,7 +273,7 @@ region (no replication charges).
 | Soft delete | off at creation (`--soft-delete-duration=0`) | off |
 | UBLA / public access prevention | on / enforced | on / enforced |
 | Retention policy (Bucket Lock), lifecycle, Autoclass, HNS, CMEK | none | none |
-| Labels | `parkio-purpose=n02-gcs-acceptance`, `parkio-data=synthetic`, `parkio-issue=483` | same |
+| Labels (set at creation, §7.5) | `parkio-purpose=n02-gcs-acceptance`, `parkio-data=synthetic`, `parkio-issue=483` | same |
 
 ### 7.4 Changes by level, with the permission each needs
 
@@ -312,11 +313,28 @@ needs `storage.objects.list/delete`, `storage.buckets.delete`, `iam.serviceAccou
 
 ### 7.5 Credentials
 
-- Google Cloud CLI 590.0.0 is installed for the operator user from Google's Linux archive
-  (`google-cloud-cli-linux-x86_64.tar.gz`, SHA-256
-  `351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f` as published on the install page on
-  2026-10-22, `install.sh --path-update=false`); `sudo` is not available for the apt package. A reinstall
-  stops if the rapid channel has moved past 590.0.0 (the versioned archive has a different hash).
+- The operation runs with Google Cloud CLI **594.0.1**, installed for the operator user from Google's Linux
+  archive (`google-cloud-cli-linux-x86_64.tar.gz`, `install.sh --path-update=false`; `sudo` is not available
+  for the apt package). Its archive SHA-256 `c6fdba4cb1551b0da7c1d744eb0dfaf68b59861238d6a6b5ef6bad1ba596b567`
+  matched the value published on the install page on 2026-11-24 (operator record in the run's evidence).
+- 594.0.1 replaces the 590.0.0 pin of 2026-10-22 (archive SHA-256
+  `351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f`) for two reasons. The versioned 590.0.0
+  archive has a different hash, so the pin cannot be reproduced. And 590.0.0's `storage buckets create` has no
+  `--labels`, which this operation needs. The operator recorded the deviation with the run's evidence on
+  2026-11-24; this revision of the plan adopts it.
+- Reinstall rule: install the current archive, verify it against the SHA-256 on the official install page,
+  and record its version and hash with the run's evidence. `preflight` and `provision` check, read-only
+  and before any change, that `storage buckets create --help` offers `--labels`, and stop otherwise.
+- The lien commands exist only in the CLI's alpha component (`gcloud alpha resource-manager liens`), which
+  the archive install lacks: install it in the same installation (`gcloud components install alpha`)
+  before `preflight`. `preflight` and `provision` stop without it, before any change.
+- Bucket labels are set when each bucket is created (`--labels`). The CLI applies a label update by reading
+  the bucket and PATCHing all of it back, `objectRetention` included, which Google refuses on a bucket with
+  Object Retention Lock (`HTTPError 503: Object retention config is immutable once enabled`, 594.0.1 on
+  2026-11-24); an update of versioning alone sends only that field. `provision` therefore never relabels a
+  bucket: an existing one without exactly these labels stops it, and if it holds no object the operator
+  deletes it and runs `provision` again. After the buckets step, `provision` checks both buckets as `verify`
+  does (exactly these labels, versioning on, soft delete off, Object Retention Lock on the test bucket only).
 - Everything runs with `CLOUDSDK_CONFIG=$HOME/.config/gcloud-parkio-n02-483`; the default `~/.config/gcloud`
   is never read or written, no configuration is created or activated, `core/project` stays unset and every
   command passes `--project`. google-auth-library reads ADC from the same directory.

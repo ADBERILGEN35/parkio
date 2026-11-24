@@ -2,6 +2,9 @@
 # Stub-driven end-to-end test of scripts/n02-gcs-acceptance-op.sh (#483). A stateful fake gcloud
 # models the dedicated project, buckets, service accounts, roles, bindings and the Object Retention
 # Lock lien, and records every call. No network, no real credentials, nothing in Google Cloud.
+# The fake behaves like gcloud 594.0.1, the version the operation runs with (#483): labels are set at
+# bucket creation, and a label update PATCHes the whole bucket back. Knob gcloud_590 models 590.0.0,
+# whose `storage buckets create` has no --labels.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -85,8 +88,19 @@ def out(value):
     print(json.dumps(value))
     sys.exit(0)
 
+# Knob no_alpha: an archive install without the alpha component. With stdin closed, gcloud's offer to
+# install it goes unanswered and the command fails.
+if words[:1] == ["alpha"] and s.get("no_alpha"):
+    fail("(gcloud) You do not currently have this command group installed. Using it requires the"
+         " installation of components: [alpha]")
+# --help prints the command's help; the script reads only the flags of `storage buckets create`.
+if "--help" in args:
+    print("SYNOPSIS\n    gcloud " + " ".join(words))
+    if words[:3] == ["storage", "buckets", "create"] and not s.get("gcloud_590"):
+        print("        [--labels=[LABEL_KEYS_AND_VALUES,...] | --labels-file=LABELS_FILE]")
+    sys.exit(0)
 if words[:1] == ["version"]:
-    out({"Google Cloud SDK": "590.0.0"})
+    out({"Google Cloud SDK": "590.0.0" if s.get("gcloud_590") else "594.0.1"})
 if words[:2] == ["config", "list"]:
     core = {"account": s.get("account", "operator@example.com")}
     if s.get("core_project"):
@@ -118,23 +132,32 @@ if words[:3] == ["billing", "projects", "describe"]:
 if words[:2] == ["services", "enable"]:
     s["services"] = words[2:]; save(); out({})
 if words[:3] == ["storage", "buckets", "create"]:
+    if s.get("gcloud_590") and flag("labels") is not None:
+        fail("(gcloud.storage.buckets.create) unrecognized arguments: --labels=" + flag("labels"), 2)
     name = words[3][5:]
     retention = "--enable-per-object-retention" in args
     s["buckets"][name] = {"name": name, "projectNumber": s["project"]["projectNumber"], "location": flag("location").upper(),
                           "storageClass": flag("default-storage-class"), "softDeletePolicy": {"retentionDurationSeconds": flag("soft-delete-duration")},
                           "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}, "publicAccessPrevention": "enforced"},
                           "objectRetention": {"mode": "Enabled"} if retention else {}, "versioning": {"enabled": False},
-                          "labels": {}, "objects": [], "bindings": []}
-    # Knob lien_never: Google places the lien only at best effort.
-    if retention and not s.get("lien_never"):
+                          "labels": dict(item.split("=", 1) for item in flag("labels").split(",")) if flag("labels") else {},
+                          "objects": [], "bindings": []}
+    # Knob lien_never: Google places the lien only at best effort, one per project.
+    if retention and not s.get("lien_never") and ORL_LIEN not in s["liens"]:
         s["liens"].append(dict(ORL_LIEN))
     save(); out({})
 if words[:3] == ["storage", "buckets", "update"]:
     b = s["buckets"][words[3][5:]]
-    if "--versioning" in args:
+    # A label change makes gcloud GET the bucket and PATCH all of it back, objectRetention included.
+    if any(a.split("=", 1)[0] in ("--update-labels", "--labels-file", "--remove-labels", "--clear-labels") for a in args):
+        if b["objectRetention"]:
+            fail("HTTPError 503: Object retention config is immutable once enabled and cannot be changed"
+                 " for bucket '%s'." % b["name"])
+        if flag("update-labels"):
+            b["labels"].update(dict(item.split("=", 1) for item in flag("update-labels").split(",")))
+    # Knob versioning_noop: the update answers but versioning stays off.
+    if "--versioning" in args and not s.get("versioning_noop"):
         b["versioning"]["enabled"] = True
-    if flag("update-labels"):
-        b["labels"].update(dict(item.split("=", 1) for item in flag("update-labels").split(",")))
     save(); out({})
 if words[:3] == ["storage", "buckets", "describe"]:
     name = words[3][5:]
@@ -168,8 +191,9 @@ if words[:3] == ["storage", "buckets", "delete"]:
         del s["buckets"][name]
     save(); out({})
 if words[:2] == ["storage", "ls"]:
-    # Like gcloud 590: a recursive listing of a bucket URL also yields the bucket itself (a "gs://B/:"
-    # header in plain output, a cloud_bucket entry in JSON); an empty non-recursive JSON listing is "\n".
+    # As seen with gcloud 590.0.0 (not re-checked with 594.0.1; the script copes either way): a recursive
+    # listing of a bucket URL also yields the bucket itself (a "gs://B/:" header in plain output, a
+    # cloud_bucket entry in JSON); an empty non-recursive JSON listing is "\n".
     b = s["buckets"][words[2][5:]]
     if "--json" in args:
         items = [{"url": "gs://%s/%s#%d" % (b["name"], o["name"], o["generation"]), "type": "cloud_object",
@@ -246,7 +270,8 @@ reset() {
   : > "${FAKE_LOG}"
   unset N02_CONFIRM N02_BILLING_ACCOUNT N02_GRADLE N02_ACCEPT_NO_LIEN GOOGLE_APPLICATION_CREDENTIALS CLOUDSDK_CORE_PROJECT || true
 }
-calls() { python3 -I -c 'import json,sys; [print(" ".join(json.loads(l)["args"])) for l in open(sys.argv[1])]' "${FAKE_LOG}"; }
+# Recorded calls, without help invocations (the script's read-only capability probes).
+calls() { python3 -I -c 'import json,sys; [print(" ".join(a)) for a in (json.loads(l)["args"] for l in open(sys.argv[1])) if "--help" not in a]' "${FAKE_LOG}"; }
 # Whether a recorded call matches an extended regular expression. The log is read whole first: piping
 # it into grep -q can end the reader early, which fails the check under pipefail.
 called() { grep -q -E -- "$1" <<<"$(calls)"; }
@@ -278,6 +303,11 @@ expect_stop "refuses a configured core/project" "core/project=other-project" bas
 rm -f "${FAKE_STATE}"
 if bash "${OP}" preflight > "${HOME}/preflight.out" 2>&1 && grep -q "not visible" "${HOME}/preflight.out" \
     && [ "$(writes)" = "0" ]; then ok "preflight is read-only"; else bad "preflight: $(cat "${HOME}/preflight.out")"; fi
+echo '{"no_alpha": true}' > "${FAKE_STATE}"
+expect_stop "preflight requires the gcloud alpha component" "install the alpha component (gcloud components install alpha)" bash "${OP}" preflight
+echo '{"gcloud_590": true}' > "${FAKE_STATE}"
+expect_stop "preflight requires a gcloud that sets labels at bucket creation" "cannot set labels at bucket creation" bash "${OP}" preflight
+rm -f "${FAKE_STATE}"
 
 # --- approved, unmodified script ------------------------------------------------------------------
 reset modified-script
@@ -296,6 +326,10 @@ echo '{"billing_open": false}' > "${FAKE_STATE}"
 expect_stop "provision rejects a closed billing account" "is not open" provision
 echo '{"project": {"projectId": "parkio-n02-accept-5c2c7f", "projectNumber": "555555555555", "createTime": "2020-01-01T00:00:00Z", "lifecycleState": "ACTIVE", "labels": {}}}' > "${FAKE_STATE}"
 expect_stop "provision never adopts an existing project" "already exists; nothing was changed" provision
+echo '{"no_alpha": true}' > "${FAKE_STATE}"
+expect_stop "provision requires the alpha component before any change" "install the alpha component" provision
+echo '{"gcloud_590": true}' > "${FAKE_STATE}"
+expect_stop "provision requires labels at bucket creation before any change" "cannot set labels at bucket creation" provision
 if [ "$(writes)" = "0" ]; then ok "refused provisioning changed nothing"; else bad "refused provisioning wrote: $(calls)"; fi
 
 reset provision
@@ -309,6 +343,15 @@ if [ "$(calls | grep -c -- '--enable-per-object-retention')" = "1" ] \
   ok "Object Retention Lock only on the test bucket, soft delete off at creation"
 else bad "bucket creation flags"; fi
 if called '--lock-retention-period|--retention-period'; then bad "Bucket Lock flag used"; else ok "no Bucket Lock"; fi
+if called '^storage buckets create gs://parkio-n02-orl-accept-20261022-5c2c7f .*--labels=parkio-purpose=n02-gcs-acceptance,parkio-data=synthetic,parkio-issue=483$' \
+    && called '^storage buckets create gs://parkio-n02-noorl-ctrl-20261022-5c2c7f .*--labels=parkio-purpose=n02-gcs-acceptance,parkio-data=synthetic,parkio-issue=483$' \
+    && [ "$(cloud 'len(s["buckets"]) == 2 and all(b["labels"] == {"parkio-purpose": "n02-gcs-acceptance", "parkio-data": "synthetic", "parkio-issue": "483"} for b in s["buckets"].values())')" = "True" ]; then
+  ok "both buckets get their labels at creation"
+else bad "bucket labels at creation: $(calls | grep '^storage buckets create')"; fi
+if [ "$(calls | grep -c '^storage buckets update')" = "2" ] && ! called '^storage buckets update .*labels' \
+    && called '^storage buckets update gs://parkio-n02-orl-accept-20261022-5c2c7f --versioning$'; then
+  ok "bucket updates set versioning only, never labels"
+else bad "bucket updates: $(calls | grep '^storage buckets update')"; fi
 for f in project-number project-create-time project-creating operator billing-account liens-after-orl.json iam-bound-at; do
   [ -s "${N02_STATE_DIR}/${f}" ] || bad "state ${f} not recorded"
 done
@@ -319,11 +362,30 @@ if provision > "${HOME}/again.out" 2>&1 && grep -q "resuming on the recorded pro
   ok "a second provision resumes and creates nothing"
 else bad "second provision: $(tail -3 "${HOME}/again.out")"; fi
 if bash "${OP}" verify > /dev/null 2>&1; then ok "verify passes on the provisioned state"; else bad "verify failed"; fi
+fake 's["buckets"]["parkio-n02-noorl-ctrl-20261022-5c2c7f"]["labels"]["extra"] = "x"'
+expect_stop "verify catches a bucket label that is not approved" "labels are not exactly" bash "${OP}" verify
+fake 'del s["buckets"]["parkio-n02-noorl-ctrl-20261022-5c2c7f"]["labels"]["extra"]'
 fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["bindings"].append({"role": "roles/storage.admin", "members": ["serviceAccount:n02-reader@parkio-n02-accept-5c2c7f.iam.gserviceaccount.com"]})'
 expect_stop "verify catches an extra bucket grant" "binding of n02-reader" bash "${OP}" verify
 fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["bindings"].pop()'
 fake 's["liens"].append({"name": "liens/extra", "parent": "projects/123456789012", "origin": "x", "reason": "y", "restrictions": ["resourcemanager.projects.delete"]})'
 expect_stop "verify catches a lien that differs from the baseline" "liens differ from the recorded baseline" bash "${OP}" verify
+# The path this script replaced: a label update of the lock bucket is refused, as it was live (503).
+refused=0
+for label_flag in --update-labels=parkio-purpose=n02-gcs-acceptance --labels-file=labels.json; do
+  if ! "${N02_GCLOUD}" storage buckets update gs://parkio-n02-orl-accept-20261022-5c2c7f --versioning "${label_flag}" \
+      > "${HOME}/old-update.out" 2>&1 && grep -q "HTTPError 503: Object retention config is immutable" "${HOME}/old-update.out"; then
+    refused=$((refused + 1))
+  fi
+done
+[ "${refused}" = 2 ] && ok "a label update of the lock bucket is refused as live (503)" || bad "the fake accepted a label update of the lock bucket"
+fake 's["gcloud_590"] = True'
+rc=0
+"${N02_GCLOUD}" storage buckets create gs://parkio-n02-other --labels=a=b > "${HOME}/old-create.out" 2>&1 || rc=$?
+if [ "${rc}" = 2 ] && grep -q "unrecognized arguments: --labels=a=b" "${HOME}/old-create.out"; then
+  ok "gcloud 590.0.0 has no create --labels (exit 2), which preflight refuses"
+else bad "the 590.0.0 model accepted create --labels: rc=${rc}"; fi
+fake 's["gcloud_590"] = False'
 
 reset provision-resume
 echo '{"fail": {"storage buckets add-iam-policy-binding gs://parkio-n02-orl-accept-20261022-5c2c7f": 25}, "lien_delay": 2}' > "${FAKE_STATE}"
@@ -342,6 +404,26 @@ if provision > "${HOME}/resume.out" 2>&1 && grep -q "resuming on the recorded pr
   && [ "$(calls | grep -c '^iam service-accounts create')" = "4" ] && ok "resume creates nothing twice" || bad "resume duplicated creations"
 [ "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "${N02_STATE_DIR}/liens-after-orl.json")" = "1" ] \
   && ok "the late lien is recorded after polling" || bad "lien baseline"
+
+# --- buckets created without labels ---------------------------------------------------------------
+reset unlabelled-buckets
+echo '{"fail": {"storage buckets update": 1}}' > "${FAKE_STATE}"
+expect_stop "a failed versioning update stops provisioning" "simulated failure of storage buckets update" provision
+fake 'for b in s["buckets"].values(): b["labels"] = {}'
+bucket_writes_before="$(calls | grep -c -E '^storage buckets (create|update|delete)' || true)"
+expect_stop "resume refuses the buckets without the labels instead of relabelling them" "parkio-issue=483: gs://parkio-n02-orl-accept-20261022-5c2c7f gs://parkio-n02-noorl-ctrl-20261022-5c2c7f. Labels are set only at creation; nothing was changed. None of them holds an object: delete them (gcloud storage buckets delete gs://parkio-n02-orl-accept-20261022-5c2c7f gs://parkio-n02-noorl-ctrl-20261022-5c2c7f --project=parkio-n02-accept-5c2c7f)" provision
+[ "$(calls | grep -c -E '^storage buckets (create|update|delete)' || true)" = "${bucket_writes_before}" ] \
+  && ok "that refusal changed no bucket" || bad "the refusal changed a bucket: $(calls | tail -3)"
+fake 's["buckets"]["parkio-n02-orl-accept-20261022-5c2c7f"]["objects"] = [{"name": "runs/x/a.json", "generation": 1, "until": 0}]'
+expect_stop "an unlabelled bucket that holds objects is not offered for deletion" "holds 1 object generations; nothing was changed, stop and report" provision
+fake 's["buckets"] = {}'
+if provision > "${HOME}/relabel.out" 2>&1 && bash "${OP}" verify > /dev/null 2>&1; then
+  ok "provision completes once the operator deleted the unlabelled buckets"
+else bad "provision after deleting the buckets: $(tail -3 "${HOME}/relabel.out")"; fi
+reset bucket-not-as-approved
+echo '{"versioning_noop": true}' > "${FAKE_STATE}"
+expect_stop "a bucket not as approved after the buckets step stops provisioning" "versioning is off" provision
+if called '^alpha resource-manager liens list .*--format=json'; then bad "provision went past the buckets step"; else ok "nothing ran past the buckets step"; fi
 
 # --- a project whose creation was not recorded ----------------------------------------------------
 reset adopt

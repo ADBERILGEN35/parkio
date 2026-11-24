@@ -6,11 +6,14 @@
 # default gcloud configuration or Application Default Credentials. State (project number, lien
 # baseline, IAM policies, run records) is kept outside the repository in N02_STATE_DIR.
 #
-#   preflight        read-only: tools, credential isolation, account, billing accounts, project ID
+#   preflight        read-only: tools (a gcloud that sets bucket labels at creation, and its alpha
+#                    component for the lien commands), credential isolation, account, billing
+#                    accounts, project ID
 #   provision        create the project, link billing, enable APIs, buckets, service accounts,
 #                    custom roles and bindings; records identities and the lien baseline. A rerun
 #                    after a failure resumes on the recorded project (or adopts the project whose
-#                    creation it started) and creates only what is missing
+#                    creation it started) and creates only what is missing. Bucket labels are set at
+#                    creation only: an existing bucket without them stops provision
 #   verify           read-only: the provisioned configuration, IAM policies and lien match the record
 #   run              one harness attempt (at most two counted)
 #   record-liens     after the owner reviewed it (cleanup-status shows it), records the project's single
@@ -244,6 +247,53 @@ lien_signature() {
   json "$1" "sorted(l['name'] + '|' + l.get('parent', '') + '|' + l.get('origin', '') + '|' + l.get('reason', '') + '|' + ','.join(l.get('restrictions', [])) for l in d)"
 }
 
+# The lien commands exist only in gcloud's alpha component, which an archive install lacks. With stdin
+# closed, gcloud's offer to install a missing component goes unanswered and the check fails instead.
+require_alpha() {
+  g alpha resource-manager liens list --project="${PROJECT_ID}" --help < /dev/null > /dev/null 2>&1 \
+    || die "${GCLOUD} alpha resource-manager liens is not available: install the alpha component (gcloud components install alpha)"
+}
+
+# Bucket labels are set at creation (`storage buckets create --labels`, present in 594.0.1 and absent
+# from 590.0.0). Read-only: the command's help must offer the flag.
+require_labels_at_creation() {
+  local help
+  help="$(g storage buckets create --help < /dev/null 2>/dev/null)" || help=""
+  grep -q -- '--labels=' <<<"${help}" \
+    || die "this gcloud cannot set labels at bucket creation (storage buckets create offers no --labels); install the current archive verified against the SHA-256 published on the install page (594.0.1 was used on 2026-11-24)"
+}
+
+# Whether a bucket description (a file) carries exactly the approved labels: true or false.
+has_approved_labels() {
+  python3 -I -c 'import json,sys
+d=json.load(open(sys.argv[1], encoding="utf-8"))
+print(str(d.get("labels", {}) == dict(p.split("=", 1) for p in sys.argv[2].split(","))).lower())' "$1" "${LABELS}"
+}
+
+# One approved bucket as provisioned, fail-closed: the recorded project, location, class, versioning
+# on, soft delete off, UBLA, public access prevention, no Bucket Lock, exactly the approved labels,
+# and Object Retention Lock on the test bucket only.
+require_bucket_settings() {
+  local bucket="$1" file
+  file="$(mktemp)"
+  g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}" || die "cannot describe gs://${bucket}"
+  [ "$(json "${file}" 'str(d.get("projectNumber", ""))')" = "$(recorded project-number)" ] || die "${bucket} is in another project"
+  [ "$(json "${file}" 'd.get("location", "").lower()')" = "${REGION}" ] || die "${bucket} location differs"
+  [ "$(json "${file}" 'd.get("storageClass", "")')" = "STANDARD" ] || die "${bucket} storage class differs"
+  [ "$(json "${file}" 'd.get("versioning", {}).get("enabled", False)')" = "true" ] || die "${bucket} versioning is off"
+  [ "$(json "${file}" 'str(d.get("softDeletePolicy", {}).get("retentionDurationSeconds", "unset"))')" = "0" ] || die "${bucket} soft delete is not off"
+  [ "$(json "${file}" 'd.get("iamConfiguration", {}).get("uniformBucketLevelAccess", {}).get("enabled", False)')" = "true" ] || die "${bucket} UBLA is off"
+  [ "$(json "${file}" 'd.get("iamConfiguration", {}).get("publicAccessPrevention", "")')" = "enforced" ] || die "${bucket} public access prevention is not enforced"
+  [ "$(json "${file}" '"retentionPolicy" not in d')" = "true" ] || die "${bucket} has a bucket retention policy (Bucket Lock is out of scope)"
+  [ "$(has_approved_labels "${file}")" = "true" ] || die "${bucket} labels are not exactly ${LABELS}"
+  if [ "${bucket}" = "${BUCKET}" ]; then
+    [ "$(json "${file}" 'str(d.get("objectRetention", {}).get("mode", ""))')" = "Enabled" ] || die "${BUCKET} lacks Object Retention Lock"
+  else
+    [ "$(json "${file}" 'str(d.get("objectRetention", {}).get("mode", ""))')" != "Enabled" ] || die "${bucket} must not have Object Retention Lock"
+  fi
+  rm -f "${file}"
+}
+
 # Writes the project's liens to a file as a JSON list (an empty listing is no lien).
 liens_to() {
   g alpha resource-manager liens list --project="${PROJECT_ID}" --format=json > "$1" || die "cannot list the liens of ${PROJECT_ID}"
@@ -284,6 +334,8 @@ require_cleanup_liens() {
 
 cmd_preflight() {
   require_isolation
+  require_labels_at_creation
+  require_alpha
   local account file
   account="$(active_account)"
   say "account ${account} in ${CONFIG_DIR}"
@@ -304,9 +356,11 @@ cmd_provision() {
   [ ! -e "$(state_file cleanup-started)" ] \
     || die "cleanup has started; provision would re-create what it deleted (a late lien: record-liens)"
   [ "${N02_CONFIRM:-}" = "provision-${PROJECT_ID}" ] || die "N02_CONFIRM must be provision-${PROJECT_ID}"
+  require_labels_at_creation
+  require_alpha
   local billing="${N02_BILLING_ACCOUNT:-}"
   [[ "${billing}" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]] || die "N02_BILLING_ACCOUNT must look like XXXXXX-XXXXXX-XXXXXX"
-  local account file name role bucket created_any polls found present baseline
+  local account file name role bucket created_any polls found present baseline unlabelled
   account="$(active_account)"
   file="$(mktemp)"
 
@@ -354,20 +408,36 @@ cmd_provision() {
   g services enable ${APIS} --project="${PROJECT_ID}"
 
   say "buckets"
+  # Labels are set at creation only. A label update makes gcloud read the bucket and PATCH all of it
+  # back, objectRetention included, which Google refuses once Object Retention Lock is enabled; an
+  # existing bucket without the labels is therefore never relabelled.
   present="$(project_buckets)"
+  unlabelled=""
+  for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
+    grep -qx "${bucket}" <<<"${present}" || continue
+    g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}" || die "cannot describe gs://${bucket}"
+    [ "$(has_approved_labels "${file}")" = "true" ] && continue
+    found="$(generations_in "${bucket}")"
+    [ "${found}" = "0" ] || die "gs://${bucket} exists without exactly the labels ${LABELS} and holds ${found} object generations; nothing was changed, stop and report"
+    unlabelled="${unlabelled} gs://${bucket}"
+  done
+  [ -z "${unlabelled}" ] || die "existing buckets without exactly the labels ${LABELS}:${unlabelled}. Labels are set only at creation; nothing was changed. None of them holds an object: delete them (gcloud storage buckets delete${unlabelled} --project=${PROJECT_ID}) and rerun provision"
   if ! grep -qx "${BUCKET}" <<<"${present}"; then
     g storage buckets create "gs://${BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
       --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
-      --soft-delete-duration=0 --enable-per-object-retention
+      --soft-delete-duration=0 --enable-per-object-retention --labels="${LABELS}"
     sleep "${N02_BUCKET_SPACING_SECONDS:-3}"
   fi
   if ! grep -qx "${CONTROL_BUCKET}" <<<"${present}"; then
     g storage buckets create "gs://${CONTROL_BUCKET}" --project="${PROJECT_ID}" --location="${REGION}" \
       --default-storage-class=STANDARD --uniform-bucket-level-access --public-access-prevention \
-      --soft-delete-duration=0
+      --soft-delete-duration=0 --labels="${LABELS}"
   fi
-  g storage buckets update "gs://${BUCKET}" --versioning --update-labels="${LABELS}"
-  g storage buckets update "gs://${CONTROL_BUCKET}" --versioning --update-labels="${LABELS}"
+  # Versioning only: this update sends just the versioning field.
+  g storage buckets update "gs://${BUCKET}" --versioning
+  g storage buckets update "gs://${CONTROL_BUCKET}" --versioning
+  require_bucket_settings "${BUCKET}"
+  require_bucket_settings "${CONTROL_BUCKET}"
 
   baseline="$(state_file liens-after-orl.json)"
   if [ ! -s "${baseline}" ] || [ -e "$(state_file lien-absent)" ]; then
@@ -448,22 +518,9 @@ verify_provisioned() {
   file="$(mktemp)"
   [ "$(project_buckets)" = "$(printf '%s\n%s' "${CONTROL_BUCKET}" "${BUCKET}")" ] || die "the project's buckets differ from the approved two"
   for bucket in "${BUCKET}" "${CONTROL_BUCKET}"; do
-    g storage buckets describe "gs://${bucket}" --raw --format=json > "${file}"
-    [ "$(json "${file}" 'str(d.get("projectNumber", ""))')" = "${number}" ] || die "${bucket} is in another project"
-    [ "$(json "${file}" 'd.get("location", "").lower()')" = "${REGION}" ] || die "${bucket} location differs"
-    [ "$(json "${file}" 'd.get("storageClass", "")')" = "STANDARD" ] || die "${bucket} storage class differs"
-    [ "$(json "${file}" 'd.get("versioning", {}).get("enabled", False)')" = "true" ] || die "${bucket} versioning is off"
-    [ "$(json "${file}" 'str(d.get("softDeletePolicy", {}).get("retentionDurationSeconds", "unset"))')" = "0" ] || die "${bucket} soft delete is not off"
-    [ "$(json "${file}" 'd.get("iamConfiguration", {}).get("uniformBucketLevelAccess", {}).get("enabled", False)')" = "true" ] || die "${bucket} UBLA is off"
-    [ "$(json "${file}" 'd.get("iamConfiguration", {}).get("publicAccessPrevention", "")')" = "enforced" ] || die "${bucket} public access prevention is not enforced"
-    [ "$(json "${file}" '"retentionPolicy" not in d')" = "true" ] || die "${bucket} has a bucket retention policy (Bucket Lock is out of scope)"
-    [ "$(json "${file}" 'd.get("labels", {}).get("parkio-purpose", "")')" = "n02-gcs-acceptance" ] || die "${bucket} labels differ"
+    require_bucket_settings "${bucket}"
     g storage buckets get-iam-policy "gs://${bucket}" --format=json > "$(state_file "iam-${bucket}.json")"
   done
-  g storage buckets describe "gs://${BUCKET}" --raw --format=json > "${file}"
-  [ "$(json "${file}" 'str(d.get("objectRetention", {}).get("mode", ""))')" = "Enabled" ] || die "${BUCKET} lacks Object Retention Lock"
-  g storage buckets describe "gs://${CONTROL_BUCKET}" --raw --format=json > "${file}"
-  [ "$(json "${file}" 'str(d.get("objectRetention", {}).get("mode", ""))')" != "Enabled" ] || die "${CONTROL_BUCKET} must not have Object Retention Lock"
   while read -r bucket name role; do
     [ "$(json "$(state_file "iam-${bucket}.json")" "sorted(b['role'] for b in d.get('bindings', []) if 'serviceAccount:$(sa_email "${name}")' in b.get('members', []))")" = "[\"projects/${PROJECT_ID}/roles/${role}\"]" ] \
       || die "binding of ${name} on ${bucket} differs"
