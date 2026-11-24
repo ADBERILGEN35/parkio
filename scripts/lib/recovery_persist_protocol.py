@@ -571,6 +571,8 @@ class IsolatedErasureCoordinator:
         self.allocator = SequenceAllocator(store, highest_reserved=self._highest_reserved)
         self._lock = threading.Lock()
         self._frontier_lock = threading.Lock()
+        self._seen_lock = threading.Lock()
+        self._highest_seen = (0, 0)
         self._requests = {}
 
     def request_deletion(self, auth_user_id, erasure_request_id, erased_at):
@@ -657,7 +659,11 @@ class IsolatedErasureCoordinator:
         The write replaces the frontier only while it is still the version read
         (compare-and-swap, #494): a frontier that changed in between is read
         again, at most FRONTIER_WRITE_ATTEMPTS times. Neither field ever
-        decreases. Signing and monotonic writes do not prevent replacing the
+        decreases, and the write builds on a boundary never below one this
+        coordinator has read or written, as Java's highestSeen. The model store
+        keeps one frontier version, so a frontier that fails verification fails
+        the write: Java's fallback to another verified version has nothing to
+        read here. Signing and monotonic writes do not prevent replacing the
         whole visible store with an older snapshot.
         """
         with self._frontier_lock:
@@ -665,12 +671,13 @@ class IsolatedErasureCoordinator:
                 live = self.store.get_with_etag(FRONTIER_KEY)
                 existing = None if live is None else _verify_frontier_body(
                     json.loads(live[0].decode("utf-8")), self.trust, self.clock())
-                old_expected = 0 if existing is None else int(existing["expectedThrough"])
-                old_reserved = 0 if existing is None else int(existing["highestReserved"])
+                live_boundary = None if existing is None else (
+                    int(existing["expectedThrough"]), int(existing["highestReserved"]))
+                old_expected, old_reserved = self._seen(live_boundary or (0, 0))
                 new_expected = old_expected if expected_through is None else max(old_expected, int(expected_through))
                 new_reserved = old_reserved if highest_reserved is None else max(old_reserved, int(highest_reserved))
                 new_reserved = max(new_reserved, new_expected)
-                if existing is not None and (new_expected, new_reserved) == (old_expected, old_reserved):
+                if live_boundary == (new_expected, new_reserved):
                     return existing
                 body = {
                     "schemaVersion": SCHEMA_VERSION,
@@ -687,13 +694,23 @@ class IsolatedErasureCoordinator:
                 receipt = (self.store.put_if_absent(FRONTIER_KEY, data) if live is None
                            else self.store.put_if_match(FRONTIER_KEY, data, live[1]))
                 if receipt["created"]:
+                    self._seen((new_expected, new_reserved))
                     return body
             raise PersistFailed("frontier kept changing while it was written")
 
     def _highest_reserved(self):
-        """The signed frontier's highestReserved, where the allocator starts; 0 without one."""
+        """Where the allocator starts: the signed frontier's highestReserved, never below a
+        boundary this coordinator has read or written; 0 without either."""
         frontier = verify_frontier(self.store, self.trust, at=self.clock())
-        return 0 if frontier is None else int(frontier["highestReserved"])
+        read = (0, 0) if frontier is None else (int(frontier["expectedThrough"]), int(frontier["highestReserved"]))
+        return self._seen(read)[1]
+
+    def _seen(self, boundary):
+        """The highest (expectedThrough, highestReserved) read or written so far, ``boundary``
+        included; ordered as recovery orders frontier versions."""
+        with self._seen_lock:
+            self._highest_seen = max(self._highest_seen, boundary)
+            return self._highest_seen
 
     def internal(self, erasure_request_id):
         return dict(self._require(erasure_request_id))

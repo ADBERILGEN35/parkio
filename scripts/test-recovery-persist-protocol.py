@@ -660,6 +660,19 @@ class ConditionalWriteProtocolTest(unittest.TestCase):
         self.assertFalse(self.store.put_if_match(FRONTIER_KEY, raw, etag)["created"])
         self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 2)
 
+    def test_a_frontier_read_never_goes_below_a_boundary_this_coordinator_has_seen(self):
+        self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
+        older = self.store.get(FRONTIER_KEY)
+        self.coord.request_deletion(OTHER, REQ2, "2026-09-27T11:00:00Z")
+        # An older valid frontier is live again, as after a replay.
+        self.store.put(FRONTIER_KEY, older)
+
+        self.assertEqual(self.coord.request_deletion(THIRD, REQ3, "2026-09-27T12:00:00Z")["sequence"], 3)
+
+        # The walk started above sequence 2: it passed no marker, so it indexed none.
+        self.assertEqual(self.store.list_prefix("reservations/"), [])
+        self.assertEqual(verify_frontier(self.store, self.trust)["expectedThrough"], 3)
+
     def test_a_frontier_that_keeps_changing_fails_the_write_and_the_retry_completes_it(self):
         self.coord.request_deletion(ERASED, REQ1, "2026-09-27T10:00:00Z")
         live = self.store.get_with_etag
