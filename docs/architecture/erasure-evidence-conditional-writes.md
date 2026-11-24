@@ -7,7 +7,9 @@ Recorded 2026-11-24. Parent: #365 (layer D). Owner decision 2026-11-23: conditio
 Object Retention Lock or S3/MinIO Object Lock. Before this change, every write listed the
 recorded history. This note describes the protocol that replaces those listings. The Java
 store and the Python model (`scripts/lib/recovery_persist_protocol.py`) follow it step by
-step. The store stays off by default on both provider routes.
+step. There is one structural difference: the model store keeps a single frontier version. A
+frontier that fails verification therefore fails the model's write, where Java falls back to
+another verified version. The store stays off by default on both provider routes.
 
 ## Problem
 
@@ -38,8 +40,9 @@ precondition replace the listings:
 | Replace only the version read | `ifGenerationMatch=<live generation>` | `If-Match: <ETag>` | The frontier is replaced by compare-and-swap, never from a stale read. |
 
 When a precondition fails, the provider answers 412, nothing is written, and the call returns
-empty. MinIO has supported both headers on PutObject since 2023, so the MinIO release that the
-integration tests use (2024-09-13) has them.
+empty. `ObjectLockDurableErasureRecordStoreIT` pins this on the MinIO image that the integration
+tests use (RELEASE.2024-09-13). Without enforcement, the frontier's compare-and-swap would silently
+become last-writer-wins.
 
 ## Objects
 
@@ -61,15 +64,19 @@ They are not evidence:
 
 - evidence bundles keep the three evidence prefixes;
 - the verifier never reads the entries;
-- a forged entry can only fail a write closed, never change what recovery reads.
+- a forged entry costs availability only and never changes what recovery reads (see
+  [Limits](#limits)).
+
+Like a forged marker, a forged entry needs write access to the bucket.
 
 ## Protocol
 
 ### Record (`putIfAbsent`)
 
 1. If the record exists, settle it: verify it and raise the frontier to its sequence.
-2. Read the frontier. If no version is live, first write the boundary (0, 0) with a
-   create-only write. See [Why the zero boundary](#why-the-zero-boundary).
+2. Read the frontier. If no version is live, first write one with a create-only write:
+   - (0, 0) in a new bucket (see [Why the zero boundary](#why-the-zero-boundary));
+   - if versions exist but none is live, the highest verified boundary again.
 3. Reserve a sequence:
    1. If this request's index entry exists, take its sequence. Its marker must name this
       request; otherwise the call fails closed.
@@ -136,8 +143,19 @@ verdicts. It costs one write per bucket.
 - **Writes.** A write names the live version it builds on. If that version is no longer live,
   the store reads again and retries, at most three times. After that the call fails closed with
   `DURABLE_RECORDING_UNAVAILABLE`.
-- **Lost responses.** A resend after a lost response (the GCS client may resend a conditional
-  insert) ends with 412. The read that follows finds the write in place.
+- **Resends.** Only the adapter resends a write.
+  - On GCS every insert goes through a copy of the client with one attempt per request. The
+    client would otherwise treat a conditional insert as idempotent and retry it for up to its
+    50 s budget, before each of the adapter's resends.
+  - The adapter resends a write refused with 429 after each of `RATE_LIMIT_PAUSES`. Any other
+    failure fails the call at once, to the retry worker.
+  - One write therefore makes at most five sends, each within the client's request timeouts, and
+    pauses at most 16.5 s while the store's lock is held. `LiveGcsAcceptanceProviderRequestShapeTest`
+    pins this for both conditional writes.
+  - S3 sends each write once.
+- **Lost responses.** A write whose response is lost fails the call. The next call's conditional
+  write meets that version (412), and the read-back resolves it. A record therefore reports
+  `existing`, and a checkpoint fills the reservation it finds; both are correct for that call.
 
 ## Costs
 
@@ -182,8 +200,14 @@ The frontier now gets one write per record instead of two. This has two effects:
   version as the live one. This costs requests, not safety: the walk skips claimed markers, and
   recovery still uses the highest verified version. On MinIO, a backward clock step can make an
   older version current in the same way.
-- **No migration.** Buckets written by the earlier protocol exist only in tests and are not
-  migrated. Their reservations have no index entries, so a request whose old reservation lies
-  below the frontier would get a new sequence. Its old marker would then stay a gap.
-- **Index entries are unsigned.** One that points at another request's marker fails the write
-  closed.
+- **No migration, and no mixed writers.** Buckets written by the earlier protocol exist only in
+  tests and are not migrated. Their reservations have no index entries, so a request whose old
+  reservation lies below the frontier would get a new sequence, and its old marker would stay a
+  gap. Old and new writers must never write one bucket either: an old writer raises
+  `highestReserved` before it publishes, so a new writer starts above that marker without
+  indexing it.
+- **Index entries are unsigned.** Forging one costs availability only:
+  - A forged request entry that points at another request's marker fails that request's writes.
+  - A forged checkpoint entry fails every later checkpoint, for as long as it is retained. This
+    covers an entry with no marker, with a request's marker, or with a name that is not a
+    sequence.
