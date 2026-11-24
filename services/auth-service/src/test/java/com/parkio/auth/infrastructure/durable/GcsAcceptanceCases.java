@@ -15,8 +15,10 @@ import com.parkio.auth.application.port.DurableErasureReceipt;
 import com.parkio.auth.application.port.DurableErasureRecord;
 import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.Current;
 import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.RetentionLock;
 import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.StoredVersion;
+import com.parkio.auth.infrastructure.durable.DurableEvidenceBucket.Written;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.CaseResult;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.CreatedGeneration;
 import com.parkio.auth.infrastructure.durable.GcsAcceptanceLedger.Failure;
@@ -109,6 +111,13 @@ final class GcsAcceptanceCases {
     private record Attempted<T>(T value, int attempts) {
     }
 
+    /**
+     * Insert 429s so far: as the HTTP gate saw them (every response, any the client resent itself
+     * included) and as the adapter saw them (each transport call that failed with 429).
+     */
+    private record Throttled(long gate, long adapter) {
+    }
+
     /** An acceptance assertion that did not hold. */
     static final class CaseFailure extends RuntimeException {
         CaseFailure(String message) {
@@ -143,6 +152,8 @@ final class GcsAcceptanceCases {
     private Gen governanceBasic;
     private Gen complianceFirst;
     private Gen complianceLive;
+    private Gen conditionalFirst;
+    private Gen conditionalLive;
     private Gen governanceControl;
     private List<Long> history;
     private InstrumentedGcsTransport storeTransport;
@@ -171,7 +182,9 @@ final class GcsAcceptanceCases {
     /**
      * The owner's three checkpoint facts, kept apart: (a) did one unpaced production call complete, and
      * did the provider throttle it; (b) was external pacing needed (only S5b, a diagnostic run after a
-     * failed S5, can say yes); (c) did a retry converge without losing progress. Plus the burst T1.
+     * failed S5, can say yes); (c) did a retry converge without losing progress. Plus the bursts T1 and
+     * T1c, and the insert 429s the client resent below the adapter, which #578 keeps at 0. Throttled
+     * responses are counted at the HTTP gate, so a 429 the client absorbed would still be counted.
      */
     Map<String, Object> checkpointFacts() {
         Map<String, Object> s5 = evidence("S5");
@@ -202,8 +215,16 @@ final class GcsAcceptanceCases {
         facts.put("sequencesConsumedByPublishedCheckpointRetry", evidence("S5s").get("sequencesConsumed"));
         facts.put("burstWritesCompleted", ran("T1") ? status("T1") == Status.PASS : "not run");
         facts.put("burstThrottledResponses", evidence("T1").get("throttledResponses"));
+        facts.put("conditionalBurstWritesCompleted", ran("T1c") ? status("T1c") == Status.PASS : "not run");
+        facts.put("conditionalBurstThrottledResponses", evidence("T1c").get("throttledResponses"));
+        Map<String, Object> absorbed = new LinkedHashMap<>();
+        absorbed.put("T1", evidence("T1").get("clientAbsorbedRetries"));
+        absorbed.put("T1c", evidence("T1c").get("clientAbsorbedRetries"));
+        absorbed.put("S1-S6", evidence("S6").get("storeCases") instanceof Map<?, ?> store
+                ? store.get("clientAbsorbedRetries") : null);
+        facts.put("clientAbsorbedRetries", absorbed);
         Map<String, Object> statuses = new LinkedHashMap<>();
-        for (String id : List.of("S5", "S5r", "S5s", "S5b", "T1")) {
+        for (String id : List.of("S5", "S5r", "S5s", "S5b", "S6", "T1", "T1c")) {
             statuses.put(id, status(id).name());
         }
         facts.put("cases", statuses);
@@ -379,6 +400,131 @@ final class GcsAcceptanceCases {
                             EvidenceRetentionMode.COMPLIANCE, until.toInstant(), ev, "liveLock");
                     complianceLive = new Gen(first.name(), second, body, until.toInstant());
                 });
+        conditionalWrites();
+    }
+
+    /**
+     * The conditional writes the store's protocol rests on (#494), on a name of their own: create-only
+     * ({@code ifGenerationMatch=0}) and compare-and-swap ({@code ifGenerationMatch=<live generation>})
+     * succeed while their precondition holds and are refused with 412, writing nothing, once it does
+     * not. The refused attempts ask for GOVERNANCE, so a provider that ignored the precondition would
+     * leave no COMPLIANCE generation behind.
+     */
+    private void conditionalWrites() {
+        String name = key("adapter/conditional.json");
+        run("P4", "Create-only writes an absent name; a compare-and-swap over its Locked live generation adds a"
+                        + " higher generation, and the first stays canonical, Locked and readable", Kind.ASSERTION,
+                Identity.WRITER, ev -> {
+                    GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
+                    byte[] firstBody = body("P4", Map.of("write", "create-only"));
+                    ZonedDateTime until = until(COMPLIANCE_RETENTION);
+                    long first = generation(accepted(ev, "the create-only write of an absent name",
+                            () -> writer.putIfAbsent(name, firstBody, EvidenceRetentionMode.COMPLIANCE, until))
+                            .versionId());
+                    ev.put("firstGeneration", Long.toString(first));
+                    expectLock(writer.retention(name, Long.toString(first)), EvidenceRetentionMode.COMPLIANCE,
+                            until.toInstant(), ev, "firstLock");
+                    provider.sleep(SAME_OBJECT_SPACING);
+                    // As the store does: read the live generation, then name it in the replace.
+                    Current live = writer.current(name)
+                            .orElseThrow(() -> new CaseFailure("the created generation is not live"));
+                    if (!live.matchToken().equals(Long.toString(first))) {
+                        throw new CaseFailure("the live generation is " + live.matchToken() + ", not " + first);
+                    }
+                    byte[] secondBody = body("P4", Map.of("write", "compare-and-swap"));
+                    long second = generation(accepted(ev, "the compare-and-swap over the Locked live generation",
+                            () -> writer.putIfCurrent(name, secondBody, live.matchToken(),
+                                    EvidenceRetentionMode.COMPLIANCE, until)).versionId());
+                    ev.put("liveGeneration", Long.toString(second));
+                    if (second <= first) {
+                        throw new CaseFailure("the swapped-in generation is not above the first");
+                    }
+                    GcsObjectRetentionBucket reader = adapter(Identity.READER);
+                    if (reader.versionCount(name) != 2) {
+                        throw new CaseFailure("expected exactly two generations");
+                    }
+                    expectCanonical(reader, name, first, firstBody);
+                    expectLock(writer.retention(name, Long.toString(first)), EvidenceRetentionMode.COMPLIANCE,
+                            until.toInstant(), ev, "noncurrentLock");
+                    expectLock(writer.retention(name, Long.toString(second)), EvidenceRetentionMode.COMPLIANCE,
+                            until.toInstant(), ev, "liveLock");
+                    conditionalFirst = new Gen(name, first, firstBody, until.toInstant());
+                    conditionalLive = new Gen(name, second, secondBody, until.toInstant());
+                });
+        run("P5", "Create-only on a live name is refused with 412: nothing is written, and the canonical and live"
+                        + " generations are unchanged", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    Gen first = require(conditionalFirst, "P4");
+                    Gen live = require(conditionalLive, "P4");
+                    provider.sleep(SAME_OBJECT_SPACING);
+                    refusedConditional(ev, () -> adapter(Identity.WRITER).putIfAbsent(first.name(),
+                            body("P5", Map.of()), EvidenceRetentionMode.GOVERNANCE, until(GOVERNANCE_RETENTION)));
+                    expectUnchanged(first, live);
+                });
+        run("P6", "A compare-and-swap naming a generation that is no longer live is refused with 412: nothing is"
+                        + " written, and the live generation is unchanged", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    Gen first = require(conditionalFirst, "P4");
+                    Gen live = require(conditionalLive, "P4");
+                    provider.sleep(SAME_OBJECT_SPACING);
+                    ev.put("staleGeneration", Long.toString(first.generation()));
+                    refusedConditional(ev, () -> adapter(Identity.WRITER).putIfCurrent(first.name(),
+                            body("P6", Map.of()), Long.toString(first.generation()), EvidenceRetentionMode.GOVERNANCE,
+                            until(GOVERNANCE_RETENTION)));
+                    expectUnchanged(first, live);
+                });
+    }
+
+    /** A conditional write that must be written; a refusal or a failure fails the case, with its cause. */
+    private Written accepted(Map<String, Object> ev, String what, Supplier<Optional<Written>> write) {
+        ledger.clearLastFailure();
+        Optional<Written> written;
+        try {
+            written = write.get();
+        } catch (AuthException ex) {
+            ev.put("cause", failure(ledger.lastFailure()));
+            throw new CaseFailure(what + " did not complete: " + ex.getMessage());
+        }
+        return written.orElseThrow(() -> new CaseFailure(what + " was refused: its precondition did not hold"));
+    }
+
+    /** A conditional write whose precondition does not hold: one 412, no generation, an empty result. */
+    private void refusedConditional(Map<String, Object> ev, Supplier<Optional<Written>> write) {
+        long refusedBefore = ledger.outcomes(INSERT, "412");
+        int createdBefore = ledger.created().size();
+        ledger.clearLastFailure();
+        Optional<Written> written;
+        try {
+            written = write.get();
+        } catch (AuthException ex) {
+            ev.put("cause", failure(ledger.lastFailure()));
+            throw new CaseFailure("the conditional write failed instead of being refused: " + ex.getMessage());
+        }
+        long refused = ledger.outcomes(INSERT, "412") - refusedBefore;
+        int created = ledger.created().size() - createdBefore;
+        ev.put("preconditionFailedResponses", refused);
+        ev.put("generationsWritten", created);
+        if (written.isPresent()) {
+            ev.put("writtenGeneration", written.get().versionId());
+            throw new CaseFailure("the precondition was not enforced: generation " + written.get().versionId()
+                    + " was written");
+        }
+        if (refused != 1 || created != 0) {
+            throw new CaseFailure("expected one 412 and no generation, saw " + refused + " and " + created);
+        }
+    }
+
+    /** P4's object still holds exactly its two generations: the first canonical, the second live. */
+    private void expectUnchanged(Gen first, Gen live) {
+        GcsObjectRetentionBucket reader = adapter(Identity.READER);
+        if (reader.versionCount(first.name()) != 2) {
+            throw new CaseFailure("the refused write changed the number of generations");
+        }
+        expectCanonical(reader, first.name(), first.generation(), first.body());
+        Current current = reader.current(first.name())
+                .orElseThrow(() -> new CaseFailure("the object has no live generation"));
+        if (!current.matchToken().equals(Long.toString(live.generation()))
+                || !Arrays.equals(current.version().bytes(), live.body())) {
+            throw new CaseFailure("the live generation changed to " + current.matchToken());
+        }
     }
 
     private Gen putAndCheck(String key, EvidenceRetentionMode mode, Duration retention, String caseId,
@@ -673,9 +819,10 @@ final class GcsAcceptanceCases {
                     String key = key("adapter/burst.json");
                     GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
                     ZonedDateTime until = until(GOVERNANCE_RETENTION);
-                    long throttledBefore = ledger.outcomes("objects.insert", "429");
+                    Throttled before = throttled();
                     Instant started = provider.clock().instant();
                     List<Long> generations = new ArrayList<>();
+                    long absorbed;
                     try {
                         for (int i = 0; i < BURST_WRITES; i++) {
                             ledger.clearLastFailure();
@@ -689,21 +836,91 @@ final class GcsAcceptanceCases {
                         }
                     } finally {
                         ev.put("completedWrites", generations.size());
-                        ev.put("throttledResponses", ledger.outcomes("objects.insert", "429") - throttledBefore);
+                        absorbed = recordThrottling(before, ev);
                         ev.put("elapsedMs", Duration.between(started, provider.clock().instant()).toMillis());
                     }
-                    if (!generations.equals(generations.stream().sorted().distinct().toList())) {
-                        throw new CaseFailure("the generations are not strictly increasing");
-                    }
-                    if (adapter(Identity.READER).versionCount(key) != BURST_WRITES) {
-                        throw new CaseFailure("the listing does not hold exactly one generation per write");
-                    }
+                    requireBurst(key, generations);
+                    requireNoClientResends(absorbed);
                 });
+        run("T1c", BURST_WRITES + " back-to-back conditional writes to one object through the adapter, as the store"
+                        + " writes (create-only, then a compare-and-swap naming each new generation), all complete"
+                        + " under the per-object write limit", Kind.ASSERTION, Identity.WRITER, ev -> {
+                    String key = key("adapter/burst-conditional.json");
+                    GcsObjectRetentionBucket writer = adapter(Identity.WRITER);
+                    ZonedDateTime until = until(GOVERNANCE_RETENTION);
+                    Throttled before = throttled();
+                    long refusedBefore = ledger.outcomes(INSERT, "412");
+                    Instant started = provider.clock().instant();
+                    List<Long> generations = new ArrayList<>();
+                    long absorbed;
+                    try {
+                        String match = null;
+                        for (int i = 0; i < BURST_WRITES; i++) {
+                            byte[] body = body("T1c", Map.of("i", i));
+                            String token = match;
+                            Written written = accepted(ev, "write " + i, () -> token == null
+                                    ? writer.putIfAbsent(key, body, EvidenceRetentionMode.GOVERNANCE, until)
+                                    : writer.putIfCurrent(key, body, token, EvidenceRetentionMode.GOVERNANCE, until));
+                            generations.add(generation(written.versionId()));
+                            match = written.matchToken();
+                        }
+                    } finally {
+                        ev.put("completedWrites", generations.size());
+                        absorbed = recordThrottling(before, ev);
+                        ev.put("preconditionFailedResponses", ledger.outcomes(INSERT, "412") - refusedBefore);
+                        ev.put("elapsedMs", Duration.between(started, provider.clock().instant()).toMillis());
+                    }
+                    requireBurst(key, generations);
+                    requireNoClientResends(absorbed);
+                });
+    }
+
+    /** One generation per write, in strictly increasing order, and the listing holds exactly those. */
+    private void requireBurst(String key, List<Long> generations) {
+        if (!generations.equals(generations.stream().sorted().distinct().toList())) {
+            throw new CaseFailure("the generations are not strictly increasing");
+        }
+        if (adapter(Identity.READER).versionCount(key) != BURST_WRITES) {
+            throw new CaseFailure("the listing does not hold exactly one generation per write");
+        }
+    }
+
+    private Throttled throttled() {
+        return new Throttled(ledger.throttledHttpInserts(), ledger.outcomes(INSERT, "429"));
+    }
+
+    /**
+     * Puts the insert 429s since {@code before} into {@code ev}: {@code throttledResponses} as the HTTP
+     * gate counted them, any the client resent itself included; {@code adapterThrottledResponses} as
+     * the adapter's transport calls failed with them; {@code clientAbsorbedRetries}, the difference,
+     * which #578's one-attempt write client keeps at 0. Returns that difference.
+     */
+    private long recordThrottling(Throttled before, Map<String, Object> ev) {
+        Throttled now = throttled();
+        long gate = now.gate() - before.gate();
+        long adapter = now.adapter() - before.adapter();
+        ev.put("throttledResponses", gate);
+        ev.put("adapterThrottledResponses", adapter);
+        ev.put("clientAbsorbedRetries", gate - adapter);
+        return gate - adapter;
+    }
+
+    /** Only the adapter resends a throttled insert (#578); a resend below it escapes its bounds. */
+    private static void requireNoClientResends(long absorbed) {
+        if (absorbed > 0) {
+            throw new CaseFailure("the HTTP gate counted " + absorbed + " insert 429s the adapter never saw: the"
+                    + " client resent throttled inserts below the adapter");
+        }
+        if (absorbed < 0) {
+            throw new CaseFailure("the HTTP gate counted " + -absorbed + " insert 429s fewer than the adapter saw:"
+                    + " the gate's count is incomplete");
+        }
     }
 
     // ---- S: the store protocol on the live provider ----------------------------------------------
 
     private void store() {
+        Throttled storeBefore = throttled();
         storeTransport = transport(Identity.WRITER, settings.bucket());
         store = new ObjectLockDurableErasureRecordStore(
                 new PrefixedEvidenceBucket(bucketOver(storeTransport), storePrefix()), trust,
@@ -780,7 +997,7 @@ final class GcsAcceptanceCases {
                     // A call writes the frontier once (#494), so the limit is met across calls: the
                     // checkpoint follows S4's record call, whose last write raised the frontier.
                     ev.put("gapBeforeCallMs", 0);
-                    long throttledBefore = ledger.outcomes("objects.insert", "429");
+                    Throttled throttledBefore = throttled();
                     int before = ledger.created().size();
                     DurableErasureCheckpoint published;
                     ledger.clearLastFailure();
@@ -790,7 +1007,8 @@ final class GcsAcceptanceCases {
                         ev.put("cause", failure(ledger.lastFailure()));
                         throw new CaseFailure("the checkpoint call did not complete: " + ex.getMessage());
                     } finally {
-                        ev.put("throttledResponses", ledger.outcomes("objects.insert", "429") - throttledBefore);
+                        // S6 asserts that the client resent none of the store's inserts, this call's included.
+                        recordThrottling(throttledBefore, ev);
                         ev.put("generationsWritten", ledger.created().size() - before);
                     }
                     ev.put("sequence", published.sequence());
@@ -822,9 +1040,11 @@ final class GcsAcceptanceCases {
                         storeTransport.stopPacing();
                     }
                 });
-        run("S6", "Further records under the provider's per-object write rate; frontier history grows",
-                Kind.ASSERTION, Identity.WRITER, ev -> {
+        run("S6", "Further records under the provider's per-object write rate; frontier history grows; the client"
+                        + " resent none of the store's throttled inserts (S1 to S6)", Kind.ASSERTION, Identity.WRITER,
+                ev -> {
                     int retriesBefore = storeRetries;
+                    Throttled before = throttled();
                     for (int i = 0; i < 1; i++) {
                         Attempted<DurableErasurePutResult> put = putRecord(record());
                         if (put.value().conflict() || (!put.value().created() && put.attempts() == 1)) {
@@ -838,6 +1058,10 @@ final class GcsAcceptanceCases {
                     ev.put("frontierGenerations", frontier.size());
                     ev.put("minimumFrontierWriteIntervalMs", minimumIntervalMs(frontier));
                     ev.put("storeRetries", storeRetries - retriesBefore);
+                    recordThrottling(before, ev);
+                    Map<String, Object> sinceS1 = new LinkedHashMap<>();
+                    ev.put("storeCases", sinceS1);
+                    requireNoClientResends(recordThrottling(storeBefore, sinceS1));
                 });
     }
 

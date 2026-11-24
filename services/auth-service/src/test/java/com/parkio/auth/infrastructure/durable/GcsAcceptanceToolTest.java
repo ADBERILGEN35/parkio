@@ -110,7 +110,17 @@ class GcsAcceptanceToolTest {
                 .containsEntry("retryConvergedWithoutLoss", true)
                 .containsEntry("retryScenario", "lost response of the next reservation marker")
                 .containsEntry("sequencesConsumedByPublishedCheckpointRetry", 2L)
-                .containsEntry("burstWritesCompleted", true);
+                .containsEntry("burstWritesCompleted", true)
+                .containsEntry("conditionalBurstWritesCompleted", true)
+                .containsEntry("clientAbsorbedRetries", Map.of("T1", 0L, "T1c", 0L, "S1-S6", 0L));
+        // Counted at the HTTP gate; the model has no client below the adapter, so the adapter saw each one.
+        for (String id : List.of("T1", "T1c", "S5", "S6")) {
+            assertThat(number(evidence(outcome, id), "throttledResponses")).as(id)
+                    .isEqualTo(number(evidence(outcome, id), "adapterThrottledResponses"));
+        }
+        assertThat(number(evidence(outcome, "T1c"), "throttledResponses")).isPositive();
+        assertThat(number(evidence(outcome, "T1c"), "preconditionFailedResponses")).isZero();
+        assertThat(number(evidence(outcome, "S5"), "throttledResponses")).isPositive();
         assertThat(evidence(outcome, "S5r")).containsEntry("filledReservation", true);
         assertThat(evidence(outcome, "S5s")).containsEntry("filledReservation", false);
         assertThat(evidence(outcome, "K8c")).containsEntry("generationAddressedRetentionApplied", true);
@@ -121,6 +131,62 @@ class GcsAcceptanceToolTest {
         assertThat(number(race, "acknowledged")).isGreaterThanOrEqualTo(2);
         assertThat(number(race, "selfWinners")).isEqualTo(1);
         assertThat(race).containsKeys("committedOnFirstSend", "commitSpreadMs");
+    }
+
+    @Test
+    void conditionalWritesAreWrittenWhileTheirPreconditionHoldsAndOtherwiseRefusedWithoutAWrite() {
+        Outcome outcome = GcsAcceptanceTool.plan(START, CLEAN);
+
+        for (String id : List.of("P4", "P5", "P6", "T1c")) {
+            assertThat(status(outcome, id)).as(id).isEqualTo("PASS");
+        }
+        Map<String, Object> p4 = evidence(outcome, "P4");
+        assertThat(Long.parseLong((String) p4.get("liveGeneration")))
+                .isGreaterThan(Long.parseLong((String) p4.get("firstGeneration")));
+        assertThat(map(p4.get("noncurrentLock"))).containsEntry("mode", "COMPLIANCE");
+        assertThat(map(p4.get("liveLock"))).containsEntry("mode", "COMPLIANCE");
+        for (String id : List.of("P5", "P6")) {
+            assertThat(evidence(outcome, id)).as(id).containsEntry("preconditionFailedResponses", 1L)
+                    .containsEntry("generationsWritten", 0).doesNotContainKey("writtenGeneration");
+        }
+        assertThat(evidence(outcome, "P6")).containsEntry("staleGeneration", p4.get("firstGeneration"));
+        assertThat(map(map(outcome.document().get("criteria")).get("conditional writes the store relies on (#494)")))
+                .containsEntry("status", "PASS");
+    }
+
+    @Test
+    void ignoredPreconditionsFailBothRefusalsAndTheWrittenGenerationsStayInTheCleanupInventory() {
+        Outcome outcome = GcsAcceptanceTool.plan(START, CLEAN, Set.of(Defect.PRECONDITIONS_IGNORED), Caps.APPROVED,
+                null, null);
+
+        assertThat(status(outcome, "P4")).isEqualTo("PASS");
+        assertThat(status(outcome, "P5")).isEqualTo("FAIL");
+        assertThat(status(outcome, "P6")).isEqualTo("FAIL");
+        assertThat(evidence(outcome, "P5")).containsKey("writtenGeneration");
+        assertThat(map(map(outcome.document().get("criteria")).get("conditional writes the store relies on (#494)")))
+                .containsEntry("status", "FAIL");
+        // Asked for as GOVERNANCE, so what the defect let through holds no COMPLIANCE lock.
+        assertThat(cleanupInventory(outcome)).extracting(entry -> map(entry).get("case") + "/" + map(entry).get("mode"))
+                .contains("P5/GOVERNANCE", "P6/GOVERNANCE").doesNotContain("P5/COMPLIANCE", "P6/COMPLIANCE");
+    }
+
+    @Test
+    void insertsTheClientResendsBelowTheAdapterAreCountedAtTheGateAndFailTheThrottleCases() {
+        Outcome outcome = GcsAcceptanceTool.plan(START, CLEAN, Set.of(Defect.CLIENT_RESENDS_THROTTLED_INSERTS),
+                Caps.APPROVED, null, null);
+
+        for (String id : List.of("T1", "T1c", "S6")) {
+            assertThat(status(outcome, id)).as(id).isEqualTo("FAIL");
+            assertThat(detail(outcome, id)).as(id).contains("the client resent throttled inserts below the adapter");
+        }
+        Map<String, Object> t1 = evidence(outcome, "T1");
+        assertThat(number(t1, "throttledResponses")).isPositive();
+        assertThat(number(t1, "adapterThrottledResponses")).isZero();
+        assertThat(number(t1, "clientAbsorbedRetries")).isEqualTo(number(t1, "throttledResponses"));
+        assertThat(map(map(outcome.document().get("criteria"))
+                .get("throttled inserts reach the adapter; the client resends none (#578)")))
+                .containsEntry("status", "FAIL");
+        assertThat(map(outcome.document().get("violations"))).isEmpty();
     }
 
     @Test
@@ -153,6 +219,8 @@ class GcsAcceptanceToolTest {
             case GENERATIONS_DECREASE -> "H1";
             case PROBE_ADMIN_WITHOUT_BUCKET_GET -> "F6";
             case WRITE_LIMIT_PENALTY -> "S5";
+            case PRECONDITIONS_IGNORED -> "P5";
+            case CLIENT_RESENDS_THROTTLED_INSERTS -> "T1";
         };
         boolean preflight = caseId.startsWith("F");
         boolean inconclusive = caseId.equals("F6") || defect == Defect.LOCKED_REFUSAL_AS_408
@@ -788,6 +856,11 @@ class GcsAcceptanceToolTest {
         public Map<String, Object> describe() {
             return delegate.describe();
         }
+
+        @Override
+        public void reportResponsesTo(GcsAcceptanceLedger ledger) {
+            delegate.reportResponsesTo(ledger);
+        }
     }
 
     private static Map<String, String> approvedEnvironment() {
@@ -829,6 +902,11 @@ class GcsAcceptanceToolTest {
     private static Map<String, Object> evidence(Outcome outcome, String id) {
         return cases(outcome).stream().filter(c -> c.get("id").equals(id)).findFirst()
                 .map(c -> map(c.get("evidence"))).orElseThrow();
+    }
+
+    private static String detail(Outcome outcome, String id) {
+        return cases(outcome).stream().filter(c -> c.get("id").equals(id)).findFirst()
+                .map(c -> (String) c.get("detail")).orElseThrow();
     }
 
     @SuppressWarnings("unchecked")

@@ -48,8 +48,9 @@ import org.junit.jupiter.api.Test;
  * harness's probes, recorded by a local HTTP endpoint before any paid run: discovery asks for
  * Object Retention and Versioning, uploads carry the retention, the store's conditional uploads
  * carry {@code ifGenerationMatch}, a throttled upload (conditional or not) is resent by the adapter
- * and never by the client, any other failed upload is not resent at all, reads and deletes address
- * one generation, retention changes patch
+ * and never by the client, any other failed upload is not resent at all, the stop gate counts every
+ * 429 (one the client resends itself included) while the adapter sees each throttled upload, reads
+ * and deletes address one generation, retention changes patch
  * the live object under {@code ifGenerationMatch} or address one generation with the JSON API's
  * {@code generation} parameter, a refusal keeps the provider's status and reason, the stop gate
  * refuses requests before they are sent, and only keyless credentials are accepted. Local
@@ -68,6 +69,7 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
 
     private final List<Recorded> requests = new CopyOnWriteArrayList<>();
     private final Queue<Integer> uploadStatuses = new ConcurrentLinkedQueue<>();
+    private final Queue<Integer> mediaStatuses = new ConcurrentLinkedQueue<>();
     private HttpServer server;
     private GcsAcceptanceLedger ledger;
     private LiveGcsAcceptanceProvider provider;
@@ -145,6 +147,7 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         // A failed precondition is final: neither the client nor the adapter sends it again.
         assertThat(refused).isEmpty();
         assertThat(requests).hasSize(3);
+        assertThat(ledger.throttledHttpResponses()).isZero();
     }
 
     @Test
@@ -248,6 +251,7 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
                 && request.path().startsWith("/upload/") && "0".equals(request.query().get("ifGenerationMatch")));
         assertThat(pauses).containsExactly(Duration.ofMillis(1_100));
         assertThat(created).map(DurableEvidenceBucket.Written::versionId).contains("1761123456000002");
+        assertThat(ledger.throttledHttpInserts()).isEqualTo(1);
     }
 
     @Test
@@ -265,6 +269,7 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
                 "1761123456000001".equals(request.query().get("ifGenerationMatch")));
         assertThat(pauses).containsExactly(Duration.ofMillis(1_100));
         assertThat(replaced).isPresent();
+        assertThat(ledger.throttledHttpInserts()).isEqualTo(1);
     }
 
     @Test
@@ -283,6 +288,51 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
         // The adapter's four pauses (16.5 s in all) are the only waits: five sends, none from the client.
         assertThat(requests).hasSize(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES.size() + 1);
         assertThat(pauses).isEqualTo(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES);
+        assertThat(ledger.throttledHttpInserts()).isEqualTo(GcsObjectRetentionBucket.RATE_LIMIT_PAUSES.size() + 1);
+    }
+
+    @Test
+    void theGateAndTheAdapterCountTheSameThrottledInsertsSoTheClientResentNone() {
+        uploadStatuses.add(429);
+        uploadStatuses.add(429);
+        List<Duration> pauses = new ArrayList<>();
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(new InstrumentedGcsTransport(
+                provider.transport(Identity.WRITER, BUCKET), Identity.WRITER, ledger, provider), pauses::add);
+
+        Optional<DurableEvidenceBucket.Written> created = bucket.putIfAbsent(NAME,
+                "{\"a\":1}".getBytes(StandardCharsets.UTF_8), EvidenceRetentionMode.COMPLIANCE, UNTIL.atZone(ZoneOffset.UTC));
+
+        assertThat(created).isPresent();
+        assertThat(requests).hasSize(3);
+        assertThat(pauses).hasSize(2);
+        // The two counts the acceptance cases compare (clientAbsorbedRetries = gate - adapter = 0).
+        assertThat(ledger.throttledHttpInserts()).isEqualTo(2);
+        assertThat(ledger.outcomes("objects.insert", "429")).isEqualTo(2);
+    }
+
+    @Test
+    void aRunCanBindOnlyTheLedgerTheGateWasBuiltWith() {
+        provider.reportResponsesTo(ledger);
+
+        assertThatThrownBy(() -> provider.reportResponsesTo(new GcsAcceptanceLedger(Clock.systemUTC(), Caps.APPROVED)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aReadTheClientResendsItselfIsCountedAtTheGateThoughTheAdapterNeverSeesIt() {
+        mediaStatuses.add(429);
+        GcsObjectRetentionTransport transport = new InstrumentedGcsTransport(
+                provider.transport(Identity.READER, BUCKET), Identity.READER, ledger, provider);
+
+        byte[] bytes = transport.readGeneration(NAME, 5);
+
+        assertThat(new String(bytes, StandardCharsets.UTF_8)).isEqualTo("generation-5");
+        // Reads keep the client's retries; only the gate sees the 429 it waited out.
+        assertThat(requests).hasSize(2).allMatch(request -> "media".equals(request.query().get("alt")));
+        assertThat(ledger.throttledHttpResponses()).isEqualTo(1);
+        assertThat(ledger.throttledHttpInserts()).isZero();
+        assertThat(ledger.outcomes("objects.get.media", "429")).isZero();
+        assertThat(ledger.outcomes("objects.get.media", "ok")).isEqualTo(1);
     }
 
     @Test
@@ -469,6 +519,11 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
             respond(exchange, 200, "{\"kind\":\"storage#objects\",\"items\":[" + object(5) + "," + object(3)
                     + "],\"nextPageToken\":\"tok-2\"}");
         } else if (method.equals("GET") && "media".equals(query.get("alt"))) {
+            Integer status = mediaStatuses.poll();
+            if (status != null) {
+                respond(exchange, status, error(status));
+                return;
+            }
             exchange.getResponseHeaders().add("Content-Type", "application/octet-stream");
             byte[] media = ("generation-" + query.get("generation")).getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, media.length);

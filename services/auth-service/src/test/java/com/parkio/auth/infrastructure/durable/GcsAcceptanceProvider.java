@@ -94,4 +94,11 @@ interface GcsAcceptanceProvider {
 
     /** Facts about the provider client for the result (library version, request counts); no secrets. */
     Map<String, Object> describe();
+
+    /**
+     * Binds the run's ledger as the HTTP gate that counts this provider's responses (429s included).
+     * The live provider is built around its gate and refuses any other ledger; the offline model
+     * reports the answers it models.
+     */
+    void reportResponsesTo(GcsAcceptanceLedger ledger);
 }

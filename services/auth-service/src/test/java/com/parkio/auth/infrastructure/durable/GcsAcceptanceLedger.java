@@ -89,6 +89,8 @@ final class GcsAcceptanceLedger {
     private final Caps caps;
     private final Instant startedAt;
     private final AtomicLong httpRequests = new AtomicLong();
+    private final AtomicLong throttledHttpResponses = new AtomicLong();
+    private final AtomicLong throttledHttpInserts = new AtomicLong();
     private final AtomicLong authHttpRequests = new AtomicLong();
     private final Map<String, Map<String, Long>> operations = new TreeMap<>();
     private final List<CreatedGeneration> created = new ArrayList<>();
@@ -162,6 +164,30 @@ final class GcsAcceptanceLedger {
 
     long httpRequests() {
         return httpRequests.get();
+    }
+
+    /**
+     * One storage response as the provider sent it: live, the HTTP gate reports every attempt,
+     * client retries included; offline, the model reports each answer it gives. The 429s counted
+     * here, compared with the 429s the adapter saw, show retries the client absorbed.
+     */
+    void afterHttpResponse(boolean insert, int status) {
+        if (status == 429) {
+            throttledHttpResponses.incrementAndGet();
+            if (insert) {
+                throttledHttpInserts.incrementAndGet();
+            }
+        }
+    }
+
+    /** 429 responses to storage requests of any kind, as the provider sent them. */
+    long throttledHttpResponses() {
+        return throttledHttpResponses.get();
+    }
+
+    /** 429 responses to inserts (object writes), as the provider sent them. */
+    long throttledHttpInserts() {
+        return throttledHttpInserts.get();
     }
 
     /** Checks every cap before an operation is sent; a reached cap aborts the run. */
@@ -472,6 +498,8 @@ final class GcsAcceptanceLedger {
         counters.put("failed", failed);
         counters.put("http", httpRequests.get());
         counters.put("tokenHttp", authHttpRequests.get());
+        counters.put("throttledHttp", throttledHttpResponses.get());
+        counters.put("throttledHttpInserts", throttledHttpInserts.get());
         counters.put("writesRequested", requestedWrites);
         counters.put("possibleGenerations", possibleGenerations);
         counters.put("unresolvedWrites", (long) unresolved.size());
