@@ -17,7 +17,7 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.izum.scheduler-enabled` | `PARKIO_MUNICIPAL_IZUM_SCHEDULER_ENABLED` | false |
 | `parkio.municipal.izum.fixed-delay-ms` | `PARKIO_MUNICIPAL_IZUM_FIXED_DELAY_MS` | 120000 |
 | `parkio.municipal.izum.connect-timeout` | `PARKIO_MUNICIPAL_IZUM_CONNECT_TIMEOUT` | 2s |
-| `parkio.municipal.izum.read-timeout` | `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT` | 5s |
+| `parkio.municipal.izum.read-timeout` | `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT` | 27s |
 | `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
 | `parkio.municipal.izum.max-response-size` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_SIZE` | 16MB |
 | `parkio.municipal.izum.max-response-time` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` | 30s |
@@ -34,6 +34,14 @@ response from request start (a read already blocked still ends at `read-timeout`
 or slow-drip feed fails once (it is not retried) and takes the normal source-failure path. The
 connection is then closed without reading the rest of the body. The per-read `read-timeout` alone
 does not bound a slow drip.
+
+İZUM `read-timeout` has been 27s since #523. On 2026-11-23 the feed sent its first byte 11.6-24.9 s
+after the request, so the old 5s timed out on every attempt. The read timeout is also the wait for
+the first byte. Together with the 2s connect timeout it still ends inside the 30s `max-response-time`.
+A run whose three attempts all time out ends after at most 3 × 29s + 0.3s backoff, about 87s, which
+is below the 120s fixed delay. Runs never overlap: the delay counts from the end of the previous run,
+and the run lease skips a concurrent sync. All parking-service `@Scheduled` jobs share one scheduler
+thread, so such a run delays the other jobs by that long.
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  

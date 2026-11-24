@@ -303,7 +303,11 @@ public class MunicipalSourceProperties {
         private String baseUrl = "https://openapi.izmir.bel.tr";
         private String path = "/api/ibb/izum/otoparklar";
         private Duration connectTimeout = Duration.ofSeconds(2);
-        private Duration readTimeout = Duration.ofSeconds(5);
+        /**
+         * Socket read timeout, which also bounds the wait for the first byte (#523: up to 24.9 s on
+         * 2026-11-23). Connect plus read timeout stays inside {@code maxResponseTime}.
+         */
+        private Duration readTimeout = Duration.ofSeconds(27);
         private int maxRetries = 2;
         /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
         private DataSize maxResponseSize = DataSize.ofMegabytes(16);
