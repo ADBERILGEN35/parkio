@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * The conditional-write protocol of {@link ObjectLockDurableErasureRecordStore} (#494) on the GCS
@@ -169,6 +171,28 @@ class ObjectLockConditionalWriteProtocolTest {
     }
 
     @Test
+    void aFrontierReadNeverGoesBelowABoundaryThisProcessHasSeen() {
+        DurableErasureRecord second = record(2);
+        assertThat(store.putIfAbsent(record(1)).created()).isTrue();
+        assertThat(store.putIfAbsent(second).created()).isTrue();
+        // An older valid version becomes live again: a replayed frontier, or MinIO after a backward
+        // clock step.
+        memory.createGeneration(DurableErasureEvidence.FRONTIER_KEY,
+                DurableErasureEvidence.frontier(1, 1, DATABASE, PRODUCER), EvidenceRetentionMode.GOVERNANCE,
+                CLOCK.instant().plus(RETENTION), OptionalLong.empty());
+
+        assertThat(store.findByRequestId(second.erasureRequestId())).contains(second);
+        assertThat(store.putIfAbsent(record(3)).created()).isTrue();
+
+        // The walk started above sequence 2: it passed no marker, so it indexed none.
+        assertThat(bucket.keys(DurableErasureEvidence.RESERVATIONS_PREFIX)).isEmpty();
+        byte[] live = bucket.current(DurableErasureEvidence.FRONTIER_KEY).orElseThrow().version().bytes();
+        assertThat(verifier().verifyFrontier(Optional.of(live)).orElseThrow().expectedThrough()).isEqualTo(3L);
+        assertThat(recover().expectedThrough()).isEqualTo(3L);
+    }
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void aFrontierThatKeepsChangingFailsTheCallClosedAndTheRetryCompletesIt() {
         DurableErasureRecord first = record(1);
         assertThat(store.putIfAbsent(first).created()).isTrue();
