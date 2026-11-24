@@ -40,7 +40,7 @@ Reading a real stamp, pulling it, decrypting it and restoring it need **separate
 (U14). This document and the script are the preparation only.
 
 - [ ] Authorization names both hosts, the stamp, and outcomes 4 and 5 if they are wanted, as in §1 of the drill procedure.
-- [ ] Both hosts have `jq`, `python3`, `openssl`, `gzip`, `tar` and `sha256sum`. The offsite listing (outcome 2) needs `jq`.
+- [ ] Both hosts have `jq`, `python3`, `openssl`, `gzip`, `tar` and `sha256sum`. The `s3` offsite listing (outcome 2) needs `jq`. With `BACKUP_OFFSITE_KIND=gcs`, outcomes 2 and 3 on the backup host run `gcloud storage objects list` and `gcloud storage cp` with the host's own account (on the VM, its service account, which may list and read), as [backup-runbook.md](backup-runbook.md#google-cloud-storage-offsite-gcs) describes.
 - [ ] The stamp is chosen, normally the newest `COMPLETE` stamp under `BACKUP_DIR` on the backup host.
 - [ ] The backup host uses the offsite settings from the env file the backup itself uses.
 - [ ] The drill host is a disposable VM, never `parkio-civo-prod` or `vm-parkio-*`. It has a read-only, short-lived SAS for the pull and the drill's inert env file, and egress is denied after the pull.

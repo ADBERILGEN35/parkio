@@ -43,6 +43,8 @@ parkio_backup_load_env() {
     # non-empty caller/cron/CI secret already in the process environment.
     local _saved_encrypt="${BACKUP_ENCRYPT_PASSPHRASE-}"
     local _saved_mc="${BACKUP_MC_DEST-}"
+    local _saved_gcs="${BACKUP_GCS_DEST-}"
+    local _saved_gcloud_bin="${BACKUP_GCLOUD_BIN-}"
     local _saved_prod="${BACKUP_PRODUCTION_MODE-}"
     local _saved_kind="${BACKUP_OFFSITE_KIND-}"
     local _saved_azure_acct="${BACKUP_AZURE_STORAGE_ACCOUNT-}"
@@ -67,6 +69,12 @@ parkio_backup_load_env() {
     fi
     if [ -n "${_saved_mc}" ]; then
       export BACKUP_MC_DEST="${_saved_mc}"
+    fi
+    if [ -n "${_saved_gcs}" ]; then
+      export BACKUP_GCS_DEST="${_saved_gcs}"
+    fi
+    if [ -n "${_saved_gcloud_bin}" ]; then
+      export BACKUP_GCLOUD_BIN="${_saved_gcloud_bin}"
     fi
     if [ -n "${_saved_prod}" ]; then
       export BACKUP_PRODUCTION_MODE="${_saved_prod}"
@@ -202,6 +210,7 @@ parkio_pg_dump_stream() {
   docker exec "${container}" pg_dump -U "${user}" -d "${db}" --no-owner --clean --if-exists
 }
 
+# azure and s3 are also detected from their settings; gcs only ever from BACKUP_OFFSITE_KIND=gcs.
 parkio_backup_offsite_kind() {
   local kind="${BACKUP_OFFSITE_KIND:-}"
   if [ -n "${kind}" ]; then
@@ -219,7 +228,94 @@ parkio_backup_offsite_kind() {
   echo none
 }
 
+# ---- gcs offsite kind: Google Cloud Storage through gcloud, keyless ----------------------------------
+# Stamps go to BACKUP_GCS_DEST=gs://<bucket>/<prefix> as <prefix>/<stamp>/<file>, the s3 kind's layout.
+# Nothing here holds or passes a credential: gcloud uses its own active account, on the production VM
+# the VM's attached service account, which may create, read and list objects in the bucket but not
+# delete or replace them, and may not read the bucket's metadata.
+
+# A stamp or object name inside a GCS path: letters, digits, '.', '_' and '-' only (no '/', wildcard or
+# '#'), never '.' or '..'. The characters are listed one by one so that no locale can widen the set.
+parkio_backup_gcs_safe_name() {
+  case "$1" in
+    "" | . | .. | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;
+  esac
+}
+
+# Prints BACKUP_GCS_DEST as gs://<bucket>/<prefix>, without one trailing '/', or fails. The bucket keeps
+# the GCS naming rules (3-222 of a-z, 0-9, '-', '_', '.'; a letter or digit at both ends); the prefix is
+# one or more safe names joined by '/'. So no value can make a listing or a copy match more than it names.
+parkio_backup_gcs_dest() {
+  local dest="${BACKUP_GCS_DEST:-}"
+  dest="${dest%/}"
+  local rest="${dest#gs://}"
+  local bucket="${rest%%/*}"
+  local prefix="${rest#*/}"
+  local remaining="${prefix}" segment valid=1
+  if [ "${rest}" = "${dest}" ] || [ "${prefix}" = "${rest}" ] || [ "${#bucket}" -lt 3 ] || [ "${#bucket}" -gt 222 ]; then
+    valid=0
+  fi
+  case "${bucket}" in
+    [!abcdefghijklmnopqrstuvwxyz0123456789]* | *[!abcdefghijklmnopqrstuvwxyz0123456789] \
+      | *[!abcdefghijklmnopqrstuvwxyz0123456789._-]* | *..*)
+      valid=0
+      ;;
+  esac
+  while [ "${valid}" -eq 1 ]; do
+    segment="${remaining%%/*}"
+    parkio_backup_gcs_safe_name "${segment}" || valid=0
+    [ "${segment}" != "${remaining}" ] || break
+    remaining="${remaining#*/}"
+  done
+  if [ "${valid}" -ne 1 ]; then
+    echo "ERROR: BACKUP_GCS_DEST must be gs://<bucket>/<prefix> (got '${BACKUP_GCS_DEST:-}')." >&2
+    return 1
+  fi
+  printf 'gs://%s/%s\n' "${bucket}" "${prefix}"
+}
+
+# Prints the gcloud to run: BACKUP_GCLOUD_BIN (an absolute path), else gcloud on PATH, else
+# /snap/bin/gcloud, where Google's Ubuntu images install it and which cron's PATH does not include.
+parkio_backup_gcloud_bin() {
+  local bin="${BACKUP_GCLOUD_BIN:-}"
+  if [ -n "${bin}" ]; then
+    case "${bin}" in
+      /*) ;;
+      *)
+        echo "ERROR: the gcs offsite kind needs gcloud; BACKUP_GCLOUD_BIN must be an absolute path (got '${bin}')." >&2
+        return 1
+        ;;
+    esac
+  else
+    bin="$(command -v gcloud 2>/dev/null || true)"
+    if [ -z "${bin}" ] && [ -x /snap/bin/gcloud ]; then
+      bin=/snap/bin/gcloud
+    fi
+  fi
+  if [ -z "${bin}" ] || [ ! -f "${bin}" ] || [ ! -x "${bin}" ]; then
+    echo "ERROR: the gcs offsite kind needs gcloud: ${bin:-none on PATH or in /snap/bin} is not an executable file (set BACKUP_GCLOUD_BIN)." >&2
+    return 1
+  fi
+  printf '%s\n' "${bin}"
+}
+
+# Every gcloud call: no prompts, and no parallel composite uploads. Those would read the bucket's
+# metadata and delete their temporary objects, which the backup service account may not do, and the
+# bucket's retention policy would keep those temporary objects anyway.
+parkio_backup_gcloud() {
+  local bin
+  bin="$(parkio_backup_gcloud_bin)" || return 1
+  CLOUDSDK_CORE_DISABLE_PROMPTS=1 CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED=False "${bin}" "$@"
+}
+
 parkio_backup_preflight() {
+  local kind
+  kind="$(parkio_backup_offsite_kind)"
+  # In every mode and before any dump: a gcs run needs a valid destination and a gcloud to run.
+  if [ "${kind}" = gcs ]; then
+    parkio_backup_gcs_dest > /dev/null || return 2
+    parkio_backup_gcloud_bin > /dev/null || return 2
+  fi
   if ! parkio_backup_production_mode; then
     return 0
   fi
@@ -227,10 +323,8 @@ parkio_backup_preflight() {
     echo "ERROR: BACKUP_PRODUCTION_MODE requires BACKUP_ENCRYPT_PASSPHRASE (fail-closed; no plaintext dumps)." >&2
     return 2
   fi
-  local kind
-  kind="$(parkio_backup_offsite_kind)"
   if [ "${kind}" = "none" ]; then
-    echo "ERROR: BACKUP_PRODUCTION_MODE requires offsite (BACKUP_MC_DEST or BACKUP_AZURE_STORAGE_ACCOUNT+CONTAINER)." >&2
+    echo "ERROR: BACKUP_PRODUCTION_MODE requires offsite (BACKUP_MC_DEST, BACKUP_AZURE_STORAGE_ACCOUNT+CONTAINER, or BACKUP_OFFSITE_KIND=gcs with BACKUP_GCS_DEST)." >&2
     return 2
   fi
 }
@@ -761,6 +855,7 @@ parkio_backup_offsite_upload() {
   case "${kind}" in
     azure) parkio_backup_offsite_upload_azure "${dest_dir}" "${stamp}" ;;
     s3) parkio_backup_offsite_upload_s3 "${dest_dir}" "${mc_dest}" "${stamp}" ;;
+    gcs) parkio_backup_offsite_upload_gcs "${dest_dir}" "${stamp}" ;;
     *)
       echo "ERROR: unknown BACKUP_OFFSITE_KIND='${kind}'." >&2
       return 1
@@ -792,6 +887,10 @@ parkio_backup_write_offsite_receipt() {
   case "${kind}" in
     s3) target="${mc_dest%/}/${stamp}" ;;
     azure) target="azure://${BACKUP_AZURE_CONTAINER:-}/${stamp}" ;;
+    gcs)
+      target="$(parkio_backup_gcs_dest)" || return 1
+      target="${target}/${stamp}"
+      ;;
     *)
       echo "ERROR: no offsite receipt for offsite kind '${kind}'." >&2
       return 1
@@ -995,6 +1094,74 @@ parkio_backup_offsite_upload_azure() {
   return "${rc}"
 }
 
+# gcs upload: one object per file, <dest>/<stamp>/<name>, each written with --if-generation-match=0, so
+# an object that already exists fails its copy (HTTP 412) and is never replaced. (--no-clobber is not
+# used: it skips such an object and still succeeds.) The stamp must be flat: regular files only.
+# COMPLETE goes last, and only after a listing shows every other file at its local byte size; a second
+# listing must then show the whole stamp. The first failure ends the upload, so no receipt follows.
+parkio_backup_offsite_upload_gcs() {
+  local dest_dir="${1%/}"
+  local stamp="$2"
+  local gcs_dest odd path name
+  local -a names=()
+  gcs_dest="$(parkio_backup_gcs_dest)" || return 1
+  parkio_backup_gcloud_bin > /dev/null || return 1
+  if ! parkio_backup_gcs_safe_name "${stamp}"; then
+    echo "ERROR: stamp name '${stamp}' cannot be a GCS path segment; nothing uploaded." >&2
+    return 1
+  fi
+  odd="$(find "${dest_dir}" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+  if [ -n "${odd}" ]; then
+    echo "ERROR: the gcs offsite kind uploads a flat stamp of regular files, not ${odd}; nothing uploaded." >&2
+    return 1
+  fi
+  while IFS= read -r -d '' path; do
+    name="${path##*/}"
+    if ! parkio_backup_gcs_safe_name "${name}"; then
+      echo "ERROR: '${name}' in ${dest_dir} cannot be a GCS object name; nothing uploaded." >&2
+      return 1
+    fi
+    if [ "${name}" != COMPLETE ]; then
+      names+=("${name}")
+    fi
+  done < <(find "${dest_dir}" -mindepth 1 -maxdepth 1 -type f -print0 | LC_ALL=C sort -z)
+  echo "Uploading ${dest_dir} -> ${gcs_dest}/${stamp} (gcloud storage, create-only objects, host credentials)"
+  for name in "${names[@]}"; do
+    if ! parkio_backup_gcloud storage cp --if-generation-match=0 "${dest_dir}/${name}" "${gcs_dest}/${stamp}/${name}"; then
+      echo "ERROR: upload of ${name} failed, or that object already exists; COMPLETE was not uploaded." >&2
+      return 1
+    fi
+  done
+  parkio_backup_gcs_listing_matches "${dest_dir}" "${stamp}" without-complete || return 1
+  if ! parkio_backup_gcloud storage cp --if-generation-match=0 "${dest_dir}/COMPLETE" "${gcs_dest}/${stamp}/COMPLETE"; then
+    echo "ERROR: upload of COMPLETE failed, or that object already exists." >&2
+    return 1
+  fi
+  parkio_backup_gcs_listing_matches "${dest_dir}" "${stamp}" with-complete
+}
+
+# Compares the listing of <stamp> with the local stamp: the same names at the same byte sizes, nothing
+# missing and nothing extra. Scope "without-complete" leaves COMPLETE out (not uploaded yet).
+parkio_backup_gcs_listing_matches() {
+  local dest_dir="$1"
+  local stamp="$2"
+  local scope="$3"
+  local listing want got
+  if ! listing="$(parkio_backup_offsite_list "${stamp}")"; then
+    echo "ERROR: cannot list ${stamp} after its upload (${scope}); the upload is not confirmed." >&2
+    return 1
+  fi
+  want="$(find "${dest_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\t%s\n' | LC_ALL=C sort)"
+  if [ "${scope}" = without-complete ]; then
+    want="$(printf '%s\n' "${want}" | grep -v $'^COMPLETE\t' || true)"
+  fi
+  got="$(printf '%s\n' "${listing}" | sed '/^$/d' | LC_ALL=C sort)"
+  if [ "${want}" != "${got}" ]; then
+    echo "ERROR: the listing of ${stamp} does not show the local stamp's files at their sizes (${scope})." >&2
+    return 1
+  fi
+}
+
 # Lists one stamp's offsite objects as "<name><TAB><bytes>" lines, names relative to the stamp
 # prefix. Reads names and sizes only and downloads nothing, so remote presence can be recorded
 # apart from remote byte integrity (U14 dated acceptance).
@@ -1029,6 +1196,39 @@ parkio_backup_offsite_list() {
         --output tsv "${extra[@]}")" || return 1
       printf '%s\n' "${listing}" | awk -F'\t' -v prefix="${stamp}/" \
         'index($1, prefix) == 1 { print substr($1, length(prefix) + 1) "\t" $2 }'
+      ;;
+    gcs)
+      local gcs_dest
+      gcs_dest="$(parkio_backup_gcs_dest)" || return 1
+      if ! parkio_backup_gcs_safe_name "${stamp}"; then
+        echo "ERROR: stamp name '${stamp}' cannot be a GCS path segment." >&2
+        return 1
+      fi
+      listing="$(parkio_backup_gcloud storage objects list "${gcs_dest}/${stamp}/**" --format='json(name,size)')" || return 1
+      # Every object must lie under <prefix>/<stamp>/ with safe path segments and a byte size; anything
+      # else fails the listing rather than being dropped (sizes come as numbers or as strings).
+      printf '%s' "${listing}" | python3 -c '
+import json, re, sys
+prefix = sys.argv[1]
+text = sys.stdin.read()
+try:
+    items = json.loads(text) if text.strip() else []
+except ValueError:
+    sys.exit("ERROR: the gcs listing is not JSON")
+if not isinstance(items, list):
+    sys.exit("ERROR: the gcs listing is not a JSON list")
+for item in items:
+    name = item.get("name") if isinstance(item, dict) else None
+    size = item.get("size") if isinstance(item, dict) else None
+    if not isinstance(name, str) or not name.startswith(prefix):
+        sys.exit("ERROR: the gcs listing holds an object outside %s" % prefix)
+    relative = name[len(prefix):]
+    if not all(re.fullmatch(r"[A-Za-z0-9._-]+", part) and part not in (".", "..") for part in relative.split("/")):
+        sys.exit("ERROR: the gcs listing holds an unsafe object name under %s" % prefix)
+    if isinstance(size, bool) or not re.fullmatch(r"[0-9]+", str(size)):
+        sys.exit("ERROR: the gcs listing has no byte size for %s" % relative)
+    print("%s\t%s" % (relative, size))
+' "${gcs_dest#gs://*/}/${stamp}/"
       ;;
     *)
       echo "ERROR: no offsite configured for listing." >&2
@@ -1096,6 +1296,29 @@ parkio_backup_offsite_pull() {
           shopt -u dotglob nullglob
         fi
       fi
+      ;;
+    gcs)
+      # Every listed object is checked before the first download, then copied one by one to its own
+      # new file. A gcs stamp holds top-level files only.
+      local gcs_dest listing name
+      local -a names=()
+      gcs_dest="$(parkio_backup_gcs_dest)" || return 1
+      listing="$(parkio_backup_offsite_list "${stamp}")" || return 1
+      while IFS=$'\t' read -r name _; do
+        [ -n "${name}" ] || continue
+        if ! parkio_backup_gcs_safe_name "${name}"; then
+          echo "ERROR: refusing to pull '${name}': a gcs stamp holds top-level files only." >&2
+          return 1
+        fi
+        if [ -e "${dest_dir}/${name}" ]; then
+          echo "ERROR: ${dest_dir}/${name} already exists; the pull writes new files only." >&2
+          return 1
+        fi
+        names+=("${name}")
+      done <<< "${listing}"
+      for name in "${names[@]}"; do
+        parkio_backup_gcloud storage cp "${gcs_dest}/${stamp}/${name}" "${dest_dir}/${name}" || return 1
+      done
       ;;
     *)
       echo "ERROR: no offsite configured for pull." >&2
