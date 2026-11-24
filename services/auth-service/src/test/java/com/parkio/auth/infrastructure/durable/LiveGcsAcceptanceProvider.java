@@ -2,7 +2,9 @@ package com.parkio.auth.infrastructure.durable;
 
 import com.google.api.client.googleapis.json.GoogleJsonError;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
+import com.google.api.client.http.HttpRequest;
 import com.google.api.client.http.HttpRequestInitializer;
+import com.google.api.client.http.HttpResponseInterceptor;
 import com.google.api.client.http.javanet.DefaultConnectionFactory;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
@@ -47,11 +49,14 @@ import java.util.Objects;
  * The live provider of the #483 harness: one {@link Storage} client per identity, built like
  * {@link GcsDurableStoreConfig} builds it (HTTP JSON API, default retry settings: 6 attempts within
  * 50 s; library default timeouts: 20 s connect and 20 s read per request) except for its
- * credentials. Credentials come from keyless Application Default Credentials (a user login,
- * workload identity federation or the metadata server) impersonating each identity's service
- * account, so no service-account key is used and the operator's own credentials never send a
- * storage request. Every HTTP connection, storage and token requests alike, passes the ledger's
- * gate first: after a stop, at the request cap or past the wall-clock cap nothing more is sent.
+ * credentials. As in production, {@link GoogleCloudStorageTransport} sends inserts through a copy
+ * with one attempt per request (#494). Credentials come from keyless Application Default
+ * Credentials (a user login, workload identity federation or the metadata server) impersonating
+ * each identity's service account, so no service-account key is used and the operator's own
+ * credentials never send a storage request. Every HTTP connection, storage and token requests
+ * alike, passes the ledger's gate first: after a stop, at the request cap or past the wall-clock cap
+ * nothing more is sent. Every storage response reaches the ledger with its status, client retries
+ * included, so 429s are counted where the provider sent them.
  */
 final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
 
@@ -63,15 +68,18 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
     private final String credentials;
     private final String evidenceClass;
     private final String endpoint;
+    private final GcsAcceptanceLedger gate;
 
     private LiveGcsAcceptanceProvider(Map<Identity, Storage> storages,
                                       Map<Identity, com.google.api.services.storage.Storage> jsonApis,
-                                      String credentials, String evidenceClass, String endpoint) {
+                                      String credentials, String evidenceClass, String endpoint,
+                                      GcsAcceptanceLedger gate) {
         this.storages = Map.copyOf(storages);
         this.jsonApis = Map.copyOf(jsonApis);
         this.credentials = credentials;
         this.evidenceClass = evidenceClass;
         this.endpoint = endpoint;
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /** Production use: ADC (for example {@code gcloud auth application-default login}) impersonates each account. */
@@ -94,16 +102,17 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
             storages.put(identity, StorageOptions.newBuilder()
                     .setProjectId(projectId)
                     .setCredentials(impersonated)
-                    .setTransportOptions(HttpTransportOptions.newBuilder().setHttpTransportFactory(transport).build())
+                    .setTransportOptions(new StatusRecordingTransportOptions(
+                            HttpTransportOptions.newBuilder().setHttpTransportFactory(transport), ledger))
                     .build()
                     .getService());
-            jsonApis.put(identity, jsonApi(transport, null, impersonated));
+            jsonApis.put(identity, jsonApi(transport, null, impersonated, ledger));
         }
         // The endpoint comes from a client built above: default options would resolve a default project
         // over the network outside the gate. ADC is loaded once, above, through the gated transport.
         return new LiveGcsAcceptanceProvider(storages, jsonApis,
                 "ADC source " + source.getClass().getSimpleName() + " impersonating one service account per identity",
-                "live-provider", storages.get(Identity.READER).getOptions().getHost());
+                "live-provider", storages.get(Identity.READER).getOptions().getHost(), ledger);
     }
 
     /**
@@ -132,13 +141,14 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     .setHost(host)
                     .setProjectId(projectId)
                     .setCredentials(NoCredentials.getInstance())
-                    .setTransportOptions(HttpTransportOptions.newBuilder().setHttpTransportFactory(transport).build())
+                    .setTransportOptions(new StatusRecordingTransportOptions(
+                            HttpTransportOptions.newBuilder().setHttpTransportFactory(transport), ledger))
                     .build()
                     .getService());
-            jsonApis.put(identity, jsonApi(transport, host, null));
+            jsonApis.put(identity, jsonApi(transport, host, null, ledger));
         }
         return new LiveGcsAcceptanceProvider(storages, jsonApis, "none (local test endpoint)", "local-test-endpoint",
-                host);
+                host, ledger);
     }
 
     /**
@@ -146,9 +156,13 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
      * library cannot send. Same gated transport and credentials; no retries (a PATCH is not idempotent).
      */
     private static com.google.api.services.storage.Storage jsonApi(HttpTransportFactory transport, String host,
-                                                                   Credentials credentials) {
-        HttpRequestInitializer initializer = credentials == null ? request -> { }
+                                                                   Credentials credentials, GcsAcceptanceLedger ledger) {
+        HttpRequestInitializer authorization = credentials == null ? request -> { }
                 : new HttpCredentialsAdapter(credentials);
+        HttpRequestInitializer initializer = request -> {
+            authorization.initialize(request);
+            recordStatuses(request, ledger);
+        };
         com.google.api.services.storage.Storage.Builder builder = new com.google.api.services.storage.Storage.Builder(
                 transport.create(), GsonFactory.getDefaultInstance(), initializer)
                 .setApplicationName("parkio-n02-gcs-acceptance");
@@ -156,6 +170,43 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
             builder.setRootUrl(host.endsWith("/") ? host : host + "/");
         }
         return builder.build();
+    }
+
+    /**
+     * The storage client's transport options with one more step: every response the provider sends
+     * reaches the ledger with its status, retries of the client included, so a 429 the client
+     * retries itself is still counted (#494). The response is not changed.
+     */
+    static final class StatusRecordingTransportOptions extends HttpTransportOptions {
+
+        private final transient GcsAcceptanceLedger ledger;
+
+        StatusRecordingTransportOptions(HttpTransportOptions.Builder builder, GcsAcceptanceLedger ledger) {
+            super(builder);
+            this.ledger = Objects.requireNonNull(ledger, "ledger");
+        }
+
+        @Override
+        public HttpRequestInitializer getHttpRequestInitializer(com.google.cloud.ServiceOptions<?, ?> serviceOptions) {
+            HttpRequestInitializer base = super.getHttpRequestInitializer(serviceOptions);
+            return request -> {
+                base.initialize(request);
+                recordStatuses(request, ledger);
+            };
+        }
+    }
+
+    /** Each response to {@code request}, a client resend's included, reaches the ledger with its status. */
+    private static void recordStatuses(HttpRequest request, GcsAcceptanceLedger ledger) {
+        HttpResponseInterceptor previous = request.getResponseInterceptor();
+        request.setResponseInterceptor(response -> {
+            boolean insert = "POST".equals(request.getRequestMethod())
+                    && request.getUrl().getRawPath().startsWith("/upload/");
+            ledger.afterHttpResponse(insert, response.getStatusCode());
+            if (previous != null) {
+                previous.interceptResponse(response);
+            }
+        });
     }
 
     /** One shared transport whose connection factory passes every request, retries included, through the gate. */
@@ -188,6 +239,14 @@ final class LiveGcsAcceptanceProvider implements GcsAcceptanceProvider {
     @Override
     public Clock clock() {
         return Clock.systemUTC();
+    }
+
+    /** The gate is the ledger this provider was built with; a run with another ledger would count nothing. */
+    @Override
+    public void reportResponsesTo(GcsAcceptanceLedger ledger) {
+        if (ledger != gate) {
+            throw new IllegalArgumentException("the live provider's HTTP gate reports to the ledger it was built with");
+        }
     }
 
     @Override

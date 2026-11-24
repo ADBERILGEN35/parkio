@@ -21,9 +21,10 @@ acceptance (layer C) only.
 The harness (`GcsAcceptanceTool`, test classpath only) drives the merged classes, not equivalent `gcloud` calls:
 
 - `GcsObjectRetentionBucket` over `GoogleCloudStorageTransport`, built the way `GcsDurableStoreConfig`
-  builds it (JSON API over HTTP, default retry settings: 6 attempts within 50 s; default timeouts:
-  20 s connect and 20 s read per request). Only the credentials differ: keyless Application Default
-  Credentials impersonate one service account per identity.
+  builds it (JSON API over HTTP, default retry settings: 6 attempts within 50 s, except inserts, which the
+  transport sends through a copy with one attempt per request (#578); default timeouts: 20 s connect and
+  20 s read per request). Only the credentials differ: keyless Application Default Credentials impersonate
+  one service account per identity.
 - `ObjectLockDurableErasureRecordStore` (putIfAbsent, findByRequestId, publishCheckpoint) on that bucket,
   confined to the run's namespace `runs/<run-id>/store/` by `PrefixedEvidenceBucket`.
 - `ObjectLockEvidenceObjects`, `DurableErasureEvidenceVerifier.recover` and `EvidenceBundle`: the existing
@@ -47,7 +48,7 @@ Read from Google documentation on 2026-10-22; the run confirms or refutes each o
 | `objects.insert` needs `storage.objects.create`, `setRetention` when the body carries retention, `delete` when it overwrites a name; `objects.patch` needs `update`, `setRetention`, `overrideUnlockedRetention` when overriding; `objects.delete` needs `delete`; none needs `objects.get` | Writer role holds `delete` (L2 measures the overwrite rule); the probe admin has no `objects.get` | [iam-json](https://docs.cloud.google.com/storage/docs/access-control/iam-json) |
 | `objects.patch` takes a `generation` parameter (a specific, also noncurrent, revision); the Java client never sends it | Probes patch the live object under `ifGenerationMatch`; K8/K9 send `generation=` through the JSON API client | iam-json, client source 2.60.0 |
 | About one write and one metadata update per second per object name; faster writes "might" get 429; bucket create/delete about one per 2 s per project | The adapter resends a write refused with 429 (#492); T1 and S5 measure real throttling | [quotas](https://docs.cloud.google.com/storage/quotas) |
-| An insert without precondition and a PATCH without `ifMetagenerationMatch` are not retried by the client; gets, lists and generation deletes are | HTTP requests can exceed logical operations only through client retries, and the gate counts each one | client source 2.60.0 |
+| An insert without precondition and a PATCH without `ifMetagenerationMatch` are not retried by the client; gets, lists and generation deletes are, and so is an insert with `ifGenerationMatch`, which is why the transport sends every insert with one attempt (#578) | HTTP requests can exceed logical operations only through client retries, and the gate counts each one with its status; T1, T1c and S6 require that the client resent no insert | client source 2.60.0 |
 | IAM allow-policy changes take typically 2, potentially 7 minutes or longer | The run starts at least 7 minutes after the last binding | [access-change-propagation](https://docs.cloud.google.com/iam/docs/access-change-propagation) |
 | Revoking an OAuth token revokes the grant of that client: "invalidating any issued access or refresh tokens for all clients registered under that project" | No step revokes; the operation's own credentials live only in a dedicated directory that is deleted at the end | [token revocation](https://developers.google.com/identity/protocols/oauth2/native-app#tokenrevoke) |
 | Requests answered 4xx/5xx are generally not charged; deletes are free; general network egress $0.12/GiB | Negative cases cost nothing; egress ≈ 2 MiB per run | [pricing](https://cloud.google.com/storage/pricing) |
@@ -138,19 +139,23 @@ Live evidence unless marked. Every write and read uses the adapter; probes are r
 | F6 | writer-nodelete, probe-admin | Both identities authenticate and read the bucket; F1, F2 and F6 must pass before any write |
 | P1, P2 | writer | GOVERNANCE / COMPLIANCE put; reported mode and retain-until equal the request; bytes by generation. A different lock stops the run (`lockMismatch`) |
 | P3 | writer | Overwrite of a Locked live object adds a higher generation; the first stays canonical and Locked |
+| P4 | writer | On a name of its own: create-only (`putIfAbsent`, `ifGenerationMatch=0`) writes the absent name; after the live read the store makes, a compare-and-swap (`putIfCurrent`, `ifGenerationMatch=<live generation>`) over that Locked live generation adds a higher generation. The first stays canonical, Locked with its retain-until and readable by generation; the new one is Locked. Both COMPLIANCE, as the store writes its frontier |
+| P5 | writer | Create-only on P4's live name is refused with 412: empty result, exactly one 412, no generation written, still two generations, canonical and live generation (and its bytes) unchanged. Asked for as GOVERNANCE, so a provider that ignored the precondition would leave no COMPLIANCE generation |
+| P6 | writer | A compare-and-swap naming P4's first generation, no longer live, is refused with 412, with the same checks as P5: nothing written, the live generation unchanged |
 | H1 | writer | 205 sequential writes (1.1 s apart) get strictly increasing generations |
 | H2 | reader | `versionCount`, `oldest`, `allVersions` see all 205 across ≥ 3 pages each; every generation holds its own write |
 | H3 | reader | Transport paging at 32 per page: same set, no duplicates, ≥ 7 pages; prefix key listing complete |
 | C1 | writer | 8 writers released together on one name (contention through the adapter's resends), each puts then reads the canonical version: ≥ 2 committed (else a fresh round, at most three), every listed generation accounted for, all writers read the same canonical generation, it is the lowest listed, exactly one writer reads its own; first-send commits and commit spread recorded |
 | C2 | writer | An identical body twice gives two generations; the first stays canonical |
-| T1 | writer | 10 back-to-back unconditional writes (`put`) to one name through the adapter all complete; the provider's 429s are counted. The store's own writes are conditional since #494; this case does not cover them |
+| T1 | writer | 10 back-to-back unconditional writes (`put`) to one name through the adapter all complete; generations strictly increasing, one per write. The 429s are counted at the HTTP gate and as the adapter saw them, and the two counts are equal (below) |
+| T1c | writer | The same burst as the store writes (#494): create-only, then a compare-and-swap naming each new generation, 10 conditional writes to one name all complete through the adapter's resends, with the checks and counts of T1; no 412 is recorded |
 | S1–S3 | writer | Store put: COMPLIANCE receipt on the canonical generation; identical retry settles without a write; different body is a conflict without a write |
 | S4 | writer | Response lost **after** the provider committed the record: not durable before the frontier covers it; the retry settles on that generation without a second write |
-| S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier). It follows S4's record call without a pause: a call writes the frontier once (#494), so the per-object limit is met across calls |
+| S5 | writer | **One** unpaced `publishCheckpoint` call, as production makes it, completes; the frontier covers it, no gap or abandoned reservation (verifier). It follows S4's record call without a pause: a call writes the frontier once (#494), so the per-object limit is met across calls. Its 429s are counted as in T1; S6 checks them |
 | S5r | writer | Retry convergence: after a failed S5, unpaced retries must converge; after a passing S5, the response to the next reservation marker is lost after commit and the next call must fill that reservation; no gap, no abandoned reservation |
 | S5s | writer | After a passing S5: the response to the checkpoint object itself is lost after commit (no resume path, #365 finding 3); the next call converges, the published checkpoint stays and the frontier covers both; the sequences consumed are recorded (today a new one; not a requirement) |
 | S5b | writer | Diagnostic, only after a failed S5: one call with writes to one name spaced 1.1 s. Never counts as a pass |
-| S6 | writer | A further record converges under the per-object limit; frontier history recorded |
+| S6 | writer | A further record converges under the per-object limit; frontier history recorded. Over S1 to S6 the HTTP gate counted no insert 429 the adapter did not see |
 | V1 | reader | Local verifier over the live store: ACCEPT_ISOLATED, no gaps, no abandoned reservations, boundary = highest sequence (local verifier, live bytes) |
 | V2 | reader | Exported bundle verifies with the identical verdict; bundle and SHA-256 kept (local verifier, live bytes) |
 | L1 | reader | Write with retention refused 403; nothing created |
@@ -174,6 +179,15 @@ exit code 5) and the operation is not repeated (contingency route C, `n02-gcs-ev
 A stop of the run, or a refused probe whose state cannot be read, is never a violation; a stop right after
 an accepted forbidden change, or a forbidden probe still unanswered when a stop writes the result, is listed under
 `unverifiedLockedChanges` (exit code 3), and that generation is inspected before the operation is repeated.
+
+Throttling is counted where the provider answers. The HTTP gate sees every response, so a case's
+`throttledResponses` are the insert 429s it received, any the client waited out and resent itself included;
+`adapterThrottledResponses` are the transport calls that failed with 429, each one the adapter resent or
+failed on; `clientAbsorbedRetries` is the difference. Since #578 the client sends every insert once per
+request and only the adapter resends (at most five sends and 16.5 s of pauses per write), so the difference
+must be 0: T1, T1c and S6 fail otherwise, whichever way the counts differ. Reads keep the client's retries;
+a throttled read shows only in the gate's total (`throttledHttp`), not in the insert count
+(`throttledHttpInserts`).
 
 ## 6. Harness
 
@@ -209,17 +223,25 @@ an accepted forbidden change, or a forbidden probe still unanswered when a stop 
   and `SHA256SUMS` over all files. Provider messages are sanitized; library logging goes to stderr at INFO
   (Google libraries at WARN); the synthetic HMAC key exists only in memory.
 - `checkpointUnderThrottling` keeps the three facts apart: `normalPathCompleted` (S5) with
-  `normalPathThrottledResponses`, `externalPacingRequired` (`no`, or from S5b only after a failed S5),
-  `retryConvergedWithoutLoss` (S5r), plus the burst T1.
+  `normalPathThrottledResponses` (counted at the HTTP gate), `externalPacingRequired` (`no`, or from S5b
+  only after a failed S5), `retryConvergedWithoutLoss` (S5r), plus the bursts T1 and T1c
+  (`burstWritesCompleted`, `conditionalBurstWritesCompleted` and their gate counts) and
+  `clientAbsorbedRetries` for T1, T1c and S1 to S6 (0 since #578; §5).
+- Criteria: each lists the cases that must pass. "Conditional writes the store relies on (#494)" needs P4,
+  P5, P6 and T1c; "throttled inserts reach the adapter; the client resends none (#578)" needs T1, T1c and
+  S6. The budget counters carry the gate's totals: `throttledHttp` (every 429) and `throttledHttpInserts`.
 - Verdict: PASS only when every PREFLIGHT and ASSERTION case passed and nothing stopped the run;
   MEASUREMENT cases record a fact; DIAGNOSTIC cases never count. Exit codes: 0 PASS, 1 FAIL, 2 refused,
   3 ABORTED/INTERRUPTED, 4 ERROR, 5 FAIL with a safety violation. `countsFor483` is true only for a live PASS.
-- Local tests (not evidence): `GcsAcceptanceToolTest` (42: offline sequence with headroom, one case per
-  modelled provider defect (19), not-applicable addressed PATCH, concealment, every cap, harness error, stop
-  while blocked, a stop never hides a violation; a stop, an unanswered probe or a failed read-back during a
-  Locked probe, after K8c or after a no-op addressed PATCH; a refusal on an absent generation; inventory,
-  secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest` (13: what the real client sends, resend,
-  generation-addressed PATCH, storage and token gate, keyless credentials), `GcsObjectRetentionBucketTest` (13)
+- Local tests (not evidence): `GcsAcceptanceToolTest` (47: offline sequence with headroom, one case per
+  modelled defect (21: the provider's, an ignored `ifGenerationMatch` among them, and a client that resends
+  throttled inserts below the adapter), conditional writes written and refused, not-applicable addressed PATCH,
+  concealment, every cap, harness error, stop while blocked, a stop never hides a violation; a stop, an
+  unanswered probe or a failed read-back during a Locked probe, after K8c or after a no-op addressed PATCH; a
+  refusal on an absent generation; inventory, secrets, refusals), `LiveGcsAcceptanceProviderRequestShapeTest`
+  (21: what the real client sends, conditional uploads, resends by the adapter only, 429s counted at the gate
+  and by the adapter, a read the client resends itself, generation-addressed PATCH, storage and token gate,
+  keyless credentials), `GcsObjectRetentionBucketTest` (17)
   and `scripts/test-n02-gcs-acceptance-op.sh` (108, a fake gcloud that behaves like 590.0.0, with lost
   responses, failures in mid-command, a missing or late lien). Mutation records:
   agent-tools evidence of #483.
@@ -277,6 +299,12 @@ region (no replication charges).
 | `n02BucketMetadataReader` | storage.buckets.get (control bucket) |
 | `n02TokenMinter` | iam.serviceAccounts.getAccessToken |
 
+The conditional writes (P4 to P6, T1c and the store's own) need no permission beyond these roles: an insert
+with `ifGenerationMatch` needs what any insert needs (`storage.objects.create`, `setRetention` for its
+retention, `delete` when it replaces a live generation, as P3 and the store's frontier writes already do),
+and the live read before a compare-and-swap needs `storage.objects.get`, which the writer and reader roles
+hold. A refused precondition (412) writes nothing.
+
 Nothing is granted at project or organization level besides the creator's automatic Owner. If a step is
 refused (for example `enableObjectRetention`), the script stops; no broader grant is improvised. Cleanup
 needs `storage.objects.list/delete`, `storage.buckets.delete`, `iam.serviceAccounts.delete`,
@@ -311,11 +339,11 @@ HMAC key generated in memory per run). Never production evidence, trust document
 
 | Per run | Cap | Offline plan |
 |---------|-----|--------------|
-| Logical operations | 1,500 | 851 (427 Class A, 366 Class B charged; 45 refused or throttled; the 8-writer race varies by a few) |
-| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 865 (14 live frontier reads take two requests each) plus a few token requests |
-| Generations that may exist | 360 | 253 (229 GOVERNANCE, 21 COMPLIANCE, 3 unanswered) |
-| COMPLIANCE generations that may exist | 40 | 24 |
-| Wall clock | 45 min | ≈ 4.8 min of waits plus request latency |
+| Logical operations | 1,500 | 895 (446 Class A, 372 Class B charged; 61 refused or throttled; the 8-writer race varies by a few) |
+| HTTP requests (incl. retries, tokens) | 1,800 | ≈ 912 (17 live reads take two requests each) plus a few token requests |
+| Generations that may exist | 360 | 265 (239 GOVERNANCE, 23 COMPLIANCE, 3 unanswered) |
+| COMPLIANCE generations that may exist | 40 | 26 |
+| Wall clock | 45 min | ≈ 5.2 min of waits plus request latency |
 
 At most **two attempts** under this approval. An attempt counts once it has sent a write; an attempt that
 stops in the preflight (nothing written) does not count, and after three such stops the operator reports
@@ -323,7 +351,7 @@ instead of retrying. A second attempt only after a diagnosed failure.
 
 ### 7.7 Retention and irreversible consequences
 
-- GOVERNANCE (Unlocked): run start + **2 h** (adapter cases). COMPLIANCE (Locked): run start + 2 h for P2/P3
+- GOVERNANCE (Unlocked): run start + **2 h** (adapter cases). COMPLIANCE (Locked): run start + 2 h for P2 to P4
   (K6 adds 60 s to one), write time + 2 h for store records. The latest requested retain-until is in
   `result.json` (`latestRetainUntil`; offline plan ≈ start + 2 h 5 min); the hard bound is the deadline +
   2 h = **start + 2 h 45 min**.
@@ -340,7 +368,7 @@ instead of retrying. A second attempt only after a diagnosed failure.
 List prices read 2026-10-22, europe-west4 regional Standard: Class A $0.005 / 1,000, Class B
 $0.0004 / 1,000, storage $0.020 / GiB-month, egress $0.12 / GiB, deletes free, 4xx/5xx generally not charged.
 
-- Planned run: 427 × A + 366 × B ≈ $0.0023; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
+- Planned run: 446 × A + 372 × B ≈ $0.0024; egress ≈ 2 MiB ≈ $0.0003; storage ≈ 41 KiB × ≈ 2 h ≈ $0;
   ≈ **$0.003 per run**. At the caps (1,800 requests, all Class A, ≈ 176 MiB egress) ≈ $0.03 per run, two runs
   ≈ $0.06.
 - Stop rule (Cloud Billing cannot cap spend and its data lags by hours): the harness caps bound each

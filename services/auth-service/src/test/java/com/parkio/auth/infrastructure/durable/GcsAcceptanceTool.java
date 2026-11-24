@@ -339,6 +339,7 @@ public final class GcsAcceptanceTool {
             Synthetic synthetic, PrintStream progress) {
             this.provider = provider;
             this.ledger = ledger;
+            provider.reportResponsesTo(ledger);
             this.config = config;
             this.source = source;
             this.started = ledger.startedAt();
@@ -578,11 +579,13 @@ public final class GcsAcceptanceTool {
         Map<String, List<String>> criteria = new LinkedHashMap<>();
         criteria.put("retention feature discovery", List.of("F5", "F1", "F2", "F3", "F4", "F6"));
         criteria.put("put with retention", List.of("P1", "P2", "P3"));
+        criteria.put("conditional writes the store relies on (#494)", List.of("P4", "P5", "P6", "T1c"));
         criteria.put("retention inspection by generation", List.of("P1", "P2", "P3", "K6"));
         criteria.put("generation listing and pagination", List.of("H1", "H2", "H3"));
         criteria.put("oldest generation canonical", List.of("P3", "H2", "C1", "C2"));
         criteria.put("concurrency and retry semantics",
                 List.of("C1", "C2", "T1", "S1", "S2", "S3", "S4", "S5", "S5r", "S5s", "S6"));
+        criteria.put("throttled inserts reach the adapter; the client resends none (#578)", List.of("T1", "T1c", "S6"));
         criteria.put("least-privilege failures", List.of("L1", "L3", "L4", "L5", "G5"));
         criteria.put("refusal of shortened or removed Locked retention",
                 List.of("K1", "K2", "K3", "K4", "K5", "K7", "K8c", "K8", "K9", "K6", "G3", "G4"));

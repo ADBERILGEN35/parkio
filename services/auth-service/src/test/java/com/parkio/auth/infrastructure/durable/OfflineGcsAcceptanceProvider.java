@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -63,7 +64,14 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         /** A PATCH addressed to a generation answers 503. */
         GENERATION_PATCH_UNAVAILABLE,
         /** A PATCH addressed to a generation removes its retention instead of applying the request. */
-        GENERATION_PATCH_CLEARS_RETENTION
+        GENERATION_PATCH_CLEARS_RETENTION,
+        /** An insert's ifGenerationMatch is ignored: every conditional write is written (#494). */
+        PRECONDITIONS_IGNORED,
+        /**
+         * Not the provider: the client below the adapter waits out a throttled insert and resends it
+         * itself, so the HTTP gate sees a 429 the adapter never does (what #578 removed).
+         */
+        CLIENT_RESENDS_THROTTLED_INSERTS
     }
 
     static final String PROJECT_NUMBER = "100000000001";
@@ -86,6 +94,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
     private final Map<String, Map<Identity, Set<String>>> grants = new HashMap<>();
     private long lastGeneration;
     private long raceGeneration;
+    private GcsAcceptanceLedger responses;
 
     OfflineGcsAcceptanceProvider(Instant start, String bucket, String controlBucket, String location,
                                  Set<Defect> defects) {
@@ -219,16 +228,47 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
         return lastGeneration;
     }
 
-    private void throttle(Map<String, Instant> last, String objectName) {
+    /**
+     * Answers go to {@code ledger} as the live HTTP gate reports them. This model has no client
+     * below the adapter, so every 429 it answers reaches the adapter and none is absorbed, unless
+     * {@link Defect#CLIENT_RESENDS_THROTTLED_INSERTS} models a client that resends them itself.
+     */
+    @Override
+    public synchronized void reportResponsesTo(GcsAcceptanceLedger ledger) {
+        this.responses = Objects.requireNonNull(ledger, "ledger");
+    }
+
+    /** A modelled request answered 429: an insert (an upload) or a metadata update. */
+    private void answeredThrottled(boolean insert) {
+        if (responses != null) {
+            responses.afterHttpResponse(insert, 429);
+        }
+    }
+
+    private void throttle(Map<String, Instant> last, String objectName, boolean insert) {
         Instant previous = last.get(objectName);
         Duration window = Duration.ofSeconds(1);
         if (previous != null && Duration.between(previous, clock.instant()).compareTo(window) < 0) {
             if (defects.contains(Defect.WRITE_LIMIT_PENALTY)) {
                 last.put(objectName, clock.instant().plusSeconds(29));
             }
+            answeredThrottled(insert);
             throw new StorageException(429, "The object exceeded the rate limit for object mutation operations");
         }
         last.put(objectName, clock.instant());
+    }
+
+    /** {@link Defect#CLIENT_RESENDS_THROTTLED_INSERTS}: a 429 the gate sees, waited out below the adapter. */
+    private void resentByTheClient(Map<String, Instant> last, String objectName) {
+        Instant previous = last.get(objectName);
+        if (previous == null) {
+            return;
+        }
+        Duration wait = Duration.ofSeconds(1).minus(Duration.between(previous, clock.instant()));
+        if (wait.compareTo(Duration.ZERO) > 0) {
+            answeredThrottled(true);
+            clock.advance(wait);
+        }
     }
 
     private final class ModelTransport implements GcsObjectRetentionTransport {
@@ -272,7 +312,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                 }
                 Optional<Gen> live = model.live(objectName);
                 // ifGenerationMatch: 0 while no generation is live, else the live generation.
-                if (ifGenerationMatch.isPresent()
+                if (ifGenerationMatch.isPresent() && !defects.contains(Defect.PRECONDITIONS_IGNORED)
                         && ifGenerationMatch.getAsLong() != live.map(gen -> gen.generation).orElse(0L)) {
                     throw new StorageException(GcsObjectRetentionTransport.PRECONDITION_FAILED,
                             "At least one of the pre-conditions you specified did not hold.");
@@ -288,9 +328,13 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                 }
                 if (defects.contains(Defect.RACE_ADMITS_ONE_WRITER) && objectName.contains("/adapter/race-")
                         && model.objects.containsKey(objectName)) {
+                    answeredThrottled(true);
                     throw new StorageException(429, "The object exceeded the rate limit for object mutation operations");
                 }
-                throttle(model.lastWrite, objectName);
+                if (defects.contains(Defect.CLIENT_RESENDS_THROTTLED_INSERTS)) {
+                    resentByTheClient(model.lastWrite, objectName);
+                }
+                throttle(model.lastWrite, objectName, true);
                 Gen gen = new Gen(nextGeneration(objectName), bytes.clone(), mode, retainUntil);
                 if (live.isPresent() && !model.versioning) {
                     live.get().deleted = true;
@@ -427,7 +471,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     if (model.live(name).isPresent() && !mayCreate) {
                         require(identity, bucket, "storage.objects.delete");
                     }
-                    throttle(model.lastWrite, name);
+                    throttle(model.lastWrite, name, true);
                 } catch (StorageException ex) {
                     return refused(ex.getCode(), ex.getCode() == 429 ? "rateLimitExceeded" : "forbidden",
                             ex.getMessage());
@@ -525,7 +569,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     return refused(412, "conditionNotMet", "Precondition Failed");
                 }
                 try {
-                    throttle(model.lastUpdate, name);
+                    throttle(model.lastUpdate, name, false);
                 } catch (StorageException ex) {
                     return refused(429, "rateLimitExceeded", ex.getMessage());
                 }
@@ -552,7 +596,7 @@ final class OfflineGcsAcceptanceProvider implements GcsAcceptanceProvider {
                     return refused(404, "notFound", "No such object");
                 }
                 try {
-                    throttle(model.lastUpdate, name);
+                    throttle(model.lastUpdate, name, false);
                 } catch (StorageException ex) {
                     return refused(429, "rateLimitExceeded", ex.getMessage());
                 }
