@@ -20,7 +20,7 @@ Same as MinIO `ObjectLockBucket`, via `DurableEvidenceBucket`:
 1. **Retention feature discovery** — refuse startup unless Object Retention Lock is enabled on the bucket (not merely Bucket Lock) and Object Versioning is on (ORL does not imply versioning; without it a rewrite of a retained name is refused, and after expiry it would replace the live generation).
 2. **Put + retention** — every write creates a new generation with GOVERNANCE (Unlocked) or COMPLIANCE (Locked) retain-until.
 3. **Retention inspect** — receipt requires a lock on the canonical generation.
-4. **List + pagination** — transport pages generations; adapter aggregates pages.
+4. **List + pagination** — transport pages generations; adapter aggregates pages. One listing fails closed (`DURABLE_RECORDING_UNAVAILABLE`) on a page token it has already followed, when it would need more than `list-max-pages` pages, or when `list-deadline` has passed before its next page (#493).
 5. **Canonical oldest** — **lowest generation number**, never list encounter order (GCS may return newest-first).
 6. **Frontier chains** — all generations of `frontier/expected-through.json` via `allVersions` / `findAll`.
 7. **Concurrent / retry** — first generation wins; identical body → existing; different body → conflict.
@@ -47,6 +47,15 @@ parkio.privacy.account-erasure.durable-store.gcs.enabled: false  # PARKIO_ERASUR
 ```
 
 Operator inputs when enabled: `project-id`, `bucket`, `retention-mode`, `retention`, `trust-file`, `producer-key-id`. Production retention duration remains **unset** in policy; test retention must stay short and synthetic.
+
+Listing bounds, optional (#493):
+
+| Setting | Default | Environment variable |
+|---------|---------|----------------------|
+| `list-max-pages` | `1000` (pages of 100 generations) | `PARKIO_ERASURE_STORE_GCS_LIST_MAX_PAGES` |
+| `list-deadline` | `30s`, checked before each further page | `PARKIO_ERASURE_STORE_GCS_LIST_DEADLINE` |
+
+A value below 1 page or a non-positive deadline stops startup when the store is enabled.
 
 ## Local vs real evidence
 

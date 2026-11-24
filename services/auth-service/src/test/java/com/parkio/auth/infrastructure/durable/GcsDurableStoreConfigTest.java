@@ -60,6 +60,24 @@ class GcsDurableStoreConfigTest {
     }
 
     @Test
+    void listBoundsDefaultToTheAdapterDefaultsAndMustBePositive() {
+        GcsDurableStoreProperties defaults = new GcsDurableStoreProperties();
+        assertThat(new GcsObjectRetentionBucket.ListBounds(defaults.getListMaxPages(), defaults.getListDeadline()))
+                .isEqualTo(GcsObjectRetentionBucket.ListBounds.DEFAULT);
+
+        runner.withPropertyValues(
+                        PREFIX + "enabled=true",
+                        PREFIX + "list-max-pages=0",
+                        PREFIX + "list-deadline=0s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("list-max-pages (at least 1)")
+                            .hasMessageContaining("list-deadline (positive duration)");
+                });
+    }
+
+    @Test
     void mutualExclusionWithObjectLockFailsClosed() throws Exception {
         Path file = TrustDocuments.write(DATABASE, KEY);
         when(jdbc.queryForObject(anyString(), eq(String.class))).thenReturn(DATABASE);

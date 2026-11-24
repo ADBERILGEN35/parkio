@@ -292,6 +292,11 @@ parkio:
           retention: ${PARKIO_ERASURE_STORE_GCS_RETENTION:}
           trust-file: ${PARKIO_ERASURE_STORE_GCS_TRUST_FILE:}
           producer-key-id: ${PARKIO_ERASURE_STORE_GCS_PRODUCER_KEY_ID:}
+          # Bounds of one bucket listing (#493): pages of 100 generations, and how long after it
+          # started a listing may request another page. Past either bound, or on a repeated page
+          # token, the listing fails closed (DURABLE_RECORDING_UNAVAILABLE).
+          list-max-pages: ${PARKIO_ERASURE_STORE_GCS_LIST_MAX_PAGES:1000}
+          list-deadline: ${PARKIO_ERASURE_STORE_GCS_LIST_DEADLINE:30s}
         # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published
         # to the active durable evidence store above. Off by default and nothing calls the producer: the
         # cadence is an operator decision. The timeouts bound the capture transaction.

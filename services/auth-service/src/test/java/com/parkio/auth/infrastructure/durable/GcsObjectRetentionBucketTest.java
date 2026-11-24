@@ -24,6 +24,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntFunction;
+import java.util.function.LongSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -243,6 +246,133 @@ class GcsObjectRetentionBucketTest {
                 .isInstanceOf(AuthException.class)
                 .extracting(ex -> ((AuthException) ex).errorCode())
                 .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+    }
+
+    @Test
+    void aRepeatedPageTokenFailsTheListingClosed() {
+        // The provider answers page-token-b with page-token-a again, so following tokens would loop
+        // forever. The stub ends after 20 pages so that an unbounded listing finishes instead of hanging.
+        PagingTransport paging = new PagingTransport(request -> request == 20
+                ? lastPage()
+                : pageWithToken(request % 2 == 0 ? "page-token-a" : "page-token-b"));
+        GcsObjectRetentionBucket cycling = bounded(paging,
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofMinutes(5)), () -> 0L);
+
+        assertThatThrownBy(() -> cycling.keys("sequences/"))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list sequences/ failed: page token repeated")
+                .extracting(ex -> ((AuthException) ex).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        assertThat(paging.requestedTokens).containsExactly(Optional.empty(), Optional.of("page-token-a"),
+                Optional.of("page-token-b"));
+    }
+
+    @Test
+    void aListingLongerThanTheMaximumNumberOfPagesFailsClosed() {
+        // Four pages, each with a fresh token, against a bound of three.
+        String key = DurableErasureEvidence.FRONTIER_KEY;
+        PagingTransport paging = new PagingTransport(request -> new GcsObjectRetentionTransport.ListPage(
+                List.of(new GcsObjectRetentionTransport.ListedGeneration(key, request + 1, false)),
+                request < 3 ? Optional.of("page-token-" + request) : Optional.empty()));
+        GcsObjectRetentionBucket bounded = bounded(paging,
+                new GcsObjectRetentionBucket.ListBounds(3, Duration.ofMinutes(5)), () -> 0L);
+
+        assertThatThrownBy(() -> bounded.versionCount(key))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list " + key + " failed: more than 3 pages")
+                .extracting(ex -> ((AuthException) ex).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        assertThat(paging.requestedTokens).hasSize(3);
+    }
+
+    @Test
+    void aListingOfExactlyTheMaximumNumberOfPagesIsComplete() {
+        String key = DurableErasureEvidence.FRONTIER_KEY;
+        PagingTransport paging = new PagingTransport(request -> new GcsObjectRetentionTransport.ListPage(
+                List.of(new GcsObjectRetentionTransport.ListedGeneration(key, request + 1, false)),
+                request < 2 ? Optional.of("page-token-" + request) : Optional.empty()));
+        GcsObjectRetentionBucket bounded = bounded(paging,
+                new GcsObjectRetentionBucket.ListBounds(3, Duration.ofMinutes(5)), () -> 0L);
+
+        assertThat(bounded.versionCount(key)).isEqualTo(3);
+        assertThat(paging.requestedTokens).hasSize(3);
+    }
+
+    @Test
+    void aListingStillPagingAtItsDeadlineFailsClosed() {
+        // Each page takes 11 s on a fake monotonic clock against a 30 s deadline, so a fourth page is
+        // never requested. The stub ends after 50 pages so that an unbounded listing finishes.
+        AtomicLong nanos = new AtomicLong();
+        PagingTransport paging = new PagingTransport(request -> {
+            nanos.addAndGet(Duration.ofSeconds(11).toNanos());
+            return request < 50 ? pageWithToken("page-token-" + request) : lastPage();
+        });
+        GcsObjectRetentionBucket slow = bounded(paging,
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofSeconds(30)), nanos::get);
+
+        assertThatThrownBy(() -> slow.oldest("records/slow.json"))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list records/slow.json failed: deadline PT30S passed")
+                .extracting(ex -> ((AuthException) ex).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        assertThat(paging.requestedTokens).hasSize(3);
+    }
+
+    private static GcsObjectRetentionBucket bounded(GcsObjectRetentionTransport transport,
+                                                    GcsObjectRetentionBucket.ListBounds bounds,
+                                                    LongSupplier nanoTime) {
+        return new GcsObjectRetentionBucket(transport, duration -> { }, bounds, nanoTime);
+    }
+
+    private static GcsObjectRetentionTransport.ListPage pageWithToken(String token) {
+        return new GcsObjectRetentionTransport.ListPage(List.of(), Optional.of(token));
+    }
+
+    private static GcsObjectRetentionTransport.ListPage lastPage() {
+        return new GcsObjectRetentionTransport.ListPage(List.of(), Optional.empty());
+    }
+
+    /** Answers listing request n (from 0) with {@code pages.apply(n)} and records its token; nothing else. */
+    private static final class PagingTransport implements GcsObjectRetentionTransport {
+
+        final List<Optional<String>> requestedTokens = new ArrayList<>();
+        private final IntFunction<ListPage> pages;
+
+        PagingTransport(IntFunction<ListPage> pages) {
+            this.pages = pages;
+        }
+
+        @Override
+        public String bucket() {
+            return "parkio-erasure-evidence-test";
+        }
+
+        @Override
+        public void requireObjectRetentionEnabled() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long createGeneration(String objectName, byte[] bytes, EvidenceRetentionMode mode,
+                                     Instant retainUntil) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public RetentionState retention(String objectName, long generation) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ListPage listGenerations(String prefix, Optional<String> pageToken, int pageSize) {
+            requestedTokens.add(pageToken);
+            return pages.apply(requestedTokens.size() - 1);
+        }
+
+        @Override
+        public byte[] readGeneration(String objectName, long generation) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /** Refuses the first {@code refusals} writes with the given HTTP status; everything else is delegated. */

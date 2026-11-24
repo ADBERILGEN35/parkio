@@ -14,7 +14,7 @@ acceptance (layer C) only.
 | The merged adapter and store against one dedicated, non-production Cloud Storage bucket with Object Retention Lock | Production export, enablement, exposure or legal retention (#365, layer D) |
 | Synthetic evidence written by the harness; short test retention | Bucket Lock (bucket retention policy) on any bucket |
 | Machine-readable, sanitized evidence tied to the source SHA and the bucket identity | Emulators, fakes and the offline model: they **do not** satisfy #483 |
-| | A production-readiness claim: the run is bounded and small (#493, #494 stay open) |
+| | A production-readiness claim: the run is bounded and small (#494 stays open) |
 
 ## 2. What the run exercises
 
@@ -420,6 +420,6 @@ and any attempt once cleanup has started.
 | 2 | A store write refused with 429 was never sent again; under the per-object limit the two back-to-back frontier writes made every checkpoint fail, and each later call consumed a new sequence and left three retained generations | #492, fixed in #491 (adapter resends); confirmed or refuted live by S5/S5r/S5s/T1. The resend waits up to 16.5 s per write while holding the store lock, on the request thread for records: bound the pause or fail fast to the retry worker before enablement (#365) |
 | 3 | `publishCheckpoint` has no resume path for a published but uncovered checkpoint; every call writes the frontier twice | Open under #365 (design); harmless while #492's resend holds |
 | 4 | A versioned overwrite needs `storage.objects.delete`, so the production writer holds delete; retention, not IAM, protects evidence | L2 measures, L3 + G5 prove; production role decision under #365 |
-| 5 | Unbounded `listAll` pagination | #493, open; blocks enablement |
+| 5 | Unbounded `listAll` pagination | #493: a listing fails closed on a repeated page token, past `list-max-pages` (default 1,000) or after `list-deadline` (default 30 s) |
 | 6 | Per-write list cost grows with recorded history | #494, open; blocks enablement |
 | 7 | Versioning is only checked at startup; a later suspension makes rewrites fail closed (`PENDING_DURABLE`) | Open under #365 (periodic re-check or alert) |
