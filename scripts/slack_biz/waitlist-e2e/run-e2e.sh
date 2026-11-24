@@ -113,7 +113,7 @@ if [ "$code" = 202 ] && wait_for "slack post A" 60 mock_count 1 && wait_for "out
   body="$("${CF[@]}" exec -T mock-slack sh -c 'head -1 /data/requests.jsonl' | tr -d '\r')"
   echo "$body" > "$EVIDENCE_DIR/slack-payload-1.json"
   python3 -c 'import json,sys;print(json.loads(json.loads(sys.argv[1])["body"])["text"])' "$body" > "$EVIDENCE_DIR/slack-message-1.txt"
-  if python3 -c 'import json,sys;t=json.loads(json.loads(sys.argv[1])["body"])["text"];sys.exit(0 if "Bekleme listesi aboneliği onaylandı" in t and "env=`e2e`" in t else 1)' "$body"; then
+  if python3 -c 'import json,sys;t=json.loads(json.loads(sys.argv[1])["body"])["text"];sys.exit(0 if "Yeni bekleme listesi kaydı onaylandı" in t and "Ortam: `e2e`" in t else 1)' "$body"; then
     result E02 PASS "confirm 202 → outbox EXPORTED → relay $(relay_status) → 1 mock Slack post"
   else
     result E02 FAIL "unexpected Slack text"
@@ -204,7 +204,8 @@ else
   result E08 FAIL "code=$code status=$stE outbox=$(outbox) mock=$(mock_count)"
 fi
 
-# E09 rollback to the previous production gateway artifact on the V4 schema
+# E09 rollback to the previous production gateway artifact on the current schema
+hist_before="$(psql_q "SELECT version||':'||success FROM flyway_schema_history ORDER BY installed_rank" | paste -sd, -)"
 set_gateway "$E2E_PREVIOUS_GATEWAY_IMAGE" true
 rb=$?
 prev_log="$("${CF[@]}" logs --no-color gateway-service 2>&1 | grep -i -E 'flyway|schema|migrat' | tail -8)"
@@ -212,10 +213,15 @@ echo "$prev_log" > "$EVIDENCE_DIR/rollback-previous-gateway-flyway.log"
 TF="$(new_subscriber f)"; code="$(confirm "$TF")"
 stF="$(psql_q "SELECT status FROM waitlist_interest WHERE email_hash='$(hmac e2e.f@example.test)'")"
 hist="$(psql_q "SELECT version||':'||success FROM flyway_schema_history ORDER BY installed_rank" | paste -sd, -)"
-if [ $rb = 0 ] && [ "$code" = 202 ] && [ "$stF" = CONFIRMED ] && [ "$hist" = "1:true,2:true,3:true,4:true" ]; then
-  result E09 PASS "previous image healthy on V4 schema, confirm works, history untouched ($hist)"
+# The previous image must start on the schema the current image migrated, leave the history unchanged,
+# and every recorded migration must have succeeded.
+hist_failed=0
+case ",$hist," in *:false,*) hist_failed=1 ;; esac
+if [ $rb = 0 ] && [ "$code" = 202 ] && [ "$stF" = CONFIRMED ] && [ -n "$hist_before" ] \
+  && [ "$hist" = "$hist_before" ] && [ $hist_failed = 0 ]; then
+  result E09 PASS "previous image healthy on the current schema, confirm works, history untouched ($hist)"
 else
-  result E09 FAIL "rb=$rb code=$code status=$stF hist=$hist"
+  result E09 FAIL "rb=$rb code=$code status=$stF hist=$hist before=$hist_before"
 fi
 
 # E10 roll forward again
