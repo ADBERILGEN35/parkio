@@ -116,6 +116,33 @@ def _seed_store(db_path: Path) -> None:
         store.close()
 
 
+_OLDEST_QUEUED_AGE = re.compile(r"(?m)^parkio_slack_biz_oldest_queued_age_seconds (\S+)$")
+
+
+def oldest_queued_age(body: str) -> float:
+    match = _OLDEST_QUEUED_AGE.search(body)
+    if match is None:
+        raise AssertionError(f"export has no oldest queued age:\n{body}")
+    return float(match.group(1))
+
+
+def _add_queue_rows(db_path: Path, rows: list[tuple[str, float]]) -> None:
+    """Insert synthetic delivery_queue rows, one per (status, created_at)."""
+    store = DeliveryStore(db_path)
+    try:
+        with store._lock:  # noqa: SLF001
+            for i, (status, created_at) in enumerate(rows):
+                store._conn.execute(
+                    "INSERT INTO delivery_queue("
+                    "event_id, dedup_key, route, payload_json, status, attempts, "
+                    "next_attempt_at, created_at, updated_at) "
+                    "VALUES (?, ?, 'biz-growth', '{}', ?, 0, ?, ?, ?)",
+                    (f"evt-age-{i}", f"dedup-age-{i}", status, created_at, created_at, created_at),
+                )
+            store._conn.commit()
+    finally:
+        store.close()
+
 
 def assert_mode_0644(path: Path) -> None:
     mode = path.stat().st_mode & 0o777
@@ -536,6 +563,75 @@ class TextfileExportTimerTest(unittest.TestCase):
         finally:
             ro.close()
         self.assertIn("parkio_slack_biz_worker_heartbeat_age_seconds +Inf\n", body)
+
+    def test_render_reports_the_oldest_queued_age(self) -> None:
+        """#599: the age of the oldest queued or retry row, since its admission, through the read-only
+        open. in_flight and terminal rows do not count. It follows the clock, never goes negative, and
+        an empty queue reads 0."""
+        db_path = self._tmp() / "slack_biz.sqlite3"
+        _seed_store(db_path)  # delivery_unknown and DLT rows only: no row waits
+        t0 = 1_800_000_000.0
+        ro = DeliveryStore(db_path, readonly=True)
+        try:
+            body = render(ro, when=t0, delivery_enabled=True)
+        finally:
+            ro.close()
+        self.assertIn("parkio_slack_biz_oldest_queued_age_seconds 0\n", body)
+
+        # Older rows in the other statuses must not count.
+        _add_queue_rows(
+            db_path,
+            [
+                ("queued", t0),
+                ("retry", t0 - 300),
+                ("in_flight", t0 - 900),
+                ("delivered", t0 - 1800),
+                ("dead", t0 - 2400),
+                ("delivery_unknown", t0 - 3600),
+            ],
+        )
+        ro = DeliveryStore(db_path, readonly=True)
+        try:
+            self.assertEqual(oldest_queued_age(render(ro, when=t0 + 600.9, delivery_enabled=True)), 900)
+            self.assertEqual(oldest_queued_age(render(ro, when=t0 + 1200, delivery_enabled=False)), 1500)
+            # A clock step back reads 0, not a negative age.
+            self.assertEqual(oldest_queued_age(render(ro, when=t0 - 400, delivery_enabled=True)), 0)
+        finally:
+            ro.close()
+
+        relay = DeliveryStore(db_path)
+        try:
+            with relay._lock:  # noqa: SLF001
+                relay._conn.execute(
+                    "UPDATE delivery_queue SET status='delivered' WHERE status='retry'"
+                )
+                relay._conn.commit()
+        finally:
+            relay.close()
+        ro = DeliveryStore(db_path, readonly=True)
+        try:
+            body = render(ro, when=t0 + 600, delivery_enabled=True)
+        finally:
+            ro.close()
+        self.assertEqual(oldest_queued_age(body), 600)
+
+    def test_export_reports_the_oldest_queued_age(self) -> None:
+        """#599: the export script publishes the age through its read-only open: 0 while no row waits,
+        then the age of the oldest waiting row."""
+        tmp_path = self._tmp()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        db_path = data_dir / "slack_biz.sqlite3"
+        _seed_store(db_path)
+        body = self._export_body(data_dir, tmp_path, {})
+        self.assertIn("parkio_slack_biz_oldest_queued_age_seconds 0\n", body)
+
+        admitted = time.time() - 3600
+        _add_queue_rows(db_path, [("queued", admitted), ("retry", admitted + 60)])
+        body = self._export_body(data_dir, tmp_path, {})
+        age = oldest_queued_age(body)
+        self.assertGreaterEqual(age, 3600)
+        self.assertLess(age, 3600 + 60)
 
 
 if __name__ == "__main__":
