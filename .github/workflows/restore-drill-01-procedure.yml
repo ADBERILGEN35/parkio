@@ -108,6 +108,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The contract and persist-protocol suites read service sources. They also run without this
+      # drill, in restore-drill-01-source-guards.yml, on a change to any file they read (#609).
       - name: Helper unit tests (synthetic fixtures)
         run: |
           python3 scripts/test_restore_readiness.py

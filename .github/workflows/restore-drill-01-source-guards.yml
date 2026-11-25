@@ -1,0 +1,50 @@
+# Restore drill 01's source-scanning helper tests, without the drill (#609).
+#
+# Two suites of the drill's "Helper unit tests" step read repository sources, not only their own
+# fixtures:
+# - scripts/test-recovery-evidence-contract.py reads the auth AccountErasureApplicationService;
+# - scripts/test-recovery-persist-protocol.py also reads the auth application.yml and main Java
+#   tree, and its fixture-key scan reads every services/*/src/main tree, docker/ and .github/.
+# Their paths filter below lists every file they read. A change elsewhere in those trees used to
+# break the drill without running it (#567, fixed by #572). The full drill
+# (restore-drill-01-procedure.yml) keeps its narrow filter: it needs Docker and runs for many
+# minutes, while these suites need only Python's standard library. The CI gate requires this
+# workflow wherever its filter matches (scripts/ci/ci_gate.py).
+name: Restore drill 01 source guards
+
+on:
+  pull_request:
+    paths:
+      - "services/**/src/main/**"
+      - "services/auth-service/src/test/resources/durable-erasure-evidence/**"
+      - "docker/**"
+      - ".github/**"
+      - "scripts/lib/recovery_evidence_contract.py"
+      - "scripts/lib/recovery_persist_protocol.py"
+      - "scripts/lib/restore-erasure-ledger.py"
+      - "scripts/test-recovery-evidence-contract.py"
+      - "scripts/test-recovery-persist-protocol.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-drill-01-source-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-guards:
+    name: Source-scanning helper tests (no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The same suites run in the drill's "Helper unit tests" step; keep the two lists in step.
+      - name: Source-scanning helper tests
+        run: |
+          python3 scripts/test-recovery-evidence-contract.py
+          python3 scripts/test-recovery-persist-protocol.py

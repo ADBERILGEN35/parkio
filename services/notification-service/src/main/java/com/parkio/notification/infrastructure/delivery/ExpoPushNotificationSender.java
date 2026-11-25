@@ -92,25 +92,32 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
             log.warn("Expo rejected push ticket");
             return PushSendResult.failed(FAILURE_PROVIDER_REJECTED);
         } catch (ExpoPushException ex) {
-            metrics.providerUnavailable();
             log.warn("Expo push HTTP failure: {}", ex.status);
-            return PushSendResult.failed(ex.status == 401 || ex.status == 403
-                    ? FAILURE_CONFIGURATION : FAILURE_PROVIDER_UNAVAILABLE);
-        } catch (RestClientException ex) {
+            if (ex.status == 401 || ex.status == 403) {
+                // A credential rejection, counted like the ticket-level ones.
+                metrics.failed();
+                return PushSendResult.failed(FAILURE_CONFIGURATION);
+            }
             metrics.providerUnavailable();
-            log.warn("Expo push network failure: {}", ex.getClass().getSimpleName());
+            return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
+        } catch (RestClientException ex) {
+            // Class names only: provider prose and exception messages are not safe to log.
+            log.warn("Expo push network failure: {} ({})", ex.getClass().getSimpleName(),
+                    ex.getMostSpecificCause().getClass().getSimpleName());
             if (failedToConnect(ex)) {
                 // No connection, so Expo never received the request: bounded retry cannot duplicate it.
+                metrics.providerUnavailable();
                 return PushSendResult.failed(FAILURE_PROVIDER_UNAVAILABLE);
             }
-            // A timeout, reset or unreadable response cannot prove Expo did not enqueue it.
-            return PushSendResult.failed(FAILURE_OUTCOME_UNKNOWN);
+            // A read timeout, reset or unreadable response cannot prove Expo did not enqueue it.
+            return unknownOutcome();
         }
     }
 
     /**
      * True only when the connection to Expo was never established: refused, unresolved host,
-     * no route or connect timeout. Read/request timeouts and resets stay unknown outcomes.
+     * no route or connect timeout (the JDK client's connect timeout includes the TLS handshake).
+     * Read/request timeouts and resets stay unknown outcomes.
      */
     private static boolean failedToConnect(Throwable failure) {
         Throwable cause = failure;
@@ -126,7 +133,7 @@ public class ExpoPushNotificationSender implements PushNotificationSender {
     }
 
     private PushSendResult unknownOutcome() {
-        metrics.providerUnavailable();
+        metrics.outcomeUnknown();
         return PushSendResult.failed(FAILURE_OUTCOME_UNKNOWN);
     }
 

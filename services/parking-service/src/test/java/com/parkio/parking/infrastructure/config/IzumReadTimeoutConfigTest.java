@@ -28,9 +28,9 @@ import org.springframework.core.io.FileSystemResource;
  */
 class IzumReadTimeoutConfigTest {
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(27);
-    private static final Path ROOT = Path.of("").toAbsolutePath();
+    static final Path ROOT = Path.of("").toAbsolutePath();
     private static final Path MAIN_YML = ROOT.resolve("src/main/resources/application.yml");
-    private static final Path AZURE_COMPOSE =
+    static final Path AZURE_COMPOSE =
             ROOT.resolve("../../docker/docker-compose.azure-hosted-beta.yml").normalize();
 
     @Test
@@ -83,7 +83,7 @@ class IzumReadTimeoutConfigTest {
         assertThat(attempts.plus(backoff)).isLessThan(Duration.ofMillis(izum.getFixedDelayMs()));
     }
 
-    private static MunicipalSourceProperties.Izum bindIzum(Map<String, Object> environment) {
+    static MunicipalSourceProperties.Izum bindIzum(Map<String, Object> environment) {
         StandardEnvironment env = new StandardEnvironment();
         MutablePropertySources sources = env.getPropertySources();
         sources.remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);

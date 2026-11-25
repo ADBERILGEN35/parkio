@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.lifecycle;
 
 import com.parkio.parking.application.MunicipalFacilitySyncService;
+import com.parkio.parking.infrastructure.config.MunicipalSyncSchedulingConfig;
 import com.parkio.parking.infrastructure.kayseri.KayseriMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics;
 import java.time.Duration;
@@ -25,7 +26,8 @@ public class KayseriMunicipalSyncJob {
     }
 
     /** Default 24h: static inventory; no live occupancy cadence required. */
-    @Scheduled(fixedDelayString = "${parkio.municipal.kayseri.fixed-delay-ms:86400000}")
+    @Scheduled(fixedDelayString = "${parkio.municipal.kayseri.fixed-delay-ms:86400000}",
+            scheduler = MunicipalSyncSchedulingConfig.MUNICIPAL_SYNC_SCHEDULER)
     public void sync() {
         Instant started = Instant.now();
         var result = service.sync(KayseriMunicipalParkingAdapter.SOURCE_KEY);
