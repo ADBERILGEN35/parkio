@@ -167,6 +167,8 @@ parkio:
       push:
         # Scheduled worker that drains PENDING push attempts. Enabled by default; the
         # default 'noop' provider needs no Firebase/APNS credentials (local/dev/test).
+        # It runs on its own one-thread scheduler (push-delivery-), so a tick stalled on
+        # Expo delays no other scheduled job (#641).
         enabled: ${PARKIO_PUSH_DELIVERY_ENABLED:true}
         provider: ${PARKIO_PUSH_DELIVERY_PROVIDER:noop}        # noop | expo | fcm-disabled
         fixed-delay-ms: ${PARKIO_PUSH_DELIVERY_FIXED_DELAY_MS:30000}

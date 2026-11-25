@@ -120,6 +120,12 @@ a sanitised failure reason — **never** the raw token value (ai-context/07).
 `PushNotificationSender`, and marks the attempt `SENT` (with the provider message id)
 or records the failure. It is **disabled by default in tests**.
 
+**Scheduler.** The worker runs on its own scheduler, `pushDeliveryTaskScheduler`, with
+one `push-delivery-` thread. Every other scheduled job (the outbox relay, the retention
+cleanup and both Smart Return jobs) keeps Spring Boot's default scheduler, one
+`scheduling-` thread. While Expo does not answer, a tick waits out the read timeout once
+per attempt (see the Expo bounds below), and only push delivery waits with it (#641).
+
 **Cluster safety.** Each tick claims its batch with
 `SELECT … FOR UPDATE SKIP LOCKED` inside the tick's transaction, so multiple
 notification-service replicas can run the worker concurrently without ever sending
@@ -179,7 +185,8 @@ read timeout; the hosted-beta preflight checks the same rules. The Expo client i
 the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
 because only its `HttpConnectTimeoutException` is classified as a connect timeout that is
 safe to retry. While Expo stalls, a tick lasts at most about `batch-size` x `read-timeout`
-(100 x 5s by default).
+(100 x 5s by default). It runs on the worker's own scheduler thread, so no other scheduled
+job waits for it (#641).
 
 Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable,outcome_unknown}.count`,
 `parkio.notification.delivery.retry.count`, `parkio.notification.delivery.worker.*`.
