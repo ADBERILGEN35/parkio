@@ -15,16 +15,19 @@ from __future__ import annotations
 
 import calendar
 import json
+import re
 import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/lib"))
 
+import recovery_evidence_contract  # noqa: E402
 from recovery_evidence_contract import (  # noqa: E402
     AUTH_ERASURE_SERVICE,
     AckRefused,
@@ -48,7 +51,6 @@ from recovery_evidence_contract import (  # noqa: E402
     restore_erasure_ledger_still_unverified,
     verify_evidence,
     write_claim_file,
-    _request_deletion_overloads,
 )
 
 ERASED = "00000000-0000-4000-a000-0000000000a1"
@@ -338,21 +340,25 @@ IMPLEMENTING = f"""\
 class PersistBeforeAckScanTest(unittest.TestCase):
     """model/unit: the requestDeletion source guard on synthetic auth sources, both overload orders."""
 
-    def scan(self, *methods):
+    # The scanner under test. ScannerMutationTest runs this class against mutated copies of it.
+    contract = recovery_evidence_contract
+
+    def scan(self, *methods, header=""):
+        """``header`` goes between the package line and the class: imports, the class Javadoc."""
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / AUTH_ERASURE_SERVICE
             path.parent.mkdir(parents=True)
             path.write_text(
-                "package com.parkio.auth.application;\n\nclass AccountErasureApplicationService {\n\n"
+                "package com.parkio.auth.application;\n\n" + header + "class AccountErasureApplicationService {\n\n"
                 + "\n".join(methods) + "}\n",
                 encoding="utf-8",
             )
-            return persist_before_ack_is_not_implemented(raw)
+            return self.contract.persist_before_ack_is_not_implemented(raw)
 
     def assert_both_orders_raise(self, pattern, delegating, implementing):
         for order, methods in (("delegation first", (delegating, implementing)),
                                ("implementation first", (implementing, delegating))):
-            with self.subTest(order=order), self.assertRaisesRegex(ContractError, pattern):
+            with self.subTest(order=order), self.assertRaisesRegex(self.contract.ContractError, pattern):
                 self.scan(*methods)
 
     def test_one_implementation_and_pure_delegations_pass(self):
@@ -399,7 +405,8 @@ class PersistBeforeAckScanTest(unittest.TestCase):
                                        "startDeletion(UUID principalUserId, String password, String")
         commented = "    // public AccountDeletionStatusView requestDeletion(UUID id) { return null; }\n"
         for methods in ((), (renamed,), (commented,)):
-            with self.subTest(methods=len(methods)), self.assertRaisesRegex(ContractError, "requestDeletion missing"):
+            with self.subTest(methods=len(methods)), \
+                    self.assertRaisesRegex(self.contract.ContractError, "requestDeletion missing"):
                 self.scan(*methods)
 
     def test_each_overload_is_cut_at_its_own_closing_brace(self):
@@ -409,7 +416,7 @@ class PersistBeforeAckScanTest(unittest.TestCase):
             text = "class AccountErasureApplicationService {\n" + "\n".join(methods) + "}\n"
             expected = [method[method.index("public"):method.rindex("}") + 1] for method in methods]
             with self.subTest(first=methods[0].splitlines()[1].strip()[:60]):
-                self.assertEqual([source for source, _ in _request_deletion_overloads(text)], expected)
+                self.assertEqual([source for source, _ in self.contract._request_deletion_overloads(text)], expected)
 
     def test_literal_braces_do_not_hide_an_overload_that_does_work(self):
         """A brace in a char literal or text block of the first overload must not swallow the next one."""
@@ -420,10 +427,15 @@ class PersistBeforeAckScanTest(unittest.TestCase):
             "char }": "char close = '}';",
             "text block {": 'String json = """\n            {\n            """;',
             "text block }": 'String json = """\n            }\n            """;',
+            # #613: a { that only the block-comment branch, or only the escape handling, keeps out of the code.
+            "block comment {": "/* { */",
+            "string with an escaped quote before {": 'String quoted = "\\"{";',
+            "char with an escaped quote before {": "char quote = '\\'', open = '{';",
         }
         for name, literal in literals.items():
             implementing = IMPLEMENTING.replace("        UUID requestId", f"        {literal}\n        UUID requestId")
-            with self.subTest(literal=name), self.assertRaisesRegex(ContractError, "does work instead of delegating"):
+            with self.subTest(literal=name), \
+                    self.assertRaisesRegex(self.contract.ContractError, "does work instead of delegating"):
                 self.scan(implementing, working)
 
     def test_persist_ack_vocabulary_anywhere_in_the_file_fails(self):
@@ -444,8 +456,37 @@ class PersistBeforeAckScanTest(unittest.TestCase):
                 extra = template.format(needle=needle)
                 for methods in ((IMPLEMENTING, extra), (DELEGATING, IMPLEMENTING, extra)):
                     with self.subTest(needle=needle, placement=name, overloads=len(methods) - 1), \
-                            self.assertRaisesRegex(ContractError, f"mentions {needle.lower()}"):
+                            self.assertRaisesRegex(self.contract.ContractError, f"mentions {needle.lower()}"):
                         self.scan(*methods)
+
+    def test_persist_ack_vocabulary_before_the_first_overload_fails(self):
+        """#613: a needle above the first overload counts as well: in an import, a field or the class Javadoc.
+
+        A file-wide check that starts at the first requestDeletion misses each of these.
+        """
+        # An import names a type, so it cannot spell persist-ack.
+        imports = {
+            "offhost": "import com.parkio.auth.application.durable.OffHostErasureStore;\n\n",
+            "watermark": "import com.parkio.auth.application.durable.CheckpointWatermark;\n\n",
+            "publicationId": "import com.parkio.auth.application.durable.PublicationIdCodec;\n\n",
+        }
+        fields = {
+            "offhost": "    private OffHostErasureStore offHostStore;\n",
+            "watermark": "    private CheckpointWatermark watermark;\n",
+            "persist-ack": '    private static final String ACK_MODE = "persist-ack";\n',
+            "publicationId": "    private String publicationId;\n",
+        }
+        javadoc = "/** Erasure requests. The ACK follows the auth commit, with no {needle}. */\n"
+        cases = [("import", needle, header, ()) for needle, header in imports.items()]
+        cases += [("field", needle, "", (field,)) for needle, field in fields.items()]
+        cases += [("class Javadoc", needle, javadoc.format(needle=needle), ())
+                  for needle in ("offhost", "watermark", "persist-ack", "publicationId")]
+        for placement, needle, header, members in cases:
+            expected = re.escape(f"AccountErasureApplicationService.java unexpectedly mentions {needle.lower()}")
+            for overloads in ((IMPLEMENTING,), (DELEGATING, IMPLEMENTING)):
+                with self.subTest(placement=placement, needle=needle, overloads=len(overloads)), \
+                        self.assertRaisesRegex(self.contract.ContractError, expected):
+                    self.scan(*members, *overloads, header=header)
 
     def test_annotation_array_in_the_parameters_is_not_the_body(self):
         annotated = "@Size(groups = {Default.class}) String password"
@@ -461,6 +502,111 @@ class PersistBeforeAckScanTest(unittest.TestCase):
         implementing = IMPLEMENTING.replace("        UUID requestId", f"        {block}\n        UUID requestId")
         self.assertTrue(self.scan(implementing, DELEGATING))
         self.assertTrue(self.scan(DELEGATING, implementing))
+
+
+SCANNER = ROOT / "scripts/lib/recovery_evidence_contract.py"
+TEXT_BLOCK_LOOP = r'''            while end < length and not text.startswith('"""', end):'''
+STRING_LOOP = r'''            while end < length and text[end] not in (text[index], "\n"):'''
+ESCAPE_STEP = r'''                end += 2 if text[end] == "\\" else 1'''
+NO_ESCAPE_STEP = "                end += 1"
+
+
+def _lines(*lines):
+    return "".join(line + "\n" for line in lines)
+
+
+# The scanner's mutation set: the mutants of #572 and its reviews, the three that survived them (#613)
+# among them. Each one weakens one path of the requestDeletion scanner and must fail the named
+# PersistBeforeAckScanTest test. Its fragment must occur exactly once in the scanner; when a scanner
+# change moves one, re-anchor the mutant on the new code instead of dropping it.
+SCANNER_MUTANTS = (
+    # (mutant, fragment of recovery_evidence_contract.py, replacement, the test it must fail)
+    ("no exactly-one check",
+     "    if len(implementing) > 1:\n", "    if False:\n",
+     "test_second_implementation_fails"),
+    ("no delegation check",
+     "        if IN_PROGRESS_RETURN not in code and not PURE_DELEGATION.fullmatch(code):\n",
+     "        if False:\n",
+     "test_overload_that_does_work_fails"),
+    ("match in place of fullmatch",
+     "PURE_DELEGATION.fullmatch(code)", "PURE_DELEGATION.match(code)",
+     "test_overload_that_does_work_fails"),
+    ("IN_PROGRESS found in comments",
+     "implementing = [code for _, code in overloads if IN_PROGRESS_RETURN in code]",
+     "implementing = [code for source, code in overloads if IN_PROGRESS_RETURN in source]",
+     "test_implementation_without_in_progress_return_fails"),
+    ("no per-overload needle check",
+     "    for source, _ in overloads:\n        lowered = source.lower()\n",
+     "    for source, _ in ():\n        lowered = source.lower()\n",
+     "test_persist_ack_vocabulary_in_any_overload_fails"),
+    ("no file-wide needle check",
+     "    lowered = text.lower()\n", '    lowered = ""\n',
+     "test_persist_ack_vocabulary_anywhere_in_the_file_fails"),
+    ("file-wide needle check from the first requestDeletion on (#613)",
+     "    lowered = text.lower()\n", '    lowered = text[text.find("requestDeletion"):].lower()\n',
+     "test_persist_ack_vocabulary_before_the_first_overload_fails"),
+    ("line comments not classified",
+     '        if text.startswith("//", index):\n', "        if False:\n",
+     "test_missing_method_fails"),
+    ("block comments not classified (#613)",
+     '        elif text.startswith("/*", index):\n', "        elif False:\n",
+     "test_literal_braces_do_not_hide_an_overload_that_does_work"),
+    ("no text-block classification",
+     "        elif text.startswith('\"\"\"', index):\n", "        elif False:\n",
+     "test_literal_braces_do_not_hide_an_overload_that_does_work"),
+    ("no text-block escape handling",
+     _lines(TEXT_BLOCK_LOOP, ESCAPE_STEP), _lines(TEXT_BLOCK_LOOP, NO_ESCAPE_STEP),
+     "test_escaped_triple_quote_does_not_end_a_text_block"),
+    ("no char-literal classification",
+     "        elif text[index] in \"\\\"'\":\n", "        elif text[index] == '\"':\n",
+     "test_literal_braces_do_not_hide_an_overload_that_does_work"),
+    ("no escape handling in strings and chars (#613)",
+     _lines(STRING_LOOP, ESCAPE_STEP), _lines(STRING_LOOP, NO_ESCAPE_STEP),
+     "test_literal_braces_do_not_hide_an_overload_that_does_work"),
+    ("no brace-depth counting",
+     "            if depth == 0:\n                closing = i\n",
+     '            if text[i] == "}":\n                closing = i\n',
+     "test_each_overload_is_cut_at_its_own_closing_brace"),
+    ("no parameter-list skip",
+     "range(parameters_end + 1, len(text))", "range(match.end(), len(text))",
+     "test_annotation_array_in_the_parameters_is_not_the_body"),
+    ("commented declarations counted",
+     "if start < after or kinds[start] != _CODE:", "if start < after:",
+     "test_missing_method_fails"),
+)
+
+
+class ScannerMutationTest(unittest.TestCase):
+    """model/unit: PersistBeforeAckScanTest kills every mutant in the scanner's mutation set."""
+
+    def load(self, source):
+        """The scanner module built from ``source``, apart from the imported one."""
+        module = types.ModuleType("recovery_evidence_contract_mutant")
+        module.__file__ = str(SCANNER)
+        exec(compile(source, str(SCANNER), "exec"), module.__dict__)
+        return module
+
+    def failed_tests(self, module):
+        """Run PersistBeforeAckScanTest against ``module``: the tests run and the names of those that failed."""
+        case = type("MutatedScannerTest", (PersistBeforeAckScanTest,), {"contract": module})
+        result = unittest.TestResult()
+        unittest.defaultTestLoader.loadTestsFromTestCase(case).run(result)
+        failed = {getattr(test, "test_case", test)._testMethodName for test, _ in result.failures + result.errors}
+        return result.testsRun, failed
+
+    def test_the_unmutated_scanner_passes_through_the_same_harness(self):
+        """A mutant counts as killed only because of its change, not because of how it is loaded."""
+        run, failed = self.failed_tests(self.load(SCANNER.read_text(encoding="utf-8")))
+        self.assertEqual(failed, set())
+        self.assertEqual(run, unittest.defaultTestLoader.loadTestsFromTestCase(PersistBeforeAckScanTest).countTestCases())
+
+    def test_every_mutant_fails_its_test(self):
+        source = SCANNER.read_text(encoding="utf-8")
+        for name, fragment, replacement, test in SCANNER_MUTANTS:
+            with self.subTest(mutant=name):
+                self.assertEqual(source.count(fragment), 1, f"{fragment!r} no longer anchors the mutant")
+                _, failed = self.failed_tests(self.load(source.replace(fragment, replacement)))
+                self.assertIn(test, failed)
 
 
 if __name__ == "__main__":
