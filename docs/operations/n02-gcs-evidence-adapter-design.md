@@ -72,7 +72,8 @@ A value outside its range stops startup when the store is enabled. The upper lim
     (`ObjectLockConditionalWriteProtocolTest.theFrontierGainsOneGenerationPerNewRecordAndPerCheckpoint`);
   - recovery's listings of `sequences/` (one marker per record and per checkpoint) and `records/`
     (one per record);
-  - each checkpoint's listings of `checkpoints/` and `reservations/checkpoints/` (one per checkpoint).
+  - each checkpoint's listings of `checkpoints/` (one per checkpoint) and `reservations/checkpoints/`
+    (one per abandoned checkpoint reservation).
 
   So the largest listing holds about *records + checkpoints + 1* generations. At 100 ms a page the
   defaults cover 30,000: with hourly checkpoints (8,760 a year) and 1,000 erasures a year, about three
