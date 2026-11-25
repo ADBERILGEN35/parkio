@@ -1,19 +1,26 @@
 package com.parkio.notification.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.notification.application.port.DeviceTokenHandover;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Stream;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -119,12 +126,7 @@ class DeviceTokenIndexPostgresIT {
 
     @Test
     void indexMigrationAppliesToAPopulatedSchema() {
-        jdbc.execute("CREATE DATABASE device_tokens_populated");
-        DriverManagerDataSource populated = new DriverManagerDataSource(
-                "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432)
-                        + "/device_tokens_populated", POSTGRES.getUsername(), POSTGRES.getPassword());
-
-        Flyway.configure().dataSource(populated).locations("classpath:db/migration").target("16").load().migrate();
+        DriverManagerDataSource populated = databaseAtV16("device_tokens_populated");
         JdbcTemplate populatedJdbc = new JdbcTemplate(populated);
         insertTokens(populatedJdbc, 5_000);
         // Rows the handover leaves alone today: one token active for two accounts, and inactive copies.
@@ -133,8 +135,7 @@ class DeviceTokenIndexPostgresIT {
         insertToken(populatedJdbc, shared, true);
         insertToken(populatedJdbc, shared, false);
 
-        MigrateResult result = Flyway.configure().dataSource(populated).locations("classpath:db/migration")
-                .load().migrate();
+        MigrateResult result = migrateTo17(populated);
 
         assertThat(result.success).isTrue();
         assertThat(result.migrationsExecuted).isEqualTo(1);
@@ -146,6 +147,64 @@ class DeviceTokenIndexPostgresIT {
                 "SELECT indisvalid AND indisready FROM pg_index WHERE indexrelid = ?::regclass",
                 Boolean.class, INDEX)).isTrue();
         assertThat(populatedJdbc.queryForObject("SELECT COUNT(*) FROM device_tokens", Long.class)).isEqualTo(5_003);
+    }
+
+    /** The path V17 leaves open for a large table: the same index, built CONCURRENTLY before the deploy. */
+    @Test
+    void anEqualIndexBuiltBeforehandIsKept() {
+        DriverManagerDataSource database = databaseAtV16("device_tokens_prebuilt");
+        JdbcTemplate prebuilt = new JdbcTemplate(database);
+        insertTokens(prebuilt, 1_000);
+        prebuilt.execute("CREATE INDEX CONCURRENTLY " + INDEX + " ON device_tokens (token) WHERE active");
+        Long before = prebuilt.queryForObject("SELECT ?::regclass::oid", Long.class, INDEX);
+
+        MigrateResult result = migrateTo17(database);
+
+        assertThat(result.migrationsExecuted).isEqualTo(1);
+        assertThat(prebuilt.queryForObject("SELECT ?::regclass::oid", Long.class, INDEX)).isEqualTo(before);
+    }
+
+    static Stream<Arguments> unusableIndexesOfThatName() {
+        return Stream.of(
+                // What a failed CREATE INDEX CONCURRENTLY leaves behind (set directly; the container user is a
+                // superuser).
+                Arguments.of("invalid", List.of(
+                        "CREATE INDEX " + INDEX + " ON device_tokens (token) WHERE active",
+                        "UPDATE pg_index SET indisvalid = false WHERE indexrelid = '" + INDEX + "'::regclass")),
+                Arguments.of("another definition", List.of(
+                        "CREATE INDEX " + INDEX + " ON device_tokens (user_id)")),
+                Arguments.of("not partial", List.of(
+                        "CREATE INDEX " + INDEX + " ON device_tokens (token)")));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unusableIndexesOfThatName")
+    void anUnusableIndexOfThatNameStopsTheMigration(String kind, List<String> setup) {
+        DriverManagerDataSource database = databaseAtV16("device_tokens_" + kind.replace(' ', '_'));
+        JdbcTemplate prebuilt = new JdbcTemplate(database);
+        setup.forEach(prebuilt::execute);
+
+        assertThatThrownBy(() -> migrateTo17(database))
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining(INDEX + " is not a valid btree index on device_tokens (token) WHERE active");
+        assertThat(Flyway.configure().dataSource(database).locations("classpath:db/migration").load()
+                .info().current().getVersion().getVersion()).isEqualTo("16");
+    }
+
+    /** A new database in the container, migrated to V16, the version before the index. */
+    private DriverManagerDataSource databaseAtV16(String name) {
+        jdbc.execute("CREATE DATABASE " + name);
+        DriverManagerDataSource database = new DriverManagerDataSource(
+                "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,
+                POSTGRES.getUsername(), POSTGRES.getPassword());
+        Flyway.configure().dataSource(database).locations("classpath:db/migration").target("16").load().migrate();
+        return database;
+    }
+
+    /** V17 only, so the assertions stay true when later migrations arrive. */
+    private static MigrateResult migrateTo17(DriverManagerDataSource database) {
+        return Flyway.configure().dataSource(database).locations("classpath:db/migration").target("17").load()
+                .migrate();
     }
 
     private static void insertTokens(JdbcTemplate jdbc, int count) {
