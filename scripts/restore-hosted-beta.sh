@@ -11,7 +11,12 @@
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 #
 # --dry-run and --yes count only on the command line: DRY_RUN or ASSUME_YES from the
-# environment or the env file is ignored with a WARN.
+# environment or the env file is ignored with a WARN. A dry run decrypts nothing.
+# The env file is shell code. The manifest, --only, the env file and the other options are
+# read-only before it is sourced, so a line there that assigns one stops the run (exit 1). A line
+# that sets, changes or clears a PARKIO_RESTORE_* control, which carries --recovery-cutoff,
+# --isolated-ticket and the other restore options, stops it with exit 2. Both happen before any
+# restore step.
 #
 # Stage-4 isolated recovery (U02) adds, with the isolated ticket:
 #   --erasure-evidence BUNDLE --erasure-trust TRUST --recovery-attempt UUID --recovery-dir DIR
@@ -29,6 +34,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Read-only like the command-line values below: an env-file ROOT line cannot point this run at the
+# scripts of another checkout.
+readonly ROOT
 # shellcheck source=lib/backup-common.sh
 source "$ROOT/scripts/lib/backup-common.sh"
 # shellcheck source=lib/erasure-tombstones.sh
@@ -79,17 +87,28 @@ while [ "$#" -gt 0 ]; do
     --erasure-trust) option_value "$1" "${2-}"; ERASURE_TRUST="$2"; shift 2 ;;
     --recovery-attempt) option_value "$1" "${2-}"; RECOVERY_ATTEMPT="$2"; shift 2 ;;
     --recovery-dir) option_value "$1" "${2-}"; RECOVERY_DIR="$2"; shift 2 ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+# The env file is shell code: a line there could reassign the private switches or anything else the
+# command line set. A line that assigns or unsets one of these now fails the load under set -e, and
+# the run exits 1 before any restore step.
+readonly ENV_FILE MANIFEST ONLY STAMP_OVERRIDE LEDGER_STAMPS ERASURE_EVIDENCE ERASURE_TRUST \
+  RECOVERY_ATTEMPT RECOVERY_DIR arg_dry_run arg_assume_yes
 
 if [ -z "${MANIFEST}" ] || [ ! -f "${MANIFEST}" ]; then
   echo "ERROR: --manifest <path> is required and must exist." >&2
   exit 2
 fi
 
+# The restore controls (--recovery-cutoff, --isolated-ticket and the other PARKIO_RESTORE_* values)
+# come from the command line or the caller's environment only: an env file that sets, changes or
+# clears one stops the run here (exit 2).
+restore_controls="$(parkio_restore_controls)"
+readonly restore_controls
 parkio_backup_load_env "${ENV_FILE}"
+parkio_restore_refuse_env_controls "${restore_controls}" || exit 2
 if [ -n "${DRY_RUN+set}" ]; then
   echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
 fi
@@ -274,6 +293,17 @@ restore_minio() {
   local mirror_src=""
   local cleanup_stage=0
 
+  # A dry run decrypts and copies nothing (docs/operations/restore-runbook.md): the stamp preflight
+  # has checked the archive against SHA256SUMS, and only the apply path below opens it.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if [ -f "${DEST_DIR}/minio.tar.gz.enc" ]; then
+      echo "DRY-RUN: would decrypt ${DEST_DIR}/minio.tar.gz.enc and mirror it -> isolated MinIO destination (nothing decrypted, apply skipped)"
+    else
+      echo "DRY-RUN: would mirror ${DEST_DIR}/minio/${BUCKET} -> isolated MinIO destination (apply skipped)"
+    fi
+    return 0
+  fi
+
   if [ -f "${DEST_DIR}/minio.tar.gz.enc" ] || [ -d "${DEST_DIR}/minio" ]; then
     stage="$(mktemp -d "${TMPDIR:-/tmp}/parkio-restore-minio.XXXXXX")"
     chmod 700 "${stage}"
@@ -301,11 +331,6 @@ restore_minio() {
     fi
   fi
 
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: would mirror ${mirror_src} -> isolated MinIO destination (apply skipped)"
-    if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi
-    return 0
-  fi
   if ! parkio_restore_isolated_fixture_ok; then
     echo "ERROR: MinIO apply requires a destination-bound isolated-fixture ticket." >&2
     if [ "${cleanup_stage}" -eq 1 ]; then rm -rf "${stage}"; fi

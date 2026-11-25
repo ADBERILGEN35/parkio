@@ -17,9 +17,13 @@
 #   <service>    one of: auth gateway user parking media gamification notification moderation
 #                analytics ai-validation
 #   <dump-file>  path to a .sql, .sql.gz, or .sql.gz.enc file
-#   --yes        skip the interactive confirmation (for automation / drills)
+#   --yes        skip the interactive confirmation (for automation / drills). Command line only:
+#                ASSUME_YES from the environment or the env file is ignored with a WARN.
 #   --env-file   load POSTGRES_*_USER/DB (and BACKUP_ENCRYPT_PASSPHRASE) from this file
-#                (defaults to $PARKIO_ENV_FILE if set)
+#                (defaults to $PARKIO_ENV_FILE if set). It is shell code: a line there that
+#                assigns the service, the dump or the env file stops this script (exit 1), and one
+#                that sets, changes or clears a PARKIO_RESTORE_* control (--recovery-cutoff,
+#                --isolated-ticket, ...) stops it with exit 2.
 #
 # Examples:
 #   scripts/restore-database.sh auth /var/backups/parkio/<stamp>/auth.sql.gz
@@ -36,23 +40,38 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "${SCRIPT_DIR}/lib/backup-common.sh"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Read-only like the command-line values below: an env-file line cannot point this run at the scripts
+# of another checkout.
+readonly SCRIPT_DIR ROOT
 # shellcheck source=lib/restore-safe-preflight.sh
 source "${SCRIPT_DIR}/lib/restore-safe-preflight.sh"
 
 SERVICE=""
 DUMP_FILE=""
-ASSUME_YES="no"
+# --yes counts only on the command line. The env file is sourced below as shell code under set -a, so
+# the switch is parsed into a private name and becomes ASSUME_YES after it.
+arg_assume_yes="no"
 ENV_FILE="${PARKIO_ENV_FILE:-}"
+
+# A value option must not take the next option as its value ("--env-file --yes").
+option_value() {
+  case "${2-}" in
+    "" | -*)
+      echo "ERROR: $1 needs a value; got '${2-}'" >&2
+      exit 2
+      ;;
+  esac
+}
 
 # ---- parse args ----
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --yes) ASSUME_YES="yes"; shift ;;
-    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --recovery-cutoff) PARKIO_RESTORE_RECOVERY_CUTOFF="${2:-}"; shift 2 ;;
+    --yes) arg_assume_yes="yes"; shift ;;
+    --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
+    --recovery-cutoff) option_value "$1" "${2-}"; PARKIO_RESTORE_RECOVERY_CUTOFF="$2"; shift 2 ;;
     --isolated-fixture) PARKIO_RESTORE_ISOLATED_FIXTURE=1; shift ;;
-    --isolated-ticket) PARKIO_RESTORE_ISOLATED_TICKET="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    --isolated-ticket) option_value "$1" "${2-}"; PARKIO_RESTORE_ISOLATED_TICKET="$2"; shift 2 ;;
+    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     -*) echo "ERROR: unknown flag '$1'" >&2; exit 2 ;;
     *)
       if [ -z "${SERVICE}" ]; then SERVICE="$1"
@@ -62,6 +81,9 @@ while [ "$#" -gt 0 ]; do
       shift ;;
   esac
 done
+# The env file is shell code: a line that assigns or unsets one of these (or DUMP_REAL / STAMP_DIR
+# below) fails the load under set -e, and the run exits 1 before any restore step.
+readonly SERVICE DUMP_FILE ENV_FILE arg_assume_yes
 
 if [ -z "${SERVICE}" ] || [ -z "${DUMP_FILE}" ]; then
   echo "Usage: $0 <service> <dump-file> [--yes] [--env-file <path>]" >&2
@@ -86,9 +108,19 @@ fi
 case "${DUMP_REAL}" in
   *".."*) echo "ERROR: dump path must not contain .. after resolution." >&2; exit 2 ;;
 esac
+readonly DUMP_REAL STAMP_DIR
 
 # ---- optional env file (caller secrets win over blank placeholders) ----
+# The restore controls (PARKIO_RESTORE_*) come from the command line or the caller's environment
+# only: an env file that sets, changes or clears one stops the run here (exit 2).
+restore_controls="$(parkio_restore_controls)"
+readonly restore_controls
 parkio_backup_load_env "${ENV_FILE}"
+parkio_restore_refuse_env_controls "${restore_controls}" || exit 2
+if [ -n "${ASSUME_YES+set}" ]; then
+  echo "WARN: ignoring ASSUME_YES from the environment or env file; only --yes counts." >&2
+fi
+ASSUME_YES="${arg_assume_yes}"
 if ! parkio_restore_accept_isolated_fixture "${STAMP_DIR}"; then
   exit 2
 fi
