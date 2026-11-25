@@ -153,12 +153,14 @@ verdicts. It costs one write per bucket.
     pauses at most 16.5 s while the store's lock is held. `LiveGcsAcceptanceProviderRequestShapeTest`
     pins this for both conditional writes.
   - On S3 the adapter sends each write once, but the client can send it again. OkHttp follows a 503
-    that carries `Retry-After: 0` with one resend. Its retry after a connection failure stays off for
-    these PUTs: `ObjectLockDurableStoreConfig` keeps OkHttp's default `retryOnConnectionFailure(true)`,
-    but MinIO 8.6 turns it off for a PUT whose body is a stream, as the store's are.
-    `ObjectLockBucketResendTest` pins both against a local server. The resend carries the same
-    precondition, so if the first send was applied it meets 412, and the read-back resolves it as for
-    a lost response (below). This is harmless.
+    that carries `Retry-After: 0` with one resend. Its retry after a connection failure, which applies
+    to a connection it had used before, stays off for these PUTs: `ObjectLockDurableStoreConfig` keeps
+    OkHttp's default `retryOnConnectionFailure(true)`, but MinIO 8.6 turns it off for a PUT whose body is
+    a stream, as the store's are. `ObjectLockBucketResendTest` pins both against a local server, on a
+    connection the store's discovery request opened; its control shows the same OkHttp settings without
+    MinIO's switch sending the lost write twice. The resend carries the same precondition, so if the
+    first send was applied it meets 412, and the read-back resolves it as for a lost response (below).
+    This is harmless.
 - **Lost responses.** A write whose response is lost fails the call. The next call's conditional
   write meets that version (412), and the read-back resolves it. A record therefore reports
   `existing`, and a checkpoint fills the reservation it finds; both are correct for that call.

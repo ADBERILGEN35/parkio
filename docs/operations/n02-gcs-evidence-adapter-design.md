@@ -64,30 +64,48 @@ A value outside its range stops startup when the store is enabled. The upper lim
   completes with up to about 100 × min(`list-max-pages`, `list-deadline` ÷ *t*) generations. With the
   defaults the deadline binds first once pages average more than 30 ms: 100,000 generations at 30 ms a
   page or less, 30,000 at 100 ms, 10,000 at 300 ms.
-- **Which listings grow.** Since #494 the store's normal path lists single objects only, one page each.
-  The listings that grow with the history are:
-  - every version of the frontier, read by recovery and by the store's fallback when the live version
-    does not verify (or none is live although versions exist). It has the bucket's first boundary
+- **Which listings run when.** Since #494 the store's normal path lists single objects only, one page
+  each (a record, a marker, an index entry). The listings that grow with the history run as follows:
+  - the frontier's versions: only in the store's fallback, when the live version does not verify (or
+    none is live although versions exist), and in recovery. The frontier has the bucket's first boundary
     (0, 0), then one generation per new record and one per checkpoint; an identical retry adds none
     (`ObjectLockConditionalWriteProtocolTest.theFrontierGainsOneGenerationPerNewRecordAndPerCheckpoint`);
-  - recovery's listings of `sequences/` (one marker per record and per checkpoint) and `records/`
-    (one per record);
-  - each checkpoint's listings of `checkpoints/` (one per checkpoint) and `reservations/checkpoints/`
-    (one per abandoned checkpoint reservation).
+  - `sequences/` (one marker per record and per checkpoint) and `records/` (one per record): only in
+    recovery;
+  - each checkpoint lists `reservations/checkpoints/` (one entry per checkpoint marker that a later walk
+    passed above the frontier; normally none) and, once that has an entry, `checkpoints/` (one per
+    checkpoint).
 
   So the largest listing holds about *records + checkpoints + 1* generations. At 100 ms a page the
-  defaults cover 30,000: with hourly checkpoints (8,760 a year) and 1,000 erasures a year, about three
+  defaults list 30,000: with hourly checkpoints (8,760 a year) and 1,000 erasures a year, about three
   years. The checkpoint cadence, still open under #365 (D3), dominates the growth.
-- **Early warning.** A listing that completes past half of either bound logs at WARN
-  `durable store list <prefix> needed <n> of at most <max> pages and <time> of its <deadline> deadline,
-  past half of a bound`. A log alert on it leaves time to raise the bounds (up to 10,000 pages and
-  5 minutes) before such listings fail closed and new erasures wait in `PENDING_DURABLE`.
+- **The listing, not the fallback's reads.** That figure bounds the fallback's listing only. The fallback
+  then reads every version it listed, one GET each (only the versions this process wrote or read are
+  cached), outside the listing deadline and under the store's lock: at 30,000 versions and 30 to 50 ms a
+  GET, about 15 to 25 minutes after a restart. Before enablement the fallback needs a per-operation
+  budget, as the write pauses do (#365, #492).
+- **Early warning.** Two warnings at WARN leave time to raise the bounds (up to 10,000 pages and
+  5 minutes) before such listings fail closed and new erasures wait in `PENDING_DURABLE`:
+  - on the normal path: after each frontier read or write the store reports its history, about the
+    frontier's `highestReserved + 1` versions, and while that passes half of what one listing can hold,
+    the adapter logs, at most once an hour, `durable store history is about <n> object versions, past
+    half of the <m> one listing can hold`. What one listing can hold is 100 × min(`list-max-pages`,
+    `list-deadline` ÷ *t*), with *t* the mean page time this adapter measured but at least 100 ms: its
+    normal-path pages hold one object each and understate a full page
+    (`GcsObjectRetentionBucketTest.theStoreWarnsOnItsNormalPathOnceItsHistoryPassesHalfOfWhatOneListingHolds`);
+  - a listing that completes past half of either bound logs `durable store list <prefix> needed <n> of at
+    most <max> pages and <time> of its <deadline> deadline, past half of a bound`.
+
+  A log alert on either message gives the operator that time.
 - **A page in flight.** Each page is requested on a virtual thread of its own and waited for at most
   what is left of the deadline. When the deadline passes first, the listing fails closed at once and
   interrupts that thread: the request may run on until the client's own limits end it (by default
   20 s connect and read timeouts, 6 attempts within 50 s), but no longer under the store's lock.
   `GcsObjectRetentionBucketTest` stalls a page with a stub transport, and
   `LiveGcsAcceptanceProviderRequestShapeTest` does it with the real client against a local endpoint.
+  The callers must be platform threads, as the request and worker threads are (virtual threads are not
+  enabled): a virtual-thread caller would wait inside the store's synchronized methods and pin its
+  carrier, and so would the callers blocked on that lock.
 - **Per listing, not per operation.** The bounds apply to each listing (`keys`, `oldest`,
   `allVersions`, `versionCount`). A store operation that lists several times can hold the store's lock
   for several deadlines. A tool built with an adapter constructor that takes no bounds gets the
