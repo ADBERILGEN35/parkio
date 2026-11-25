@@ -50,6 +50,20 @@ there. A transaction-scoped advisory lock on the token serialises concurrent reg
 (the last one wins). The erasure fence is checked first, so an erased user can neither
 register nor take a token over.
 
+The handover update finds the other accounts' rows through the partial index
+`idx_device_tokens_active_token` on `device_tokens (token) WHERE active` (V17, #601).
+From the token lock on, every lock wait of the registration, the handover's row locks
+included, gives up after 5 s (`lock_timeout`, set for that transaction only). The holders
+take milliseconds: other registrations of the token, an owner deactivating a token, the
+erasure handler, and a delivery tick, which writes a token it deactivated after
+`DeviceNotRegistered` only when its batch commits. The datasource itself sets no
+`lock_timeout` or `statement_timeout`.
+
+A registration that gives up is rolled back and answers the generic `500 INTERNAL_ERROR`,
+with no database detail; the error is logged at ERROR. The previous account's row stays
+active, so its pushes keep reaching the device. The mobile apps log the failure and
+register again only after their next start or sign-in.
+
 ## Event handling (inbox)
 
 Upstream events (see `docs/architecture/event-contracts.md`) are consumed
