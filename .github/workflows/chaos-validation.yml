@@ -10,6 +10,7 @@ on:
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/chaos-validation.yml"
       - "scripts/ci/compose_image_identity.py"
+      - "scripts/ci/gradle_ro_dep_cache.py"
 permissions:
   contents: read
   packages: read

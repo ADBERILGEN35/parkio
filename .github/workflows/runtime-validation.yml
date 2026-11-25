@@ -9,6 +9,7 @@ on:
       - "services/**/src/main/resources/application*.yml"
       - ".github/workflows/runtime-validation.yml"
       - "scripts/ci/compose_image_identity.py"
+      - "scripts/ci/gradle_ro_dep_cache.py"
       - "benchmarks/scripts/wait-http-ready.mjs"
       - "benchmarks/scripts/wait-tempo-ready.mjs"
       - "benchmarks/scripts/ci-result-integrity.test.mjs"

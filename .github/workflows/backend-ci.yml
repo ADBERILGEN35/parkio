@@ -78,6 +78,7 @@ jobs:
 
       # Only api itself (its pushes and dispatches) saves, after a green build, and only when the exact
       # key missed: pull requests restore api's entry and never write one.
+      # master saves no gradle-deps-* entry, by design: its pushes and PRs into master download the graph.
       - name: Save Gradle dependencies
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/api' && steps.gradle-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
