@@ -862,7 +862,16 @@ fi
 echo "=== Part C: binding with real docker compose ==="
 if docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && [ "${PARKIO_GUARD_TEST_REAL_DOCKER:-1}" != "0" ]; then
   REAL_DOCKER="$(command -v docker)"
-  BASE_IMG="nginx:1.30.5-alpine3.24"   # the web runtime base (frontend/apps/web/Dockerfile)
+  # The fixture images build FROM the web runtime base, read from the runtime stage of the web
+  # Dockerfile, so the fixture follows each base bump (#600). Anything but exactly one pinned
+  # `FROM nginx:<tag>@sha256:<digest> AS runtime` line stops the suite.
+  WEB_DOCKERFILE="$ROOT/frontend/apps/web/Dockerfile"
+  BASE_IMG="$(sed -n 's/^FROM \(nginx:[^[:space:]@]*@sha256:[0-9a-f]\{64\}\) AS runtime$/\1/p' "$WEB_DOCKERFILE")"
+  if [ -z "$BASE_IMG" ] || [ "$(printf '%s\n' "$BASE_IMG" | wc -l)" -ne 1 ]; then
+    echo "FAIL Part C: $WEB_DOCKERFILE needs exactly one 'FROM nginx:<tag>@sha256:<digest> AS runtime' line" >&2
+    exit 1
+  fi
+  echo "Part C fixture base: $BASE_IMG (the runtime stage of frontend/apps/web/Dockerfile)"
   docker image inspect "$BASE_IMG" >/dev/null 2>&1 || docker pull -q "$BASE_IMG" >/dev/null
   C="$TMP/partc"; mkdir -p "$C/good/root" "$C/bad/root" "$C/shim"
   PROJ="pwgc$$"
