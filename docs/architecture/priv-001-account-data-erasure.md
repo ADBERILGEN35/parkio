@@ -21,8 +21,10 @@ best effort: the counters expire within 24 h and the markers within 14 days on t
 password check runs on that throttle (#563): while Redis is unavailable, `DELETE /api/v1/account` fails closed
 (500) before any erasure starts, as login and change-password do. Failed logins and repeated `DELETE` requests
 during the pending window can recreate failure counters and waits (at most 24 h); they cannot recreate
-known-client markers, because a login is refused before the success is recorded, a deletion request never
-marks a client known, and a reset is refused for a non-active account.
+known-client markers. Of the marker's four writers (`docs/architecture/login-throttling.md`), a login, a
+change-password and a refresh-token rotation are refused for a non-active account before the marker is
+written (the erasure request has also revoked the account's refresh tokens), and a password reset is
+refused for a non-active account; a deletion request never marks a client known.
 
 User-visible statuses: `IN_PROGRESS`, `COMPLETE`, `FAILED_RETRYING`.
 

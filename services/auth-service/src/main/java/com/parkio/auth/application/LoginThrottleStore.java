@@ -13,7 +13,11 @@ import java.util.Set;
  */
 public interface LoginThrottleStore {
 
-    /** Increments the counter and (re)sets its lifetime to {@code window}; returns the new value. */
+    /**
+     * Increments the counter and (re)sets its lifetime to {@code window} in one atomic step; returns the
+     * new value. {@code window} is at least 1 ms; a shorter one is refused with
+     * {@link IllegalArgumentException} before anything is written.
+     */
     long increment(String key, Duration window);
 
     /** The counter's value; zero when it is absent. */
@@ -32,7 +36,11 @@ public interface LoginThrottleStore {
      */
     Duration tryHold(Map<String, Duration> markers);
 
-    /** Adds {@code member} to the plain set {@code key} and (re)sets the set's lifetime to {@code keyTtl}. */
+    /**
+     * Adds {@code member} to the plain set {@code key} and (re)sets the set's lifetime to {@code keyTtl} in
+     * one atomic step. {@code keyTtl} is at least 1 ms; a shorter one is refused with
+     * {@link IllegalArgumentException} before anything is written.
+     */
     void addToSet(String key, String member, Duration keyTtl);
 
     /** The members of the plain set {@code key}; empty when it is absent. */

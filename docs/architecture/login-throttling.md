@@ -237,8 +237,10 @@ Reading the table:
   identifiers in the key space.
 - `LoginThrottleKeysTest`, `LoginThrottleKeysBeanTest`: keyed digests and key ids, secret validation
   (32+ characters, previous differs), the dev-only ephemeral key, no silent fallback.
-- `RedisLoginThrottleStoreTest`: the Redis commands behind each primitive, including the admission script
-  and the incremental scan used by erasure.
+- `RedisLoginThrottleStoreTest`: the Redis commands behind each primitive, including the admission script,
+  the one-script writes of a counter or set with its lifetime (#606), the refusal of a lifetime under 1 ms
+  (`InMemoryLoginThrottleStoreTest` pins the same refusal on the in-memory store), and the incremental scan
+  used by erasure.
 - `LoginThrottleClientKeyHttpTest`: over HTTP, the gateway-resolved client (IPv6 by /64) reaches login
   admission, the success, the password reset and a successful refresh-token rotation; a rejected refresh
   never touches the known-client state; without the header the reset uses the unknown client.
@@ -260,6 +262,10 @@ Reading the table:
   rules with real TTLs and types, 32 concurrent admissions against real Redis admitting exactly one, the
   rotation overlap against real Redis, nothing written outside the v3 namespace (rollback safety),
   erasure, and no raw identifiers in the key space.
+- `RedisLoginThrottleStoreRedisIT` (Testcontainers `redis:7-alpine`, `integrationTest`): a connection lost
+  after the first command leaves no counter or set without its lifetime (#606), every write restarts the
+  lifetime (a set's also when it already holds the member), and the scripts refuse a malformed lifetime
+  before they write.
 - `ClientIpHeaderGlobalFilterTest` (gateway): spoofed header stripped, trusted-proxy chain, and the
   framework-strategy check above. `AdminGatewayIngressTest` (auth): the header is trusted only on
   gateway-authenticated requests.
