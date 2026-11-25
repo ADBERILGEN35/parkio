@@ -2,30 +2,38 @@ package com.parkio.notification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.jayway.jsonpath.JsonPath;
 import com.parkio.notification.application.command.RegisterDeviceTokenCommand;
 import com.parkio.notification.application.event.UserErasureRequestedEvent;
 import com.parkio.notification.domain.DevicePlatform;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.exception.NotificationException;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -36,10 +44,13 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * H-05 (#546) on PostgreSQL with the Flyway schema: a push token is active for at most one account,
  * concurrent registrations of one token apply one after the other, and the erasure fence still
- * decides who may register.
+ * decides who may register. #601: a registration gives up on a lock after the bound, and the client
+ * gets the generic 500 through the real HTTP path.
  */
 @Tag("integration")
 @SpringBootTest
+@AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 @Testcontainers(disabledWithoutDocker = true)
 class DeviceTokenHandoverPostgresIT {
 
@@ -66,6 +77,8 @@ class DeviceTokenHandoverPostgresIT {
     @Autowired private AccountErasureHandler erasure;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private MockMvc mockMvc;
+    @Value("${parkio.gateway.internal-secret}") private String gatewaySecret;
 
     @Test
     void registeringAHeldTokenDeactivatesThePreviousHoldersRow() {
@@ -133,9 +146,12 @@ class DeviceTokenHandoverPostgresIT {
                 .isZero();
     }
 
-    /** #601: a registration gives up on the token lock after the bound instead of waiting for its holder. */
+    /**
+     * #601: a registration gives up on the token lock after the bound instead of waiting for its holder. The
+     * client gets the generic 500, nothing of the registration is kept, and a later registration works.
+     */
     @Test
-    void registrationWaitingOnTheTokenLockGivesUpAfterTheBound() throws Exception {
+    void registrationWaitingOnTheTokenLockGivesUpAfterTheBound(CapturedOutput output) throws Exception {
         UUID holder = UUID.randomUUID();
         UUID waiter = UUID.randomUUID();
         String token = uniqueToken();
@@ -152,10 +168,10 @@ class DeviceTokenHandoverPostgresIT {
             assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
 
             long started = System.nanoTime();
-            Throwable failure = failureOf(pool.submit(() -> register(waiter, token)));
+            MockHttpServletResponse answer = answerOf(pool.submit(() -> registerOverHttp(waiter, token)));
             Duration waited = Duration.ofNanos(System.nanoTime() - started);
 
-            assertThat(isLockTimeout(failure)).as("lock timeout, got %s", failure).isTrue();
+            assertGaveUpOnALock(answer, output);
             assertThat(waited).isGreaterThanOrEqualTo(LOCK_BOUND).isLessThan(LOCK_BOUND.plus(SLACK));
             release.countDown();
             holderTransaction.get(30, TimeUnit.SECONDS);
@@ -166,14 +182,17 @@ class DeviceTokenHandoverPostgresIT {
 
         assertThat(activeHolders(token)).containsExactly(holder);
         assertThat(rowsOf(waiter)).isZero();
+        // The app registers again on its next start or sign-in; once the lock is free, that takes the token over.
+        assertThat(registerOverHttp(waiter, token).getStatus()).isEqualTo(201);
+        assertThat(activeHolders(token)).containsExactly(waiter);
     }
 
     /**
-     * #601: the bound also ends a wait for another account's row lock. A delivery tick that deactivated the row
-     * after DeviceNotRegistered holds it until its whole batch commits.
+     * #601: the bound also ends a wait for another account's row lock, held here by an open transaction. The
+     * handover is rolled back, so the previous account keeps the token and its pushes keep reaching the device.
      */
     @Test
-    void handoverWaitingOnAnotherAccountsRowGivesUpAfterTheBound() throws Exception {
+    void handoverWaitingOnAnotherAccountsRowGivesUpAfterTheBound(CapturedOutput output) throws Exception {
         UUID previous = UUID.randomUUID();
         UUID next = UUID.randomUUID();
         String token = uniqueToken();
@@ -192,10 +211,10 @@ class DeviceTokenHandoverPostgresIT {
             assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
 
             long started = System.nanoTime();
-            Throwable failure = failureOf(pool.submit(() -> register(next, token)));
+            MockHttpServletResponse answer = answerOf(pool.submit(() -> registerOverHttp(next, token)));
             Duration waited = Duration.ofNanos(System.nanoTime() - started);
 
-            assertThat(isLockTimeout(failure)).as("lock timeout, got %s", failure).isTrue();
+            assertGaveUpOnALock(answer, output);
             assertThat(waited).isGreaterThanOrEqualTo(LOCK_BOUND).isLessThan(LOCK_BOUND.plus(SLACK));
             release.countDown();
             rowLock.get(30, TimeUnit.SECONDS);
@@ -206,26 +225,40 @@ class DeviceTokenHandoverPostgresIT {
 
         assertThat(activeHolders(token)).containsExactly(previous);
         assertThat(rowsOf(next)).isZero();
+        assertThat(registerOverHttp(next, token).getStatus()).isEqualTo(201);
+        assertThat(activeHolders(token)).containsExactly(next);
     }
 
-    /** The failure of a call that must fail; a call still waiting after the bound and the slack fails the test. */
-    private static Throwable failureOf(Future<?> call) throws Exception {
-        try {
-            call.get(LOCK_BOUND.plus(SLACK).toMillis(), TimeUnit.MILLISECONDS);
-        } catch (ExecutionException failed) {
-            return failed.getCause();
-        }
-        throw new AssertionError("the registration succeeded instead of giving up on the lock");
+    /** The answer to a registration that must give up; one still waiting after the bound and the slack fails. */
+    private static MockHttpServletResponse answerOf(Future<MockHttpServletResponse> call) throws Exception {
+        return call.get(LOCK_BOUND.plus(SLACK).toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    /** PostgreSQL's lock_not_available (55P03), anywhere in the cause chain. */
-    private static boolean isLockTimeout(Throwable failure) {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sql && "55P03".equals(sql.getSQLState())) {
-                return true;
-            }
-        }
-        return false;
+    /**
+     * What a client sees when its registration gave up on a lock: the catch-all 500 of GlobalExceptionHandler,
+     * with no database detail in the body. The cause, PostgreSQL's lock timeout, is only in the ERROR log.
+     */
+    private static void assertGaveUpOnALock(MockHttpServletResponse answer, CapturedOutput output) throws Exception {
+        String body = answer.getContentAsString();
+        assertThat(answer.getStatus()).as(body).isEqualTo(500);
+        assertThat((String) JsonPath.read(body, "$.code")).isEqualTo("INTERNAL_ERROR");
+        assertThat((String) JsonPath.read(body, "$.message")).isEqualTo("An unexpected error occurred.");
+        assertThat(body).doesNotContainIgnoringCase("lock").doesNotContainIgnoringCase("sql")
+                .doesNotContain("55P03").doesNotContain("device_tokens");
+        assertThat(output.getAll().lines()
+                .anyMatch(line -> line.contains("ERROR") && line.contains("Unexpected error handling request")))
+                .as("logged at ERROR").isTrue();
+        assertThat(output.getAll()).contains("canceling statement due to lock timeout");
+    }
+
+    private MockHttpServletResponse registerOverHttp(UUID userId, String token) throws Exception {
+        return mockMvc.perform(post("/api/v1/notifications/device-token")
+                        .header("X-Gateway-Auth", gatewaySecret)
+                        .header("X-User-Id", userId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + token + "\",\"platform\":\"ANDROID\"}"))
+                .andReturn()
+                .getResponse();
     }
 
     private long rowsOf(UUID userId) {
