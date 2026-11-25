@@ -24,10 +24,12 @@ import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.restclient.test.autoconfigure.AutoConfigureMockRestServiceServer;
 import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -41,15 +43,34 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-/** Uses Boot's application message converters and the production RestClient bean. */
+/**
+ * Uses Boot's application message converters and the production RestClient bean. That bean pins its own bounded
+ * transport (#595), which replaces the mock an auto-configured MockRestServiceServer would bind, so each test binds
+ * the mock to a copy of the production client: same converters, base URL and headers, mocked transport only.
+ */
 @RestClientTest(value = ExpoPushNotificationSender.class, properties = {
         "parkio.notification.delivery.push.provider=expo",
         "parkio.notification.delivery.push.expo.access-token=synthetic-test-only"})
+@AutoConfigureMockRestServiceServer(enabled = false)
 @Import({ExpoPushConfig.class, ExpoApplicationMapperTest.Metrics.class})
 class ExpoApplicationMapperTest {
-    @Autowired ExpoPushNotificationSender sender;
-    @Autowired MockRestServiceServer server;
+    @Autowired RestClient expoPushRestClient;
     @Autowired com.fasterxml.jackson.databind.ObjectMapper mapper;
+    SimpleMeterRegistry registry;
+    ExpoPushNotificationSender sender;
+    MockRestServiceServer server;
+
+    @BeforeEach
+    void bindMockTransportToTheProductionClient() {
+        RestClient.Builder production = expoPushRestClient.mutate();
+        server = MockRestServiceServer.bindTo(production).build();
+        registry = new SimpleMeterRegistry();
+        sender = new ExpoPushNotificationSender(production.build(), new PushSenderMetrics(registry), "default");
+    }
+
+    private double count(String meter) {
+        return registry.counter("parkio.notification.push." + meter + ".count").count();
+    }
 
     @TestConfiguration
     static class Metrics {
@@ -85,6 +106,8 @@ class ExpoApplicationMapperTest {
         assertThat(result.delivered()).isFalse();
         assertThat(result.providerMessageId()).isNull();
         assertThat(result.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+        assertThat(count("outcome_unknown")).isEqualTo(1);
+        assertThat(count("provider_unavailable")).isZero();
         server.verify();
     }
 
@@ -104,6 +127,8 @@ class ExpoApplicationMapperTest {
                 DevicePlatform.IOS, "Title", "Body"));
         assertThat(result.delivered()).isFalse();
         assertThat(result.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+        assertThat(count("outcome_unknown")).isEqualTo(1);
+        assertThat(count("provider_unavailable")).isZero();
         server.verify();
     }
 
@@ -125,6 +150,8 @@ class ExpoApplicationMapperTest {
                 DevicePlatform.IOS, "Title", "Body"));
         assertThat(result.delivered()).isFalse();
         assertThat(result.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        assertThat(count("provider_unavailable")).isEqualTo(1);
+        assertThat(count("outcome_unknown")).isZero();
         server.verify();
     }
 
@@ -219,6 +246,8 @@ class ExpoApplicationMapperTest {
         var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
                 DevicePlatform.IOS, "Title", "Body"));
         assertThat(result.failureReason()).isEqualTo("PROVIDER_CONFIGURATION_ERROR");
+        assertThat(count("failed")).isEqualTo(1);
+        assertThat(count("provider_unavailable")).isZero();
         server.verify();
     }
 
@@ -230,6 +259,8 @@ class ExpoApplicationMapperTest {
         var result = sender.send(new PushMessage("ExponentPushToken[synthetic]",
                 DevicePlatform.IOS, "Title", "Body"));
         assertThat(result.failureReason()).isEqualTo("PROVIDER_UNAVAILABLE");
+        assertThat(count("provider_unavailable")).isEqualTo(1);
+        assertThat(count("outcome_unknown")).isZero();
         server.verify();
     }
 

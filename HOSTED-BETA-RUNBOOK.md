@@ -196,6 +196,8 @@ real value.
 | `PARKIO_PASSWORD_RESET_LOG_TOKEN` | Yes | `false` | No |
 | `PARKIO_PUSH_DELIVERY_PROVIDER` | Yes | `expo` | No |
 | `PARKIO_EXPO_ACCESS_TOKEN` | Yes | Expo access token | Yes |
+| `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` | Optional | `2s`; at most `30s`, shorter than the read timeout | No |
+| `PARKIO_EXPO_PUSH_READ_TIMEOUT` | Optional | `5s`; at most `60s` | No |
 | `PARKIO_OPENAPI_ENABLED` | Yes | `false` | No |
 
 ### Frontend Build
