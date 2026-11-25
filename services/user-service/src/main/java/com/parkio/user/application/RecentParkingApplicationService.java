@@ -1,7 +1,6 @@
 package com.parkio.user.application;
 
 import com.parkio.user.application.port.RecentParkingRepository;
-import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
@@ -23,13 +22,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class RecentParkingApplicationService {
 
     private final RecentParkingRepository recents;
-    private final UserProfileRepository profiles;
+    private final FencedProfileLookup profiles;
     private final Clock clock;
     private final int maxPerUser;
 
     public RecentParkingApplicationService(
             RecentParkingRepository recents,
-            UserProfileRepository profiles,
+            FencedProfileLookup profiles,
             Clock clock,
             @Value("${parkio.spa.recents.parking-limit:20}") int maxPerUser) {
         this.recents = recents;
@@ -94,7 +93,6 @@ public class RecentParkingApplicationService {
     }
 
     private UserProfile requireProfile(UUID authUserId) {
-        return profiles.findByAuthUserId(authUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+        return profiles.requireProfile(authUserId);
     }
 }

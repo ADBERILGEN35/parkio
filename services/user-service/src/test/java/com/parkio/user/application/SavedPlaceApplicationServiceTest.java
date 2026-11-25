@@ -2,8 +2,16 @@ package com.parkio.user.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.parkio.user.application.port.SavedPlaceRepository;
+import com.parkio.user.application.port.UserOwnerFence;
 import com.parkio.user.application.port.UserPreferenceRepository;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserPreference;
@@ -25,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,6 +48,7 @@ class SavedPlaceApplicationServiceTest {
 
     private FakeSavedPlaceRepository places;
     private FakeProfiles profiles;
+    private UserOwnerFence fence;
     private FakePreferences preferences;
     private SavedPlaceApplicationService service;
 
@@ -53,8 +63,44 @@ class SavedPlaceApplicationServiceTest {
                 OTHER_PROFILE, OTHER_AUTH, "b@example.com", "Bob", null, null, UserStatus.ACTIVE, null, NOW, 0L));
         preferences.save(UserPreference.createDefault(PROFILE));
         preferences.save(UserPreference.createDefault(OTHER_PROFILE));
+        fence = mock(UserOwnerFence.class);
+        when(fence.admitWrite(any())).thenReturn(true);
         service = new SavedPlaceApplicationService(
-                places, profiles, preferences, Clock.fixed(NOW, ZoneOffset.UTC));
+                places, new FencedProfileLookup(fence, profiles), preferences, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void everyCallerPathIsRefusedByTheErasureFenceBeforeReadingOrWritingPlaces() {
+        SavedPlace custom = service.createCustom(AUTH, "Gym", 41.03, 28.99, PlaceDestinationSource.MAP_PIN, null, null);
+        when(fence.admitWrite(AUTH)).thenReturn(false);
+        List<ThrowingCallable> paths = List.of(
+                () -> service.list(AUTH),
+                () -> service.upsertHome(AUTH, 41.01, 28.97, null, PlaceDestinationSource.MAP_PIN, null, null),
+                () -> service.upsertWork(AUTH, 41.04, 29.0, null, PlaceDestinationSource.MAP_PIN, null, null),
+                () -> service.createCustom(AUTH, "Pool", 41.05, 29.01, PlaceDestinationSource.MAP_PIN, null, null),
+                () -> service.updateCustom(AUTH, custom.id(), "Moved", 41.06, 29.02, null, null, null),
+                () -> service.delete(AUTH, custom.id()),
+                () -> service.clearHome(AUTH));
+        for (ThrowingCallable path : paths) {
+            assertThatThrownBy(path).isInstanceOfSatisfying(UserException.class,
+                    e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_NOT_FOUND));
+        }
+        verify(fence, times(paths.size() + 1)).admitWrite(AUTH);
+        assertThat(places.findAllByUserProfileId(PROFILE)).extracting(SavedPlace::label).containsExactly("Gym");
+        assertThat(preferences.findByUserProfileId(PROFILE).orElseThrow().hasHomeLocation()).isFalse();
+    }
+
+    @Test
+    void profileIdPathsTakeNoFenceOfTheirOwn() {
+        // mirror/resolve run inside a UserApplicationService transaction that already holds the
+        // fence, and the startup backfill relies on the user_profiles foreign key (#597).
+        clearInvocations(fence);
+        places.legacyCandidates.add(new SavedPlaceRepository.LegacyHomeCandidate(PROFILE, 41.0, 29.0, "Legacy"));
+        service.backfillLegacyHomes(10);
+        service.mirrorLegacyHomeToSavedPlace(OTHER_PROFILE, 41.1, 28.9, "From SR");
+        service.resolveHome(OTHER_PROFILE, preferences.findByUserProfileId(OTHER_PROFILE).orElseThrow());
+        service.findHome(PROFILE);
+        verifyNoInteractions(fence);
     }
 
     @Test
