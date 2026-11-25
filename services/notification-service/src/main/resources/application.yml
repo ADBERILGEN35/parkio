@@ -185,7 +185,10 @@ parkio:
           # Bounds of one send (#595); the tick holds its row claims while it sends. A connection not open
           # (TLS included) within connect-timeout stays retryable; a response not complete within
           # read-timeout is a terminal PROVIDER_OUTCOME_UNKNOWN, because Expo may already have it. The read
-          # timeout runs from the start of the exchange, so connect-timeout must be shorter. Limits: 0 < connect
+          # timeout runs from the start of the exchange, so connect-timeout must be shorter. The DNS lookup of
+          # the Expo host is outside connect-timeout: the JDK resolves the name before the connect timer starts,
+          # while the read timer already runs. A send whose lookup and connect together outlast read-timeout
+          # ends as PROVIDER_OUTCOME_UNKNOWN although no connection was opened (#641). Limits: 0 < connect
           # <= 30s, 0 < read <= 60s. A tick lasts at most about batch-size x read-timeout (100 x 5s).
           connect-timeout: ${PARKIO_EXPO_PUSH_CONNECT_TIMEOUT:2s}
           read-timeout: ${PARKIO_EXPO_PUSH_READ_TIMEOUT:5s}

@@ -171,15 +171,23 @@ or token values.
 | `parkio.notification.delivery.push.expo.access-token` | `PARKIO_EXPO_ACCESS_TOKEN` | _(empty)_ | Expo access token |
 | `parkio.notification.delivery.push.expo.base-url` | `PARKIO_EXPO_PUSH_BASE_URL` | `https://exp.host/--/api/v2` | Expo Push API base |
 | `parkio.notification.delivery.push.expo.android-channel-id` | `PARKIO_EXPO_ANDROID_CHANNEL_ID` | `default` | Android notification channel |
-| `parkio.notification.delivery.push.expo.connect-timeout` | `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` | `2s` | Bound on opening the connection, TLS handshake included; at most `30s` |
-| `parkio.notification.delivery.push.expo.read-timeout` | `PARKIO_EXPO_PUSH_READ_TIMEOUT` | `5s` | Bound on the whole exchange, connecting included; at most `60s`, and longer than the connect timeout |
+| `parkio.notification.delivery.push.expo.connect-timeout` | `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` | `2s` | Bound on opening the connection, TLS handshake included, DNS lookup not included; at most `30s` |
+| `parkio.notification.delivery.push.expo.read-timeout` | `PARKIO_EXPO_PUSH_READ_TIMEOUT` | `5s` | Bound on the whole exchange, DNS lookup and connecting included; at most `60s`, and longer than the connect timeout |
 
 The delivery tick sends while it holds the `FOR UPDATE SKIP LOCKED` claims of its batch,
 so a send without a bound would stop push delivery until a restart (#595). A connection
 that does not open within the connect timeout stays `PROVIDER_UNAVAILABLE` and is retried;
 a response that does not complete within the read timeout is `PROVIDER_OUTCOME_UNKNOWN`,
 because Expo may already have the request. The read timeout runs from the start of the
-exchange, so the connect timeout must be shorter. The service refuses to start with a
+exchange, so the connect timeout must be shorter. The connect timeout does not cover the
+DNS lookup of the Expo host: the JDK resolves the name before it starts the connect timer,
+while the read timeout is already running (#641). When the lookup and the connection
+attempt together outlast the read timeout, the send therefore ends at the read timeout as
+`PROVIDER_OUTCOME_UNKNOWN` and is not retried, although no connection was opened. That is
+the case for a lookup slower than the read timeout, and for one slower than the read
+timeout minus the connect timeout (3s with the defaults) when the connection then does not
+open. The result errs on the side of no resend. A lookup that fails before the read
+timeout (unknown host) stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
 zero, negative or over-limit value, or with a connect timeout that is not shorter than the
 read timeout; the hosted-beta preflight checks the same rules. The Expo client is always
 the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
@@ -203,7 +211,9 @@ does not resend automatically. This trades possible missed notifications for
 avoiding duplicate sends when acceptance cannot be established. A failure to
 connect (refused, unresolved host, no route, connect timeout) proves Expo never
 received the request, so it is `PROVIDER_UNAVAILABLE` and keeps bounded backoff,
-like HTTP rejection (except 401/403) and other explicit ticket failures.
+like HTTP rejection (except 401/403) and other explicit ticket failures. The one
+exception is a slow DNS lookup: when the read timeout ends the send before the connection
+attempt has failed, it is `PROVIDER_OUTCOME_UNKNOWN` (see the Expo bounds above).
 `DeviceNotRegistered` is terminal and deactivates the token. Credential/configuration
 failures (HTTP 401/403, `InvalidCredentials`, `UNAUTHORIZED`, `MismatchSenderId`)
 are terminal `PROVIDER_CONFIGURATION_ERROR` and preserve the token.
