@@ -1,11 +1,14 @@
 package com.parkio.auth.infrastructure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -16,15 +19,18 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 /**
  * The Redis commands behind each throttle primitive (CL-F15 v2). The behaviour against a real Redis,
- * with TTL expiry and key types, is in {@code ThrottledLoginFailureTrackerRedisIT}.
+ * with TTL expiry and key types, is in {@code ThrottledLoginFailureTrackerRedisIT}; a connection lost
+ * between commands (#606) is in {@code RedisLoginThrottleStoreRedisIT}.
  */
 class RedisLoginThrottleStoreTest {
 
@@ -44,11 +50,23 @@ class RedisLoginThrottleStoreTest {
         store = new RedisLoginThrottleStore(redis);
     }
 
+    /** One script increments and restarts the window, so the count never lands without its lifetime (#606). */
     @Test
-    void incrementIsIncrThenExpireWithTheWindow() {
-        when(values.increment("k")).thenReturn(3L);
+    @SuppressWarnings("unchecked")
+    void incrementIsOneScriptThatIncrementsAndRestartsTheWindow() {
+        when(redis.execute(any(RedisScript.class), eq(List.of("k")), eq("86400000"))).thenReturn(3L);
+
         assertThat(store.increment("k", Duration.ofHours(24))).isEqualTo(3L);
-        verify(redis).expire("k", Duration.ofHours(24));
+
+        ArgumentCaptor<RedisScript<Long>> script = ArgumentCaptor.forClass(RedisScript.class);
+        verify(redis).execute(script.capture(), eq(List.of("k")), eq("86400000"));
+        verifyNoMoreInteractions(redis);
+        verifyNoInteractions(values);
+        assertThat(script.getValue()).isSameAs(RedisLoginThrottleStore.INCREMENT);
+        String lua = RedisLoginThrottleStore.INCREMENT.getScriptAsString();
+        assertThat(lua).contains("redis.call('INCR', KEYS[1])").contains("redis.call('PEXPIRE', KEYS[1], ARGV[1])");
+        assertThat(lua.indexOf("error_reply")).as("the lifetime is checked before the write")
+                .isNotNegative().isLessThan(lua.indexOf("'INCR'"));
     }
 
     @Test
@@ -69,15 +87,40 @@ class RedisLoginThrottleStoreTest {
         assertThat(store.remaining("null")).isZero();
     }
 
+    /** One script adds the member and restarts the set's lifetime, so the set never lives without one (#606). */
     @Test
-    void plainSetsAreSaddWithAKeyLifetime() {
+    @SuppressWarnings("unchecked")
+    void plainSetsAreOneScriptThatAddsAndRestartsTheKeyLifetime() {
         store.addToSet("s", "m", Duration.ofHours(24));
-        verify(sets).add("s", "m");
-        verify(redis).expire("s", Duration.ofHours(24));
+
+        ArgumentCaptor<RedisScript<Long>> script = ArgumentCaptor.forClass(RedisScript.class);
+        verify(redis).execute(script.capture(), eq(List.of("s")), eq("m"), eq("86400000"));
+        verifyNoMoreInteractions(redis);
+        verifyNoInteractions(sets);
+        assertThat(script.getValue()).isSameAs(RedisLoginThrottleStore.ADD_TO_SET);
+        String lua = RedisLoginThrottleStore.ADD_TO_SET.getScriptAsString();
+        assertThat(lua).contains("redis.call('SADD', KEYS[1], ARGV[1])")
+                .contains("redis.call('PEXPIRE', KEYS[1], ARGV[2])");
+        assertThat(lua.indexOf("error_reply")).as("the lifetime is checked before the write")
+                .isNotNegative().isLessThan(lua.indexOf("'SADD'"));
+    }
+
+    @Test
+    void setMembersTreatsAMissingSetAsEmpty() {
         when(sets.members("s")).thenReturn(null);
         assertThat(store.setMembers("s")).isEmpty();
         when(sets.members("t")).thenReturn(Set.of("a"));
         assertThat(store.setMembers("t")).containsExactly("a");
+    }
+
+    /** Under 1 ms, PEXPIRE would delete the key just written, so such a lifetime is refused before anything is sent. */
+    @Test
+    void aLifetimeUnderOneMillisecondIsRefusedBeforeAnythingIsSent() {
+        for (Duration lifetime : List.of(Duration.ZERO, Duration.ofNanos(999_999), Duration.ofMillis(-1))) {
+            assertThatThrownBy(() -> store.increment("k", lifetime)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> store.addToSet("s", "m", lifetime)).isInstanceOf(IllegalArgumentException.class);
+        }
+        verifyNoInteractions(redis, values, sets);
     }
 
     @Test

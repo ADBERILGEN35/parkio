@@ -189,10 +189,10 @@ Privilege boundaries / enforcement notes:
   response as login, so all three share one budget.
   The client is the gateway-resolved IP in `X-Parkio-Client-Ip` (IPv6 by /64): the
   gateway strips any client-supplied copy, and auth-service reads it only on
-  gateway-authenticated requests. A successful login clears that client's counter
-  and makes it known; a password reset clears every client's and makes the
-  resetting client known. Wrong password, unknown email and
-  throttled responses must remain indistinguishable to avoid account enumeration.
+  gateway-authenticated requests. A successful login or change-password clears that
+  client's counter; a completed reset clears every client's counter. Wrong password,
+  unknown email and throttled responses must remain indistinguishable to avoid
+  account enumeration.
 - The two cookie-authenticated endpoints (`/api/v1/auth/refresh-token`, `/api/v1/auth/logout`)
   carry route-specific CSRF protection in addition to the Origin/Referer guard (CodeQL #7,
   2026-10-08): a browser-shaped request that presents the refresh cookie must repeat the
