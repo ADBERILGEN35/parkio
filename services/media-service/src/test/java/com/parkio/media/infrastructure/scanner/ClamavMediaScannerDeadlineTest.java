@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -150,6 +151,16 @@ class ClamavMediaScannerDeadlineTest {
             assertThat(served.get(2, TimeUnit.SECONDS)).isTrue();
             assertThat(outcomes).isEmpty();
         }
+    }
+
+    @Test
+    void stateBeforeTheFirstLookupFailsClosedInsteadOfYieldingTheWildcardAddress() {
+        // A null address is the wildcard, and a connect to it reaches the local machine. Scans
+        // replace this state before they wait on a lookup, but a scan that ever waited on it
+        // must fail closed like a failed lookup instead of connecting locally.
+        assertThatThrownBy(() -> ClamavMediaScanner.NO_LOOKUP.get(0, TimeUnit.NANOSECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOf(UnknownHostException.class);
     }
 
     @Test
