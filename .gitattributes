@@ -44,7 +44,10 @@ services/auth-service/src/test/resources/durable-erasure-evidence/** text eol=lf
 # by a SHA-256 of its exact bytes, which a CRLF checkout (Windows,
 # core.autocrlf=true) changes (#607). Flyway's own checksum skips line
 # terminators, and every migration is stored with LF, so no recorded checksum
-# moves. Existing Windows clones renormalize as described at the top.
+# moves. An existing Windows clone keeps its CRLF copies until it checks them
+# out again (Git Bash; `git add --renormalize` changes nothing here):
+#   git ls-files -z -- '*db/migration/*.sql' | xargs -0 rm -f --
+#   git checkout -- '*db/migration/*.sql'
 **/db/migration/**/*.sql text eol=lf
 
 # Binary assets — never diff or normalize.
