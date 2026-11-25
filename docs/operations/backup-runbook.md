@@ -199,13 +199,20 @@ caller's value. Make the first run against the restored target a bounded run wit
      at the end. The manifests (`backup-<stamp>.json`, `backup-current.json` and the sealed
      `<stamp>/backup-manifest.json`) record `"localPrune": "skipped"`; a run without the
      flag records `"after-success"`.
-   - Only the command line counts. A `NO_PRUNE`, `DRY_RUN`, `OPERATOR` or `ARTIFACT_DIR`
-     line in the env file is ignored with a `WARN`. Without `--operator` and `--artifact-dir`,
-     those values come from `PARKIO_BACKUP_OPERATOR` and `PARKIO_BACKUP_ARTIFACT_DIR` in the
-     caller's environment, never from the env file. The env file also cannot change what the
+   - Only the command line counts. A `NO_PRUNE`, `DRY_RUN`, `OPERATOR`, `ARTIFACT_DIR`, `ROOT`
+     or `ENV_FILE` line in the env file is ignored with a `WARN`. Without `--operator` and
+     `--artifact-dir`, those values come from `PARKIO_BACKUP_OPERATOR` and
+     `PARKIO_BACKUP_ARTIFACT_DIR` in the caller's environment, else `$USER` (`unknown` when
+     `USER` is unset) and `backup-artifacts` under the checkout; never from the env file. Without
+     `--env-file`, the env file is `PARKIO_ENV_FILE` from the caller's environment, and the steps
+     always run from the orchestrator's own checkout. The env file also cannot change what the
      orchestrator hands its steps: `BACKUP_SKIP_MC_UPLOAD` and `BACKUP_DEST_DIR` for
-     `backup-databases.sh`, and the dry-run decision for `backup-minio.sh`, which also takes
-     `--dry-run` from its command line only. A `DRY_RUN=1` line cannot skip the MinIO mirror.
+     `backup-databases.sh`, and the destination and the dry-run decision for `backup-minio.sh`,
+     which takes both from its command line only. A `DRY_RUN=1` line cannot skip the MinIO
+     mirror, and a `DEST_DIR` line cannot move it out of the stamp.
+   - A line that assigns one of the scripts' private `arg_*` names stops that script at the line
+     with exit 1: the orchestrator before it writes anything, `backup-minio.sh` before it mirrors
+     (the run then fails like any MinIO failure, without `COMPLETE`).
    - A checkout without this option rejects it (`ERROR: unknown argument '--no-prune'`,
      exit 2) before it writes or deletes anything. Do not drop the flag to get past that;
      update the checkout first.

@@ -75,10 +75,27 @@ Dry-run (supported: stamp preflight only, nothing is decrypted or applied):
 ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run
 ```
 
-`--dry-run` and `--yes` count only on the command line. A `DRY_RUN` or `ASSUME_YES` line in the
-env file (or the environment) is ignored with a `WARN`: it cannot cancel a dry run or answer the
-confirmation. An option that needs a value exits 2 before anything runs when the value is missing
-or starts with `-` (`--env-file --dry-run`).
+Nothing is decrypted, the MinIO archive included, so a dry run neither needs nor checks
+`BACKUP_ENCRYPT_PASSPHRASE`. A wrong or missing key shows only on a restore that decrypts, such
+as the isolated database proof `restore-drill.sh --from-dir` above.
+
+The command line decides the run, for `restore-hosted-beta.sh` and `restore-database.sh` alike:
+
+- `--dry-run` and `--yes` count only on the command line (`restore-database.sh` has only
+  `--yes`). A `DRY_RUN` or `ASSUME_YES` line in the env file (or the environment) is ignored with
+  a `WARN`: it cannot cancel a dry run, answer a confirmation, or make a run with `--yes` ask one.
+- The env file is shell code, so what the scripts fix before loading it is read-only: the
+  manifest, `--only`, the env file and the other options of `restore-hosted-beta.sh`, the service
+  and dump of `restore-database.sh`, each script's `ROOT`, and the private `arg_*` switches. A
+  line that assigns one (`MANIFEST=`, `ONLY=`, `ENV_FILE=`, ...) stops the run at that line with
+  exit 1.
+- The restore controls (`PARKIO_RESTORE_*`, which carry `--recovery-cutoff`, `--isolated-ticket`
+  and the other restore options) come from the command line or the caller's environment only. An
+  env file that sets, changes or clears one stops the run with exit 2 and names it.
+- An option that needs a value exits 2 when the value is missing or starts with `-`
+  (`--env-file --dry-run`).
+
+These exits happen before the stamp preflight; nothing is decrypted or restored.
 
 Partial (BLOCKED: `--only databases` exits 3 like the full restore; `--only minio` exits 3
 via `parkio_restore_refuse_unsupported_production_scope`):
