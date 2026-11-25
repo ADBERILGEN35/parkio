@@ -30,7 +30,7 @@ export function AccountCard() {
     authSession,
     sdk: { authApi },
   } = useAppRuntime();
-  const { t } = useTranslation(['settings', 'common', 'validation']);
+  const { t } = useTranslation(['settings', 'common', 'validation', 'errors']);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const roles = useAuthStore((s) => s.roles);
@@ -100,7 +100,7 @@ export function AccountCard() {
       authSession.destroyLocalSession();
       navigate('/login', { replace: true });
     } catch (error) {
-      const friendly = describeAuthError(error, t('account.passwordFailed'));
+      const friendly = describeAuthError(error, t('account.passwordFailed'), t);
       setPasswordError(friendly.message);
       showError(friendly.message);
     }
