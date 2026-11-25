@@ -212,10 +212,12 @@ Reading the table:
   still apply). Special forms: IPv4-compatible `::a.b.c.d`, `::1` and `::` all map to the zero /64;
   Teredo clients share their relay's /64; scoped literals (`%`) become the unknown client. None is a
   normal internet source.
-- **Redis loss** empties every known-client allowlist; owners are unknown clients until their next login
-  or reset. Redis down means login fails closed (500), as in v1 (the SEC-002 audit entries cite the
-  replaced `RedisLoginFailureTracker`; the posture is unchanged). Change-password (H-06) and account
-  deletion (#563) check the password on the same store, so they fail closed (500) too.
+- **Redis loss** empties every known-client allowlist; each of an owner's clients is unknown until it
+  writes its 14-day marker again: a successful login, a change-password with the right current password,
+  a completed reset (for the resetting client) or a refresh-token rotation. Redis down means login fails
+  closed (500), as in v1 (the SEC-002 audit entries cite the replaced `RedisLoginFailureTracker`; the
+  posture is unchanged). Change-password (H-06) and account deletion (#563) check the password on the
+  same store, so they fail closed (500) too.
 - **Spraying across accounts** (a few guesses against many accounts) is outside per-account throttling;
   the gateway's per-IP limit (auth routes: 5 requests/s, burst 10) is the control, and it still keys
   IPv6 clients by /128. Keying the gateway's anonymous limits by IPv6 /64 is a separate decision (it

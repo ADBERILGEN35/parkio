@@ -446,13 +446,16 @@ works across auth-service instances and so that an attacker who knows an e-mail
 cannot lock its owner out: 5 failures from one client delay that client 30 seconds,
 10 failures 5 minutes, 20 failures 1 hour, while other clients of the same account
 are unaffected. Once 50 failures from any clients accumulate within an hour, the
-account's clients that are not known for it (no successful login or completed reset
-from them in 30 days) wait 10 seconds per further failure, 60 seconds from 100
-failures and 5 minutes from 200; known clients are not delayed (policy v2). The
+account's clients that are not known for it wait 10 seconds per further failure,
+60 seconds from 100 failures and 5 minutes from 200; known clients are not delayed
+(policy v2). A client stays known for the account for 14 days (`KNOWN_CLIENT_TTL`)
+after the last of four successful authentications from it, each of which restarts
+the 14 days: a successful login, a change-password with the right current password,
+a completed password reset (for the client that reset) and a successful refresh-token
+rotation. Admission and failures never make a client known. The
 client is the gateway-resolved IP (`X-Parkio-Client-Ip`, IPv6 by /64), trusted only
-on gateway-authenticated requests. A successful login clears that client's counter
-and makes it known; a password reset clears every client's counter and makes the
-resetting client known. Client responses for
+on gateway-authenticated requests. A successful login or change-password clears that
+client's counter; a completed reset clears every client's counter. Client responses for
 wrong password, unknown email and a throttled attempt stay the same generic
 `INVALID_CREDENTIALS` shape; logs and the `login_lockouts` counter (now counting
 throttled attempts) distinguish them internally.

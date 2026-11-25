@@ -34,7 +34,7 @@ Public production remains **NO-GO** until remaining readiness blockers close.
 
 | Store | Authority | Rebuild |
 |-------|-----------|---------|
-| Redis | Cache, rate limits, idempotency keys, login throttle (incl. known-client markers, CL-F15 v2) | Cold miss; not authoritative. Losing it also empties every account's known-client allowlist: owners count as unknown clients until their next login or reset |
+| Redis | Cache, rate limits, idempotency keys, login throttle (incl. known-client markers, CL-F15 v2) | Cold miss; not authoritative. Losing it also empties every account's known-client allowlist: each owner's client counts as unknown until it writes its 14-day marker again (`KNOWN_CLIENT_TTL`, restarted on each write) with a successful login, a change-password with the right current password, a completed reset (for the resetting client) or a refresh-token rotation; see [login-throttling.md](../architecture/login-throttling.md) |
 | Kafka | Event transport | Retention-bound; outbox is source for republish |
 | Prometheus TSDB | Metrics | Re-scrape; recording rules as code |
 | Grafana dashboards | Git JSON | Re-provision from `docker/grafana/` |
