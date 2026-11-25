@@ -90,7 +90,7 @@ for needle in ('.github/workflows/candidate-images.yml', '"workflow_dispatch"', 
 text = open(f"{root}/.github/workflows/candidate-images.yml").read()
 assert "path: tools" not in text and "tools/" not in text            # no checkout into a tracked directory
 assert "path: source" in text and "source_dir: source" in text
-assert "source_dir" in act["inputs"] and build_step["with"]["context"] == "${{ inputs.source_dir }}"
+assert "source_dir" in act["inputs"] and act["runs"]["steps"][2]["with"]["context"] == "${{ inputs.source_dir }}"
 policy = json.load(open(f"{root}/.github/ci-gate-policy.json"))
 skips = {e["job"] for e in policy["allowed_skips"] if e["workflow"] == "candidate-images.yml"}
 names = {ci["jobs"][j]["name"] for j in ci["jobs"] if j != "script-tests"}

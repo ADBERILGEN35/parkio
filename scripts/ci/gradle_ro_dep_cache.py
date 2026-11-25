@@ -8,7 +8,10 @@ as before, and never writes to it. A dependency that no repository has still fai
 not find"). A bind mount is in no layer. A build that does not pass the context (local, release,
 deploy) gets the Dockerfile's empty stage and downloads everything, as before.
 
-CI fills the context from Backend CI's Gradle dependency cache. The job restores that entry with
+CI fills the context from Backend CI's Gradle dependency cache in the image builds that only test or
+scan: Security CI's container scans and the Compose jobs. The images that get published (the candidate
+builds and release.yml) never read it: any job on api can save a cache entry, and nothing verifies the
+jars, so they resolve every dependency themselves (#638 review). The job restores the entry with
 actions/cache/restore (only Backend CI saves it, on api) and then runs:
 
   stage DEST

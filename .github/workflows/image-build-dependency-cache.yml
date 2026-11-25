@@ -3,15 +3,17 @@
 # The service image builds take their Gradle dependencies from Backend CI's dependency cache instead of
 # downloading the whole graph from Maven Central, whose 429s can outlast Gradle's ~127 s retry (#636).
 # Each Dockerfile bind-mounts the build context `gradle-ro-dep-cache` read-only, and Gradle reads it as
-# its read-only dependency cache (GRADLE_RO_DEP_CACHE). Security CI's container scans, the Compose jobs
-# (runtime validation, chaos validation, performance smoke) and the candidate builds restore Backend
-# CI's entry, which only api saves, and pass it (scripts/ci/gradle_ro_dep_cache.py).
+# its read-only dependency cache (GRADLE_RO_DEP_CACHE). Security CI's container scans and the Compose
+# jobs (runtime validation, chaos validation, performance smoke) restore Backend CI's entry, which only
+# api saves, and pass it (scripts/ci/gradle_ro_dep_cache.py). The images that get published, the
+# candidate builds and release.yml's, never read it: they resolve every dependency themselves.
 #
 # This workflow checks that wiring and probes it on one service:
-#   - tests: the staging, the Compose override, the image comparison, the Dockerfiles, and that every
-#     Gradle dependency cache is restore-only on pull requests and saved on api only. Gradle's own
-#     read-only cache behaviour (a cached dependency is not downloaded, a missing one still fails) is
-#     tested in gradle-dependency-retry.yml;
+#   - tests: the staging, the Compose override, the image comparison, the Dockerfiles, that every
+#     Gradle dependency cache is restore-only on pull requests and saved on api only, and that the
+#     candidate action and release.yml read no dependency cache. Gradle's own read-only cache
+#     behaviour (a cached dependency is not downloaded, a missing one still fails) is tested in
+#     gradle-dependency-retry.yml;
 #   - probe: one service image built twice without the layer cache, without and then with the read-only
 #     cache. The second build must download no artifact and carry the same application (the image's
 #     history and configuration, every jar entry, the SBOM without its per-build fields). The report
@@ -35,6 +37,7 @@ on:
       - ".github/workflows/chaos-validation.yml"
       - ".github/workflows/performance-smoke.yml"
       - ".github/actions/candidate-image-build/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:

@@ -395,15 +395,12 @@ class WorkflowWiringTest(unittest.TestCase):
                 gradle = max(i for i, step in enumerate(steps) if "./gradlew" in (step.get("run") or ""))
                 self.assertGreater(steps.index(save), gradle)
 
-    def check_image_build(self, steps: list, build_marker: str, exact_key: bool = True):
+    def check_image_build(self, steps: list, build_marker: str):
         restore = self.restore(steps)
         reference = self.restore(self.backend_ci)
         self.assertEqual(restore["with"]["path"], reference["with"]["path"])
         self.assertEqual(restore["with"]["restore-keys"].strip(), BACKEND_CI_PREFIX)
-        if exact_key:
-            self.assertEqual(restore["with"]["key"], reference["with"]["key"])
-        else:
-            self.assertTrue(restore["with"]["key"].startswith(BACKEND_CI_PREFIX))
+        self.assertEqual(restore["with"]["key"], reference["with"]["key"])
         stages = [i for i, step in enumerate(steps) if STAGE_COMMAND in (step.get("run") or "")]
         self.assertEqual(len(stages), 1, "one staging step")
         builds = [i for i, step in enumerate(steps) if build_marker in json.dumps(step)]
@@ -434,13 +431,23 @@ class WorkflowWiringTest(unittest.TestCase):
                 for line in builds:
                     self.assertTrue('-f "$RUNNER_TEMP/compose-gradle-ro-dep-cache.json"' in line, line)
 
-    def test_the_candidate_builds_build_with_the_cache(self):
-        steps = steps_of(CANDIDATE_ACTION)
-        self.check_image_build(steps, "gradle-ro-dep-cache={0}/gradle-ro-dep-cache", exact_key=False)
-        build = next(step for step in steps if uses(step) == "docker/build-push-action")
-        self.assertEqual(build["with"]["build-contexts"],
-                         "${{ inputs.service != 'web' && format('gradle-ro-dep-cache={0}/gradle-ro-dep-cache', "
-                         "runner.temp) || '' }}")
+    def test_the_published_images_read_no_dependency_cache(self):
+        # candidate-publish.yml publishes the candidate images, and release.yml publishes its own. Both
+        # resolve every dependency themselves, from a fresh Gradle home: no Actions cache entry may reach the
+        # bytes of a published image, because any job on api can save one and nothing verifies the jars
+        # (#648 review, blocking 1; owner decision 6 allows no cache on the publication path).
+        for path, steps in ((CANDIDATE_ACTION, steps_of(CANDIDATE_ACTION)),
+                            (WORKFLOWS / "release.yml",
+                             [step for job in load_yaml(WORKFLOWS / "release.yml")["jobs"].values()
+                              for step in job.get("steps") or []])):
+            with self.subTest(file=path.name):
+                text = path.read_text(encoding="utf-8")
+                for needle in ("gradle-deps-", "gradle-ro-dep-cache", "gradle_ro_dep_cache", "GRADLE_RO_DEP_CACHE"):
+                    self.assertFalse(needle in text, f"{path.name} mentions {needle}")
+                for step in steps:
+                    self.assertFalse(str((step.get("with") or {}).get("key", "")).startswith("gradle-"), step.get("name"))
+                    if uses(step) == "docker/build-push-action":
+                        self.assertNotIn("build-contexts", step.get("with") or {})
 
 
 if __name__ == "__main__":
