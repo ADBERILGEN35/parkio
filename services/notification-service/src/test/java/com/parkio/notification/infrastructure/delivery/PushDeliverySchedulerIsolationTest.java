@@ -61,10 +61,9 @@ import org.springframework.test.context.bean.override.convention.TestBean;
         "parkio.lifecycle.retention.fixed-delay-ms=20",
         "parkio.smart-return.enabled=true",
         "parkio.smart-return.scheduler.enabled=true",
-        "parkio.smart-return.scheduler.return-check-fixed-delay-ms=20",
-        "parkio.smart-return.scheduler.morning-prompt-cron=* * * * * *",
-        // Both Smart Return jobs log every run at INFO.
-        "logging.level.com.parkio.notification.infrastructure.smartreturn=WARN"
+        // Both Smart Return jobs log every run at INFO, so they run less often than the relay.
+        "parkio.smart-return.scheduler.return-check-fixed-delay-ms=50",
+        "parkio.smart-return.scheduler.morning-prompt-cron=* * * * * *"
 })
 class PushDeliverySchedulerIsolationTest {
 
