@@ -54,8 +54,10 @@ class CheckScriptModes(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.repo = Repo(Path(self._tmp.name))
 
-    def problems(self, run_by_path: tuple[str, ...] = (), sourced_only: tuple[str, ...] = ()) -> list[str]:
-        return check.check(self.repo.root, run_by_path=run_by_path, sourced_only=sourced_only)[0]
+    def problems(self, run_by_path: tuple[str, ...] = (), sourced_only: tuple[str, ...] = (),
+                 library_python: tuple[str, ...] = ()) -> list[str]:
+        return check.check(self.repo.root, run_by_path=run_by_path, sourced_only=sourced_only,
+                           library_python=library_python)[0]
 
     def test_a_new_script_recorded_100644_fails_and_is_named(self):
         self.repo.add("scripts/restore-something.sh")
@@ -70,7 +72,7 @@ class CheckScriptModes(unittest.TestCase):
 
     def test_a_script_recorded_100755_passes(self):
         self.repo.add("scripts/backup-something.sh", executable=True)
-        problems, counts = check.check(self.repo.root, run_by_path=(), sourced_only=())
+        problems, counts = check.check(self.repo.root, run_by_path=(), sourced_only=(), library_python=())
         self.assertEqual(problems, [])
         self.assertEqual(counts["scripts"], 1)
 
@@ -80,6 +82,27 @@ class CheckScriptModes(unittest.TestCase):
         named = sorted(problem.split(":", 1)[0] for problem in self.problems())
         self.assertEqual(named, ["scripts/azure/new-host-step.sh", "scripts/ci/new-gate.sh",
                                  "scripts/staging/lib/new-helper.sh"])
+
+    def test_a_shebang_script_under_infra_recorded_100644_fails(self):
+        """#602: rule 1 covers infra/ as well as scripts/."""
+        self.repo.add("infra/terraform/tests/policy-guards.sh")
+        self.repo.add("infra/azure/new-host-step.sh")
+        named = sorted(problem.split(":", 1)[0] for problem in self.problems())
+        self.assertEqual(named, ["infra/azure/new-host-step.sh", "infra/terraform/tests/policy-guards.sh"])
+        self.assertIn("must be 100755", self.problems()[0])
+
+    def test_a_shebang_script_under_infra_recorded_100755_passes(self):
+        self.repo.add("infra/terraform/tests/policy-guards.sh", executable=True)
+        problems, counts = check.check(self.repo.root, run_by_path=(), sourced_only=(), library_python=())
+        self.assertEqual(problems, [])
+        self.assertEqual(counts["scripts"], 1)
+
+    def test_infra_files_that_are_not_shebang_sh_scripts_are_not_rule_1(self):
+        self.repo.add("infra/terraform/tests/policy-guards.ps1", text="# Usage: pwsh -File policy-guards.ps1\n")
+        self.repo.add("infra/fragment.sh", text=FRAGMENT)
+        self.repo.add("infra/tool.py", text="#!/usr/bin/env python3\n")
+        self.repo.add("infrastructure/other.sh")
+        self.assertEqual(self.problems(), [])
 
     def test_sourced_libraries_under_scripts_lib_may_stay_100644(self):
         self.repo.add("scripts/lib/backup-common.sh")
@@ -111,6 +134,41 @@ class CheckScriptModes(unittest.TestCase):
         self.assertEqual(self.problems(run_by_path=("gone.sh",)), ["gone.sh: listed in RUN_BY_PATH but not tracked"])
         self.assertEqual(self.problems(sourced_only=("scripts/x/lib/gone.sh",)),
                          ["scripts/x/lib/gone.sh: listed in SOURCED_ONLY but not tracked"])
+        self.assertEqual(self.problems(library_python=("scripts/lib/gone.py",)),
+                         ["scripts/lib/gone.py: listed in LIBRARY_PYTHON but not tracked"])
+
+    def test_every_python_file_under_scripts_lib_must_be_classified(self):
+        """#602, rule 4: a new scripts/lib/*.py fails until it is run by path or declared non-executable."""
+        for path, executable in (("scripts/lib/new_module.py", False), ("scripts/lib/new-cli.py", True),
+                                 ("scripts/lib/sub/nested.py", False)):
+            self.repo.add(path, text="#!/usr/bin/env python3\n", executable=executable)
+        self.repo.add("scripts/lib/helper.mjs", text="#!/usr/bin/env node\n")
+        self.repo.add("scripts/tool.py", text="#!/usr/bin/env python3\n")
+        problems = self.problems()
+        self.assertEqual(sorted(problem.split(":", 1)[0] for problem in problems),
+                         ["scripts/lib/new-cli.py", "scripts/lib/new_module.py", "scripts/lib/sub/nested.py"])
+        self.assertTrue(all("not classified" in problem for problem in problems), problems)
+
+    def test_a_python_file_run_by_path_is_classified_and_must_be_100755(self):
+        """#602: the run-by-path class, for example the restore-safe preflight's expose gate."""
+        self.repo.add("scripts/lib/recovery-expose-gate.py", text="#!/usr/bin/env python3\n", executable=True)
+        self.assertEqual(self.problems(run_by_path=("scripts/lib/recovery-expose-gate.py",)), [])
+        self.repo.git("update-index", "--chmod=-x", "--", "scripts/lib/recovery-expose-gate.py")
+        problems = self.problems(run_by_path=("scripts/lib/recovery-expose-gate.py",))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("scripts/lib/recovery-expose-gate.py: recorded 100644; it is run by path"),
+                        problems)
+
+    def test_a_python_file_declared_non_executable_must_stay_100644(self):
+        """#602: the non-executable class, for example a helper run as `python3 scripts/lib/recovery-drill.py`."""
+        self.repo.add("scripts/lib/recovery-drill.py", text="#!/usr/bin/env python3\n")
+        self.assertEqual(self.problems(library_python=("scripts/lib/recovery-drill.py",)), [])
+        self.repo.git("update-index", "--chmod=+x", "--", "scripts/lib/recovery-drill.py")
+        problems = self.problems(library_python=("scripts/lib/recovery-drill.py",))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("scripts/lib/recovery-drill.py: recorded 100755 but listed in "
+                                               "LIBRARY_PYTHON"), problems)
+        self.assertIn("move it to RUN_BY_PATH", problems[0])
 
     def test_a_sourced_only_library_is_exempt_from_rule_1_and_must_stay_100644(self):
         self.repo.add("scripts/staging/lib/safety-guards.sh")
@@ -132,9 +190,14 @@ class CheckScriptModes(unittest.TestCase):
     def test_the_lists_name_distinct_tracked_paths(self):
         self.assertEqual(len(set(check.RUN_BY_PATH)), len(check.RUN_BY_PATH))
         self.assertEqual(len(set(check.SOURCED_ONLY)), len(check.SOURCED_ONLY))
+        self.assertEqual(len(set(check.LIBRARY_PYTHON)), len(check.LIBRARY_PYTHON))
         self.assertFalse(set(check.RUN_BY_PATH) & set(check.SOURCED_ONLY))
+        self.assertFalse(set(check.RUN_BY_PATH) & set(check.LIBRARY_PYTHON))
         for path in check.SOURCED_ONLY:
             self.assertTrue(check.in_rule_1(path, ()), f"{path} would not need to be listed")
+        for path in check.LIBRARY_PYTHON:
+            self.assertTrue(check.in_rule_4(path), f"{path} is not a Python file under scripts/lib/")
+        self.assertEqual(list(check.LIBRARY_PYTHON), sorted(check.LIBRARY_PYTHON))
 
 
 if __name__ == "__main__":
