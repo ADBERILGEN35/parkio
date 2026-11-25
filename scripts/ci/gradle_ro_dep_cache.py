@@ -18,7 +18,9 @@ actions/cache/restore (only Backend CI saves it, on api) and then runs:
       Hard-links ${GRADLE_USER_HOME:-~/.gradle}/caches/modules-2 to DEST/modules-2, without the lock
       files and gc.properties that a read-only cache must not carry. After a cache miss there is no
       modules-2: DEST stays empty and the image builds download every dependency, as before. DEST must
-      be outside the repository, so that no `COPY . .` can copy it.
+      be outside the repository, so that no `COPY . .` can copy it. Because DEST is replaced, stage
+      refuses the repository, the Gradle cache, any directory inside or above either, and an existing
+      directory that holds anything but a previous staging.
 
   compose-override MODEL.json DEST --out OVERRIDE.json
       MODEL.json is `docker compose config --format json`. OVERRIDE.json makes DEST the
@@ -110,15 +112,31 @@ def artifacts(modules: Path) -> tuple:
     return count, size
 
 
+def _overlaps(a: Path, b: Path) -> bool:
+    """Whether a and b are the same directory, or one of them is inside the other."""
+    return a == b or a in b.parents or b in a.parents
+
+
 def stage(source: Path, dest: Path, repository: Path = ROOT) -> tuple:
     """Copies the modules-2 directory `source` to DEST/modules-2 as a read-only cache.
 
-    Returns (artifacts, bytes) staged, (0, 0) when `source` does not exist."""
-    dest = Path(os.path.abspath(dest))
-    repository = Path(os.path.abspath(repository))
-    if dest == repository or repository in dest.parents:
-        raise ValueError(f"{dest} is inside the repository; a `COPY . .` would copy it into the build stage")
+    DEST is replaced, so it must be a directory of its own: not the repository, the Gradle cache or a
+    directory inside or above either, and, if it exists, nothing but a previous staging (a modules-2
+    directory). Returns (artifacts, bytes) staged, (0, 0) when `source` does not exist."""
+    dest = Path(os.path.realpath(dest))
+    repository = Path(os.path.realpath(repository))
+    if _overlaps(dest, repository):
+        raise ValueError(f"{dest} is the repository, inside it or above it; a `COPY . .` would copy it into the "
+                         "build stage, or replacing it would delete the checkout")
+    if _overlaps(dest, Path(os.path.realpath(source))):
+        raise ValueError(f"{dest} is the Gradle cache {source}, inside it or above it; replacing it would delete "
+                         "the cache it copies")
+    if dest.exists() and not dest.is_dir():
+        raise ValueError(f"{dest} is not a directory")
     if dest.exists():
+        others = sorted(path.name for path in dest.iterdir() if path.name != "modules-2" or not path.is_dir())
+        if others:
+            raise ValueError(f"{dest} holds more than a staged cache ({', '.join(others[:3])}); refusing to delete it")
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     if not source.is_dir():

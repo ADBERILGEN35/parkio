@@ -19,7 +19,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -116,12 +116,43 @@ class StageTest(unittest.TestCase):
         cache.stage(self.source, dest, self.work / "repository")
         self.assertFalse((dest / "modules-2" / "stale").exists())
 
-    def test_refuses_a_destination_inside_the_build_context(self):
-        repository = self.work / "repository"
-        repository.mkdir()
-        for dest in (repository, repository / "gradle-ro-dep-cache"):
-            with self.subTest(dest=dest), self.assertRaisesRegex(ValueError, "inside the repository"):
-                cache.stage(self.source, dest, repository)
+    def test_refuses_the_repository_a_directory_inside_it_or_above_it(self):
+        repository = self.work / "checkout" / "repository"
+        (repository / "services").mkdir(parents=True)
+        for dest in (repository, repository / "gradle-ro-dep-cache", repository.parent, self.work):
+            with self.subTest(dest=dest):
+                with self.assertRaisesRegex(ValueError, "the repository"):
+                    cache.stage(self.source, dest, repository)
+                self.assertTrue((repository / "services").is_dir())
+
+    def test_refuses_the_gradle_cache_a_directory_inside_it_or_above_it(self):
+        # `stage ~` or `stage ~/.gradle` would delete the cache it is about to copy.
+        home = self.work / "home"
+        for dest in (self.source, self.source / "files-2.1", self.source.parent, home):
+            with self.subTest(dest=dest):
+                with self.assertRaisesRegex(ValueError, "the Gradle cache"):
+                    cache.stage(self.source, dest, self.work / "repository")
+                self.assertTrue((self.source / "files-2.1").is_dir())
+
+    def test_refuses_to_delete_a_directory_that_holds_more_than_a_staged_cache(self):
+        # `stage "$RUNNER_TEMP"` would delete the other steps' files.
+        dest = self.work / "runner-temp"
+        (dest / "modules-2").mkdir(parents=True)
+        (dest / "compose-model.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "holds more than a staged cache"):
+            cache.stage(self.source, dest, self.work / "repository")
+        self.assertTrue((dest / "compose-model.json").is_file())
+        file_dest = self.work / "a-file"
+        file_dest.write_text("x")
+        with self.assertRaisesRegex(ValueError, "is not a directory"):
+            cache.stage(self.source, file_dest, self.work / "repository")
+
+    def test_the_command_fails_on_a_refused_destination(self):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"GRADLE_USER_HOME": str(self.work / "home")}), redirect_stderr(err):
+            self.assertEqual(cache.main(["stage", str(self.work)]), 2)
+        self.assertIn("FAIL", err.getvalue())
+        self.assertTrue((self.source / "files-2.1").is_dir())
 
     def test_the_command_reads_the_gradle_user_home(self):
         out = io.StringIO()
