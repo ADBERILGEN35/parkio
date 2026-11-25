@@ -5,6 +5,7 @@ import com.parkio.auth.domain.exception.AuthErrorCode;
 import com.parkio.auth.domain.exception.AuthException;
 import java.time.Duration;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -15,7 +16,14 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.LongSupplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * GCS Object Retention Lock implementation of {@link DurableEvidenceBucket}. Version ids are GCS
@@ -42,10 +50,13 @@ import java.util.function.LongSupplier;
  * must be bounded per operation or that path must fail fast to the retry worker.
  *
  * <p>A listing ({@link #keys}, {@link #oldest}, {@link #allVersions}, {@link #versionCount}) also
- * runs under that lock, so it stays within {@link ListBounds} (#493): it fails closed with
+ * runs under that lock, so it stays within {@link ListBounds} (#493, #616): it fails closed with
  * {@link AuthErrorCode#DURABLE_RECORDING_UNAVAILABLE} instead of following a page token it has
- * already followed, fetching more than the maximum number of pages, or requesting another page once
- * its deadline has passed.
+ * already followed, fetching more than the maximum number of pages, or running past its deadline.
+ * Each page is requested on a virtual thread of its own and waited for at most what is left of the
+ * deadline. A page still in flight then is abandoned and its thread interrupted: the request may run
+ * on until the client's own timeouts end it, but no longer under the lock. A listing that completes
+ * past half of either bound logs a warning, before its history outgrows the bounds.
  *
  * <p>This class does not claim real-provider immutability acceptance; that remains #483.
  */
@@ -56,6 +67,10 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     static final List<Duration> RATE_LIMIT_PAUSES = List.of(
             Duration.ofMillis(1_100), Duration.ofMillis(2_200), Duration.ofMillis(4_400), Duration.ofMillis(8_800));
 
+    private static final Logger log = LoggerFactory.getLogger(GcsObjectRetentionBucket.class);
+    /** Page requests run on virtual threads, so a listing can stop waiting for one at its deadline. */
+    private static final ThreadFactory PAGE_REQUESTS = Thread.ofVirtual().name("durable-store-list-page-", 1).factory();
+
     /** Waits between resends; tests replace the real sleep. */
     @FunctionalInterface
     interface Pause {
@@ -64,17 +79,26 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
 
     /**
      * Bounds one listing: how many pages of {@link GcsObjectRetentionBucket#LIST_PAGE_SIZE} generations it may fetch, and
-     * for how long after it started it may still request another page. The deadline is checked
-     * between pages; a request in flight is bounded by the client's own timeouts.
+     * how long it may take, a page in flight included. The bounds apply to each listing (one
+     * {@code keys}, {@code oldest}, {@code allVersions} or {@code versionCount} call), not to a store
+     * operation, which may list several times. A tool built with a constructor that takes no bounds
+     * gets {@link #DEFAULT}; a recovery tool reading a longer history passes its own.
      */
     record ListBounds(int maxPages, Duration deadline) {
 
+        /** Upper limits, ten times {@link #DEFAULT}: no configured value switches a bound off (#616). */
+        static final int MAX_PAGES = 10_000;
+        static final Duration MAX_DEADLINE = Duration.ofMinutes(5);
+
         /**
-         * 100,000 generations, while a provider that repeats or never ends its pages is stopped
-         * within 30 s and the request stays {@code PENDING_DURABLE} for the retry worker. Since #494
-         * the store's normal path lists no history; the full listings left are recovery's and the
-         * store's fallback read of the frontier, whose history grows by one generation per record
-         * and per checkpoint.
+         * 1,000 pages and 30 s. The deadline binds first once pages take more than 30 ms on average,
+         * so a listing completes with up to about 100 * min(maxPages, deadline / mean page time)
+         * generations: 100,000 at 30 ms a page or less, 30,000 at 100 ms. Since #494 the store's
+         * normal path lists no history; the long listings are recovery's and the store's fallback
+         * read of the frontier, whose history is the bucket's first boundary plus one generation per
+         * record and one per checkpoint (sizing: docs/operations/n02-gcs-evidence-adapter-design.md).
+         * A provider that repeats or never ends its pages is stopped within the deadline, and the
+         * request stays {@code PENDING_DURABLE} for the retry worker.
          */
         static final ListBounds DEFAULT = new ListBounds(1_000, Duration.ofSeconds(30));
 
@@ -82,9 +106,15 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
             if (maxPages < 1) {
                 throw new IllegalArgumentException("maxPages must be at least 1");
             }
+            if (maxPages > MAX_PAGES) {
+                throw new IllegalArgumentException("maxPages must be at most " + MAX_PAGES);
+            }
             Objects.requireNonNull(deadline, "deadline");
             if (deadline.isZero() || deadline.isNegative()) {
                 throw new IllegalArgumentException("deadline must be positive");
+            }
+            if (deadline.compareTo(MAX_DEADLINE) > 0) {
+                throw new IllegalArgumentException("deadline must be at most " + MAX_DEADLINE);
             }
         }
     }
@@ -119,6 +149,11 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
     @Override
     public String bucket() {
         return transport.bucket();
+    }
+
+    /** The bounds every listing of this adapter keeps. */
+    ListBounds listBounds() {
+        return listBounds;
     }
 
     @Override
@@ -267,10 +302,11 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
             long started = nanoTime.getAsLong();
             Optional<String> token = Optional.empty();
             for (int pages = 1; ; pages++) {
-                GcsObjectRetentionTransport.ListPage page = transport.listGenerations(prefix, token, LIST_PAGE_SIZE);
+                GcsObjectRetentionTransport.ListPage page = page(prefix, token, pages, started);
                 all.addAll(page.items());
                 token = page.nextPageToken();
                 if (token.isEmpty()) {
+                    warnPastHalfOfABound(prefix, pages, elapsedSince(started));
                     return all;
                 }
                 if (!followed.add(token.get())) {
@@ -279,11 +315,58 @@ final class GcsObjectRetentionBucket implements DurableEvidenceBucket {
                 if (pages >= listBounds.maxPages()) {
                     throw listRefused(prefix, "more than " + listBounds.maxPages() + " pages");
                 }
-                if (Duration.ofNanos(nanoTime.getAsLong() - started).compareTo(listBounds.deadline()) >= 0) {
+                if (elapsedSince(started).compareTo(listBounds.deadline()) >= 0) {
                     throw listRefused(prefix, "deadline " + listBounds.deadline() + " passed");
                 }
             }
         });
+    }
+
+    /**
+     * Page {@code number} of a listing that started at {@code started}: requested on a thread of its
+     * own and waited for at most what is left of the deadline. A page still in flight then is
+     * abandoned (its thread is interrupted) and the listing fails closed (#616).
+     */
+    private GcsObjectRetentionTransport.ListPage page(String prefix, Optional<String> token, int number, long started)
+            throws Exception {
+        Duration left = listBounds.deadline().minus(elapsedSince(started));
+        if (left.isZero() || left.isNegative()) {
+            throw listRefused(prefix, "deadline " + listBounds.deadline() + " passed");
+        }
+        FutureTask<GcsObjectRetentionTransport.ListPage> request =
+                new FutureTask<>(() -> transport.listGenerations(prefix, token, LIST_PAGE_SIZE));
+        PAGE_REQUESTS.newThread(request).start();
+        try {
+            return request.get(left.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException ex) {
+            throw listRefused(prefix, "deadline " + listBounds.deadline() + " passed while page " + number
+                    + " was in flight");
+        } catch (ExecutionException ex) {
+            // What the transport threw, as if it had been called on this thread.
+            if (ex.getCause() instanceof Error error) {
+                throw error;
+            }
+            throw (Exception) ex.getCause();
+        } finally {
+            request.cancel(true);
+        }
+    }
+
+    private Duration elapsedSince(long started) {
+        return Duration.ofNanos(nanoTime.getAsLong() - started);
+    }
+
+    /**
+     * The early warning (#616): a listing that completed past half of either bound. Histories only
+     * grow, so the next listings of this prefix need more, and the bounds can be raised before they
+     * fail closed.
+     */
+    private void warnPastHalfOfABound(String prefix, int pages, Duration elapsed) {
+        if (pages * 2L > listBounds.maxPages() || elapsed.multipliedBy(2).compareTo(listBounds.deadline()) > 0) {
+            log.warn("durable store list {} needed {} of at most {} pages and {} of its {} deadline, past half of a"
+                            + " bound: raise list-max-pages or list-deadline before such listings fail closed", prefix,
+                    pages, listBounds.maxPages(), elapsed.truncatedTo(ChronoUnit.MILLIS), listBounds.deadline());
+        }
     }
 
     /** The page token itself is opaque provider state and stays out of the message. */

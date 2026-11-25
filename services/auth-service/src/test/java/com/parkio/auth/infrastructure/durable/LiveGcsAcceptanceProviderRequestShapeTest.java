@@ -38,10 +38,13 @@ import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * What the real Cloud Storage client sends for the merged adapter's transport and for the
@@ -76,6 +79,8 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
     private volatile boolean versioning = true;
     private volatile int deleteStatus = 204;
     private volatile int patchStatus = 200;
+    /** While set, the endpoint answers no list page until it is counted down (#616). */
+    private volatile CountDownLatch listStall;
 
     @BeforeEach
     void start() throws IOException {
@@ -89,7 +94,33 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
 
     @AfterEach
     void stop() {
+        CountDownLatch stall = listStall;
+        if (stall != null) {
+            stall.countDown();
+        }
         server.stop(0);
+    }
+
+    /**
+     * #616 F1 with the real client: a list page the provider never answers ends the listing at the
+     * adapter's deadline, not after the client's read timeout (20 s) and its retries (50 s).
+     */
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void aListPageTheProviderNeverAnswersEndsTheListingAtTheAdaptersDeadline() {
+        listStall = new CountDownLatch(1);
+        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(provider.transport(Identity.READER, BUCKET),
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofMillis(500)));
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> bucket.keys(NAME))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list " + NAME
+                        + " failed: deadline PT0.5S passed while page 1 was in flight");
+
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+        assertThat(requests).isNotEmpty()
+                .allSatisfy(request -> assertThat(request.path()).isEqualTo("/storage/v1/b/" + BUCKET + "/o"));
     }
 
     @Test
@@ -516,6 +547,14 @@ class LiveGcsAcceptanceProviderRequestShapeTest {
             long generation = 1761123456000000L + requests.stream().filter(r -> r.method().equals("POST")).count();
             respond(exchange, 200, object(generation));
         } else if (method.equals("GET") && path.equals("/storage/v1/b/" + BUCKET + "/o")) {
+            CountDownLatch stall = listStall;
+            if (stall != null) {
+                try {
+                    stall.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             respond(exchange, 200, "{\"kind\":\"storage#objects\",\"items\":[" + object(5) + "," + object(3)
                     + "],\"nextPageToken\":\"tok-2\"}");
         } else if (method.equals("GET") && "media".equals(query.get("alt"))) {

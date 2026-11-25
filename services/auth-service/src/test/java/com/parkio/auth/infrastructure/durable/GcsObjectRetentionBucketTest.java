@@ -24,12 +24,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 import java.util.function.LongSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 /**
  * Local behavioural evidence for the GCS Object Retention Lock adapter through a controlled
@@ -319,6 +326,128 @@ class GcsObjectRetentionBucketTest {
         assertThat(paging.requestedTokens).hasSize(3);
     }
 
+    /**
+     * #616 F1: the deadline also bounds a page in flight. The provider never answers the first page,
+     * so the listing fails closed when the deadline passes and abandons the request, instead of
+     * waiting under the store's lock for the client's own timeouts (20 s a request, 50 s with retries).
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void aPageThatNeverArrivesFailsTheListingAtItsDeadline() throws InterruptedException {
+        CountDownLatch interrupted = new CountDownLatch(1);
+        PagingTransport stalled = new PagingTransport(request -> stall(interrupted));
+        GcsObjectRetentionBucket bounded = bounded(stalled,
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofMillis(300)), System::nanoTime);
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> bounded.oldest("records/stalled.json"))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list records/stalled.json failed: deadline PT0.3S passed while page 1 was"
+                        + " in flight")
+                .extracting(ex -> ((AuthException) ex).errorCode())
+                .isEqualTo(AuthErrorCode.DURABLE_RECORDING_UNAVAILABLE);
+        Duration took = Duration.ofNanos(System.nanoTime() - started);
+
+        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(300)).isLessThan(Duration.ofSeconds(5));
+        assertThat(interrupted.await(5, TimeUnit.SECONDS)).as("the abandoned page request is interrupted").isTrue();
+        assertThat(stalled.requestedTokens).containsExactly(Optional.empty());
+    }
+
+    /**
+     * #616 F1: a later page gets only what is left of the deadline, not a deadline of its own. The
+     * first page uses 59 of the 60 s on a fake clock; the second never answers, so the listing ends
+     * about 1 s later instead of 60 s later.
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void aStalledLaterPageGetsOnlyWhatIsLeftOfTheDeadline() {
+        AtomicLong skipped = new AtomicLong();
+        CountDownLatch interrupted = new CountDownLatch(1);
+        PagingTransport paging = new PagingTransport(request -> {
+            if (request > 0) {
+                return stall(interrupted);
+            }
+            skipped.addAndGet(Duration.ofSeconds(59).toNanos());
+            return pageWithToken("page-token-0");
+        });
+        GcsObjectRetentionBucket bounded = bounded(paging,
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofMinutes(1)),
+                () -> System.nanoTime() + skipped.get());
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> bounded.keys("sequences/"))
+                .isInstanceOf(AuthException.class)
+                .hasMessage("durable store list sequences/ failed: deadline PT1M passed while page 2 was in flight");
+
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        assertThat(paging.requestedTokens).containsExactly(Optional.empty(), Optional.of("page-token-0"));
+    }
+
+    /** #616 F4: the bounds have upper limits, so a very large value cannot switch them off. */
+    @Test
+    void listBoundsHaveUpperLimits() {
+        assertThat(new GcsObjectRetentionBucket.ListBounds(10_000, Duration.ofMinutes(5)).maxPages()).isEqualTo(10_000);
+        assertThatThrownBy(() -> new GcsObjectRetentionBucket.ListBounds(10_001, Duration.ofSeconds(30)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("maxPages must be at most 10000");
+        assertThatThrownBy(() -> new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofMinutes(5).plusMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("deadline must be at most PT5M");
+    }
+
+    /**
+     * #616 F2: a listing that completes past half of either bound logs a warning, while the next
+     * listings of a history that only grows still complete; one within both halves logs nothing.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void aListingPastHalfOfABoundWarnsBeforeTheBoundStopsIt(CapturedOutput output) {
+        String key = DurableErasureEvidence.FRONTIER_KEY;
+        // 3 of at most 4 pages: past half of the page bound.
+        assertThat(bounded(pages(key, 3, null), new GcsObjectRetentionBucket.ListBounds(4, Duration.ofMinutes(5)),
+                () -> 0L).versionCount(key)).isEqualTo(3);
+        // 1 page in 6 s of a 10 s deadline: past half of the deadline.
+        AtomicLong slow = new AtomicLong();
+        assertThat(bounded(pages(key, 1, () -> slow.addAndGet(Duration.ofSeconds(6).toNanos())),
+                new GcsObjectRetentionBucket.ListBounds(4, Duration.ofSeconds(10)), slow::get).versionCount(key))
+                .isEqualTo(1);
+        // 2 of 4 pages in 5 s of a 10 s deadline: half of each bound, not past it.
+        AtomicLong half = new AtomicLong();
+        assertThat(bounded(pages(key, 2, () -> half.addAndGet(Duration.ofMillis(2_500).toNanos())),
+                new GcsObjectRetentionBucket.ListBounds(4, Duration.ofSeconds(10)), half::get).versionCount(key))
+                .isEqualTo(2);
+
+        assertThat(output.getAll())
+                .contains("durable store list " + key + " needed 3 of at most 4 pages and PT0S of its PT5M deadline,"
+                        + " past half of a bound")
+                .contains("durable store list " + key + " needed 1 of at most 4 pages and PT6S of its PT10S deadline,"
+                        + " past half of a bound");
+        assertThat(output.getAll().split("past half of a bound", -1)).hasSize(3);
+    }
+
+    /** {@code count} pages of one generation of {@code key} each; {@code perPage} runs before each answer. */
+    private static PagingTransport pages(String key, int count, Runnable perPage) {
+        return new PagingTransport(request -> {
+            if (perPage != null) {
+                perPage.run();
+            }
+            return new GcsObjectRetentionTransport.ListPage(
+                    List.of(new GcsObjectRetentionTransport.ListedGeneration(key, request + 1, false)),
+                    request < count - 1 ? Optional.of("page-token-" + request) : Optional.empty());
+        });
+    }
+
+    /** A page the provider never answers: it blocks until its request is abandoned (or 60 s pass). */
+    private static GcsObjectRetentionTransport.ListPage stall(CountDownLatch interrupted) {
+        try {
+            Thread.sleep(Duration.ofSeconds(60));
+        } catch (InterruptedException ex) {
+            interrupted.countDown();
+            Thread.currentThread().interrupt();
+        }
+        throw new StorageException(0, "the test provider never answered this page");
+    }
+
     private static GcsObjectRetentionBucket bounded(GcsObjectRetentionTransport transport,
                                                     GcsObjectRetentionBucket.ListBounds bounds,
                                                     LongSupplier nanoTime) {
@@ -336,7 +465,8 @@ class GcsObjectRetentionBucketTest {
     /** Answers listing request n (from 0) with {@code pages.apply(n)} and records its token; nothing else. */
     private static final class PagingTransport implements GcsObjectRetentionTransport {
 
-        final List<Optional<String>> requestedTokens = new ArrayList<>();
+        /** Thread-safe: since #616 each page is requested on a thread of its own. */
+        final List<Optional<String>> requestedTokens = new CopyOnWriteArrayList<>();
         private final IntFunction<ListPage> pages;
 
         PagingTransport(IntFunction<ListPage> pages) {

@@ -58,12 +58,17 @@ class GcsDurableStoreConfig {
                 .setProjectId(properties.getProjectId())
                 .build()
                 .getService();
-        GcsObjectRetentionBucket bucket = new GcsObjectRetentionBucket(
-                new GoogleCloudStorageTransport(storage, properties.getBucket()),
-                new GcsObjectRetentionBucket.ListBounds(properties.getListMaxPages(), properties.getListDeadline()));
+        GcsObjectRetentionBucket bucket = bucket(properties, new GoogleCloudStorageTransport(storage,
+                properties.getBucket()));
         bucket.requireRetentionFeature();
         return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(),
                 EvidenceRetentionMode.parse(properties.getRetentionMode()), properties.getRetention(), clock);
+    }
+
+    /** The adapter over {@code transport}, with the configured listing bounds (#616). */
+    static GcsObjectRetentionBucket bucket(GcsDurableStoreProperties properties,
+                                           GcsObjectRetentionTransport transport) {
+        return new GcsObjectRetentionBucket(transport, properties.listBounds());
     }
 
     private static EvidenceTrust trust(String file) {
