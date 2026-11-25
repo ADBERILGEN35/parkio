@@ -10,6 +10,9 @@
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --dry-run
 #   PARKIO_ENV_FILE=docker/.env ./scripts/restore-hosted-beta.sh --manifest ... --yes --only minio
 #
+# --dry-run and --yes count only on the command line: DRY_RUN or ASSUME_YES from the
+# environment or the env file is ignored with a WARN.
+#
 # Stage-4 isolated recovery (U02) adds, with the isolated ticket:
 #   --erasure-evidence BUNDLE --erasure-trust TRUST --recovery-attempt UUID --recovery-dir DIR
 # The off-host evidence bundle is verified before anything is decrypted: missing, corrupt or
@@ -35,8 +38,10 @@ source "$ROOT/scripts/lib/restore-safe-preflight.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 MANIFEST=""
-DRY_RUN=0
-ASSUME_YES="no"
+# The per-run switches come from the command line only. The env file is sourced below under
+# set -a, so they are parsed into private names and become DRY_RUN / ASSUME_YES after it.
+arg_dry_run=0
+arg_assume_yes="no"
 ONLY=""
 STAMP_OVERRIDE=""
 LEDGER_STAMPS=()
@@ -45,25 +50,36 @@ ERASURE_TRUST=""
 RECOVERY_ATTEMPT=""
 RECOVERY_DIR=""
 
+# A value option must not take the next option as its value ("--env-file --dry-run").
+option_value() {
+  case "${2-}" in
+    "" | -*)
+      echo "ERROR: $1 needs a value; got '${2-}'" >&2
+      exit 2
+      ;;
+  esac
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --manifest) MANIFEST="${2:-}"; shift 2 ;;
-    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    --yes) ASSUME_YES="yes"; shift ;;
-    --only) ONLY="${2:-}"; shift 2 ;;
-    --stamp-dir) STAMP_OVERRIDE="${2:-}"; shift 2 ;;
-    --recovery-cutoff) PARKIO_RESTORE_RECOVERY_CUTOFF="${2:-}"; shift 2 ;;
-    --ledger-stamp) LEDGER_STAMPS+=("${2:-}"); shift 2 ;;
-    --supplemental-ledger) PARKIO_RESTORE_SUPPLEMENTAL_LEDGER="${2:-}"; shift 2 ;;
-    --supplemental-covered-through) PARKIO_RESTORE_SUPPLEMENTAL_THROUGH="${2:-}"; shift 2 ;;
+    --manifest) option_value "$1" "${2-}"; MANIFEST="$2"; shift 2 ;;
+    --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
+    --dry-run) arg_dry_run=1; shift ;;
+    --yes) arg_assume_yes="yes"; shift ;;
+    --only) option_value "$1" "${2-}"; ONLY="$2"; shift 2 ;;
+    --stamp-dir) option_value "$1" "${2-}"; STAMP_OVERRIDE="$2"; shift 2 ;;
+    --recovery-cutoff) option_value "$1" "${2-}"; PARKIO_RESTORE_RECOVERY_CUTOFF="$2"; shift 2 ;;
+    --ledger-stamp) option_value "$1" "${2-}"; LEDGER_STAMPS+=("$2"); shift 2 ;;
+    --supplemental-ledger) option_value "$1" "${2-}"; PARKIO_RESTORE_SUPPLEMENTAL_LEDGER="$2"; shift 2 ;;
+    --supplemental-covered-through)
+      option_value "$1" "${2-}"; PARKIO_RESTORE_SUPPLEMENTAL_THROUGH="$2"; shift 2 ;;
     --isolated-fixture) PARKIO_RESTORE_ISOLATED_FIXTURE=1; shift ;;
-    --isolated-ticket) PARKIO_RESTORE_ISOLATED_TICKET="${2:-}"; shift 2 ;;
-    --erasure-evidence) ERASURE_EVIDENCE="${2:-}"; shift 2 ;;
-    --erasure-trust) ERASURE_TRUST="${2:-}"; shift 2 ;;
-    --recovery-attempt) RECOVERY_ATTEMPT="${2:-}"; shift 2 ;;
-    --recovery-dir) RECOVERY_DIR="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    --isolated-ticket) option_value "$1" "${2-}"; PARKIO_RESTORE_ISOLATED_TICKET="$2"; shift 2 ;;
+    --erasure-evidence) option_value "$1" "${2-}"; ERASURE_EVIDENCE="$2"; shift 2 ;;
+    --erasure-trust) option_value "$1" "${2-}"; ERASURE_TRUST="$2"; shift 2 ;;
+    --recovery-attempt) option_value "$1" "${2-}"; RECOVERY_ATTEMPT="$2"; shift 2 ;;
+    --recovery-dir) option_value "$1" "${2-}"; RECOVERY_DIR="$2"; shift 2 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -74,6 +90,14 @@ if [ -z "${MANIFEST}" ] || [ ! -f "${MANIFEST}" ]; then
 fi
 
 parkio_backup_load_env "${ENV_FILE}"
+if [ -n "${DRY_RUN+set}" ]; then
+  echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
+fi
+if [ -n "${ASSUME_YES+set}" ]; then
+  echo "WARN: ignoring ASSUME_YES from the environment or env file; only --yes counts." >&2
+fi
+DRY_RUN="${arg_dry_run}"
+ASSUME_YES="${arg_assume_yes}"
 parkio_backup_validate_deployment_profile
 
 if ! parkio_restore_resolve_stamp_from_manifest "${MANIFEST}" "${STAMP_OVERRIDE}"; then
