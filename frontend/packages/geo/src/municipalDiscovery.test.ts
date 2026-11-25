@@ -37,10 +37,60 @@ function facility(overrides: Partial<MunicipalFacility> = {}): MunicipalFacility
 }
 
 describe('municipalAvailabilityBucket', () => {
-  it('classifies only from availableSpaces', () => {
-    expect(municipalAvailabilityBucket(facility({ availableSpaces: 12 }))).toBe('available');
-    expect(municipalAvailabilityBucket(facility({ availableSpaces: 0 }))).toBe('unavailable');
-    expect(municipalAvailabilityBucket(facility({ availableSpaces: null }))).toBe('unknown');
+  it.each(['LIVE', 'AGING'] as const)(
+    'buckets %s occupancy on availableSpaces, as before',
+    (freshness) => {
+      const fresh = { freshness, availabilityFreshness: freshness };
+      expect(municipalAvailabilityBucket(facility({ ...fresh, availableSpaces: 12 }))).toBe(
+        'available',
+      );
+      expect(municipalAvailabilityBucket(facility({ ...fresh, availableSpaces: 0 }))).toBe(
+        'unavailable',
+      );
+      expect(municipalAvailabilityBucket(facility({ ...fresh, availableSpaces: null }))).toBe(
+        'unknown',
+      );
+    },
+  );
+
+  it('puts a stale facility with a non-zero availableSpaces in unknown', () => {
+    // The card shows the stale copy, not the retained number (#598).
+    expect(
+      municipalAvailabilityBucket(
+        facility({ availableSpaces: 17, freshness: 'STALE', availabilityFreshness: 'STALE' }),
+      ),
+    ).toBe('unknown');
+  });
+
+  it.each([
+    { freshness: 'STALE', availabilityFreshness: null },
+    { freshness: 'UNAVAILABLE', availabilityFreshness: 'UNAVAILABLE' },
+    { freshness: 'INVALID', availabilityFreshness: 'INVALID' },
+    { freshness: null, availabilityFreshness: null },
+  ] as const)(
+    'puts numbers with freshness $freshness / $availabilityFreshness in unknown',
+    (freshness) => {
+      expect(municipalAvailabilityBucket(facility({ ...freshness, availableSpaces: 9 }))).toBe(
+        'unknown',
+      );
+      expect(municipalAvailabilityBucket(facility({ ...freshness, availableSpaces: 0 }))).toBe(
+        'unknown',
+      );
+    },
+  );
+
+  it('reads freshness with the same precedence as the card', () => {
+    // availabilityFreshness wins over the facility-level freshness.
+    expect(
+      municipalAvailabilityBucket(
+        facility({ availableSpaces: 9, freshness: 'LIVE', availabilityFreshness: 'STALE' }),
+      ),
+    ).toBe('unknown');
+    expect(
+      municipalAvailabilityBucket(
+        facility({ availableSpaces: 9, freshness: 'STALE', availabilityFreshness: 'AGING' }),
+      ),
+    ).toBe('available');
   });
 
   it('does not infer from capacity or freshness alone', () => {
@@ -96,6 +146,8 @@ describe('filterMunicipalFacilities', () => {
     facility({
       id: 'avail-izum',
       availableSpaces: 8,
+      freshness: 'LIVE',
+      availabilityFreshness: 'LIVE',
       sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
       facilityType: 'OFF_STREET',
       selectedFieldProvenanceSummary: { NAME: 'izum' },
@@ -103,6 +155,8 @@ describe('filterMunicipalFacilities', () => {
     facility({
       id: 'full-izum',
       availableSpaces: 0,
+      freshness: 'LIVE',
+      availabilityFreshness: 'LIVE',
       sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
       facilityType: 'ON_STREET',
       selectedFieldProvenanceSummary: null,
@@ -140,6 +194,34 @@ describe('filterMunicipalFacilities', () => {
         availability: 'unknown',
       }).map((f) => f.id),
     ).toEqual(['osm-unknown']);
+  });
+
+  it('filters stale retained numbers as unknown, not available or unavailable', () => {
+    const withStale = [
+      ...facilities,
+      facility({
+        id: 'stale-izum',
+        availableSpaces: 5,
+        freshness: 'STALE',
+        availabilityFreshness: 'STALE',
+        sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      }),
+      facility({
+        id: 'stale-full-izum',
+        availableSpaces: 0,
+        freshness: 'STALE',
+        availabilityFreshness: 'STALE',
+        sourceLabel: 'Izmir Buyuksehir Belediyesi / IZUM',
+      }),
+    ];
+    const ids = (availability: 'available' | 'unavailable' | 'unknown') =>
+      filterMunicipalFacilities(withStale, { ...EMPTY_MUNICIPAL_FILTERS, availability }).map(
+        (f) => f.id,
+      );
+
+    expect(ids('available')).toEqual(['avail-izum']);
+    expect(ids('unavailable')).toEqual(['full-izum']);
+    expect(ids('unknown')).toEqual(['osm-unknown', 'stale-izum', 'stale-full-izum']);
   });
 
   it('filters by exact sourceLabel', () => {
