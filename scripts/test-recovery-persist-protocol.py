@@ -17,6 +17,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/lib"))
@@ -538,6 +539,55 @@ class TrustDocumentTest(unittest.TestCase):
                     EvidenceTrust.from_document(document)
                 self.assertIn(problem, str(ctx.exception))
                 self.assertNotIn(self.SECRET[:16], str(ctx.exception))
+
+
+class StoreReadLockTest(unittest.TestCase):
+    """#640: every read of IsolatedVersionedStore waits for a write in progress.
+
+    write_bytes truncates the file before it writes, so a reader without the store's lock could read
+    an empty or partial publication. The writer below stops between the truncation and the write;
+    a reader must neither return before the writer resumes nor see the truncated file. This is the
+    flake #621 reported: concurrent writers read the frontier that another writer was replacing
+    (verify_frontier -> get_optional) and failed with JSONDecodeError on its empty bytes."""
+
+    KEY = "frontier/expected-through.json"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = IsolatedVersionedStore(Path(self.tmp.name) / "store")
+        self.store.put(self.KEY, b'{"expectedThrough": 1}')
+        self.new = b'{"expectedThrough": 2, "highestReserved": 2}'
+
+    def test_reads_wait_for_a_write_in_progress(self):
+        truncated, resume = threading.Event(), threading.Event()
+
+        def paused_write(path, data):
+            with path.open("wb") as handle:  # truncates, as Path.write_bytes does
+                truncated.set()
+                resume.wait(10)
+                handle.write(data)
+            return len(data)
+
+        for read in ("get", "get_optional"):
+            with self.subTest(read=read):
+                truncated.clear()
+                resume.clear()
+                self.store.put(self.KEY, b'{"expectedThrough": 1}')
+                results = []
+                with mock.patch.object(Path, "write_bytes", paused_write):
+                    writer = threading.Thread(target=self.store.put, args=(self.KEY, self.new))
+                    writer.start()
+                    self.assertTrue(truncated.wait(10), "the writer did not start")
+                    reader = threading.Thread(target=lambda: results.append(getattr(self.store, read)(self.KEY)))
+                    reader.start()
+                    reader.join(0.5)
+                    returned_during_the_write = not reader.is_alive()
+                    resume.set()
+                    writer.join(10)
+                    reader.join(10)
+                self.assertFalse(returned_during_the_write, f"{read} returned while the publication was being written")
+                self.assertEqual(results, [self.new])
 
 
 class CountingMemoryStore:
