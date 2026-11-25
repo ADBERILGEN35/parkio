@@ -45,8 +45,8 @@ production acceptance ([disaster-recovery-runbook.md](../operations/disaster-rec
 | Layer | Scope | Status |
 |---|---|---|
 | A | Bundle-validation wrapper (`scripts/production-recovery-evidence.sh`, default-off) | Done (#481; #366 and #367 closed) |
-| B | GCS Object Retention Lock adapter (default-off) | Merged (#484, #491), **not ready for production**: [#493](https://github.com/ADBERILGEN35/parkio/issues/493) (unbounded pagination) blocks enablement |
-| Store | `ObjectLockDurableErasureRecordStore`, shared by every provider route | [#494](https://github.com/ADBERILGEN35/parkio/issues/494) (per-write history cost) blocks enablement on any route |
+| B | GCS Object Retention Lock adapter (default-off) | Merged (#484, #491), **not ready for production**. [#493](https://github.com/ADBERILGEN35/parkio/issues/493) (unbounded pagination) is closed: listings are bounded since #576, with the follow-ups of [#616](https://github.com/ADBERILGEN35/parkio/issues/616). Enablement waits for C and D |
+| Store | `ObjectLockDurableErasureRecordStore`, shared by every provider route | [#494](https://github.com/ADBERILGEN35/parkio/issues/494) (per-write history cost) is closed: conditional writes since #578, so a write's cost no longer grows with the history. Enablement waits for C and D |
 | C | Real-provider acceptance on a dedicated bucket with synthetic data | Plan approved by the owner; the run ([#483](https://github.com/ADBERILGEN35/parkio/issues/483)) is pending |
 | D | Production export, enablement, exposure and legal retention | **Open: this memo** |
 
@@ -371,8 +371,8 @@ that permission, so retention protects the evidence, not IAM. #483 measures this
 | F7b. Alert on `PENDING_DURABLE` growth and recording failures only | No extra calls. Detects the drift only after erasures start waiting |
 
 **Before enablement:**
-- #493 must be merged (GCS route only).
-- #494 must be merged (any route), with conditional writes per the owner's decision.
+- #493 must be merged (GCS route only). Done: #576, 2026-11-24.
+- #494 must be merged (any route), with conditional writes per the owner's decision. Done: #578, 2026-11-24.
 - #483 must pass, and its cleanup must be recorded.
 
 ### D5. Disk snapshot restores
@@ -393,7 +393,7 @@ Steps 1 to 3 can run in parallel. The rest are ordered.
 
 1. Run #483 (approved) and record its cleanup. It confirms the GCS route or refutes it; if refuted, D3 moves to
    the S3 contingency.
-2. Merge #493 and #494.
+2. Merge #493 and #494 (done: #576 and #578, 2026-11-24).
 3. Counsel answers D1. The owner records on #365:
    - D1: the lock period, the answer on indefinite retention, and the lawful-basis outcome;
    - D2: the custody choices;
