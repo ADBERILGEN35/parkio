@@ -2,6 +2,7 @@ package com.parkio.parking.infrastructure.lifecycle;
 
 import com.parkio.parking.application.MunicipalFacilitySyncService;
 import com.parkio.parking.infrastructure.anpark.AnparkMunicipalParkingAdapter;
+import com.parkio.parking.infrastructure.config.MunicipalSyncSchedulingConfig;
 import com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,7 +26,8 @@ public class AnparkMunicipalSyncJob {
     }
 
     /** Default 6h: inventory-only feed; no live occupancy cadence required. */
-    @Scheduled(fixedDelayString = "${parkio.municipal.anpark.fixed-delay-ms:21600000}")
+    @Scheduled(fixedDelayString = "${parkio.municipal.anpark.fixed-delay-ms:21600000}",
+            scheduler = MunicipalSyncSchedulingConfig.MUNICIPAL_SYNC_SCHEDULER)
     public void sync() {
         Instant started = Instant.now();
         var result = service.sync(AnparkMunicipalParkingAdapter.SOURCE_KEY);

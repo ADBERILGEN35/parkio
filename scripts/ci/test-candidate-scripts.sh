@@ -155,9 +155,10 @@ if PATH="$TMP/bin:$PATH" COMPOSE_ENV_FILE=x COMPOSE_FILES="-f a.yml" bash "$ROOT
 if PATH="$TMP/bin:$PATH" FAKE_BREAK=geocode COMPOSE_ENV_FILE=x COMPOSE_FILES="-f a.yml" bash "$ROOT/scripts/ci/candidate-stack-checks.sh" "$TMP/stack-bad" >/dev/null 2>&1; then
   ko "stack checks fail on one wrong answer"; else grep -q '^FAIL.gateway-geocoding-401' "$TMP/stack-bad/checks.tsv" && ok "stack checks fail on one wrong answer" || ko "stack checks fail on one wrong answer"; fi
 
-# 10. the U03 auth intercept stub relays auth-service's answers with one Content-Length (loopback sockets only)
+# 10. the U03 auth intercept stub relays auth-service's answers and the gateway's requests as they came, with
+#     one Content-Length (loopback sockets only)
 if python3 "$ROOT/scripts/ci/candidate-acceptance/test_stubs.py" >"$TMP/stubs-test.log" 2>&1; then
-  ok "auth intercept stub relays one Content-Length"; else cat "$TMP/stubs-test.log"; ko "auth intercept stub relays one Content-Length"; fi
+  ok "auth intercept stub relays answers and requests as they came"; else cat "$TMP/stubs-test.log"; ko "auth intercept stub relays answers and requests as they came"; fi
 
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

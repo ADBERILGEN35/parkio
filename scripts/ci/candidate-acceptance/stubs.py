@@ -5,23 +5,37 @@ Not production. Synthetic isolated stack only.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 AUTH_UPSTREAM = "http://auth-service:8081"
 MODE = {"epoch": "proxy"}  # proxy|null|malformed|mismatch|empty|missing|http500
 LOCK = threading.Lock()
-# Not relayed from auth-service's response: hop-by-hop headers, and the headers this stub writes itself
-# (send_response writes Server and Date, _proxy computes Content-Length). A relayed Content-Length beside
-# the computed one makes the gateway's Netty client refuse the response, even when both are equal.
-NOT_RELAYED = {"connection", "transfer-encoding", "content-length", "date", "server"}
+# Not relayed from auth-service's response: the hop-by-hop headers, and the headers this stub writes
+# itself (send_response writes Server and Date, _proxy computes Content-Length for the body it read, so
+# a chunked answer goes out with a Content-Length and no Transfer-Encoding). A relayed Content-Length
+# beside the computed one makes the gateway's Netty client refuse the response, even when both are
+# equal. auth-service's Tomcat sends Date but no Server, so in the real stack only Date was duplicated.
+NOT_RELAYED = {"connection", "keep-alive", "transfer-encoding", "content-length", "date", "server"}
+# Not forwarded from the gateway's request: Host (http.client writes auth-service's), Content-Length
+# (computed for the body _read returns) and the hop-by-hop headers. Every other line goes on as it
+# came, so a repeated header stays repeated.
+NOT_FORWARDED = {"host", "content-length", "connection", "keep-alive", "te", "transfer-encoding", "upgrade"}
 
 
 def _read(handler: BaseHTTPRequestHandler) -> bytes:
+    """The request body, by its Content-Length or, for a chunked request, its chunks."""
+    if "chunked" in (handler.headers.get("Transfer-Encoding") or "").lower():
+        chunks = []
+        while size := int(handler.rfile.readline().split(b";", 1)[0], 16):
+            chunks.append(handler.rfile.read(size))
+            handler.rfile.readline()  # the CRLF after the chunk
+        while handler.rfile.readline() not in (b"\r\n", b"\n", b""):  # trailer fields end at an empty line
+            pass
+        return b"".join(chunks)
     n = int(handler.headers.get("Content-Length") or 0)
     return handler.rfile.read(n) if n else b""
 
@@ -124,27 +138,40 @@ class AuthInterceptHandler(BaseHTTPRequestHandler):
         self._proxy()
 
     def _proxy(self):
-        url = AUTH_UPSTREAM + self.path
+        """Relay one request to auth-service and its answer back, whatever the status.
+
+        http.client follows no redirect and raises nothing for a 4xx or 5xx, so a 3xx goes back as it
+        came, and an error answer keeps its headers (Set-Cookie, WWW-Authenticate, Retry-After) and
+        its full Content-Type.
+        """
         body = _read(self)
-        headers = {k: v for k, v in self.headers.items() if k.lower() not in {"host", "content-length"}}
-        req = Request(url, data=body if body else None, method=self.command, headers=headers)
+        lines = [(k, v) for k, v in self.headers.items() if k.lower() not in NOT_FORWARDED]
+        upstream = urlparse(AUTH_UPSTREAM)
+        conn = http.client.HTTPConnection(upstream.hostname, upstream.port, timeout=15)
         try:
-            with urlopen(req, timeout=15) as resp:
-                payload = resp.read()
-                self.send_response(resp.status)
-                for hk, hv in resp.headers.items():
-                    if hk.lower() in NOT_RELAYED:
-                        continue
-                    self.send_header(hk, hv)
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                if payload:
-                    self.wfile.write(payload)
-        except HTTPError as ex:
-            payload = ex.read()
-            _send(self, ex.code, payload, ex.headers.get_content_type() if ex.headers else "application/json")
-        except URLError:
+            conn.putrequest(self.command, self.path,
+                            skip_accept_encoding=any(k.lower() == "accept-encoding" for k, _ in lines))
+            for name, value in lines:
+                conn.putheader(name, value)
+            if body or self.command in ("POST", "PUT", "PATCH"):
+                conn.putheader("Content-Length", str(len(body)))
+            conn.putheader("Connection", "close")
+            conn.endheaders(body or None)
+            resp = conn.getresponse()
+            status, headers, payload = resp.status, resp.getheaders(), resp.read()
+        except (OSError, http.client.HTTPException):
             _send(self, 503, b'{"error":"auth upstream unavailable"}')
+            return
+        finally:
+            conn.close()
+        self.send_response(status)
+        for name, value in headers:
+            if name.lower() not in NOT_RELAYED:
+                self.send_header(name, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        if payload:
+            self.wfile.write(payload)
 
 
 def main():

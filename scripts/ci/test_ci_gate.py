@@ -278,5 +278,97 @@ class Policy(unittest.TestCase):
                     ci_gate.glob_regex(pattern.lstrip("!"))  # raises on unsupported syntax
 
 
+class RestoreDrillSourceGuards(unittest.TestCase):
+    """#609, on the repository's own workflows: the drill's source-scanning helper suites run on a change
+    to any file they read, in a light workflow that the gate requires from its filter. The full Docker
+    drill keeps its narrow filter."""
+
+    GUARDS = "restore-drill-01-source-guards.yml"
+    DRILL = "restore-drill-01-procedure.yml"
+    JOB = "Source-scanning helper tests (no Docker)"
+    SUITES = ("scripts/test-recovery-evidence-contract.py", "scripts/test-recovery-persist-protocol.py")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.workflows = ci_gate.load_workflows()
+        cls.policy = json.loads(ci_gate.POLICY.read_text(encoding="utf-8"))
+
+    def required(self, path, base="api"):
+        return ci_gate.required_checks(self.workflows, self.policy, base, [path])[0]
+
+    def test_a_change_to_a_source_the_suites_read_requires_the_guards_and_not_the_drill(self):
+        for path in (
+            # recovery_persist_protocol.py reads the auth application.yml and the auth main Java tree.
+            "services/auth-service/src/main/resources/application.yml",
+            "services/auth-service/src/main/java/com/parkio/auth/application/durable/CheckpointWatermark.java",
+            # Its fixture-key scan reads every services/*/src/main tree, docker/ and .github/.
+            "services/user-service/src/main/resources/application.yml",
+            "services/gateway-service/src/main/java/com/parkio/gateway/GatewayServiceApplication.java",
+            "docker/docker-compose.apps.yml",
+            "docker/caddy/Caddyfile",
+            ".github/workflows/frontend-ci.yml",
+            ".github/ci-gate-policy.json",
+        ):
+            for base in ("api", "master"):
+                with self.subTest(path=path, base=base):
+                    required = self.required(path, base)
+                    self.assertIn(self.GUARDS, required)
+                    self.assertNotIn(self.DRILL, required)
+
+    def test_the_drill_keeps_its_own_paths_and_the_guards_run_with_it(self):
+        for path in (
+            "services/auth-service/src/main/java/com/parkio/auth/application/AccountErasureApplicationService.java",
+            "services/parking-service/src/main/resources/db/migration/V10__create_idempotency_records.sql",
+            "services/auth-service/src/test/resources/durable-erasure-evidence/v2/producer.json",
+            "docker/docker-compose.yml",
+            "scripts/lib/recovery_evidence_contract.py",
+            "scripts/lib/recovery_persist_protocol.py",
+            "scripts/test-recovery-evidence-contract.py",
+        ):
+            with self.subTest(path=path):
+                required = self.required(path)
+                self.assertIn(self.DRILL, required)
+                self.assertIn(self.GUARDS, required)
+
+    def test_a_change_the_suites_do_not_read_requires_neither(self):
+        for path in (
+            "frontend/apps/web/src/main.tsx",
+            "docs/operations/ci-gate.md",
+            "services/auth-service/src/test/java/com/parkio/auth/AuthServiceApplicationTests.java",
+            "services/auth-service/build.gradle.kts",
+            "scripts/smoke-hosted-beta.sh",
+        ):
+            with self.subTest(path=path):
+                required = self.required(path)
+                self.assertNotIn(self.GUARDS, required)
+                self.assertNotIn(self.DRILL, required)
+
+    def test_the_gate_requires_the_guard_job_and_its_test_evidence(self):
+        (expected,) = self.required("services/user-service/src/main/resources/application.yml")[self.GUARDS]
+        self.assertEqual(expected.job, self.JOB)
+        self.assertIsNone(expected.skip_reason)
+        self.assertFalse(expected.advisory)
+        (rule,) = expected.evidence
+        # The job's log carries one unittest summary per suite; together they must reach the minimum.
+        log = ("2026-11-25T10:00:01.0000000Z Ran 31 tests in 2.642s\n2026-11-25T10:00:01.0000000Z OK\n"
+               "2026-11-25T10:00:02.0000000Z Ran 35 tests in 1.083s\n2026-11-25T10:00:02.0000000Z OK\n")
+        self.assertEqual(ci_gate.evidence_count(log, rule["pattern"]), 66)
+        self.assertGreaterEqual(66, rule["min"])
+        self.assertLess(ci_gate.evidence_count(log.split("\n", 2)[2], rule["pattern"]), rule["min"])
+        runs = {self.GUARDS: run(9)}
+        failures, _ = ci_gate.judge({self.GUARDS: [expected]}, runs, {9: [job(91, self.JOB, "skipped")]}, lambda _: "")
+        self.assertEqual(failures, [f"{self.GUARDS} / {self.JOB}: skipped, and the policy allows no skip for it"])
+
+    def test_the_guard_job_runs_the_suites_that_read_sources_as_the_drill_does(self):
+        def scripts(workflow, job_id):
+            return "\n".join(step.get("run", "") for step in self.workflows[workflow]["jobs"][job_id]["steps"])
+
+        guards, drill = scripts(self.GUARDS, "source-guards"), scripts(self.DRILL, "procedure")
+        for suite in self.SUITES:
+            with self.subTest(suite=suite):
+                self.assertIn(f"python3 {suite}\n", guards)
+                self.assertIn(f"python3 {suite}\n", drill)
+
+
 if __name__ == "__main__":
     unittest.main()

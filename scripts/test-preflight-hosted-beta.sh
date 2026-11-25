@@ -267,6 +267,39 @@ run_case "valid.env without a heartbeat URL still exits 0" valid.env 0
 expect "missing heartbeat URL is a WARN, not a FAIL" "WARN heartbeat: PARKIO_ALERT_HEARTBEAT_URL is empty"
 rm -f "$HB"
 
+# ---- Expo send bounds (#595): optional, bounded, connect shorter than read ---
+EXPO_BOUNDS="${TMPDIR:-/tmp}/preflight-expo-bounds-$$.env"
+# expo_bounds CONNECT READ — valid.env plus the given values ('-' leaves the key out).
+expo_bounds() {
+  cp "$FIXTURES/valid.env" "$EXPO_BOUNDS"
+  [ "$1" = "-" ] || echo "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT=$1" >> "$EXPO_BOUNDS"
+  [ "$2" = "-" ] || echo "PARKIO_EXPO_PUSH_READ_TIMEOUT=$2" >> "$EXPO_BOUNDS"
+}
+expo_bounds 2s 5s
+run_case "the documented Expo defaults exit 0" "$EXPO_BOUNDS" 0
+expect_not "the defaults raise no Expo bound failure" "FAIL PARKIO_EXPO_PUSH_"
+expo_bounds 300ms 1500ms
+run_case "millisecond Expo bounds exit 0" "$EXPO_BOUNDS" 0
+expo_bounds - 0s
+run_case "a zero read timeout exits 1" "$EXPO_BOUNDS" 1
+expect "zero read timeout rejected" "PARKIO_EXPO_PUSH_READ_TIMEOUT: '0s' is not a bounded read timeout"
+expo_bounds - 61s
+run_case "a read timeout above 60s exits 1" "$EXPO_BOUNDS" 1
+expect "read timeout above the limit rejected" "PARKIO_EXPO_PUSH_READ_TIMEOUT: '61s' is not a bounded read timeout"
+expo_bounds 31000ms -
+run_case "a connect timeout above 30s exits 1" "$EXPO_BOUNDS" 1
+expect "connect timeout above the limit rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: '31000ms' is not a bounded connect timeout"
+expo_bounds PT2S -
+run_case "an ISO-8601 connect timeout exits 1" "$EXPO_BOUNDS" 1
+expect "unsupported duration form rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: 'PT2S' is not a bounded connect timeout"
+expo_bounds 5s -
+run_case "a connect timeout equal to the default read timeout exits 1" "$EXPO_BOUNDS" 1
+expect "connect not shorter than read rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: 5000ms is not shorter than PARKIO_EXPO_PUSH_READ_TIMEOUT (5000ms)"
+expo_bounds - 1s
+run_case "a read timeout below the default connect timeout exits 1" "$EXPO_BOUNDS" 1
+expect "default connect against a short read rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: 2000ms is not shorter than PARKIO_EXPO_PUSH_READ_TIMEOUT (1000ms)"
+rm -f "$EXPO_BOUNDS"
+
 # ---- known CI synthetic MapTiler key must fail hosted deploy preflight ------
 SYNTH_MAP="${TMPDIR:-/tmp}/preflight-synthetic-map-$$.env"
 sed -e 's/^VITE_APP_ENV=hosted-beta$/VITE_APP_ENV=hosted-beta\nVITE_MAPTILER_KEY=ci-web-build-security-synthetic/' \
@@ -278,6 +311,7 @@ rm -f "$SYNTH_MAP"
 # ---- committed templates must never pass ------------------------------------
 run_case "docker/.env.hosted-beta.example exits 1" ../../docker/.env.hosted-beta.example 1
 expect "template blocked" "PREFLIGHT: FAIL"
+expect_not "the template's Expo bounds are valid" "FAIL PARKIO_EXPO_PUSH_"
 
 rm -f "$OUT"
 

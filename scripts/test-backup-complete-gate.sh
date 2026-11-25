@@ -841,6 +841,90 @@ else
   bad "an env file DRY_RUN=0 must not turn --dry-run into a real run (rc=${rc}, stamp dirs=${dirs_envdry})"
 fi
 
+# --- #612: the env file cannot turn the MinIO step of a real run into a dry run ---
+# backup-minio.sh re-sources the same env file. A DRY_RUN=1 line there skipped the mirror while
+# the orchestrator ran for real, so the run refused COMPLETE and exited 1.
+reset_fakes
+case_envdry1="${WORK}/env-dry-run-1"
+printf 'DRY_RUN=1\n' > "${case_envdry1}.env"
+rc=0
+run_hosted "${case_envdry1}" --env-file "${case_envdry1}.env" > "${case_envdry1}.log" 2>&1 || rc=$?
+stamp_envdry1="$(latest_stamp_dir "${case_envdry1}/backups" || true)"
+ms="$(metric "${case_envdry1}/textfile/parkio_backup.prom" 'parkio_backup_last_success' 2>/dev/null || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_envdry1}" ] && [ -f "${stamp_envdry1}/COMPLETE" ] \
+  && [ -f "${stamp_envdry1}/minio.tar.gz.enc" ] && [ "${ms}" = "1" ] \
+  && grep -qx 'dryRun=0' "${case_envdry1}.log" \
+  && grep -qE '^MinIO backup -> .*, dryRun=0\)$' "${case_envdry1}.log" \
+  && ! grep -q '^DRY-RUN: would mirror' "${case_envdry1}.log" \
+  && grep -q '^WARN: ignoring DRY_RUN' "${case_envdry1}.log"; then
+  ok "an env file DRY_RUN=1 is ignored by the orchestrator and its MinIO step; the run completes"
+else
+  bad "an env file DRY_RUN=1 must not skip the MinIO mirror of a real run (rc=${rc}, metric=${ms:-none})"
+fi
+# backup-minio.sh on its own: like the orchestrator, it takes --dry-run from its command line only.
+reset_fakes
+case_mdry="${WORK}/minio-env-dry-run"
+mkdir -p "${case_mdry}/stamp"
+printf 'DRY_RUN=1\n' > "${case_mdry}.env"
+rc=0
+bash "${ROOT}/scripts/backup-minio.sh" "${case_mdry}/stamp" --env-file "${case_mdry}.env" \
+  > "${case_mdry}.out" 2> "${case_mdry}.err" || rc=$?
+if [ "${rc}" -eq 0 ] && [ "$(tail -1 "${case_mdry}.out")" = 1 ] \
+  && [ -f "${case_mdry}/stamp/minio/parkio-media/object.bin" ] \
+  && grep -q '^WARN: ignoring DRY_RUN' "${case_mdry}.err"; then
+  ok "backup-minio.sh ignores an env file DRY_RUN=1 with a warning and mirrors"
+else
+  bad "backup-minio.sh must not dry-run on an env file DRY_RUN=1 (rc=${rc})"
+fi
+rm -rf "${case_mdry}/stamp"
+mkdir -p "${case_mdry}/stamp"
+printf 'DRY_RUN=0\n' > "${case_mdry}.env"
+rc=0
+bash "${ROOT}/scripts/backup-minio.sh" "${case_mdry}/stamp" --env-file "${case_mdry}.env" --dry-run \
+  > "${case_mdry}.out" 2> "${case_mdry}.err" || rc=$?
+if [ "${rc}" -eq 0 ] && [ "$(tail -1 "${case_mdry}.out")" = 0 ] && [ ! -e "${case_mdry}/stamp/minio" ] \
+  && grep -q '^DRY-RUN: would mirror' "${case_mdry}.err"; then
+  ok "backup-minio.sh --dry-run stays a dry run when the env file says DRY_RUN=0"
+else
+  bad "an env file DRY_RUN=0 must not turn backup-minio.sh --dry-run into a mirror (rc=${rc})"
+fi
+
+# --- #612: the env file cannot change --operator or --artifact-dir, or their defaults ---
+# OPERATOR or ARTIFACT_DIR lines in the env file replaced the flags' values, so the manifest
+# named another operator and went to another directory.
+manifest_operator() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["operator"])' "$1" 2>/dev/null \
+    || echo "<unreadable>"
+}
+reset_fakes
+case_who="${WORK}/env-operator-artifact-dir"
+printf 'OPERATOR=env-file-operator\nARTIFACT_DIR=%s\n' "${case_who}/env-artifacts" > "${case_who}.env"
+rc=0
+run_hosted "${case_who}" --env-file "${case_who}.env" --operator cli-operator \
+  --artifact-dir "${case_who}/cli-artifacts" > "${case_who}.log" 2>&1 || rc=$?
+who="$(manifest_operator "${case_who}/cli-artifacts/backup-current.json")"
+if [ "${rc}" -eq 0 ] && [ "${who}" = cli-operator ] && [ ! -e "${case_who}/env-artifacts" ] \
+  && grep -qx 'operator=cli-operator' "${case_who}.log" \
+  && grep -q '^WARN: ignoring OPERATOR' "${case_who}.log" \
+  && grep -q '^WARN: ignoring ARTIFACT_DIR' "${case_who}.log"; then
+  ok "--operator and --artifact-dir win over OPERATOR and ARTIFACT_DIR in the env file, with warnings"
+else
+  bad "the env file must not replace --operator or --artifact-dir (rc=${rc}, manifest operator=${who})"
+fi
+reset_fakes
+case_who0="${WORK}/env-operator-artifact-dir-defaults"
+printf 'OPERATOR=env-file-operator\nARTIFACT_DIR=%s\n' "${case_who0}/env-artifacts" > "${case_who0}.env"
+rc=0
+PARKIO_BACKUP_OPERATOR=caller-operator \
+  run_hosted "${case_who0}" --env-file "${case_who0}.env" > "${case_who0}.log" 2>&1 || rc=$?
+who0="$(manifest_operator "${case_who0}/artifacts/backup-current.json")"
+if [ "${rc}" -eq 0 ] && [ "${who0}" = caller-operator ] && [ ! -e "${case_who0}/env-artifacts" ] \
+  && grep -qx 'operator=caller-operator' "${case_who0}.log"; then
+  ok "without the flags, PARKIO_BACKUP_OPERATOR and PARKIO_BACKUP_ARTIFACT_DIR still set them, not the env file"
+else
+  bad "the env file must not replace the --operator / --artifact-dir defaults (rc=${rc}, manifest operator=${who0})"
+fi
+
 # --- #520 review: the env file cannot undo what the orchestrator hands backup-databases.sh ---
 # The child re-sources the same env file. BACKUP_SKIP_MC_UPLOAD= there must not make it upload
 # and prune on its own, and BACKUP_DEST_DIR there must not move its dumps into another stamp.
@@ -920,21 +1004,83 @@ CASE_MC_URL=http://offsite-minio:9000 run_hosted "${case_dmc}" > "${case_dmc}.lo
 unset BACKUP_MC_URL BACKUP_MC_ACCESS_KEY BACKUP_MC_SECRET_KEY BACKUP_MC_DOCKER_NETWORK
 stamp_dmc="$(latest_stamp_dir "${case_dmc}/backups" || true)"
 dest_dmc="${case_dmc}/offsite/parkio-backups/$(basename "${stamp_dmc:-none}")"
-calls_dmc="$(cat "${case_dmc}/mc.log" 2>/dev/null || true)"
-script_dmc="$(sed 's/^[[:space:]]*//' "${case_dmc}/mc.log" 2>/dev/null || true)"
+# #612: an allow-list, not a deny-list. The log must hold exactly two docker mc runs, the mirror
+# of the new stamp and then its COMPLETE, each running exactly the script parkio_backup_mc_docker
+# has for it. Any other line fails: another mc subcommand (rb, rm), a global flag in front of one
+# (mc --quiet rm), another flag on an allowed one (mirror --remove), or any non-mc command.
+# Prints the first difference and returns 1.
+dmc_log_allowed() { # mc.log new-stamp-dest
+  python3 - "$1" "$2" <<'PY'
+import os, sys
+
+log, dest = sys.argv[1:]
+alias = 'mc alias set offsite "$MC_URL" "$MC_ACCESS" "$MC_SECRET" >/dev/null'
+allowed = [
+    (dest, ["set -eu", alias,
+            'mc mb -p "offsite/$(echo "$MC_DEST" | cut -d/ -f2)" >/dev/null 2>&1 || true',
+            'mc mirror --overwrite /upload "$MC_DEST"']),
+    (dest + "/COMPLETE", ["set -eu", alias, 'mc cp "/upload/${SRC_FILE}" "$MC_DEST"']),
+]
+
+
+def fail(message):
+    print(message)
+    sys.exit(1)
+
+
+if not os.path.isfile(log):
+    fail("no docker mc run was logged")
+runs, current = [], None
+for line in (raw.strip() for raw in open(log, encoding="utf-8")):
+    if current is None:
+        if not line:
+            continue
+        if not line.startswith("docker mc MC_DEST="):
+            fail("not a docker mc run: %s" % line)
+        current = (line[len("docker mc MC_DEST="):], [])
+    elif line == "=== end script ===":
+        runs.append(current)
+        current = None
+    elif line:
+        current[1].append(line)
+if current is not None or len(runs) != len(allowed):
+    fail("%d complete docker mc runs, expected %d" % (len(runs), len(allowed)))
+for (got_dest, got), (want_dest, want) in zip(runs, allowed):
+    if got_dest != want_dest:
+        fail("MC_DEST=%s, expected %s" % (got_dest, want_dest))
+    extra = [line for line in got if line not in want]
+    if extra:
+        fail("not allowed: %s" % extra[0])
+    if got != want:
+        fail("the script for %s is not the allowed one" % got_dest)
+PY
+}
+why_dmc=""
 if [ "${rc}" -eq 0 ] && [ -n "${stamp_dmc}" ] \
-  && [ "$(grep -c '^docker mc MC_DEST=' <<< "${calls_dmc}")" = 2 ] \
-  && grep -qxF "docker mc MC_DEST=${dest_dmc}" <<< "${calls_dmc}" \
-  && grep -qxF "docker mc MC_DEST=${dest_dmc}/COMPLETE" <<< "${calls_dmc}" \
-  && [ "$(grep -c '^mc mirror ' <<< "${script_dmc}")" = 1 ] \
-  && grep -qxF 'mc mirror --overwrite /upload "$MC_DEST"' <<< "${script_dmc}" \
-  && grep -qxF 'mc cp "/upload/${SRC_FILE}" "$MC_DEST"' <<< "${script_dmc}" \
-  && ! grep -qE -- '--remove|^mc rm' <<< "${script_dmc}" \
+  && why_dmc="$(dmc_log_allowed "${case_dmc}/mc.log" "${dest_dmc}")" \
   && check_receipt "${stamp_dmc}" "${case_dmc}/offsite/parkio-backups" > /dev/null; then
-  ok "docker mc upload writes only under the new stamp's prefix and removes nothing"
+  ok "docker mc upload runs only the allowed mc commands, under the new stamp's prefix"
 else
-  bad "docker mc upload must stay under the new stamp's prefix (rc=${rc})"
+  bad "docker mc upload must run only the allowed mc commands under the new stamp's prefix (rc=${rc} ${why_dmc})"
 fi
+# The allow-list itself: lines the old deny-list (--remove, ^mc rm) let through must fail it.
+for injected in 'mc rb --force offsite/parkio-backups' \
+  'mc --quiet rm --recursive --force "$MC_DEST"' \
+  'mc mirror --overwrite --remove /upload "$MC_DEST"'; do
+  python3 - "${case_dmc}/mc.log" "${case_dmc}/mc-injected.log" "${injected}" <<'PY'
+import sys
+
+source, target, injected = sys.argv[1:]
+lines = open(source, encoding="utf-8").read().splitlines()
+end = next(i for i, line in enumerate(lines) if line.strip() == "=== end script ===")
+open(target, "w", encoding="utf-8").write("\n".join(lines[:end] + ["  " + injected] + lines[end:]) + "\n")
+PY
+  if dmc_log_allowed "${case_dmc}/mc-injected.log" "${dest_dmc}" > /dev/null; then
+    bad "the docker mc allow-list must reject an added '${injected}'"
+  else
+    ok "the docker mc allow-list rejects an added '${injected}'"
+  fi
+done
 
 # --- #520 gcs offsite kind: keyless gcloud storage, create-only objects, COMPLETE last ---
 reset_fakes
