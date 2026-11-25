@@ -165,14 +165,32 @@ or token values.
 | `parkio.notification.delivery.push.expo.access-token` | `PARKIO_EXPO_ACCESS_TOKEN` | _(empty)_ | Expo access token |
 | `parkio.notification.delivery.push.expo.base-url` | `PARKIO_EXPO_PUSH_BASE_URL` | `https://exp.host/--/api/v2` | Expo Push API base |
 | `parkio.notification.delivery.push.expo.android-channel-id` | `PARKIO_EXPO_ANDROID_CHANNEL_ID` | `default` | Android notification channel |
+| `parkio.notification.delivery.push.expo.connect-timeout` | `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` | `2s` | Bound on opening the connection, TLS handshake included; at most `30s` |
+| `parkio.notification.delivery.push.expo.read-timeout` | `PARKIO_EXPO_PUSH_READ_TIMEOUT` | `5s` | Bound on the whole exchange, connecting included; at most `60s`, and longer than the connect timeout |
 
-Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable}.count`,
+The delivery tick sends while it holds the `FOR UPDATE SKIP LOCKED` claims of its batch,
+so a send without a bound would stop push delivery until a restart (#595). A connection
+that does not open within the connect timeout stays `PROVIDER_UNAVAILABLE` and is retried;
+a response that does not complete within the read timeout is `PROVIDER_OUTCOME_UNKNOWN`,
+because Expo may already have the request. The read timeout runs from the start of the
+exchange, so the connect timeout must be shorter. The service refuses to start with a
+zero, negative or over-limit value, or with a connect timeout that is not shorter than the
+read timeout; the hosted-beta preflight checks the same rules. The Expo client is always
+the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
+because only its `HttpConnectTimeoutException` is classified as a connect timeout that is
+safe to retry. While Expo stalls, a tick lasts at most about `batch-size` x `read-timeout`
+(100 x 5s by default).
+
+Push metrics: `parkio.notification.push.{sent,failed,invalid_token,provider_unavailable,outcome_unknown}.count`,
 `parkio.notification.delivery.retry.count`, `parkio.notification.delivery.worker.*`.
+`provider_unavailable` counts only retryable failures (no connection, or an HTTP rejection
+other than 401/403); `outcome_unknown` counts terminal `PROVIDER_OUTCOME_UNKNOWN` results;
+HTTP 401/403 counts under `failed`, like the ticket-level credential errors.
 
 Expo send accepts either a single ticket or a one-element ticket array. `SENT`
 means **Expo ticket accepted**, not delivery to FCM/APNs or a device; the real ticket
 ID is retained. Missing IDs, malformed/empty responses and transport failures after
-the connection is established (timeouts, resets, unreadable responses) are terminal
+the connection is established (read timeouts, resets, unreadable responses) are terminal
 `FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the worker
 does not resend automatically. This trades possible missed notifications for
 avoiding duplicate sends when acceptance cannot be established. A failure to

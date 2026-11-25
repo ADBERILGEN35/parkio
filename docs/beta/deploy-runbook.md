@@ -94,6 +94,7 @@ PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh
 | `KAFKA_CLUSTER_ID` | exactly 22 chars, not the committed dev id | `docker run --rm confluentinc/cp-kafka:7.7.1 kafka-storage random-uuid` |
 | `PARKIO_RESEND_API_KEY` | `re_` prefix | Resend dashboard |
 | `PARKIO_EXPO_ACCESS_TOKEN` | non-empty, no placeholder | expo.dev → Access tokens |
+| `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` / `READ_TIMEOUT` | optional; `<n>ms` or `<n>s`, 0 < connect ≤ 30s, 0 < read ≤ 60s, connect < read | defaults `2s` / `5s` |
 | `PARKIO_ALERT_SLACK_WEBHOOK_URL` | `https://hooks.slack.com/…`, or generic `PARKIO_ALERT_WEBHOOK_URL` | Slack app → Incoming webhooks |
 
 ### Domain / URL rules

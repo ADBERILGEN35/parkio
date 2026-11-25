@@ -66,14 +66,27 @@ README); the gateway's per-request status check uses this service's
 
 ## Run locally
 
-Profile creation, profile/preference commands and late status/projection events
-join a service-local PostgreSQL transaction-scoped owner fence before reading
-profile state. Erasure takes the exclusive fence before writing the tombstone and
-deleting the graph; its ACK outbox row commits only after admitted writers finish.
-Late registration/status events are inbox-consumed without recreating a profile or
+Profile creation, profile/preference commands and reads (read-only transactions
+included), late status/projection events, and every saved places, favourites and
+recents method keyed by the caller join a service-local PostgreSQL
+transaction-scoped owner fence before reading profile state. Erasure takes the
+exclusive fence before writing the tombstone and deleting the graph; its ACK outbox
+row commits only after admitted writers finish. A saved place, favourite or recent
+write that arrives during an erasure waits and then gets `PROFILE_NOT_FOUND`; one
+that was admitted first makes the erasure wait and is deleted with the graph,
+instead of failing the erasure on the `REFERENCES user_profiles` foreign key
+(#597). Only the one-off saved-places HOME backfill, which is keyed by profile id,
+relies on that foreign key. A fenced call waits behind an erasure for at most
+`parkio.privacy.erasure-fence.lock-timeout` (`PARKIO_USER_ERASURE_FENCE_LOCK_TIMEOUT`,
+default `PT2S`, the gateway's status-check budget) and then fails with
+`PROFILE_BUSY`. The API returns that as 503, so the gateway's status check fails
+closed. A Kafka listener rethrows it, so the event is retried and then
+dead-lettered like any other failure, with its inbox claim rolled back. Only this
+wait is bounded; the erasure's own wait for the exclusive lock is not. Late
+registration/status events are inbox-consumed without recreating a profile or
 pending-status row. H2 tests do not prove this ordering; `UserErasureFencePostgresIT`
-uses real PostgreSQL transactions and deterministic barriers (PA30-S01 / #524).
-Production erasure remains disabled pending separate recovery acceptance.
+uses real PostgreSQL transactions and deterministic barriers (PA30-S01 / #524,
+#597). Production erasure remains disabled pending separate recovery acceptance.
 
 From the repository root:
 

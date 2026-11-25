@@ -24,6 +24,9 @@ import java.lang.annotation.Target;
         @ApiResponse(responseCode = "409", description = "Conflict",
                 content = @Content(schema = @Schema(implementation = ApiError.class))),
         @ApiResponse(responseCode = "500", description = "Unexpected server error",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(responseCode = "503",
+                description = "PROFILE_BUSY: the request waited its full bound behind an account erasure; retry",
                 content = @Content(schema = @Schema(implementation = ApiError.class)))
 })
 public @interface StandardApiResponses {

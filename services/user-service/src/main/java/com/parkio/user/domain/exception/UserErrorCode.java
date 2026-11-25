@@ -7,6 +7,8 @@ package com.parkio.user.domain.exception;
  */
 public enum UserErrorCode {
     PROFILE_NOT_FOUND("User profile not found."),
+    /** A wait behind an account erasure in progress reached its bound; the caller may retry. */
+    PROFILE_BUSY("The user profile is busy; retry shortly."),
     PROFILE_ALREADY_EXISTS("A profile already exists for this user."),
     MISSING_USER_ID("Authenticated user id (X-User-Id) is required."),
     SMART_RETURN_DISABLED("Smart Return is not enabled in this environment."),

@@ -1,4 +1,4 @@
-import { ParkioApiError } from '@parkio/api-client';
+import { ParkioApiError, UnauthorizedError } from '@parkio/api-client';
 import { toUserMessage } from '../errors';
 
 function apiError(status: number, overrides: Record<string, unknown> = {}) {
@@ -11,10 +11,36 @@ function apiError(status: number, overrides: Record<string, unknown> = {}) {
   });
 }
 
+/** The shared client throws an UnauthorizedError for every 401. */
+function unauthorized(code: string) {
+  return new UnauthorizedError({
+    code,
+    message: `${code} occurred`,
+    traceId: 't',
+    timestamp: '2026-01-01T00:00:00Z',
+  });
+}
+
 describe('toUserMessage', () => {
   it('maps 401 to a session-expired message', () => {
     expect(toUserMessage(apiError(401))).toMatch(/session has expired/i);
   });
+
+  it('maps a 401 INVALID_CREDENTIALS to a wrong-password message, not an expired session', () => {
+    // A wrong current password on change-password: the access token is still valid (#604).
+    const message = toUserMessage(unauthorized('INVALID_CREDENTIALS'));
+    expect(message).toBe('Incorrect email or password.');
+    expect(message).not.toMatch(/session/i);
+  });
+
+  it.each(['MISSING_TOKEN', 'INVALID_TOKEN', 'TOKEN_REVOKED'])(
+    'keeps the session-expired message for a token 401 %s',
+    (code) => {
+      expect(toUserMessage(unauthorized(code))).toBe(
+        'Your session has expired. Please sign in again.',
+      );
+    },
+  );
 
   it('maps 5xx to a friendly server message (no raw text)', () => {
     const msg = toUserMessage(apiError(503));

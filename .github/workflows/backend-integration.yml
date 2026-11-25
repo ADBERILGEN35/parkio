@@ -86,7 +86,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
+
+      # This job's own Gradle dependency cache (#608), for the reasons given in backend-ci.yml: the
+      # shared setup-java entry holds no test classpaths, so every run downloaded them. The nightly
+      # dispatch on api saves the entry that pull requests restore. The local build cache
+      # (build-cache-1) stays out, so no task output carries over between runs.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: gradle-deps-backend-integration-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-backend-integration-${{ runner.os }}-
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew

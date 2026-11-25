@@ -19,9 +19,11 @@ import com.parkio.gateway.application.waitlist.WaitlistRateLimiter;
 import com.parkio.gateway.application.waitlist.WaitlistTokenException;
 import com.parkio.gateway.infrastructure.security.JwtTokenValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,6 +64,8 @@ import reactor.core.publisher.Mono;
 class WaitlistOpsNotificationOutboxTest {
 
     private static final String EMAIL = "synthetic.subscriber@example.test";
+    /** What the free-space probe reports unless a test says otherwise: far above min-free-bytes (#607). */
+    private static final long AMPLE_FREE_BYTES = 1L << 40;
 
     @TempDir
     static Path inbox;
@@ -109,6 +113,9 @@ class WaitlistOpsNotificationOutboxTest {
     @BeforeEach
     void setUp() throws Exception {
         properties.setExportDir(inbox.toString());
+        // No test here reads the host's free disk space; a nearly full or unreadable file store
+        // would otherwise defer every export (#607).
+        exporter.setUsableSpaceProbe(dir -> AMPLE_FREE_BYTES);
         try (Stream<Path> files = Files.list(inbox)) {
             for (Path file : files.toList()) {
                 Files.delete(file);
@@ -126,6 +133,7 @@ class WaitlistOpsNotificationOutboxTest {
 
     @AfterEach
     void restore() {
+        exporter.setUsableSpaceProbe(WaitlistOpsNotificationExporter.FILE_STORE);
         properties.setExportDir(inbox.toString());
         properties.setEnabled(true);
         properties.setContractVersion(2);
@@ -333,23 +341,38 @@ class WaitlistOpsNotificationOutboxTest {
 
     @Test
     void lowDiskDefersExportAndConfirmationStillSucceeds() {
-        long previous = properties.getMinFreeBytes();
-        properties.setMinFreeBytes(Long.MAX_VALUE);
-        try {
-            submitPending();
-            service.confirm(verificationToken.get()).block();
-            assertThat(interestStatus()).isEqualTo("CONFIRMED");
-            for (int poll = 0; poll < properties.getMaxExportAttempts() + 3; poll++) {
-                assertThat(exporter.exportDue().deferred()).isEqualTo("low_disk");
-            }
-            assertThat(outboxStatus()).isEqualTo("PENDING");
-            assertThat(jdbcTemplate.queryForObject(
-                    "SELECT attempts FROM waitlist_ops_notification_outbox", Integer.class)).isZero();
-            assertThat(inboxFiles()).isEmpty();
-        } finally {
-            properties.setMinFreeBytes(previous);
+        // The probe stands in for the host's disk (#607): one byte below the configured min-free-bytes.
+        exporter.setUsableSpaceProbe(dir -> properties.getMinFreeBytes() - 1);
+        submitPending();
+        service.confirm(verificationToken.get()).block();
+        assertThat(interestStatus()).isEqualTo("CONFIRMED");
+        for (int poll = 0; poll < properties.getMaxExportAttempts() + 3; poll++) {
+            assertThat(exporter.exportDue().deferred()).isEqualTo("low_disk");
         }
+        assertThat(outboxStatus()).isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT attempts FROM waitlist_ops_notification_outbox", Integer.class)).isZero();
+        assertThat(inboxFiles()).isEmpty();
+
+        exporter.setUsableSpaceProbe(dir -> properties.getMinFreeBytes()); // exactly the minimum is enough
         assertThat(exporter.exportDue().exported()).isEqualTo(1);
+    }
+
+    @Test
+    void lowDiskProbeReadsTheExportDirectoryAndAnUnreadableStoreDoesNotDefer() {
+        List<Path> probed = new ArrayList<>();
+        exporter.setUsableSpaceProbe(dir -> {
+            probed.add(dir);
+            return AMPLE_FREE_BYTES;
+        });
+        assertThat(exporter.backpressure(inbox)).isNull();
+        assertThat(probed).containsExactly(inbox);
+
+        // As before the probe became injectable: the per-row write then reports a real I/O failure.
+        exporter.setUsableSpaceProbe(dir -> {
+            throw new IOException("synthetic file store failure");
+        });
+        assertThat(exporter.backpressure(inbox)).isNull();
     }
 
     @Test

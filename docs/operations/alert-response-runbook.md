@@ -164,16 +164,22 @@ No `parkio_slack_biz_textfile_last_success_unixtime` series. Install/enable the 
 
 ## SlackBizRelayStopped
 
-Fires after 15 minutes of either condition (#544):
+Fires after 15 minutes of any of these conditions (#544, #599):
 
-- `parkio_slack_biz_worker_heartbeat_age_seconds > 300` while `parkio_slack_biz_delivery_enabled` is 1. The delivery worker refreshes its lock heartbeat on every poll (every 2s) while delivery is enabled. A finite, growing age means it crashed or was killed (SIGKILL, OOM) and did not come back, hangs, or has delivery enabled without a webhook (it never heartbeats then). `+Inf` means no worker holds the lock: it stopped cleanly or never started.
+- `parkio_slack_biz_worker_heartbeat_age_seconds > 300` while `parkio_slack_biz_delivery_enabled` is 1. The delivery worker refreshes its lock heartbeat on every poll (every 2s) while delivery is enabled. A finite, growing age means one of these:
+  - it crashed or was killed (SIGKILL, OOM) and did not come back, or it hangs;
+  - delivery is enabled without a webhook (it never heartbeats then);
+  - `PARKIO_SLACK_BIZ_ENABLED=true` was set in `slack-biz.conf.env` but the worker was not restarted. The export reads the conf on every run, but a worker started while delivery was disabled holds the lock and never heartbeats. Restart it: activation step 4 in [waitlist-slack-notifications.md](./waitlist-slack-notifications.md#rollout-each-phase-separately-authorised) includes the restart.
+
+  `+Inf` means no worker holds the lock: it stopped cleanly or never started.
+- `parkio_slack_biz_oldest_queued_age_seconds > 900` while delivery is enabled: the oldest `queued` or `retry` row was admitted more than 15 minutes ago. The worker polls every 2s and the retry budget (5 attempts) ends a row within minutes, so a row this old means the worker takes no rows. This catches a worker that crash-loops after it takes the lock (SIGKILL, OOM, segfault): each start refreshes the heartbeat, so the first condition stays quiet, and the journal shows the restarts. The age reads 0 when no row waits. A backlog queued while delivery was disabled is old once delivery is enabled; it fires only if it takes longer than 15 minutes to drain, and the age falls as it drains.
 - `parkio_slack_biz_relay_db_open == 0`: neither `parkio-slack-biz-worker` nor `parkio-slack-biz-waitlist-consumer` holds the delivery DB open, and the last one closed cleanly (a stop, an error exit). This fires with delivery disabled too. The textfile export keeps publishing the counts from the checkpointed database (#488).
 
 `parkio_slack_biz_relay_db_open 1` does not prove a relay runs: a crash leaves the WAL side files behind, so the gauge stays 1 until a relay opens and closes the DB again.
 
 Check `systemctl status parkio-slack-biz-worker parkio-slack-biz-waitlist-consumer` and their journals (`journalctl -u parkio-slack-biz-worker`). A unit that hit its start limit needs `systemctl reset-failed` before it starts again. With delivery enabled, confirm the webhook secret is installed (see [waitlist-slack-notifications.md](./waitlist-slack-notifications.md#secret-ownership-and-rotation)). Start the units once the cause is fixed. Queued events wait in the delivery DB until then.
 
-Not covered: the waitlist consumer stopping while the worker runs (its backlog shows as WaitlistOpsInboxBacklog); a worker that crash-loops after taking the lock, since each restart refreshes the heartbeat (the journal shows the restarts); a crashed or stopped worker while delivery is disabled, unless every relay process has closed the DB.
+Not covered: the waitlist consumer stopping while the worker runs (its backlog shows as WaitlistOpsInboxBacklog); a worker that crash-loops after taking the lock while no row waits, since each restart refreshes the heartbeat and nothing ages (the journal shows the restarts); a crashed or stopped worker while delivery is disabled, unless every relay process has closed the DB.
 
 ## NrBudgetGateExhausted
 

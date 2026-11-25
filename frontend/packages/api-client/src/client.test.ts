@@ -1,3 +1,4 @@
+import type { CreateSpotRequest } from '@parkio/types';
 import type { AxiosInstance } from 'axios';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
@@ -11,6 +12,8 @@ import {
 } from './client';
 import { CORRELATION_HEADER } from './correlation';
 import { UnauthorizedError } from './errors';
+import { IDEMPOTENCY_HEADER, createIdempotencyKey } from './idempotency';
+import { createParkingApi } from './parking';
 import { MemoryTokenStorage } from './token-storage';
 import { createUsersApi } from './users';
 
@@ -198,6 +201,68 @@ describe('401 refresh behavior', () => {
 
       await expect(client.post(path, {})).rejects.toBeInstanceOf(UnauthorizedError);
       expect(refresh).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('Idempotency-Key on the refresh-and-resend path', () => {
+  interface KeyedAttempt {
+    authorization: string | null;
+    idempotencyKey: string | null;
+    correlationId: string | null;
+    body: unknown;
+  }
+
+  const spotBody: CreateSpotRequest = {
+    mediaId: 'media-resend-1',
+    latitude: 41.0,
+    longitude: 29.0,
+    suitableVehicleTypes: ['SEDAN'],
+    parkingContext: 'STREET_PARKING',
+    legalStatus: 'LEGAL',
+  };
+
+  it.each(['INVALID_TOKEN', 'TOKEN_REVOKED', 'MISSING_TOKEN'])(
+    'resends a keyed write with the same Idempotency-Key after a gateway 401 %s',
+    async (code) => {
+      const attempts: KeyedAttempt[] = [];
+      server.use(
+        http.post(`${BASE}/parking/spots`, async ({ request }) => {
+          const authorization = request.headers.get('authorization');
+          attempts.push({
+            authorization,
+            idempotencyKey: request.headers.get(IDEMPOTENCY_HEADER),
+            correlationId: request.headers.get(CORRELATION_HEADER),
+            body: await request.json(),
+          });
+          return authorization === 'Bearer fresh-token'
+            ? HttpResponse.json({ id: 'spot-1' }, { status: 201 })
+            : HttpResponse.json(apiErrorBody(code), { status: 401 });
+        }),
+      );
+      const { client, storage, onAuthFailure } = makeClient();
+      storage.setTokens({ accessToken: 'stale-token' });
+      const refresh = vi.fn(async () => 'fresh-token');
+      setRefreshHandler(refresh);
+      const key = createIdempotencyKey();
+
+      await expect(createParkingApi(client).createParkingSpot(spotBody, key)).resolves.toEqual({
+        id: 'spot-1',
+      });
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(attempts.map((attempt) => attempt.authorization)).toEqual([
+        'Bearer stale-token',
+        'Bearer fresh-token',
+      ]);
+      // The resend is the same write: a new key would make the gateway apply it a second time.
+      expect(attempts.map((attempt) => attempt.idempotencyKey)).toEqual([key, key]);
+      expect(attempts.map((attempt) => attempt.body)).toEqual([spotBody, spotBody]);
+      // X-Correlation-Id, by design, is regenerated on every attempt.
+      expect(attempts[0]?.correlationId).toBeTruthy();
+      expect(attempts[1]?.correlationId).toBeTruthy();
+      expect(attempts[1]?.correlationId).not.toBe(attempts[0]?.correlationId);
+      expect(onAuthFailure).not.toHaveBeenCalled();
     },
   );
 });

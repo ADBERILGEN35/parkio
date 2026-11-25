@@ -2,7 +2,6 @@ package com.parkio.user.application;
 
 import com.parkio.user.application.port.SavedPlaceRepository;
 import com.parkio.user.application.port.UserPreferenceRepository;
-import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserPreference;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.exception.UserErrorCode;
@@ -29,6 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Legacy Smart Return home columns remain the fallback for dual-read.
  * Dual-write is intentional and one-directional per call site to avoid loops:
  * SavedPlace HOME writes mirror legacy; Smart Return settings writes upsert HOME.
+ *
+ * <p>Erasure fence (#597): methods keyed by the caller's {@code authUserId} resolve the profile
+ * through {@link FencedProfileLookup}. Methods keyed by a profile id take no fence of their own:
+ * {@link #mirrorLegacyHomeToSavedPlace} and {@link #resolveHome} run inside a
+ * {@link UserApplicationService} transaction that has already taken it (the Smart Return check
+ * claim only reads), {@link #findHome} only reads, and {@link #backfillLegacyHomes} relies on the
+ * {@code REFERENCES user_profiles} foreign key.
  */
 @Service
 @Transactional
@@ -37,13 +43,13 @@ public class SavedPlaceApplicationService {
     private static final Logger log = LoggerFactory.getLogger(SavedPlaceApplicationService.class);
 
     private final SavedPlaceRepository savedPlaces;
-    private final UserProfileRepository profiles;
+    private final FencedProfileLookup profiles;
     private final UserPreferenceRepository preferences;
     private final Clock clock;
 
     public SavedPlaceApplicationService(
             SavedPlaceRepository savedPlaces,
-            UserProfileRepository profiles,
+            FencedProfileLookup profiles,
             UserPreferenceRepository preferences,
             Clock clock) {
         this.savedPlaces = savedPlaces;
@@ -165,7 +171,8 @@ public class SavedPlaceApplicationService {
 
     /**
      * Called from Smart Return settings update when home coordinates are written.
-     * Upserts SavedPlace(HOME) without re-entering Smart Return write paths.
+     * Upserts SavedPlace(HOME) without re-entering Smart Return write paths. It takes no fence:
+     * that caller has already joined it through its own {@code requireProfile}.
      */
     public void mirrorLegacyHomeToSavedPlace(
             UUID userProfileId,
@@ -233,6 +240,12 @@ public class SavedPlaceApplicationService {
         return Optional.empty();
     }
 
+    /**
+     * One-off startup backfill (disabled by default), keyed by profile id with no caller
+     * identity, so it takes no erasure fence and relies on the {@code REFERENCES user_profiles}
+     * foreign key instead. A row it writes cannot outlive the profile: racing an erasure fails
+     * either this insert or that erasure attempt, which Kafka redelivers.
+     */
     public int backfillLegacyHomes(int batchSize) {
         int migrated = 0;
         int skipped = 0;
@@ -314,8 +327,7 @@ public class SavedPlaceApplicationService {
     }
 
     private UserProfile requireProfile(UUID authUserId) {
-        return profiles.findByAuthUserId(authUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+        return profiles.requireProfile(authUserId);
     }
 
     private static Comparator<SavedPlace> savedPlaceOrder() {

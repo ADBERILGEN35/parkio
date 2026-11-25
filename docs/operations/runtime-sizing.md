@@ -135,8 +135,23 @@ the Spring Boot Actuator **readiness** endpoint with `curl` (added to the runtim
 
 ```
 curl -fsS http://localhost:<port>/actuator/health/readiness
-interval: 15s  timeout: 5s  retries: 5  start_period: 60s
+interval: 15s  timeout: 5s  retries: 5  start_period: 180s
 ```
+
+- **Start window.** Probe failures during `start_period` do not count. A container that is
+  still not ready turns *unhealthy* about `start_period` + 60 s after it starts (five failed
+  probes 15 s apart), so with 180 s a service that never becomes ready fails after about
+  4 minutes. That is when `docker compose up`, in CI and in the deploy and rollback scripts
+  (`parkio_compose_up` in `scripts/lib/deploy-common.sh`), gives up on the
+  `depends_on: service_healthy` gates (gateway on auth and user). A fast start is not
+  delayed: the first passing probe marks the container healthy. Once healthy, the start
+  period no longer applies: a later failure turns it unhealthy after five probes (~75 s), as
+  before. The window is sized from a cold start of the whole stack (#617): with all ten JVMs
+  starting at once on a 4-vCPU CI runner, `auth-service` logged Spring `Started` 83–125 s
+  after its container started (in one run it had not by 127 s) and `parking-service` up to
+  136 s, past the ~123 s that the former 60 s start period allowed. A host with fewer vCPUs
+  is slower still, so after a cold start check `process running for` in the `Started …` log
+  line of each app service and widen the window if it nears 180 s.
 
 - **Readiness vs liveness.** We gate the *startup graph* on readiness: a service is healthy
   for its dependents only once the Spring context has fully started (Flyway migrated,

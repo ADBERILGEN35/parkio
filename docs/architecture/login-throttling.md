@@ -212,10 +212,12 @@ Reading the table:
   still apply). Special forms: IPv4-compatible `::a.b.c.d`, `::1` and `::` all map to the zero /64;
   Teredo clients share their relay's /64; scoped literals (`%`) become the unknown client. None is a
   normal internet source.
-- **Redis loss** empties every known-client allowlist; owners are unknown clients until their next login
-  or reset. Redis down means login fails closed (500), as in v1 (the SEC-002 audit entries cite the
-  replaced `RedisLoginFailureTracker`; the posture is unchanged). Change-password (H-06) and account
-  deletion (#563) check the password on the same store, so they fail closed (500) too.
+- **Redis loss** empties every known-client allowlist; each of an owner's clients is unknown until it
+  writes its 14-day marker again: a successful login, a change-password with the right current password,
+  a completed reset (for the resetting client) or a refresh-token rotation. Redis down means login fails
+  closed (500), as in v1 (the SEC-002 audit entries cite the replaced `RedisLoginFailureTracker`; the
+  posture is unchanged). Change-password (H-06) and account deletion (#563) check the password on the
+  same store, so they fail closed (500) too.
 - **Spraying across accounts** (a few guesses against many accounts) is outside per-account throttling;
   the gateway's per-IP limit (auth routes: 5 requests/s, burst 10) is the control, and it still keys
   IPv6 clients by /128. Keying the gateway's anonymous limits by IPv6 /64 is a separate decision (it
@@ -235,8 +237,10 @@ Reading the table:
   identifiers in the key space.
 - `LoginThrottleKeysTest`, `LoginThrottleKeysBeanTest`: keyed digests and key ids, secret validation
   (32+ characters, previous differs), the dev-only ephemeral key, no silent fallback.
-- `RedisLoginThrottleStoreTest`: the Redis commands behind each primitive, including the admission script
-  and the incremental scan used by erasure.
+- `RedisLoginThrottleStoreTest`: the Redis commands behind each primitive, including the admission script,
+  the one-script writes of a counter or set with its lifetime (#606), the refusal of a lifetime under 1 ms
+  (`InMemoryLoginThrottleStoreTest` pins the same refusal on the in-memory store), and the incremental scan
+  used by erasure.
 - `LoginThrottleClientKeyHttpTest`: over HTTP, the gateway-resolved client (IPv6 by /64) reaches login
   admission, the success, the password reset and a successful refresh-token rotation; a rejected refresh
   never touches the known-client state; without the header the reset uses the unknown client.
@@ -258,6 +262,10 @@ Reading the table:
   rules with real TTLs and types, 32 concurrent admissions against real Redis admitting exactly one, the
   rotation overlap against real Redis, nothing written outside the v3 namespace (rollback safety),
   erasure, and no raw identifiers in the key space.
+- `RedisLoginThrottleStoreRedisIT` (Testcontainers `redis:7-alpine`, `integrationTest`): a connection lost
+  after the first command leaves no counter or set without its lifetime (#606), every write restarts the
+  lifetime (a set's also when it already holds the member), and the scripts refuse a malformed lifetime
+  before they write.
 - `ClientIpHeaderGlobalFilterTest` (gateway): spoofed header stripped, trusted-proxy chain, and the
   framework-strategy check above. `AdminGatewayIngressTest` (auth): the header is trusted only on
   gateway-authenticated requests.
