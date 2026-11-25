@@ -82,4 +82,13 @@ interface DurableEvidenceBucket {
 
     /** Retention lock on an existing version; missing lock is a contract failure for evidence. */
     RetentionLock retention(String key, String versionId);
+
+    /**
+     * The store's estimate, after each frontier read or write, of the object versions its longest
+     * listings hold: the frontier's versions and the sequence markers, about the frontier's
+     * {@code highestReserved + 1}. The normal path lists none of them, so an adapter that bounds its
+     * listings uses this to warn before they outgrow the bounds (#616). The default ignores it.
+     */
+    default void historyEstimate(long versions) {
+    }
 }

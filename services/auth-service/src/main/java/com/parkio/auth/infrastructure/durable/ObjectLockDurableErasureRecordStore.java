@@ -388,9 +388,19 @@ public final class ObjectLockDurableErasureRecordStore
             verified = highestVerifiedFrontier();
         }
         Boundary read = verified.map(ObjectLockDurableErasureRecordStore::boundary).orElse(Boundary.NONE);
-        return new FrontierState(highestSeen.accumulateAndGet(read, Boundary::max),
-                liveVerified.map(ObjectLockDurableErasureRecordStore::boundary).orElse(null),
+        Boundary base = highestSeen.accumulateAndGet(read, Boundary::max);
+        reportHistory(base);
+        return new FrontierState(base, liveVerified.map(ObjectLockDurableErasureRecordStore::boundary).orElse(null),
                 live.map(Current::matchToken).orElse(null));
+    }
+
+    /**
+     * The frontier's versions and the sequence markers grow by one per record and per checkpoint, so
+     * {@code highestReserved + 1} estimates the longest listings, which only the fallback read and
+     * recovery run. The bucket can warn before they outgrow its bounds (#616).
+     */
+    private void reportHistory(Boundary boundary) {
+        bucket.historyEstimate(boundary.highestReserved() + 1);
     }
 
     /**
@@ -458,8 +468,9 @@ public final class ObjectLockDurableErasureRecordStore
                     : bucket.putIfCurrent(DurableErasureEvidence.FRONTIER_KEY, bytes, current.matchToken(),
                             retentionMode, retainUntil());
             if (written.isPresent()) {
-                return new FrontierState(highestSeen.accumulateAndGet(next, Boundary::max), next,
-                        written.get().matchToken());
+                Boundary seen = highestSeen.accumulateAndGet(next, Boundary::max);
+                reportHistory(seen);
+                return new FrontierState(seen, next, written.get().matchToken());
             }
             if (attempt == FRONTIER_WRITE_ATTEMPTS) {
                 throw unavailable("frontier kept changing while it was written");

@@ -425,6 +425,75 @@ class GcsObjectRetentionBucketTest {
         assertThat(output.getAll().split("past half of a bound", -1)).hasSize(3);
     }
 
+    /**
+     * #616 F2: the store reports its history after each frontier read and write, so the warning comes
+     * on the normal path, before the fallback read or a recovery listing meets a bound. With one page of
+     * 100, the 50th record's frontier write makes the history 51 versions: past half.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void theStoreWarnsOnItsNormalPathOnceItsHistoryPassesHalfOfWhatOneListingHolds(CapturedOutput output) {
+        GcsObjectRetentionBucket onePage = new GcsObjectRetentionBucket(transport,
+                new GcsObjectRetentionBucket.ListBounds(1, Duration.ofSeconds(30)));
+        ObjectLockDurableErasureRecordStore small = new ObjectLockDurableErasureRecordStore(onePage, TRUST,
+                PRODUCER.keyId(), EvidenceRetentionMode.GOVERNANCE, RETENTION, CLOCK);
+        for (int n = 1; n <= 49; n++) {
+            assertThat(small.putIfAbsent(record(n)).created()).isTrue();
+        }
+        assertThat(output.getAll()).doesNotContain("durable store history is about");
+
+        assertThat(small.putIfAbsent(record(50)).created()).isTrue();
+
+        assertThat(output.getAll()).contains("durable store history is about 51 object versions, past half of the"
+                + " 100 one listing can hold (page bound 100, deadline bound 30000 at about 100 ms a page)");
+        // After a restart a frontier read alone reports it, before any new write.
+        GcsObjectRetentionBucket reopened = new GcsObjectRetentionBucket(transport,
+                new GcsObjectRetentionBucket.ListBounds(1, Duration.ofSeconds(30)));
+        ObjectLockDurableErasureRecordStore restarted = new ObjectLockDurableErasureRecordStore(reopened, TRUST,
+                PRODUCER.keyId(), EvidenceRetentionMode.GOVERNANCE, RETENTION, CLOCK);
+        assertThat(restarted.findByRequestId(record(1).erasureRequestId())).contains(record(1));
+        assertThat(output.getAll().split("durable store history is about 51 object versions", -1)).hasSize(3);
+    }
+
+    /**
+     * #616 F2: what one listing can hold follows the bounds and the page time this adapter measured,
+     * at least 100 ms a page, and the warning repeats at most once an hour while it holds.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void theHistoryWarningFollowsTheMeasuredPageTimeAndRepeatsAtMostHourly(CapturedOutput output) {
+        String key = DurableErasureEvidence.FRONTIER_KEY;
+        AtomicLong clock = new AtomicLong();
+        PagingTransport slowPages = pages(key, 1, () -> clock.addAndGet(Duration.ofMillis(200).toNanos()));
+        GcsObjectRetentionBucket bucket = bounded(slowPages,
+                new GcsObjectRetentionBucket.ListBounds(1_000, Duration.ofSeconds(10)), clock::get);
+        // No page measured yet: 100 ms a page, so 10 s holds 100 pages, 10,000 versions.
+        bucket.historyEstimate(5_000);
+        assertThat(output.getAll()).doesNotContain("durable store history is about");
+
+        // One page took 200 ms: 10 s now holds 50 pages, 5,000 versions.
+        assertThat(bucket.versionCount(key)).isEqualTo(1);
+        bucket.historyEstimate(2_500);
+        assertThat(output.getAll()).doesNotContain("durable store history is about");
+        bucket.historyEstimate(2_501);
+        bucket.historyEstimate(3_000);
+        clock.addAndGet(Duration.ofHours(1).toNanos());
+        bucket.historyEstimate(3_000);
+
+        assertThat(output.getAll())
+                .contains("durable store history is about 2501 object versions, past half of the 5000 one listing"
+                        + " can hold (page bound 100000, deadline bound 5000 at about 200 ms a page)")
+                .contains("durable store history is about 3000 object versions");
+        assertThat(output.getAll().split("durable store history is about", -1)).hasSize(3);
+    }
+
+    private static DurableErasureRecord record(int n) {
+        return DurableErasureRecord.of(
+                UUID.nameUUIDFromBytes(("gcs-history-request-" + n).getBytes(StandardCharsets.UTF_8)),
+                UUID.nameUUIDFromBytes(("gcs-history-user-" + n).getBytes(StandardCharsets.UTF_8)),
+                Instant.parse("2026-10-21T11:00:00Z"));
+    }
+
     /** {@code count} pages of one generation of {@code key} each; {@code perPage} runs before each answer. */
     private static PagingTransport pages(String key, int count, Runnable perPage) {
         return new PagingTransport(request -> {

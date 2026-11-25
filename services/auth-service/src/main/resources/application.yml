@@ -295,7 +295,8 @@ parkio:
           # Bounds of one bucket listing (#493, #616): at most list-max-pages pages of 100 generations
           # (1 to 10000), within list-deadline, a page in flight included (a duration such as 30s; a
           # bare number is seconds; at most 5m). Past either bound, or on a repeated page token, the
-          # listing fails closed (DURABLE_RECORDING_UNAVAILABLE); past half of either it logs a warning.
+          # listing fails closed (DURABLE_RECORDING_UNAVAILABLE); past half of either it logs a warning,
+          # as it does while the store's history passes half of what one listing can hold.
           list-max-pages: ${PARKIO_ERASURE_STORE_GCS_LIST_MAX_PAGES:1000}
           list-deadline: ${PARKIO_ERASURE_STORE_GCS_LIST_DEADLINE:30s}
         # Signed SHARE-lock checkpoints of erased_user_tombstones (contract stage 2), published
