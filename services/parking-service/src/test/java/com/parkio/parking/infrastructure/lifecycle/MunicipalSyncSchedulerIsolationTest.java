@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -36,8 +37,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * for its first byte. While it is blocked, the outbox relay and the spot-expiry job (default
  * scheduler) and the ISPARK sync (another feed) must keep their cadence, and IZUM must not start a
  * second, overlapping run. The real job beans and the production scheduling configuration run; only
- * their collaborators are replaced.
+ * their collaborators are replaced. The context is closed after the class, so its millisecond schedules
+ * do not keep running through the rest of the test JVM.
  */
+@DirtiesContext
 @SpringBootTest(properties = {
         "parkio.municipal.enabled=true",
         "parkio.municipal.izum.enabled=true",
