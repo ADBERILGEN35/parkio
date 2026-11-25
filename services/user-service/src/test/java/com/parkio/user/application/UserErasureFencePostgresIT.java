@@ -18,6 +18,7 @@ import com.parkio.user.domain.place.PlaceDestinationSource;
 import com.parkio.user.domain.place.RecentParkingTargetKind;
 import com.parkio.user.infrastructure.persistence.ErasureAckOutboxAdapter;
 import com.parkio.user.infrastructure.persistence.RecentDestinationRepositoryAdapter;
+import com.parkio.user.infrastructure.persistence.UserOwnerFenceAdapter;
 import com.parkio.user.infrastructure.persistence.UserProfileRepositoryAdapter;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,13 +45,24 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** Real Flyway/PostgreSQL transactions; the spy only installs a barrier after real SQL. */
+/**
+ * Real Flyway/PostgreSQL transactions. The spies only pause a call after its real SQL, or give
+ * an ordering case's fence waits a longer bound.
+ */
 @Tag("integration")
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
 @Timeout(30)
 class UserErasureFencePostgresIT {
     @Container static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    /**
+     * Fence bound for the ordering cases, which leave a call parked on the fence until the test
+     * resumes the paused erasure. In a passing run that wait lasts at most the 5 s lock poll plus
+     * the 10 s erasure wait, so with a longer bound a runner stall fails one of those waits
+     * instead of turning the expected outcome into {@code PROFILE_BUSY}. The stuck-erasure case
+     * keeps the configured default.
+     */
+    private static final Duration ORDERING_FENCE_BOUND = Duration.ofSeconds(20);
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         r.add("spring.datasource.username", POSTGRES::getUsername);
@@ -70,6 +82,7 @@ class UserErasureFencePostgresIT {
     @MockitoSpyBean UserProfileRepositoryAdapter profiles;
     @MockitoSpyBean ErasureAckOutboxAdapter ackOutbox;
     @MockitoSpyBean RecentDestinationRepositoryAdapter recentDestinationRows;
+    @MockitoSpyBean UserOwnerFenceAdapter ownerFence;
 
     @Test
     void createAfterInitialCheckCannotRecreatePiiAfterCommittedErasureAck() throws Exception {
@@ -122,6 +135,7 @@ class UserErasureFencePostgresIT {
     @ParameterizedTest
     @ValueSource(strings = {"create", "registered", "suspended"})
     void writerArrivingWhileErasureHoldsFenceWaitsThenCannotRecreateRecords(String writer) throws Exception {
+        useOrderingFenceBound();
         UUID user = UUID.randomUUID();
         // A late event targets an existing profile; a create targets a user without one.
         UUID existingProfile = "create".equals(writer) ? null : users.createProfile(new CreateProfileCommand(
@@ -155,7 +169,9 @@ class UserErasureFencePostgresIT {
             erase.get(10, TimeUnit.SECONDS);
             if ("create".equals(writer)) {
                 assertThatThrownBy(() -> write.get(10, TimeUnit.SECONDS))
-                        .hasCauseInstanceOf(UserException.class);
+                        .isInstanceOf(ExecutionException.class)
+                        .cause().isInstanceOfSatisfying(UserException.class,
+                                e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_NOT_FOUND));
             } else {
                 write.get(10, TimeUnit.SECONDS);
             }
@@ -200,6 +216,7 @@ class UserErasureFencePostgresIT {
         assertThat(insideRead.get()).as("transaction_read_only, shared fence locks held, lock_timeout")
                 .isEqualTo("on 1 0");
 
+        useOrderingFenceBound();
         var acking = new CountDownLatch(1);
         var resume = new CountDownLatch(1);
         doAnswer(call -> {
@@ -240,6 +257,7 @@ class UserErasureFencePostgresIT {
     @ValueSource(strings = {"saved-place", "favourite-destination", "favourite-parking", "recent-destination",
             "recent-parking"})
     void childWriteArrivingWhileErasureHoldsFenceWaitsThenSeesTheTombstone(String path) throws Exception {
+        useOrderingFenceBound();
         UUID user = UUID.randomUUID();
         UUID profile = users.createProfile(new CreateProfileCommand(
                 user, user + "@example.test", "Synthetic", null, null)).id();
@@ -408,6 +426,16 @@ class UserErasureFencePostgresIT {
                 Long.class, user)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM user_preferences p JOIN user_profiles u ON p.user_profile_id=u.id WHERE u.auth_user_id=?",
                 Long.class, user)).isEqualTo(1);
+    }
+
+    /**
+     * Gives this test's fence waits {@link #ORDERING_FENCE_BOUND}. The adapter is the same class
+     * on the same {@code JdbcTemplate}, so it joins the caller's transaction and runs the same
+     * SQL; only the bound differs. The spy is reset after each test.
+     */
+    private void useOrderingFenceBound() {
+        var fence = new UserOwnerFenceAdapter(jdbc, ORDERING_FENCE_BOUND);
+        doAnswer(call -> fence.admitWrite(call.getArgument(0))).when(ownerFence).admitWrite(any());
     }
 
     private Object childWrite(String path, UUID user) {

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.parkio.media.application.port.MediaScannerUnavailableException;
 import java.io.DataInputStream;
+import java.io.InterruptedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -12,13 +13,16 @@ import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -105,26 +109,52 @@ class ClamavMediaScannerDeadlineTest {
     }
 
     @Test
-    void cancellationWhileWaitingForTheLookupTerminatesWorker() throws Exception {
+    void cancellationWhileWaitingForTheLookupKeepsTheInterruptAndTerminatesWorker() throws Exception {
         var released = new CountDownLatch(1);
         var lookups = new AtomicInteger();
+        var worker = new AtomicReference<Thread>();
+        var outcome = new CompletableFuture<CancelledScan>();
         var executor = Executors.newSingleThreadExecutor();
         try {
             var scanner = new ClamavMediaScanner("clamd.test", 3310,
                     Duration.ofSeconds(10), Duration.ofSeconds(10), stuckLookup(released, lookups));
-            var scan = executor.submit(() -> scanner.scan(new byte[1]));
+            var scan = executor.submit(() -> {
+                worker.set(Thread.currentThread());
+                try {
+                    return scanner.scan(new byte[1]);
+                } catch (RuntimeException e) {
+                    // Recorded here: an executor thread does not keep the flag past its task.
+                    outcome.complete(new CancelledScan(e, Thread.currentThread().isInterrupted()));
+                    throw e;
+                }
+            });
+            // Cancel only once the scan is parked on the lookup. An earlier interrupt would be
+            // seen by the deadline check, which keeps the flag on its own.
             long waitUntil = System.nanoTime() + Duration.ofSeconds(2).toNanos();
-            while (lookups.get() == 0 && System.nanoTime() < waitUntil) {
+            while (!parkedOnTheLookup(worker.get(), lookups) && System.nanoTime() < waitUntil) {
                 Thread.sleep(5);
             }
-            assertThat(lookups).hasValue(1);
+            assertThat(parkedOnTheLookup(worker.get(), lookups)).as("scan parked on the lookup").isTrue();
             scan.cancel(true);
             executor.shutdown();
             assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(outcome).as("scan outcome").isDone();
+            CancelledScan cancelled = outcome.join();
+            assertThat(cancelled.failure()).isInstanceOf(MediaScannerUnavailableException.class)
+                    .hasCauseInstanceOf(InterruptedIOException.class);
+            assertThat(cancelled.interrupted()).as("interrupt flag after the scan failed").isTrue();
         } finally {
             released.countDown();
             executor.shutdownNow();
         }
+    }
+
+    private record CancelledScan(RuntimeException failure, boolean interrupted) {
+    }
+
+    /** The scan has started the lookup and waits for it, its only timed wait before connecting. */
+    private static boolean parkedOnTheLookup(Thread worker, AtomicInteger lookups) {
+        return lookups.get() == 1 && worker != null && worker.getState() == Thread.State.TIMED_WAITING;
     }
 
     @Test
@@ -150,6 +180,16 @@ class ClamavMediaScannerDeadlineTest {
             assertThat(served.get(2, TimeUnit.SECONDS)).isTrue();
             assertThat(outcomes).isEmpty();
         }
+    }
+
+    @Test
+    void stateBeforeTheFirstLookupFailsClosedInsteadOfYieldingTheWildcardAddress() {
+        // A null address is the wildcard, and a connect to it reaches the local machine. Scans
+        // replace this state before they wait on a lookup, but a scan that ever waited on it
+        // must fail closed like a failed lookup instead of connecting locally.
+        assertThatThrownBy(() -> ClamavMediaScanner.NO_LOOKUP.get(0, TimeUnit.NANOSECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOf(UnknownHostException.class);
     }
 
     @Test
