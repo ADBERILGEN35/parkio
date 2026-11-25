@@ -30,9 +30,15 @@ class IzumTimingBoundsValidationTest {
     static class PropertiesConfig {
     }
 
+    /**
+     * Boot validates a nested object only when it binds at least one of its properties, as it does in
+     * production from {@code application.yml}. Binding {@code enabled} makes the check run on the Java
+     * defaults; without a property, this test would pass whatever the defaults were.
+     */
     @Test
     void theDefaultsStart() {
-        runner.run(context -> assertThat(context).hasNotFailed());
+        runner.withPropertyValues("parkio.municipal.izum.enabled=true")
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     @ParameterizedTest
