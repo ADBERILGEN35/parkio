@@ -742,6 +742,183 @@ else
   bad "#611: a trailing value option must exit 2 with an error (rc=${switch_rc})"
 fi
 
+# --- #639: the env file is shell code. A line there must not reach the private switches, anything
+# the command line set, or the restore controls (PARKIO_RESTORE_*). ---
+banner() { grep -qxF "=== Parkio hosted-beta restore ===" "${SWITCH_OUT}"; }
+# stopped_at_load NAME: the run stopped at the env-file line that assigns NAME (exit 1), before its
+# banner, without asking, and with zero decrypt or apply.
+stopped_at_load() {
+  [ "${switch_rc}" -eq 1 ] && no_destroy && ! asked && ! banner \
+    && grep -qF -- "$1: readonly variable" "${SWITCH_OUT}"
+}
+# stopped_on_control NAME: the run refused the env file for changing NAME (exit 2), before its banner,
+# without asking, and with zero decrypt or apply.
+stopped_on_control() {
+  [ "${switch_rc}" -eq 2 ] && no_destroy && ! asked && ! banner \
+    && grep -qF -- "ERROR: the env file sets, changes or clears $1." "${SWITCH_OUT}"
+}
+
+mint_ticket ok
+switch_restore "arg_dry_run=0" "" --dry-run --yes
+if stopped_at_load arg_dry_run; then
+  ok "#639: an env-file arg_dry_run=0 cannot cancel --dry-run (exit 1 at the env file, before any restore step)"
+else
+  bad "#639: an env-file arg_dry_run=0 must stop the run before any restore step (rc=${switch_rc})"
+fi
+
+switch_restore "arg_assume_yes=yes" ""
+if stopped_at_load arg_assume_yes; then
+  ok "#639: an env-file arg_assume_yes=yes cannot answer the confirmation (exit 1 at the env file, zero apply)"
+else
+  bad "#639: an env-file arg_assume_yes=yes must stop the run before the confirmation (rc=${switch_rc})"
+fi
+
+# The #611 WARN covers DRY_RUN and ASSUME_YES inherited from the caller's environment too.
+DRY_RUN=0 ASSUME_YES=yes switch_restore "" "" --dry-run
+if dry_run_only && said "${WARN_DRY_RUN}" && said "${WARN_ASSUME_YES}"; then
+  ok "#639: DRY_RUN=0 and ASSUME_YES=yes from the caller's environment are ignored with both WARNs"
+else
+  bad "#639: DRY_RUN=0 ASSUME_YES=yes in the environment must leave --dry-run a dry run, with both WARNs (rc=${switch_rc})"
+fi
+
+ASSUME_YES=yes switch_restore "" $'no\n'
+if [ "${switch_rc}" -eq 1 ] && no_destroy && asked && grep -qF "Aborted." "${SWITCH_OUT}" \
+    && said "${WARN_ASSUME_YES}"; then
+  ok "#639: ASSUME_YES=yes from the caller's environment cannot skip the confirmation"
+else
+  bad "#639: ASSUME_YES=yes in the environment must not skip the confirmation (rc=${switch_rc})"
+fi
+
+# Each value the command line set. Without the guard these lines run another checkout's scripts, give
+# the database steps another env file, restore another manifest or stamp, restore MinIO instead of the
+# databases, add a ledger, or turn on the stage-4 evidence path.
+OTHER_639="${WORK}/639-other/2026-09-19T03-30-01Z"
+make_full_stamp "${OTHER_639}"
+for line in "ROOT=${WORK}/639-other" "ENV_FILE=${WORK}/639-other/other.env" \
+    "MANIFEST=${OTHER_639}/backup-manifest.json" "ONLY=minio" "STAMP_OVERRIDE=${OTHER_639}" \
+    "LEDGER_STAMPS=${OTHER_639}" "ERASURE_EVIDENCE=${WORK}/639-other/bundle.json" \
+    "ERASURE_TRUST=${WORK}/639-other/trust.json" "RECOVERY_ATTEMPT=5e5e5e5e-0000-4000-8000-00000000a639" \
+    "RECOVERY_DIR=${WORK}/639-other"; do
+  name="${line%%=*}"
+  switch_restore "${line}" "" --yes
+  if stopped_at_load "${name}"; then
+    ok "#639: an env-file ${name}= line stops the run at the env file (exit 1, zero apply)"
+  else
+    bad "#639: an env-file ${name}= line must stop the run before any restore step (rc=${switch_rc})"
+  fi
+done
+
+# The restore controls come from the command line or the caller's environment only.
+switch_restore "PARKIO_RESTORE_RECOVERY_CUTOFF=2026-09-20T03:30:01Z" "" --yes \
+  --recovery-cutoff "2026-09-21T15:00:00Z"
+if stopped_on_control PARKIO_RESTORE_RECOVERY_CUTOFF; then
+  ok "#639: an env-file recovery cutoff cannot lower --recovery-cutoff (exit 2, zero apply)"
+else
+  bad "#639: an env-file PARKIO_RESTORE_RECOVERY_CUTOFF must stop the run before the coverage check (rc=${switch_rc})"
+fi
+for line in "PARKIO_RESTORE_REQUIRE_ERASURE_LEDGER=0" "PARKIO_RESTORE_ALLOW_PLAINTEXT=1" \
+    "PARKIO_RESTORE_SKIP_CLIENT_COMPAT=1" "PARKIO_RESTORE_PREFLIGHT_DONE=1" "PARKIO_RESTORE_DUMP_PROFILE=" \
+    "unset PARKIO_RESTORE_ISOLATED_TICKET"; do
+  name="${line#unset }"
+  name="${name%%=*}"
+  switch_restore "${line}" "" --yes
+  if stopped_on_control "${name}"; then
+    ok "#639: an env-file '${line}' stops the run before the stamp preflight (exit 2, zero apply)"
+  else
+    bad "#639: an env-file '${line}' must stop the run before the stamp preflight (rc=${switch_rc})"
+  fi
+done
+switch_restore "PARKIO_RESTORE_ISOLATED_TICKET=${PARKIO_RESTORE_ISOLATED_TICKET}" "" --yes
+if [ "${switch_rc}" -eq 0 ] && grep -q PSQL_APPLY "${LOG}"; then
+  ok "#639: an env-file line that repeats the caller's restore control changes nothing and is accepted"
+else
+  bad "#639: a line that repeats the caller's own value must not stop the restore (rc=${switch_rc})"
+fi
+
+# restore-database.sh, standalone on the isolated path: --yes counts only on its command line, and the
+# env file reaches neither its arguments nor the restore controls.
+# db_restore ENV_LINES STDIN [ARG...]: the isolated auth restore with these env-file lines, this stdin
+# and these extra arguments. Sets switch_rc; output in SWITCH_OUT.
+db_restore() {
+  printf 'PARKIO_DEPLOYMENT_PROFILE=hosted-beta\n%s\n' "$1" > "${SWITCH_ENV}"
+  printf '%s' "$2" > "${SWITCH_IN}"
+  shift 2
+  : > "${LOG}"
+  switch_rc=0
+  PARKIO_ENV_FILE="${SWITCH_ENV}" PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
+    "${ROOT}/scripts/restore-database.sh" auth "${STAMP}/auth.sql.gz.enc" --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" --recovery-cutoff "2026-09-20T03:30:01Z" "$@" \
+    < "${SWITCH_IN}" > "${SWITCH_OUT}" 2>&1 || switch_rc=$?
+}
+db_asked() { grep -qF "Type the service name 'auth' to proceed" "${SWITCH_OUT}"; }
+db_started() { grep -qE '^=== stamp preflight|^About to RESTORE' "${SWITCH_OUT}"; }
+
+db_restore "" "" --yes
+if [ "${switch_rc}" -eq 0 ] && ! db_asked && grep -q PSQL_APPLY "${LOG}" && ! grep -q "WARN: ignoring" "${SWITCH_OUT}"; then
+  ok "#639: the standalone isolated restore-database.sh --yes restores without a prompt or a WARN"
+else
+  bad "#639: the standalone isolated restore-database.sh --yes must restore (rc=${switch_rc})"
+fi
+
+db_restore "ASSUME_YES=yes" $'no\n'
+if [ "${switch_rc}" -eq 1 ] && no_destroy && db_asked && grep -qF "Aborted (no changes made)." "${SWITCH_OUT}" \
+    && said "${WARN_ASSUME_YES}"; then
+  ok "#639: restore-database.sh: an env-file ASSUME_YES=yes cannot skip the confirmation (WARN, a wrong answer aborts)"
+else
+  bad "#639: restore-database.sh: an env-file ASSUME_YES=yes skipped the confirmation (rc=${switch_rc})"
+fi
+
+db_restore "ASSUME_YES=no" "" --yes
+if [ "${switch_rc}" -eq 0 ] && ! db_asked && grep -q PSQL_APPLY "${LOG}" && said "${WARN_ASSUME_YES}"; then
+  ok "#639: restore-database.sh: an env-file ASSUME_YES=no does not override --yes (WARN, no prompt)"
+else
+  bad "#639: restore-database.sh: --yes must count over an env-file ASSUME_YES=no (rc=${switch_rc})"
+fi
+
+for line in "arg_assume_yes=yes" "SERVICE=gateway" "DUMP_FILE=${OTHER_639}/auth.sql.gz.enc" \
+    "DUMP_REAL=${OTHER_639}/auth.sql.gz.enc" "STAMP_DIR=${OTHER_639}" "ENV_FILE=${WORK}/639-other/other.env" \
+    "ROOT=${WORK}/639-other" "SCRIPT_DIR=${WORK}/639-other"; do
+  name="${line%%=*}"
+  db_restore "${line}" ""
+  if [ "${switch_rc}" -eq 1 ] && no_destroy && ! db_asked && ! db_started \
+      && grep -qF -- "${name}: readonly variable" "${SWITCH_OUT}"; then
+    ok "#639: restore-database.sh: an env-file ${name}= line stops it at the env file (exit 1, zero apply)"
+  else
+    bad "#639: restore-database.sh: an env-file ${name}= line must stop it before any restore step (rc=${switch_rc})"
+  fi
+done
+
+db_restore "PARKIO_RESTORE_PREFLIGHT_DONE=1" "" --yes
+if [ "${switch_rc}" -eq 2 ] && no_destroy && ! db_started \
+    && grep -qF "ERROR: the env file sets, changes or clears PARKIO_RESTORE_PREFLIGHT_DONE." "${SWITCH_OUT}"; then
+  ok "#639: restore-database.sh: an env-file PARKIO_RESTORE_PREFLIGHT_DONE=1 cannot skip the stamp preflight (exit 2)"
+else
+  bad "#639: restore-database.sh: an env-file PARKIO_RESTORE_PREFLIGHT_DONE=1 must stop it (rc=${switch_rc})"
+fi
+
+db_restore "" "" --env-file --yes
+if [ "${switch_rc}" -eq 2 ] && no_destroy && ! db_started \
+    && said "ERROR: --env-file needs a value; got '--yes'"; then
+  ok "#639: restore-database.sh: --env-file cannot take --yes as its value (exit 2, zero apply)"
+else
+  bad "#639: restore-database.sh: '--env-file --yes' must exit 2 before anything runs (rc=${switch_rc})"
+fi
+
+# --- #639: a dry run decrypts nothing, the MinIO archive included (restore-runbook.md, Dry-run) ---
+DRY_TMP="${WORK}/639-dry-run-tmp"
+mkdir -p "${DRY_TMP}"
+: > "${LOG}"
+rc=0
+TMPDIR="${DRY_TMP}" PARKIO_ENV_FILE="${ENV_FILE}" "${ROOT}/scripts/restore-hosted-beta.sh" \
+  --manifest "${MANIFEST}" --dry-run > "${SWITCH_OUT}" 2>&1 || rc=$?
+if [ "${rc}" -eq 0 ] && no_destroy && said "scope=full" \
+    && grep -q '^DRY-RUN: would decrypt .*/minio\.tar\.gz\.enc' "${SWITCH_OUT}" \
+    && [ -z "$(ls -A "${DRY_TMP}")" ]; then
+  ok "#639: a full-scope dry run decrypts nothing: no MinIO unseal and no temp copy"
+else
+  bad "#639: a full-scope dry run must not decrypt the MinIO archive (rc=${rc})"
+fi
+
 # --- interrupted restore / failure propagation ---
 mint_ticket ok
 : > "${LOG}"
