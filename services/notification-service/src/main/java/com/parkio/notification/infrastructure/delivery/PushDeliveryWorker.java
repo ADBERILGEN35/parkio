@@ -10,6 +10,7 @@ import com.parkio.notification.domain.DeliveryStatus;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.Notification;
 import com.parkio.notification.domain.NotificationDeliveryAttempt;
+import com.parkio.notification.infrastructure.config.PushDeliverySchedulingConfig;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -40,6 +41,10 @@ import org.springframework.transaction.annotation.Transactional;
  * exponential backoff ({@code base-backoff * 2^(attemptCount-1)}) until
  * {@code max-attempts} is reached, then it is marked FAILED (terminal). A failing
  * attempt never throws, so one bad attempt cannot roll back the rest of the batch.
+ *
+ * <p><b>Scheduler:</b> the tick runs on its own scheduler ({@link PushDeliverySchedulingConfig}), not on Spring
+ * Boot's single shared thread. While Expo does not answer, a tick waits out the read timeout once per attempt, and
+ * the outbox relay, retention and Smart Return jobs must not wait with it (#641).
  *
  * <p>Disabled by default in tests via {@code parkio.notification.delivery.push.enabled}.
  * Never logs device tokens or other secrets (ai-context/07).
@@ -101,7 +106,8 @@ public class PushDeliveryWorker {
      * row locks for the whole batch. Unexpected (DB-level) errors roll back the batch and
      * are logged by the scheduler; the claimed rows simply become due again.
      */
-    @Scheduled(fixedDelayString = "${parkio.notification.delivery.push.fixed-delay-ms:30000}")
+    @Scheduled(fixedDelayString = "${parkio.notification.delivery.push.fixed-delay-ms:30000}",
+            scheduler = PushDeliverySchedulingConfig.PUSH_DELIVERY_SCHEDULER)
     @Transactional
     public void tick() {
         if (!enabled) {
