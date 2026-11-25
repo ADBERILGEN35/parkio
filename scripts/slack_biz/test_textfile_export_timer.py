@@ -28,12 +28,68 @@ from slack_biz.store import DeliveryStore  # noqa: E402
 
 _HEARTBEAT_AGE = re.compile(r"(?m)^parkio_slack_biz_worker_heartbeat_age_seconds (\S+)$")
 
+# Runs worker.py as __main__ with a hook that sends SIGTERM to the worker's own process at one point of
+# the window between the lock commit and `worker = DeliveryWorker(...)` in main() (#618). A signal that a
+# single-threaded process sends itself is delivered before kill() returns, and Python runs the handler as
+# soon as os.kill returns, so the stop lands exactly at that point, with no timing involved.
+_SIGTERM_IN_WORKER_CONSTRUCTOR = r"""
+import os, runpy, signal, sys
+
+scripts, worker_py, point, *argv = sys.argv[1:]
+sys.path.insert(0, scripts)
+from slack_biz.delivery import DeliveryWorker
+from slack_biz.store import DeliveryStore
+
+
+def stop(store):
+    holder = store._conn.execute("SELECT worker_id FROM worker_lock WHERE id=1").fetchone()
+    holder = holder[0] if holder else None
+    print(f"hook: SIGTERM at {point}, lock held by {holder}", file=sys.stderr, flush=True)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+if point == "lock-committed":  # inside DeliveryWorker.__init__, right after the lock row commits
+    acquire = DeliveryStore.acquire_worker_lock
+
+    def acquire_worker_lock(self, worker_id):
+        acquire(self, worker_id)
+        stop(self)
+
+    DeliveryStore.acquire_worker_lock = acquire_worker_lock
+elif point == "constructed":  # DeliveryWorker.__init__ has finished; main() has not bound it yet
+    init = DeliveryWorker.__init__
+
+    def __init__(self, *args, **kwargs):
+        init(self, *args, **kwargs)
+        stop(self.store)
+
+    DeliveryWorker.__init__ = __init__
+else:
+    raise SystemExit(f"unknown hook point {point}")
+
+sys.argv = [worker_py, *argv]
+runpy.run_path(worker_py, run_name="__main__")
+"""
+
 
 def heartbeat_age(body: str) -> float:
     match = _HEARTBEAT_AGE.search(body)
     if match is None:
         raise AssertionError(f"export has no worker heartbeat age:\n{body}")
     return float(match.group(1))
+
+
+def worker_lock_row(db_path: Path) -> tuple[str, float] | None:
+    """The worker_lock row, read like the export does, so the read adds no WAL side files."""
+    store = DeliveryStore(db_path, readonly=True)
+    try:
+        with store._lock:  # noqa: SLF001
+            row = store._conn.execute(
+                "SELECT worker_id, heartbeat_at FROM worker_lock WHERE id=1"
+            ).fetchone()
+    finally:
+        store.close()
+    return None if row is None else (row["worker_id"], float(row["heartbeat_at"]))
 
 
 def _seed_store(db_path: Path) -> None:
@@ -309,9 +365,9 @@ class TextfileExportTimerTest(unittest.TestCase):
         """systemctl stop sends SIGTERM. Each relay entrypoint must still close the store, so the WAL
         side files go and the export reads parkio_slack_biz_relay_db_open 0 (#488 review). No worker
         holds the lock afterwards (the worker releases it), so the heartbeat age reads +Inf (#544)."""
-        for script, args in (
-            ("worker.py", ["--loop", "--interval", "0.2", "--worker-id", "sigterm-test"]),
-            ("consume_waitlist.py", ["--loop", "--interval", "0.2"]),
+        for script, args, takes_lock in (
+            ("worker.py", ["--loop", "--interval", "0.2", "--worker-id", "sigterm-test"], True),
+            ("consume_waitlist.py", ["--loop", "--interval", "0.2"], False),
         ):
             with self.subTest(script=script):
                 tmp_path = self._tmp()
@@ -329,19 +385,26 @@ class TextfileExportTimerTest(unittest.TestCase):
                 )
                 self.addCleanup(relay.stderr.close)
                 self.addCleanup(relay.kill)
+                # Stop a running relay. The worker counts as running once it holds the lock, so the stop
+                # has a lock to release; a SIGTERM that lands before the lock would release nothing (#618).
                 deadline = time.time() + 30
-                while not Path(f"{db_path}-wal").exists():
+                while not Path(f"{db_path}-wal").exists() or (
+                    takes_lock and worker_lock_row(db_path) is None
+                ):
                     if relay.poll() is not None:  # read stderr only once the relay has exited
                         self.fail(f"{script} exited early: {relay.stderr.read()}")
                     if time.time() > deadline:
-                        self.fail(f"{script} never opened the store")
+                        self.fail(f"{script} never opened the store or took the lock")
                     time.sleep(0.05)
 
                 relay.send_signal(signal.SIGTERM)
 
-                code = relay.wait(timeout=30)
-                self.assertEqual(code, 0, relay.stderr.read())
+                # Wait for the exit before anything reads the database or the export.
+                _, stderr = relay.communicate(timeout=30)
+                self.assertEqual(relay.returncode, 0, stderr)
                 self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+                # The close path ran: worker.close() deleted the lock row with its heartbeat.
+                self.assertIsNone(worker_lock_row(db_path))
                 proc, out = self._export(data_dir, tmp_path)
                 self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
                 body = out.read_text(encoding="utf-8")
@@ -349,6 +412,47 @@ class TextfileExportTimerTest(unittest.TestCase):
                 self.assertIn("parkio_slack_biz_delivery_unknown 2", body)
                 self.assertEqual(heartbeat_age(body), math.inf)
                 self.assertIn("parkio_slack_biz_delivery_enabled 0", body)
+
+    def test_a_sigterm_inside_the_worker_constructor_still_releases_the_lock(self) -> None:
+        """#618: DeliveryWorker takes the lock inside its constructor. A SIGTERM handled after the lock
+        row commits but before main() binds `worker` used to skip worker.close(), so the lock and its
+        fresh heartbeat outlived the worker and the export read age 0 instead of +Inf. A hook stops the
+        worker at each end of that window, deterministically."""
+        for point in ("lock-committed", "constructed"):
+            with self.subTest(point=point):
+                tmp_path = self._tmp()
+                data_dir = tmp_path / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                db_path = data_dir / "slack_biz.sqlite3"
+                _seed_store(db_path)
+
+                proc = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        _SIGTERM_IN_WORKER_CONSTRUCTOR,
+                        str(ROOT / "scripts"),
+                        str(ROOT / "scripts/slack_biz/worker.py"),
+                        point,
+                        *("--loop", "--interval", "0.2", "--worker-id", "sigterm-window"),
+                    ],
+                    env=self._env(data_dir, tmp_path),
+                    cwd=str(ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                # The signal went out with the lock row committed, i.e. inside the window.
+                self.assertIn(f"hook: SIGTERM at {point}, lock held by sigterm-window\n", proc.stderr)
+                self.assertEqual([p.name for p in data_dir.iterdir()], ["slack_biz.sqlite3"])
+                self.assertIsNone(
+                    worker_lock_row(db_path), f"SIGTERM at {point} left the worker lock behind"
+                )
+                body = self._export_body(data_dir, tmp_path, {})
+                self.assertIn("parkio_slack_biz_relay_db_open 0", body)
+                self.assertEqual(heartbeat_age(body), math.inf)
 
     def test_a_crashed_relay_keeps_its_heartbeat_age_growing(self) -> None:
         """#544: SIGKILL skips every close, so the WAL side files stay and parkio_slack_biz_relay_db_open

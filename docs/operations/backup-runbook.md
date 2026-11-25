@@ -199,9 +199,13 @@ caller's value. Make the first run against the restored target a bounded run wit
      at the end. The manifests (`backup-<stamp>.json`, `backup-current.json` and the sealed
      `<stamp>/backup-manifest.json`) record `"localPrune": "skipped"`; a run without the
      flag records `"after-success"`.
-   - Only the command line counts. A `NO_PRUNE` or `DRY_RUN` line in the env file is
-     ignored with a `WARN`, and the env file cannot change what the orchestrator hands
-     `backup-databases.sh` (`BACKUP_SKIP_MC_UPLOAD`, `BACKUP_DEST_DIR`).
+   - Only the command line counts. A `NO_PRUNE`, `DRY_RUN`, `OPERATOR` or `ARTIFACT_DIR`
+     line in the env file is ignored with a `WARN`. Without `--operator` and `--artifact-dir`,
+     those values come from `PARKIO_BACKUP_OPERATOR` and `PARKIO_BACKUP_ARTIFACT_DIR` in the
+     caller's environment, never from the env file. The env file also cannot change what the
+     orchestrator hands its steps: `BACKUP_SKIP_MC_UPLOAD` and `BACKUP_DEST_DIR` for
+     `backup-databases.sh`, and the dry-run decision for `backup-minio.sh`, which also takes
+     `--dry-run` from its command line only. A `DRY_RUN=1` line cannot skip the MinIO mirror.
    - A checkout without this option rejects it (`ERROR: unknown argument '--no-prune'`,
      exit 2) before it writes or deletes anything. Do not drop the flag to get past that;
      update the checkout first.
