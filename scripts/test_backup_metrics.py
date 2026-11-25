@@ -74,19 +74,44 @@ class BackupMetricsTest(unittest.TestCase):
             self.assertEqual(output.read_bytes(), before)
             self.assertEqual(len(list(Path(work).iterdir())), 1)
 
+    # publish_failure compares the metrics file's mtime with the wrapper's start time. A write's mtime
+    # comes from the kernel's coarse clock and can read earlier than a time.time() taken just before
+    # the write (#610), so these tests set every fixture's mtime explicitly. The start is a whole
+    # second, so an mtime set to it reads back exactly; no tolerance is applied anywhere.
+    @staticmethod
+    def written_at(path, mtime):
+        os.utime(path, (mtime, mtime))
+
     def test_early_failure_replaces_stale_green_but_preserves_detailed_current_failure(self):
         with tempfile.TemporaryDirectory() as work:
-            self.publish(work)
-            started = time.time()
-            MODULE.publish_failure(work, started)
             output = Path(work) / "parkio_backup.prom"
+            started = float(int(time.time()))
+            self.publish(work)
+            self.written_at(output, started - 1)  # the previous run's green, just before this start
+            MODULE.publish_failure(work, started)
             self.assertIn('last_success{scope="invite-production"} 0', output.read_text())
             stamp = int(re.search(r'last_timestamp_seconds\{[^}]+\} (\d+)', output.read_text())[1])
             self.assertGreaterEqual(stamp, int(started))
             MODULE.publish(work, "invite-production", 0, int(time.time()), 10, 0, 0, 1, 0, 1, "parkio-media")
+            self.written_at(output, started)  # this run's detailed failure, at the start itself
             before = output.read_bytes()
             MODULE.publish_failure(work, started)
             self.assertEqual(output.read_bytes(), before)
+
+    def test_early_failure_replaces_a_stale_detailed_failure(self):
+        for seconds_before_start in (1, 0.001):
+            with self.subTest(seconds_before_start=seconds_before_start), \
+                    tempfile.TemporaryDirectory() as work:
+                output = Path(work) / "parkio_backup.prom"
+                started = float(int(time.time()))
+                MODULE.publish(work, "invite-production", 0, int(started) - 86400, 10, 0, 0, 1, 0, 1,
+                               "parkio-media")
+                self.written_at(output, started - seconds_before_start)  # an earlier run's failure
+                MODULE.publish_failure(work, started)
+                content = output.read_text()
+                self.assertIn('databases_failed{scope="invite-production"} 0', content)
+                stamp = int(re.search(r'last_timestamp_seconds\{[^}]+\} (\d+)', content)[1])
+                self.assertGreaterEqual(stamp, int(started))
 
     def test_invalid_labels_or_values_cannot_emit_arbitrary_data(self):
         with tempfile.TemporaryDirectory() as work:
