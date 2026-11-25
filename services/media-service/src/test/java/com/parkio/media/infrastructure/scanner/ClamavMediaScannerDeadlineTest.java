@@ -8,10 +8,17 @@ import java.io.DataInputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -65,6 +72,83 @@ class ClamavMediaScannerDeadlineTest {
         for (int i = 0; i < 2; i++) {
             assertThatThrownBy(() -> scanner.scan(new byte[1]))
                     .isInstanceOf(MediaScannerUnavailableException.class);
+        }
+    }
+
+    @Test
+    void lookupStuckPastTheConnectBudgetIsAbandonedWithinItAndReleasesThePermit() throws Exception {
+        var released = new CountDownLatch(1);
+        var lookups = new AtomicInteger();
+        try (var server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+             var peers = Executors.newSingleThreadExecutor()) {
+            var scanner = new ClamavMediaScanner("clamd.test", server.getLocalPort(),
+                    Duration.ofMillis(150), Duration.ofSeconds(2), stuckLookup(released, lookups));
+            // One scan more than the scanner admits at once: a permit kept by an abandoned
+            // lookup would turn the last scan into "capacity exhausted".
+            for (int i = 0; i <= 16; i++) {
+                long start = System.nanoTime();
+                assertThatThrownBy(() -> scanner.scan(new byte[1]))
+                        .isInstanceOf(MediaScannerUnavailableException.class)
+                        .hasRootCauseInstanceOf(SocketTimeoutException.class)
+                        .hasRootCauseMessage("clamd host lookup exceeded the connect budget");
+                assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(600));
+            }
+            // The scans shared the stuck lookup instead of leaving one blocked thread each.
+            assertThat(lookups).hasValue(1);
+            released.countDown();
+            var served = replyClean(server, peers);
+            assertThat(scanner.scan(new byte[64]).clean()).isTrue();
+            assertThat(served.get(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            released.countDown();
+        }
+    }
+
+    @Test
+    void cancellationWhileWaitingForTheLookupTerminatesWorker() throws Exception {
+        var released = new CountDownLatch(1);
+        var lookups = new AtomicInteger();
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var scanner = new ClamavMediaScanner("clamd.test", 3310,
+                    Duration.ofSeconds(10), Duration.ofSeconds(10), stuckLookup(released, lookups));
+            var scan = executor.submit(() -> scanner.scan(new byte[1]));
+            long waitUntil = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+            while (lookups.get() == 0 && System.nanoTime() < waitUntil) {
+                Thread.sleep(5);
+            }
+            assertThat(lookups).hasValue(1);
+            scan.cancel(true);
+            executor.shutdown();
+            assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            released.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void failedLookupFailsClosedAndTheNextScanLooksUpAgain() throws Exception {
+        // A failed lookup, then one that yields no address, then a working one.
+        var outcomes = new ConcurrentLinkedQueue<ClamavMediaScanner.HostLookup>(List.of(
+                host -> {
+                    throw new UnknownHostException("synthetic NXDOMAIN");
+                },
+                host -> null,
+                host -> InetAddress.getLoopbackAddress()));
+        try (var server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+             var peers = Executors.newSingleThreadExecutor()) {
+            var scanner = new ClamavMediaScanner("clamd.test", server.getLocalPort(),
+                    Duration.ofSeconds(2), Duration.ofSeconds(2), host -> outcomes.remove().lookup(host));
+            for (int i = 0; i < 2; i++) {
+                assertThatThrownBy(() -> scanner.scan(new byte[1]))
+                        .isInstanceOf(MediaScannerUnavailableException.class)
+                        .hasCauseInstanceOf(UnknownHostException.class);
+            }
+            var served = replyClean(server, peers);
+            assertThat(scanner.scan(new byte[64]).clean()).isTrue();
+            assertThat(served.get(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(outcomes).isEmpty();
         }
     }
 
@@ -201,6 +285,42 @@ class ClamavMediaScannerDeadlineTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    /** Accepts one scan, reads the whole stream and replies clean. */
+    private static Future<Boolean> replyClean(ServerSocket server, ExecutorService peers) {
+        return peers.submit(() -> {
+            try (var peer = server.accept()) {
+                drain(peer);
+                peer.getOutputStream().write("stream: OK\0".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Behaves like the JDK lookup on a stuck resolver: ignores interrupts and returns only when
+     * released or when its own 8 s resolver timeout ends. The timeout is longer than the scans
+     * that wait for it, and it makes a scanner that waits inline fail these tests instead of
+     * hanging them.
+     */
+    private static ClamavMediaScanner.HostLookup stuckLookup(CountDownLatch released, AtomicInteger lookups) {
+        return host -> {
+            lookups.incrementAndGet();
+            long resolverTimeout = System.nanoTime() + Duration.ofSeconds(8).toNanos();
+            boolean interrupted = false;
+            while (released.getCount() > 0 && System.nanoTime() < resolverTimeout) {
+                try {
+                    released.await(resolverTimeout - System.nanoTime(), TimeUnit.NANOSECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return InetAddress.getLoopbackAddress();
+        };
     }
 
     private static void drain(Socket socket) throws Exception {
