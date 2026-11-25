@@ -18,6 +18,9 @@
 #        - N-17 (infra_pin_moves.py): an infra service goes from a mutable tag
 #          to exactly its digest pin in docker/docker-compose.infra-release-pins.yml.
 #      Also accepted once (N-17): adding pull_policy: never when the base had none.
+#      Also accepted once (#617, app_healthcheck_moves.py): one of the ten app
+#      services goes from healthcheck start_period 1m0s to exactly 3m0s; only
+#      that key is then left out of the comparison.
 #   2. activation overlay: gateway gains exactly group_add + one bind mount
 #      (create_host_path=false) + EXPORT_DIR; nothing else changes;
 #   3. overlay without PARKIO_WAITLIST_OPS_INBOX_GID fails to render.
@@ -211,6 +214,9 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, f"{root}/scripts/slack_biz/deploy/civo")
 from app_pin_moves import APP_PIN_FILE, accepted_moves
 from infra_pin_moves import INFRA_PIN_FILE, accepted_moves as accepted_infra_moves
+# #617: the app healthcheck start period widened from 1m0s to 3m0s (app_healthcheck_moves.py). Only
+# that exact move, and only that key, is compared away; any other healthcheck change still fails.
+from app_healthcheck_moves import accepted_moves as accepted_start_period_moves, without_start_period
 try:
     app_pin_text = open(f"{root}/{APP_PIN_FILE}", encoding="utf-8").read()
 except OSError:
@@ -225,6 +231,9 @@ for svc, pin in sorted(moves.items()):
 infra_moves = accepted_infra_moves(base["services"], dis["services"], infra_pin_text)
 for svc, pin in sorted(infra_moves.items()):
     print(f"      accepted N-17 infra pin: {svc} -> {pin}")
+start_period_moves = accepted_start_period_moves(base["services"], dis["services"])
+for svc, (old, new) in sorted(start_period_moves.items()):
+    print(f"      accepted #617 healthcheck start_period: {svc} {old} -> {new}")
 
 # 1. disabled default vs base
 check("same service set", set(base["services"]) == set(dis["services"]),
@@ -235,6 +244,8 @@ for svc in moves:
 for svc in infra_moves:
     base_cmp["services"][svc].pop("image", None)
     dis_cmp["services"][svc].pop("image", None)
+base_cmp["services"] = without_start_period(base_cmp["services"], start_period_moves)
+dis_cmp["services"] = without_start_period(dis_cmp["services"], start_period_moves)
 for svc in base["services"]:
     if (base["services"][svc].get("pull_policy") in (None, "")
             and dis["services"][svc].get("pull_policy") == "never"):
