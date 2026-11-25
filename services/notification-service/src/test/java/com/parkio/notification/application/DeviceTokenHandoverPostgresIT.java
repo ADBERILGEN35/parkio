@@ -8,11 +8,13 @@ import com.parkio.notification.application.event.UserErasureRequestedEvent;
 import com.parkio.notification.domain.DevicePlatform;
 import com.parkio.notification.domain.DeviceToken;
 import com.parkio.notification.domain.exception.NotificationException;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -40,6 +42,11 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
 class DeviceTokenHandoverPostgresIT {
+
+    /** The handover's lock_timeout (#601). */
+    private static final Duration LOCK_BOUND = Duration.ofSeconds(5);
+    /** Scheduling slack for a loaded runner; without a bound the wait never ends. */
+    private static final Duration SLACK = Duration.ofSeconds(10);
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES =
@@ -124,6 +131,105 @@ class DeviceTokenHandoverPostgresIT {
         assertThat(activeHolders(token)).containsExactly(holder);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_tokens WHERE user_id = ?", Long.class, erased))
                 .isZero();
+    }
+
+    /** #601: a registration gives up on the token lock after the bound instead of waiting for its holder. */
+    @Test
+    void registrationWaitingOnTheTokenLockGivesUpAfterTheBound() throws Exception {
+        UUID holder = UUID.randomUUID();
+        UUID waiter = UUID.randomUUID();
+        String token = uniqueToken();
+        CountDownLatch holding = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> holderTransaction = pool.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        register(holder, token);
+                        holding.countDown();
+                        awaitRelease(release);
+                    }));
+            assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
+
+            long started = System.nanoTime();
+            Throwable failure = failureOf(pool.submit(() -> register(waiter, token)));
+            Duration waited = Duration.ofNanos(System.nanoTime() - started);
+
+            assertThat(isLockTimeout(failure)).as("lock timeout, got %s", failure).isTrue();
+            assertThat(waited).isGreaterThanOrEqualTo(LOCK_BOUND).isLessThan(LOCK_BOUND.plus(SLACK));
+            release.countDown();
+            holderTransaction.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+
+        assertThat(activeHolders(token)).containsExactly(holder);
+        assertThat(rowsOf(waiter)).isZero();
+    }
+
+    /**
+     * #601: the bound also ends a wait for another account's row lock. A delivery tick that deactivated the row
+     * after DeviceNotRegistered holds it until its whole batch commits.
+     */
+    @Test
+    void handoverWaitingOnAnotherAccountsRowGivesUpAfterTheBound() throws Exception {
+        UUID previous = UUID.randomUUID();
+        UUID next = UUID.randomUUID();
+        String token = uniqueToken();
+        register(previous, token);
+        CountDownLatch holding = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> rowLock = pool.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        jdbc.queryForObject("SELECT id FROM device_tokens WHERE user_id = ? AND token = ? FOR UPDATE",
+                                UUID.class, previous, token);
+                        holding.countDown();
+                        awaitRelease(release);
+                    }));
+            assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
+
+            long started = System.nanoTime();
+            Throwable failure = failureOf(pool.submit(() -> register(next, token)));
+            Duration waited = Duration.ofNanos(System.nanoTime() - started);
+
+            assertThat(isLockTimeout(failure)).as("lock timeout, got %s", failure).isTrue();
+            assertThat(waited).isGreaterThanOrEqualTo(LOCK_BOUND).isLessThan(LOCK_BOUND.plus(SLACK));
+            release.countDown();
+            rowLock.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+
+        assertThat(activeHolders(token)).containsExactly(previous);
+        assertThat(rowsOf(next)).isZero();
+    }
+
+    /** The failure of a call that must fail; a call still waiting after the bound and the slack fails the test. */
+    private static Throwable failureOf(Future<?> call) throws Exception {
+        try {
+            call.get(LOCK_BOUND.plus(SLACK).toMillis(), TimeUnit.MILLISECONDS);
+        } catch (ExecutionException failed) {
+            return failed.getCause();
+        }
+        throw new AssertionError("the registration succeeded instead of giving up on the lock");
+    }
+
+    /** PostgreSQL's lock_not_available (55P03), anywhere in the cause chain. */
+    private static boolean isLockTimeout(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql && "55P03".equals(sql.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private long rowsOf(UUID userId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM device_tokens WHERE user_id = ?", Long.class, userId);
     }
 
     private DeviceToken register(UUID userId, String token) {
