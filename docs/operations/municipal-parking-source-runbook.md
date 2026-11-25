@@ -50,9 +50,11 @@ after the request, so the old 5s timed out on every attempt. The read timeout is
 the first byte. Together with the 2s connect timeout it ends inside the 30s `max-response-time`.
 Startup refuses İZUM settings where `connect-timeout + read-timeout` reaches `max-response-time`
 (#615): a first byte that came in time could not be used, and the run would fail on the time bound
-without a retry, classified `unknown`. The error names the property, its value and its origin.
-To give the feed more time, raise `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with
-`PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
+without a retry, classified `unknown`. Startup also refuses a `connect-timeout` or `read-timeout`
+under 1ms, which the HTTP client treats as no timeout. `max-response-time` does not end a read that
+is waiting, so with no read timeout a stalled feed could hold the İZUM sync until a restart. The
+error names the property, its value and its origin. To give the feed more time, raise
+`PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
 
 How long one İZUM run can take with the defaults (three attempts: `max-retries` 2, with 0.1s and
 0.2s backoff; DNS and TLS handshake time come on top):

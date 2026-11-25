@@ -13,6 +13,9 @@ import org.springframework.validation.Validator;
  */
 @ConfigurationProperties(prefix = "parkio.municipal")
 public class MunicipalSourceProperties implements Validator {
+    /** The shortest timeout that {@code SimpleClientHttpRequestFactory} does not turn into none. */
+    private static final Duration SHORTEST_TIMEOUT = Duration.ofMillis(1);
+
     /**
      * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative value fails the binding,
      * so the service refuses to start, and the error names the full property. An empty value keeps the
@@ -28,7 +31,7 @@ public class MunicipalSourceProperties implements Validator {
 
     /**
      * Spring Boot validates every object that it binds under {@code parkio.municipal} with this root
-     * object; the rule below applies to the İZUM settings.
+     * object; the rules below apply to the İZUM settings.
      */
     @Override
     public boolean supports(Class<?> type) {
@@ -36,12 +39,19 @@ public class MunicipalSourceProperties implements Validator {
     }
 
     /**
-     * #615: the İZUM body is read only until {@code max-response-time} after the request starts, so a
-     * connect plus a full read timeout must end before that bound. Otherwise a first byte that arrives
-     * within the read timeout still fails, on the time bound and without a retry, and the run is
-     * classified {@code unknown} instead of {@code read_timeout}. The defaults (2s + 27s, 30s) pass, so
-     * only overridden values can fail. The error is reported on {@code read-timeout}, so the startup
-     * failure names that property, its value and its origin, such as the environment variable.
+     * #615: two rules for the İZUM timeouts. Each error is reported on the timeout it concerns, so the
+     * startup failure names that property, its value and its origin, such as the environment variable.
+     * <ul>
+     *   <li>The connect and read timeouts must be at least 1 ms. {@code SimpleClientHttpRequestFactory}
+     *       hands whole milliseconds to {@code HttpURLConnection}, which treats 0 as no timeout, and it
+     *       skips a negative value, which leaves none. {@code max-response-time} is checked only between
+     *       reads, so it does not end a read that waits forever.</li>
+     *   <li>The body is read only until {@code max-response-time} after the request starts, so a connect
+     *       plus a full read timeout must end before that bound. Otherwise a first byte that arrives
+     *       within the read timeout still fails, on the time bound and without a retry, and the run is
+     *       classified {@code unknown} instead of {@code read_timeout}.</li>
+     * </ul>
+     * The defaults (2s + 27s, 30s) pass, so only overridden values can fail.
      */
     @Override
     public void validate(Object target, Errors errors) {
@@ -49,6 +59,21 @@ public class MunicipalSourceProperties implements Validator {
         Duration connect = izum.getConnectTimeout();
         Duration read = izum.getReadTimeout();
         Duration max = izum.getMaxResponseTime();
+        if (connect != null && connect.compareTo(SHORTEST_TIMEOUT) < 0) {
+            errors.rejectValue("connectTimeout", "noTimeout", String.format(
+                    "IZUM connect-timeout (%s) must be at least 1ms. The HTTP client counts whole "
+                            + "milliseconds and treats 0 or less as no timeout, which leaves the wait for a "
+                            + "connection to the operating system.",
+                    print(connect)));
+        }
+        if (read != null && read.compareTo(SHORTEST_TIMEOUT) < 0) {
+            errors.rejectValue("readTimeout", "noTimeout", String.format(
+                    "IZUM read-timeout (%s) must be at least 1ms. The HTTP client counts whole "
+                            + "milliseconds and treats 0 or less as no timeout, and max-response-time is "
+                            + "checked only between reads, so a feed that stops sending could hold the IZUM "
+                            + "sync until the connection drops or the service restarts.",
+                    print(read)));
+        }
         if (connect == null || read == null || max == null) {
             return;
         }
@@ -63,7 +88,10 @@ public class MunicipalSourceProperties implements Validator {
     }
 
     private static String print(Duration duration) {
-        return duration.toMillis() % 1000 == 0 ? duration.toSeconds() + "s" : duration.toMillis() + "ms";
+        if (duration.getNano() == 0) {
+            return duration.getSeconds() + "s";
+        }
+        return duration.getNano() % 1_000_000 == 0 ? duration.toMillis() + "ms" : duration.toString();
     }
 
     private boolean enabled;
@@ -348,11 +376,13 @@ public class MunicipalSourceProperties implements Validator {
         private boolean enabled;
         private String baseUrl = "https://openapi.izmir.bel.tr";
         private String path = "/api/ibb/izum/otoparklar";
+        /** At least 1 ms: the HTTP client treats 0 or less as no timeout (#615). */
         private Duration connectTimeout = Duration.ofSeconds(2);
         /**
          * Socket read timeout, which also bounds the wait for the first byte (#523: up to 24.9 s on
-         * 2026-11-23). Connect plus read timeout must stay inside {@code maxResponseTime}; startup
-         * refuses values that break this (#615, see {@link MunicipalSourceProperties#validate}).
+         * 2026-11-23). Connect plus read timeout must stay inside {@code maxResponseTime}, and each must
+         * be at least 1 ms; startup refuses values that break this (#615, see
+         * {@link MunicipalSourceProperties#validate}).
          */
         private Duration readTimeout = Duration.ofSeconds(27);
         private int maxRetries = 2;
