@@ -30,10 +30,11 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 
 Every municipal source (izum, ispark, anpark, konya, kayseri) has the same two response bounds
 (CL-F23): `max-response-size` caps the body that is read and `max-response-time` caps the time until
-the body has been read, counted from request start (a read already blocked still ends at
-`read-timeout`). An oversized or slow-drip body fails once (it is not retried) and takes the normal
-source-failure path. The connection is then closed without reading the rest of the body. The
-per-read `read-timeout` alone does not bound a slow drip.
+the body has been read, counted from request start (the time is checked around each read, so a
+read that is waiting at the bound ends only with its next byte or at `read-timeout`). An oversized
+or slow-drip body fails once (it is not retried) and takes the normal source-failure path. The
+connection is then closed without reading the rest of the body. The per-read `read-timeout` alone
+does not bound a slow drip.
 
 **Header drip (not bounded).** The status line and the headers are read before the body bound
 starts to apply, so `max-response-time` does not cut off a feed that sends its headers slowly. Each
@@ -63,7 +64,7 @@ How long one İZUM run can take with the defaults (three attempts: `max-retries`
 |----------|-------------------|---------------|
 | never sends a first byte | at the read timeout, at most 2s + 27s = 29s after the request | about 3 × 29s + 0.3s ≈ 87s |
 | sends the headers and part of the body, then stalls | at the read timeout of the stalled read, up to 30s + 27s = 57s after the request | up to 3 × 57s + 0.3s ≈ 171s |
-| keeps dripping the body past `max-response-time` | at the first read after 30s, on the time bound, which is not retried | about 30s, one attempt |
+| keeps dripping the body past `max-response-time` | on the time bound (not retried), when the read that is waiting at 30s gets its next byte: 30s to 30s + 27s = 57s after the request | 30-57s, one attempt |
 | drips its status line or headers | not bounded (see header drip above) | not bounded |
 
 Runs of one source never overlap: the 120s fixed delay counts from the end of the previous run, and
