@@ -21,9 +21,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -37,10 +40,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * for its first byte. While it is blocked, the outbox relay and the spot-expiry job (default
  * scheduler) and the ISPARK sync (another feed) must keep their cadence, and IZUM must not start a
  * second, overlapping run. The real job beans and the production scheduling configuration run; only
- * their collaborators are replaced. The context is closed after the class, so its millisecond schedules
- * do not keep running through the rest of the test JVM.
+ * their collaborators are replaced. The context stays cached, so the test cancels its millisecond
+ * schedules when it ends. Closing the context instead would drop the H2 schema that every cached test
+ * context shares ({@code ddl-auto: create-drop}).
  */
-@DirtiesContext
 @SpringBootTest(properties = {
         "parkio.municipal.enabled=true",
         "parkio.municipal.izum.enabled=true",
@@ -80,6 +83,9 @@ class MunicipalSyncSchedulerIsolationTest {
     /** Its startup refresh reads source rows that the H2 test schema does not carry. */
     @MockitoBean
     MunicipalSourceMetrics municipalSourceMetrics;
+
+    @Autowired
+    ScheduledTaskHolder scheduledTasks;
 
     /** The first IZUM run stalls until released; every other run returns at once. */
     static MunicipalFacilitySyncService municipalFacilitySyncService() {
@@ -151,6 +157,12 @@ class MunicipalSyncSchedulerIsolationTest {
         assertThat(SPOT_EXPIRY.threads()).as("spot-expiry threads").allMatch(name -> name.startsWith("scheduling-"));
         assertThat(IZUM_SYNC.maxRunning()).as("concurrent IZUM runs").isEqualTo(1);
         assertThat(ISPARK_SYNC.maxRunning()).as("concurrent ISPARK runs").isEqualTo(1);
+    }
+
+    @AfterEach
+    void cancelTheSchedules() {
+        RELEASE_IZUM.countDown();
+        scheduledTasks.getScheduledTasks().forEach(ScheduledTask::cancel);
     }
 
     private static void awaitCalls(Probe probe, int atLeast, String description) throws InterruptedException {
