@@ -11,6 +11,8 @@ import com.parkio.user.application.event.UserErasureRequestedEvent;
 import com.parkio.user.application.event.UserRegisteredEvent;
 import com.parkio.user.application.event.UserSuspendedEvent;
 import com.parkio.user.application.event.UserRestoredEvent;
+import com.parkio.user.domain.UserStatus;
+import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
 import com.parkio.user.infrastructure.persistence.ErasureAckOutboxAdapter;
 import com.parkio.user.infrastructure.persistence.UserProfileRepositoryAdapter;
@@ -21,6 +23,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -154,6 +157,57 @@ class UserErasureFencePostgresIT {
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM user_trust_profiles WHERE user_profile_id=?",
                         Long.class, existingProfile)).isZero();
             }
+            assertThat(ackCount(user)).isEqualTo(1);
+        } finally {
+            resume.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    /**
+     * A {@code readOnly} path through {@code requireProfile}: the gateway's status read. H2 skips
+     * the advisory lock, so only PostgreSQL shows that the shared lock is taken inside the
+     * read-only transaction, waits while erasure holds the exclusive lock, and is followed by a
+     * tombstone read that sees the committed erasure.
+     */
+    @Test
+    void readOnlyStatusReadTakesTheSharedLockAndWaitsForErasure() throws Exception {
+        UUID user = UUID.randomUUID();
+        users.createProfile(new CreateProfileCommand(user, user + "@example.test", "Synthetic", null, null));
+        var insideRead = new AtomicReference<String>();
+        doAnswer(call -> {
+            // Runs on the read's own connection, after requireProfile passed the fence.
+            insideRead.set(jdbc.queryForObject("SELECT current_setting('transaction_read_only') || ' '"
+                    + " || (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND mode = 'ShareLock'"
+                    + " AND granted AND pid = pg_backend_pid())", String.class));
+            return call.callRealMethod();
+        }).when(profiles).findByAuthUserId(user);
+        assertThat(users.getAccountStatus(user).status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(insideRead.get()).as("transaction_read_only and shared fence locks held").isEqualTo("on 1");
+
+        var acking = new CountDownLatch(1);
+        var resume = new CountDownLatch(1);
+        doAnswer(call -> {
+            acking.countDown();
+            assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
+            return call.callRealMethod();
+        }).when(ackOutbox).append(any());
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var erase = executor.submit(() -> erasure.handle(request(user)));
+            assertThat(acking.await(10, TimeUnit.SECONDS)).isTrue();
+            var read = executor.submit(() -> users.getAccountStatus(user));
+            await().atMost(Duration.ofSeconds(5)).until(() -> jdbc.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND mode='ShareLock' AND NOT granted",
+                    Long.class) > 0);
+            assertThat(read.isDone()).as("status read admitted while erasure holds the fence").isFalse();
+            resume.countDown();
+            erase.get(10, TimeUnit.SECONDS);
+            assertThatThrownBy(() -> read.get(10, TimeUnit.SECONDS))
+                    .cause().isInstanceOfSatisfying(UserException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_NOT_FOUND));
+            assertThat(profileCount(user)).isZero();
             assertThat(ackCount(user)).isEqualTo(1);
         } finally {
             resume.countDown();
