@@ -37,12 +37,19 @@ x-logging: &default-logging
 # READINESS (not liveness): a service counts as healthy for its dependents only once
 # Flyway has migrated, the datasource pool is up and Kafka admin has connected — so
 # `depends_on: condition: service_healthy` gates the startup graph on real readiness.
-# Failures during start_period do not count, which absorbs JVM + migration warmup.
+# Failures during start_period do not count, which absorbs JVM + migration warmup. A
+# container that is still not ready turns unhealthy about start_period + 60s after it
+# starts (five failed probes 15s apart), and the `up` of its dependents fails then. A fast
+# start is not delayed: the first passing probe marks it healthy. 180s because, on a cold
+# start of the whole stack (all ten JVMs at once on a 4-vCPU CI runner), auth-service
+# logged Spring "Started" 83-125s after its container started (one run: not by 127s) and
+# parking-service up to 136s (#617), past the ~123s that start_period 60s allowed. A
+# service that never becomes ready still fails, after ~4 min.
 x-app-healthcheck: &app-healthcheck
   interval: 15s
   timeout: 5s
   retries: 5
-  start_period: 60s
+  start_period: 180s
 
 x-app-common: &app-common
   restart: unless-stopped
@@ -388,6 +395,9 @@ services:
       PARKIO_PUSH_DELIVERY_ENABLED: ${PARKIO_PUSH_DELIVERY_ENABLED:-true}
       PARKIO_PUSH_DELIVERY_PROVIDER: ${PARKIO_PUSH_DELIVERY_PROVIDER:-noop}
       PARKIO_EXPO_ACCESS_TOKEN: ${PARKIO_EXPO_ACCESS_TOKEN:-}
+      # Bounds of one Expo send (#595); the defaults match application.yml. Connect must stay shorter than read.
+      PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: ${PARKIO_EXPO_PUSH_CONNECT_TIMEOUT:-2s}
+      PARKIO_EXPO_PUSH_READ_TIMEOUT: ${PARKIO_EXPO_PUSH_READ_TIMEOUT:-5s}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]

@@ -607,6 +607,60 @@ else
   fail "PARKIO_PUSH_DELIVERY_PROVIDER" "'$PUSH_PROVIDER' is not the supported hosted-beta provider" "set PARKIO_PUSH_DELIVERY_PROVIDER=expo (or acknowledge with PARKIO_PREFLIGHT_ALLOW_PROVIDER_OVERRIDE=1)"
 fi
 
+# duration_ms VALUE -> VALUE in milliseconds for '<digits>ms' or '<digits>s'; fails for any other form.
+duration_ms() {
+  case "$1" in
+    *ms) dm_num="${1%ms}"; dm_unit=1 ;;
+    *s) dm_num="${1%s}"; dm_unit=1000 ;;
+    *) return 1 ;;
+  esac
+  case "$dm_num" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  # Past nine digits the value is far above any limit; keep the arithmetic in range.
+  if [ "${#dm_num}" -gt 9 ]; then
+    echo 999999999999
+    return 0
+  fi
+  echo $(( $(echo "$dm_num" | sed 's/^0*\([0-9]\)/\1/') * dm_unit ))
+}
+
+# Expo send bounds (#595), optional: notification-service refuses to start unless
+# 0 < connect <= 30s, 0 < read <= 60s and connect < read (the read timeout also runs
+# while connecting). Unset values take the defaults, 2s and 5s.
+if [ "$DEPLOYMENT_PROFILE" != "invite-production" ] && [ "$PUSH_PROVIDER" = "expo" ]; then
+  EXPO_BOUNDS_OK=1
+  EXPO_CONNECT_MS=2000
+  EXPO_READ_MS=5000
+  EXPO_CONNECT_RAW=$(env_get PARKIO_EXPO_PUSH_CONNECT_TIMEOUT)
+  if [ -n "$EXPO_CONNECT_RAW" ]; then
+    if EXPO_CONNECT_MS=$(duration_ms "$EXPO_CONNECT_RAW") \
+      && [ "$EXPO_CONNECT_MS" -gt 0 ] && [ "$EXPO_CONNECT_MS" -le 30000 ]; then
+      ok
+    else
+      fail "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT" "'$EXPO_CONNECT_RAW' is not a bounded connect timeout" "use <n>ms or <n>s, greater than 0 and at most 30s (default 2s)"
+      EXPO_BOUNDS_OK=0
+    fi
+  fi
+  EXPO_READ_RAW=$(env_get PARKIO_EXPO_PUSH_READ_TIMEOUT)
+  if [ -n "$EXPO_READ_RAW" ]; then
+    if EXPO_READ_MS=$(duration_ms "$EXPO_READ_RAW") \
+      && [ "$EXPO_READ_MS" -gt 0 ] && [ "$EXPO_READ_MS" -le 60000 ]; then
+      ok
+    else
+      fail "PARKIO_EXPO_PUSH_READ_TIMEOUT" "'$EXPO_READ_RAW' is not a bounded read timeout" "use <n>ms or <n>s, greater than 0 and at most 60s (default 5s)"
+      EXPO_BOUNDS_OK=0
+    fi
+  fi
+  if [ "$EXPO_BOUNDS_OK" -eq 1 ]; then
+    if [ "$EXPO_CONNECT_MS" -lt "$EXPO_READ_MS" ]; then
+      ok
+    else
+      fail "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT" "${EXPO_CONNECT_MS}ms is not shorter than PARKIO_EXPO_PUSH_READ_TIMEOUT (${EXPO_READ_MS}ms)" "keep the connect timeout below the read timeout, which also runs while connecting"
+    fi
+  fi
+fi
+
 # AI vision: hosted beta should run the real provider so valid parking photos can
 # become ACTIVE. The heuristic placeholder fails closed (everything -> PENDING_REVIEW)
 # which is safe but routes every upload to manual review.
