@@ -9,6 +9,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
@@ -107,22 +108,40 @@ class ClamavMediaScannerDeadlineTest {
     void slowReaderCannotExtendOverallDeadline() throws Exception {
         try (var server = new ServerSocket(0); var peers = Executors.newSingleThreadExecutor()) {
             server.setReceiveBufferSize(1024);
+            var scanEnded = new CountDownLatch(1);
             var serving = peers.submit(() -> {
                 try (var peer = server.accept()) {
                     peer.setSoTimeout(1000);
-                    for (int i = 0; i < 12; i++) {
-                        peer.getInputStream().read(new byte[64]);
-                        Thread.sleep(50);
+                    // The peer stays connected and keeps reading for 3 s, three times the bound
+                    // below, unless the scan gives up first. A scanner without an overall deadline
+                    // stays in its blocking write until this peer stops, so it fails the bound.
+                    long readUntil = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+                    long bytesRead = 0;
+                    while (System.nanoTime() < readUntil && !scanEnded.await(50, TimeUnit.MILLISECONDS)) {
+                        int count = peer.getInputStream().read(new byte[64]);
+                        if (count < 0) {
+                            break;
+                        }
+                        bytesRead += count;
                     }
+                    return new SlowPeer(bytesRead, scanEnded.getCount() == 0);
                 }
-                return true;
             });
             long start = System.nanoTime();
             assertThatThrownBy(() -> scanner(server).scan(new byte[10 * 1024 * 1024]))
                     .isInstanceOf(MediaScannerUnavailableException.class);
-            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(1));
-            serving.get(2, TimeUnit.SECONDS);
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+            scanEnded.countDown();
+            assertThat(elapsed).isLessThan(Duration.ofSeconds(1));
+            SlowPeer peer = serving.get(2, TimeUnit.SECONDS);
+            // The peer read while the scan ran and was still reading when the scan failed, so
+            // the deadline ended the scan, not the peer closing the connection.
+            assertThat(peer.bytesRead()).isPositive();
+            assertThat(peer.readUntilScanEnded()).isTrue();
         }
+    }
+
+    private record SlowPeer(long bytesRead, boolean readUntilScanEnded) {
     }
 
     @Test
