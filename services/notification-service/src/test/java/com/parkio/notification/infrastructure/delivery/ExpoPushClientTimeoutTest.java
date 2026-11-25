@@ -19,7 +19,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.restclient.test.autoconfigure.AutoConfigureMockRestServiceServer;
 import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;
@@ -97,6 +99,10 @@ class ExpoPushClientTimeoutTest {
 
     @Test
     void connectionThatNeverOpensFailsWithinTheConnectBoundAndStaysRetryable() throws Exception {
+        if (OS.current() != OS.LINUX) {
+            // #641: only Linux keeps such a connect pending; Windows refuses it at once.
+            Assumptions.abort("a full accept queue stalls a connect only on Linux, not on " + OS.current());
+        }
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         try (FullBacklogPeer unanswered = FullBacklogPeer.start()) {
             // The production transport, aimed at a listener whose accept queue is full.
@@ -124,7 +130,8 @@ class ExpoPushClientTimeoutTest {
 
     /**
      * A loopback listener that never accepts, with its accept queue filled. Linux then drops every new SYN, so a
-     * connect stays pending until the client's connect timeout ends it.
+     * connect stays pending until the client's connect timeout ends it. Other platforms need not: Windows refuses
+     * the connect instead, so the test that uses this peer runs only on Linux.
      */
     private static final class FullBacklogPeer implements AutoCloseable {
         private final ServerSocket listener;
