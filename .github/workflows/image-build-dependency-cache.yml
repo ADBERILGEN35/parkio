@@ -1,0 +1,90 @@
+# Image build dependency cache (#638).
+#
+# The service image builds take their Gradle dependencies from Backend CI's dependency cache instead of
+# downloading the whole graph from Maven Central, whose 429s can outlast Gradle's ~127 s retry (#636).
+# Each Dockerfile bind-mounts the build context `gradle-ro-dep-cache` read-only, and Gradle reads it as
+# its read-only dependency cache (GRADLE_RO_DEP_CACHE). Security CI's container scans, the Compose jobs
+# (runtime validation, chaos validation, performance smoke) and the candidate builds restore Backend
+# CI's entry, which only api saves, and pass it (scripts/ci/gradle_ro_dep_cache.py).
+#
+# This workflow checks that wiring and probes it on one service:
+#   - tests: the staging, the Compose override, the image comparison, the Dockerfiles, and that every
+#     Gradle dependency cache is restore-only on pull requests and saved on api only. Gradle's own
+#     read-only cache behaviour (a cached dependency is not downloaded, a missing one still fails) is
+#     tested in gradle-dependency-retry.yml;
+#   - probe: one service image built twice without the layer cache, without and then with the read-only
+#     cache. The second build must download no artifact and carry the same application (the image's
+#     history and configuration, every jar entry, the SBOM without its per-build fields). The report
+#     records the time and download traffic the cache saves.
+
+name: Image build dependency cache
+
+on:
+  pull_request:
+    branches: [api]
+    paths:
+      - "services/*/Dockerfile"
+      - ".dockerignore"
+      - "scripts/ci/gradle_ro_dep_cache.py"
+      - "scripts/ci/test_gradle_ro_dep_cache.py"
+      - ".github/workflows/image-build-dependency-cache.yml"
+      - ".github/workflows/backend-ci.yml"
+      - ".github/workflows/backend-integration.yml"
+      - ".github/workflows/security-ci.yml"
+      - ".github/workflows/runtime-validation.yml"
+      - ".github/workflows/chaos-validation.yml"
+      - ".github/workflows/performance-smoke.yml"
+      - ".github/actions/candidate-image-build/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-build-dependency-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Read-only dependency cache tests (no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install validation tools
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
+
+      - name: Unit and wiring tests
+        run: python3 scripts/ci/test_gradle_ro_dep_cache.py
+
+  probe:
+    name: Read-only dependency cache probe (gamification-service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build without and with the read-only cache
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/gradle_ro_dep_cache.py probe \
+            --dockerfile services/gamification-service/Dockerfile \
+            --context . \
+            --revision "$(git rev-parse HEAD)" \
+            --out "$RUNNER_TEMP/image-build-dependency-cache/probe.json"
+
+      - name: Upload the probe report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-build-dependency-cache-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/image-build-dependency-cache/
+          retention-days: 30
+          if-no-files-found: error

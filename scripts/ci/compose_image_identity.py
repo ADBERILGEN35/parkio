@@ -2,13 +2,15 @@
 """Prove that a CI Compose stack runs the images its job built (CI audit 2026-10-04, item 3).
 
 The runtime, chaos and performance workflows build their service images and then start the stack.
-No build cache is shared between jobs or workflows: they run concurrently, and every service
-Dockerfile copies the whole repository before its Gradle build, so a shared cache would gain almost
-nothing. What this script adds is a bounded build and identity:
+No layer cache is shared between jobs or workflows: they run concurrently, and every service
+Dockerfile copies the whole repository before its Gradle build, so a shared layer cache would gain
+almost nothing. (The Gradle step reads its dependencies from a read-only cache that is not part of any
+layer, scripts/ci/gradle_ro_dep_cache.py, #638.) What this script adds is a bounded build and identity:
 
   build MODEL.json --revision SHA [--batch-size N] [--diag-out FILE] -- COMPOSE_ARGS...
-      COMPOSE_ARGS are the arguments that rendered MODEL.json. It builds every service that the model
-      builds, N at a time (default 2), with
+      COMPOSE_ARGS are the arguments that rendered MODEL.json, optionally followed by -f files that
+      change only how the images build, such as gradle_ro_dep_cache.py's build-context override. It
+      builds every service that the model builds, N at a time (default 2), with
       `docker compose COMPOSE_ARGS --progress=plain build --build-arg IMAGE_REVISION=SHA SERVICE...`,
       and stops at the first failed batch. A single `docker compose build` starts all ten Gradle image
       builds at once; on a 4 vCPU / 16 GiB hosted runner they need more memory than the runner has,

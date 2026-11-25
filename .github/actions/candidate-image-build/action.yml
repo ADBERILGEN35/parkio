@@ -56,6 +56,28 @@ runs:
         fi
         echo "Building $SERVICE from $SHA"
 
+    # A service build takes its Gradle dependencies from Backend CI's dependency cache, read-only, as
+    # Security CI's container scans do (#638): restored here, never saved, and passed as the
+    # gradle-ro-dep-cache build context. The newest api entry is restored (the key itself never
+    # exists). After a miss the context is empty and the build downloads everything, as release.yml's
+    # does. The mount is in no layer. Web has no Gradle build.
+    - name: Restore Backend CI's Gradle dependencies
+      if: inputs.service != 'web'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.gradle/caches/*
+          !~/.gradle/caches/build-cache-1
+          ~/.gradle/wrapper
+        key: gradle-deps-backend-ci-${{ runner.os }}-candidate-${{ inputs.source_sha }}
+        restore-keys: |
+          gradle-deps-backend-ci-${{ runner.os }}-
+
+    - name: Stage the read-only dependency cache
+      if: inputs.service != 'web'
+      shell: bash
+      run: python3 scripts/ci/gradle_ro_dep_cache.py stage "$RUNNER_TEMP/gradle-ro-dep-cache"
+
     # The builder release.yml uses (job images): the same pinned action, docker-container driver.
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -74,6 +96,7 @@ runs:
         push: false
         load: true
         tags: parkio/${{ inputs.service }}:candidate-${{ inputs.sha12 }}
+        build-contexts: ${{ inputs.service != 'web' && format('gradle-ro-dep-cache={0}/gradle-ro-dep-cache', runner.temp) || '' }}
         build-args: |
           IMAGE_VERSION=candidate-${{ inputs.sha12 }}
           IMAGE_REVISION=${{ inputs.source_sha }}

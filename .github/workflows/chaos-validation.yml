@@ -146,10 +146,28 @@ jobs:
             -f docker/docker-compose.hosted-beta.yml \
             config --quiet
 
+      # The Gradle image builds take their dependencies from Backend CI's dependency cache, read-only,
+      # as Security CI's container scans do (#638). Restored here and never saved; after a miss the
+      # builds download everything, as before.
+      - name: Restore Backend CI's Gradle dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: gradle-deps-backend-ci-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-backend-ci-${{ runner.os }}-
+
+      - name: Stage the read-only dependency cache
+        run: python3 scripts/ci/gradle_ro_dep_cache.py stage "$RUNNER_TEMP/gradle-ro-dep-cache"
+
       # Build, then start exactly the images built here: their ids are recorded, the built services may not
       # be pulled, and every container is checked after up (scripts/ci/compose_image_identity.py). The CLI
       # build-arg gives every image the commit under test as its revision label. Images build two at a
-      # time: ten concurrent Gradle builds exhaust the runner's memory and lose the job (#510).
+      # time: ten concurrent Gradle builds exhaust the runner's memory and lose the job (#510). The Gradle
+      # builds read the staged dependency cache through the gradle_ro_dep_cache.py override.
       - name: Build and start stack
         run: |
           set -euo pipefail
@@ -157,9 +175,11 @@ jobs:
           revision="$(git rev-parse HEAD)"
           mkdir -p chaos-validation-artifacts
           docker compose --env-file "$COMPOSE_ENV_FILE" "${files[@]}" config --format json >"$RUNNER_TEMP/compose-model.json"
+          python3 scripts/ci/gradle_ro_dep_cache.py compose-override "$RUNNER_TEMP/compose-model.json" \
+            "$RUNNER_TEMP/gradle-ro-dep-cache" --out "$RUNNER_TEMP/compose-gradle-ro-dep-cache.json"
           python3 scripts/ci/compose_image_identity.py build "$RUNNER_TEMP/compose-model.json" \
             --revision "$revision" --batch-size 2 --diag-out "$RUNNER_TEMP/runner-diag.txt" \
-            -- --env-file "$COMPOSE_ENV_FILE" "${files[@]}"
+            -- --env-file "$COMPOSE_ENV_FILE" "${files[@]}" -f "$RUNNER_TEMP/compose-gradle-ro-dep-cache.json"
           python3 scripts/ci/compose_image_identity.py record "$RUNNER_TEMP/compose-model.json" \
             --expect-revision "$revision" --out chaos-validation-artifacts/image-identity.json \
             --override "$RUNNER_TEMP/compose-pull-never.json"

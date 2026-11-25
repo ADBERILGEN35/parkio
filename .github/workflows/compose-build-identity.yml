@@ -8,8 +8,9 @@
 #   - a one-line change to the service's source keeps the base image's layers and changes a later one,
 #     so a cache hit cannot hide a changed input.
 # It does not claim byte-identical clean rebuilds: jars carry build timestamps and the runtime stage
-# installs packages from apt. No build cache is shared between jobs or workflows (see the PR that
-# added this for the measurements).
+# installs packages from apt. No layer cache is shared between jobs or workflows (see the PR that
+# added this for the measurements). This probe passes no gradle-ro-dep-cache build context, so its
+# Gradle step downloads every dependency, as an image build did before #638.
 
 name: Compose build identity
 

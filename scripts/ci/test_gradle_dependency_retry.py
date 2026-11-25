@@ -3,7 +3,9 @@
 
 Each test starts a local Maven repository that answers chosen requests with an HTTP error, then runs
 the wrapper's Gradle version, with this repository's gradle.properties, on a probe build that resolves
-one artifact from it. Every run gets a fresh Gradle user home, so nothing comes from a cache.
+one artifact from it. Every run gets a fresh Gradle user home, so nothing comes from a cache, except in
+ReadOnlyDependencyCacheTest: there the run reads the read-only dependency cache that the service image
+builds read (#638), staged by scripts/ci/gradle_ro_dep_cache.py.
 
     python3 scripts/ci/test_gradle_dependency_retry.py
 """
@@ -15,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -193,6 +196,91 @@ class GradleDependencyRetryTest(unittest.TestCase):
             self.assertTrue(re.search(r"Could not find org\.example:missing:1\.0", result.stdout),
                             result.stdout[-3000:])
             self.assertEqual(repository.statuses(pom), [404])
+
+
+@unittest.skipUnless(os.name == "posix", "runs the Unix Gradle launcher")
+class ReadOnlyDependencyCacheTest(unittest.TestCase):
+    """The image builds' read-only dependency cache (#638), staged by scripts/ci/gradle_ro_dep_cache.py.
+
+    One repository serves every run, so its URL, and with it Gradle's repository id, stays the same, as
+    Maven Central's does for the runner that filled the cache and the image build that reads it."""
+
+    gradle: str
+
+    @classmethod
+    def setUpClass(cls):
+        cls.gradle = wrapper_gradle()
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import gradle_ro_dep_cache  # noqa: PLC0415 (the module lives beside this test)
+
+        self.work = Path(tempfile.mkdtemp(prefix="gradle-ro-cache-"))
+        self.addCleanup(shutil.rmtree, self.work, True)
+        repo_root = self.work / "repository"
+        for name in ("lib", "other"):
+            directory = repo_root / GROUP_PATH / name / "1.0"
+            directory.mkdir(parents=True)
+            (directory / f"{name}-1.0.pom").write_text(POM.format(name=name), encoding="utf-8")
+            with zipfile.ZipFile(directory / f"{name}-1.0.jar", "w") as jar:
+                jar.writestr("probe.txt", f"{name}\n")
+        self.project = self.work / "project"
+        self.project.mkdir()
+        (self.project / "settings.gradle.kts").write_text(PROBE_SETTINGS, encoding="utf-8")
+        (self.project / "build.gradle.kts").write_text(PROBE_BUILD, encoding="utf-8")
+        shutil.copyfile(ROOT / "gradle.properties", self.project / "gradle.properties")
+        self.repository = FaultRepository(repo_root, {}).__enter__()
+        self.addCleanup(self.repository.__exit__, None, None, None)
+        # A Gradle home that resolved lib, staged as the image builds' read-only cache is.
+        filled = self.resolve("org.example:lib:1.0", self.work / "filled-home")
+        self.assertEqual(filled.returncode, 0, filled.stdout[-3000:])
+        self.read_only = self.work / "gradle-ro-dep-cache"
+        files, _size = gradle_ro_dep_cache.stage(self.work / "filled-home" / "caches" / "modules-2", self.read_only,
+                                                 self.project)
+        self.assertEqual(files, 2)  # lib's pom and jar
+        self.snapshot = self.files(self.read_only)
+        with self.repository.lock:
+            self.repository.requests.clear()
+
+    @staticmethod
+    def files(root: Path) -> dict:
+        return {str(path.relative_to(root)): path.stat().st_mtime_ns for path in root.rglob("*") if path.is_file()}
+
+    def resolve(self, dependency: str, home: Path, read_only: Path = None) -> subprocess.CompletedProcess:
+        env = dict(os.environ)
+        env.pop("GRADLE_RO_DEP_CACHE", None)
+        if read_only:
+            env["GRADLE_RO_DEP_CACHE"] = str(read_only)
+        return subprocess.run(
+            [self.gradle, "-p", str(self.project), "-g", str(home), "--no-daemon", "--console=plain",
+             f"-Dprobe.repo={self.repository.url}", f"-Dprobe.dependency={dependency}", "resolveProbe"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env, timeout=600)
+
+    def test_a_dependency_in_the_read_only_cache_is_not_downloaded(self):
+        home = self.work / "image-build-home"
+        result = self.resolve("org.example:lib:1.0", home, self.read_only)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertIn("resolved lib-1.0.jar", result.stdout)
+        self.assertNotIn("read-only dependency cache is disabled", result.stdout)
+        self.assertEqual(self.repository.requests, [])
+        # Gradle used the files in place: nothing was copied into the build's own Gradle home ...
+        self.assertFalse((home / "caches" / "modules-2" / "files-2.1").exists())
+        # ... and nothing was written to the read-only cache.
+        self.assertEqual(self.files(self.read_only), self.snapshot)
+
+    def test_a_dependency_missing_from_the_read_only_cache_is_downloaded_as_before(self):
+        result = self.resolve("org.example:other:1.0", self.work / "image-build-home", self.read_only)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertIn("resolved other-1.0.jar", result.stdout)
+        self.assertEqual(self.repository.statuses(f"{GROUP_PATH}/other/1.0/other-1.0.pom"), [200])
+        self.assertEqual(self.repository.statuses(f"{GROUP_PATH}/other/1.0/other-1.0.jar"), [200])
+        self.assertEqual(self.files(self.read_only), self.snapshot)
+
+    def test_a_missing_artifact_still_fails_at_once(self):
+        result = self.resolve("org.example:missing:1.0", self.work / "image-build-home", self.read_only)
+        self.assertNotEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertTrue(re.search(r"Could not find org\.example:missing:1\.0", result.stdout), result.stdout[-3000:])
+        self.assertEqual(self.repository.statuses(f"{GROUP_PATH}/missing/1.0/missing-1.0.pom"), [404])
 
 
 if __name__ == "__main__":
