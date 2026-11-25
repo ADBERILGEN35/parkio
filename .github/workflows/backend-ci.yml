@@ -37,7 +37,24 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
+
+      # This job's own Gradle dependency cache (#608). setup-java's `cache: gradle` key names no job,
+      # so all its workflows shared one entry. The SBOM job (supply-chain.yml) saved that entry without
+      # the test classpaths, and setup-java never saves again on a hit. This job therefore downloaded its
+      # test dependencies on every run, and Maven Central answered some of those downloads with 429 or
+      # 403. After a build change, restore-keys start from the latest entry, so only new artifacts are
+      # downloaded. The local build cache (build-cache-1) stays out: no task output, and so no test
+      # result, carries over from one run to the next.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: gradle-deps-backend-ci-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-backend-ci-${{ runner.os }}-
 
       # Supply-chain: fail the build if the committed Gradle wrapper jar is not an
       # unmodified official Gradle distribution (cheap, runs on every PR).
