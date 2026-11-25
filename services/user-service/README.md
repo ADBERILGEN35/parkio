@@ -76,11 +76,17 @@ write that arrives during an erasure waits and then gets `PROFILE_NOT_FOUND`; on
 that was admitted first makes the erasure wait and is deleted with the graph,
 instead of failing the erasure on the `REFERENCES user_profiles` foreign key
 (#597). Only the one-off saved-places HOME backfill, which is keyed by profile id,
-relies on that foreign key. Late registration/status events are inbox-consumed
-without recreating a profile or pending-status row. H2 tests do not prove this
-ordering; `UserErasureFencePostgresIT` uses real PostgreSQL transactions and
-deterministic barriers (PA30-S01 / #524, #597). Production erasure remains disabled
-pending separate recovery acceptance.
+relies on that foreign key. A fenced call waits behind an erasure for at most
+`parkio.privacy.erasure-fence.lock-timeout` (`PARKIO_USER_ERASURE_FENCE_LOCK_TIMEOUT`,
+default `PT2S`, the gateway's status-check budget) and then fails with
+`PROFILE_BUSY`. The API returns that as 503, so the gateway's status check fails
+closed. A Kafka listener rethrows it, so the event is retried and then
+dead-lettered like any other failure, with its inbox claim rolled back. Only this
+wait is bounded; the erasure's own wait for the exclusive lock is not. Late
+registration/status events are inbox-consumed without recreating a profile or
+pending-status row. H2 tests do not prove this ordering; `UserErasureFencePostgresIT`
+uses real PostgreSQL transactions and deterministic barriers (PA30-S01 / #524,
+#597). Production erasure remains disabled pending separate recovery acceptance.
 
 From the repository root:
 

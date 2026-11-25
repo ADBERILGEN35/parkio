@@ -21,8 +21,10 @@ import com.parkio.user.infrastructure.persistence.RecentDestinationRepositoryAda
 import com.parkio.user.infrastructure.persistence.UserProfileRepositoryAdapter;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -189,11 +191,14 @@ class UserErasureFencePostgresIT {
             // Runs on the read's own connection, after requireProfile passed the fence.
             insideRead.set(jdbc.queryForObject("SELECT current_setting('transaction_read_only') || ' '"
                     + " || (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND mode = 'ShareLock'"
-                    + " AND granted AND pid = pg_backend_pid())", String.class));
+                    + " AND granted AND pid = pg_backend_pid()) || ' ' || current_setting('lock_timeout')",
+                    String.class));
             return call.callRealMethod();
         }).when(profiles).findByAuthUserId(user);
         assertThat(users.getAccountStatus(user).status()).isEqualTo(UserStatus.ACTIVE);
-        assertThat(insideRead.get()).as("transaction_read_only and shared fence locks held").isEqualTo("on 1");
+        // The fence bounds only its own wait: the session's lock_timeout (0) is back afterwards.
+        assertThat(insideRead.get()).as("transaction_read_only, shared fence locks held, lock_timeout")
+                .isEqualTo("on 1 0");
 
         var acking = new CountDownLatch(1);
         var resume = new CountDownLatch(1);
@@ -304,6 +309,62 @@ class UserErasureFencePostgresIT {
             erase.get(10, TimeUnit.SECONDS);
             assertThat(childRowCount(profile)).isZero();
             assertThat(profileCount(user)).isZero();
+            assertThat(ackCount(user)).isEqualTo(1);
+        } finally {
+            resume.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    /**
+     * A stuck erasure holds the exclusive lock and does not finish. Fenced callers give up at the
+     * fence's lock timeout (2 s by default) with {@code PROFILE_BUSY}, which the API maps to 503
+     * and a Kafka listener rethrows for redelivery, instead of holding their pooled connections
+     * until the erasure ends. The erasure itself is not bounded and still completes afterwards.
+     */
+    @Test
+    void fenceWaitsBehindAStuckErasureEndAtTheLockTimeout() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID profile = users.createProfile(new CreateProfileCommand(
+                user, user + "@example.test", "Synthetic", null, null)).id();
+        var registration = new UserRegisteredEvent(UUID.randomUUID(), user, user + "@example.test", Instant.now());
+        var acking = new CountDownLatch(1);
+        var resume = new CountDownLatch(1);
+        doAnswer(call -> {
+            acking.countDown();
+            assertThat(resume.await(20, TimeUnit.SECONDS)).isTrue();
+            return call.callRealMethod();
+        }).when(ackOutbox).append(any());
+        var executor = Executors.newFixedThreadPool(4);
+        try {
+            var erase = executor.submit(() -> erasure.handle(request(user)));
+            assertThat(acking.await(10, TimeUnit.SECONDS)).isTrue();
+            long start = System.nanoTime();
+            List<Future<?>> waiters = List.of(
+                    executor.submit(() -> users.getAccountStatus(user)),
+                    executor.submit(() -> childWrite("favourite-destination", user)),
+                    executor.submit(() -> {
+                        users.handleUserRegistered(registration);
+                        return null;
+                    }));
+            for (Future<?> waiter : waiters) {
+                assertThatThrownBy(() -> waiter.get(10, TimeUnit.SECONDS))
+                        .isInstanceOf(ExecutionException.class)
+                        .cause().isInstanceOfSatisfying(UserException.class,
+                                e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_BUSY));
+            }
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .isBetween(Duration.ofMillis(1900), Duration.ofSeconds(6));
+            assertThat(ungrantedLocks()).as("lock requests still waiting after the timeout").isEmpty();
+            // The event's transaction rolled back with its inbox claim, so a redelivery processes it.
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE id = ?",
+                    Long.class, registration.eventId())).isZero();
+            assertThat(erase.isDone()).isFalse();
+            resume.countDown();
+            erase.get(10, TimeUnit.SECONDS);
+            assertThat(profileCount(user)).isZero();
+            assertThat(childRowCount(profile)).isZero();
             assertThat(ackCount(user)).isEqualTo(1);
         } finally {
             resume.countDown();
