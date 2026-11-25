@@ -1,10 +1,12 @@
 package com.parkio.auth.infrastructure.durable;
 
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.convert.DurationUnit;
 
 /**
  * Binds {@code parkio.privacy.account-erasure.durable-store.gcs.*}: a Google Cloud Storage bucket
@@ -12,7 +14,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Project, bucket, retention, trust document and producer key id are operator inputs with no
  * defaults; when enabled, a missing one stops the service at startup. Credentials use Application
  * Default Credentials (workload identity / service account) — not the erasure trust HMAC keys.
- * {@code list-max-pages} and {@code list-deadline} bound one bucket listing (#493) and default to
+ * {@code list-max-pages} (1 to {@value GcsObjectRetentionBucket.ListBounds#MAX_PAGES}) and
+ * {@code list-deadline} (at most {@link GcsObjectRetentionBucket.ListBounds#MAX_DEADLINE}; a bare
+ * number is seconds) bound one bucket listing (#493, #616) and default to
  * {@link GcsObjectRetentionBucket.ListBounds#DEFAULT}.
  */
 @ConfigurationProperties(prefix = "parkio.privacy.account-erasure.durable-store.gcs")
@@ -28,6 +32,8 @@ public class GcsDurableStoreProperties {
     private String trustFile = "";
     private String producerKeyId = "";
     private int listMaxPages = GcsObjectRetentionBucket.ListBounds.DEFAULT.maxPages();
+    /** A bare number is seconds, as the default is written ("30s"), not milliseconds (#616). */
+    @DurationUnit(ChronoUnit.SECONDS)
     private Duration listDeadline = GcsObjectRetentionBucket.ListBounds.DEFAULT.deadline();
 
     List<String> problems() {
@@ -44,11 +50,20 @@ public class GcsDurableStoreProperties {
         }
         if (listMaxPages < 1) {
             problems.add("list-max-pages (at least 1)");
+        } else if (listMaxPages > GcsObjectRetentionBucket.ListBounds.MAX_PAGES) {
+            problems.add("list-max-pages (at most " + GcsObjectRetentionBucket.ListBounds.MAX_PAGES + ")");
         }
         if (listDeadline == null || listDeadline.isZero() || listDeadline.isNegative()) {
             problems.add("list-deadline (positive duration)");
+        } else if (listDeadline.compareTo(GcsObjectRetentionBucket.ListBounds.MAX_DEADLINE) > 0) {
+            problems.add("list-deadline (at most " + GcsObjectRetentionBucket.ListBounds.MAX_DEADLINE + ")");
         }
         return problems;
+    }
+
+    /** The configured listing bounds; valid once {@link #problems()} is empty. */
+    GcsObjectRetentionBucket.ListBounds listBounds() {
+        return new GcsObjectRetentionBucket.ListBounds(listMaxPages, listDeadline);
     }
 
     private static void requireText(List<String> problems, String name, String value) {
