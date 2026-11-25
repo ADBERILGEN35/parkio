@@ -4,9 +4,15 @@ import com.parkio.parking.externalsource.MunicipalSourceOperatingMode;
 import java.time.Duration;
 import org.springframework.util.unit.DataSize;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.Errors;
+import org.springframework.validation.Validator;
 
+/**
+ * Municipal source settings. The class is also its own {@link Validator}: Spring Boot runs
+ * {@link #validate} when it binds the properties, so a value that breaks a rule there refuses startup.
+ */
 @ConfigurationProperties(prefix = "parkio.municipal")
-public class MunicipalSourceProperties {
+public class MunicipalSourceProperties implements Validator {
     /**
      * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative value fails the binding,
      * so the service refuses to start, and the error names the full property. An empty value keeps the
@@ -18,6 +24,46 @@ public class MunicipalSourceProperties {
                     property + " must be 0 (alert disabled) or a positive duration, was " + value);
         }
         return value;
+    }
+
+    /**
+     * Spring Boot validates every object that it binds under {@code parkio.municipal} with this root
+     * object; the rule below applies to the İZUM settings.
+     */
+    @Override
+    public boolean supports(Class<?> type) {
+        return Izum.class.isAssignableFrom(type);
+    }
+
+    /**
+     * #615: the İZUM body is read only until {@code max-response-time} after the request starts, so a
+     * connect plus a full read timeout must end before that bound. Otherwise a first byte that arrives
+     * within the read timeout still fails, on the time bound and without a retry, and the run is
+     * classified {@code unknown} instead of {@code read_timeout}. The defaults (2s + 27s, 30s) pass, so
+     * only overridden values can fail. The error is reported on {@code read-timeout}, so the startup
+     * failure names that property, its value and its origin, such as the environment variable.
+     */
+    @Override
+    public void validate(Object target, Errors errors) {
+        Izum izum = (Izum) target;
+        Duration connect = izum.getConnectTimeout();
+        Duration read = izum.getReadTimeout();
+        Duration max = izum.getMaxResponseTime();
+        if (connect == null || read == null || max == null) {
+            return;
+        }
+        if (connect.plus(read).compareTo(max) >= 0) {
+            errors.rejectValue("readTimeout", "notInsideMaxResponseTime", String.format(
+                    "IZUM connect-timeout (%s) + read-timeout (%s) must be less than max-response-time (%s), "
+                            + "because the body is read only until max-response-time after the request "
+                            + "starts. Raise PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME together with "
+                            + "PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT.",
+                    print(connect), print(read), print(max)));
+        }
+    }
+
+    private static String print(Duration duration) {
+        return duration.toMillis() % 1000 == 0 ? duration.toSeconds() + "s" : duration.toMillis() + "ms";
     }
 
     private boolean enabled;
@@ -305,7 +351,8 @@ public class MunicipalSourceProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
         /**
          * Socket read timeout, which also bounds the wait for the first byte (#523: up to 24.9 s on
-         * 2026-11-23). Connect plus read timeout stays inside {@code maxResponseTime}.
+         * 2026-11-23). Connect plus read timeout must stay inside {@code maxResponseTime}; startup
+         * refuses values that break this (#615, see {@link MunicipalSourceProperties#validate}).
          */
         private Duration readTimeout = Duration.ofSeconds(27);
         private int maxRetries = 2;
