@@ -136,6 +136,13 @@ parkio:
     # Off by default: replay commands are acknowledged on Kafka and skipped.
     restore-replay:
       enabled: ${PARKIO_RESTORE_REPLAY_ENABLED:false}
+    # Erasure fence (PA30-S01, #597): how long a profile read or write may wait behind an
+    # account erasure that holds the fence. At the bound it fails with PROFILE_BUSY: 503 on the
+    # API (the gateway status check fails closed); a Kafka listener rethrows it, so the event is
+    # retried and then dead-lettered. Only this wait is bounded; the erasure's own wait is not.
+    # At least 1ms.
+    erasure-fence:
+      lock-timeout: ${PARKIO_USER_ERASURE_FENCE_LOCK_TIMEOUT:PT2S}
   smart-return:
     enabled: ${PARKIO_SMART_RETURN_ENABLED:false}
   spa:

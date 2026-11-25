@@ -88,6 +88,7 @@ public class GlobalExceptionHandler {
                     FAVOURITE_CONFLICT, FAVOURITE_LIMIT_EXCEEDED
                     -> HttpStatus.CONFLICT;
             case MISSING_USER_ID -> HttpStatus.UNAUTHORIZED;
+            case PROFILE_BUSY -> HttpStatus.SERVICE_UNAVAILABLE;
             case UNSUPPORTED_FAVOURITE_TARGET, INVALID_RECENT_DESTINATION, INVALID_RECENT_PARKING_TARGET,
                     UNSUPPORTED_RECENT_PARKING_TARGET
                     -> HttpStatus.BAD_REQUEST;

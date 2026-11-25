@@ -2,9 +2,15 @@ package com.parkio.user.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.parkio.user.application.port.FavouriteDestinationRepository;
 import com.parkio.user.application.port.FavouriteParkingRepository;
+import com.parkio.user.application.port.UserOwnerFence;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.UserStatus;
@@ -27,6 +33,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +48,7 @@ class FavouriteApplicationServiceTest {
     private static final UUID FACILITY = UUID.fromString("ffffffff-ffff-4fff-8fff-ffffffffffff");
 
     private FakeProfiles profiles;
+    private UserOwnerFence fence;
     private FakeParkingFavourites parkingRepo;
     private FakeDestinationFavourites destinationRepo;
     private FavouriteParkingApplicationService parkingService;
@@ -73,8 +81,37 @@ class FavouriteApplicationServiceTest {
                 return Instant.ofEpochSecond(epochSecond.getAndIncrement());
             }
         };
-        parkingService = new FavouriteParkingApplicationService(parkingRepo, profiles, clock);
-        destinationService = new FavouriteDestinationApplicationService(destinationRepo, profiles, clock);
+        fence = mock(UserOwnerFence.class);
+        when(fence.admitWrite(any())).thenReturn(true);
+        FencedProfileLookup fencedProfiles = new FencedProfileLookup(fence, profiles);
+        parkingService = new FavouriteParkingApplicationService(parkingRepo, fencedProfiles, clock);
+        destinationService = new FavouriteDestinationApplicationService(destinationRepo, fencedProfiles, clock);
+    }
+
+    @Test
+    void everyCallerPathIsRefusedByTheErasureFenceBeforeReadingOrWritingFavourites() {
+        FavouriteDestination kept = destinationService.add(
+                AUTH, "Kept", 41.0, 29.0, PlaceDestinationSource.MAP_PIN, null, null);
+        parkingService.addMunicipalFacility(AUTH, FACILITY);
+        when(fence.admitWrite(AUTH)).thenReturn(false);
+        List<ThrowingCallable> paths = List.of(
+                () -> parkingService.list(AUTH),
+                () -> parkingService.addMunicipalFacility(AUTH, UUID.randomUUID()),
+                () -> parkingService.removeMunicipalFacility(AUTH, FACILITY),
+                () -> parkingService.statusFor(AUTH, List.of(FACILITY)),
+                () -> destinationService.list(AUTH),
+                () -> destinationService.add(AUTH, "New", 41.1, 29.1, PlaceDestinationSource.MAP_PIN, null, null),
+                () -> destinationService.updateDisplay(AUTH, kept.id(), "Renamed", null),
+                () -> destinationService.delete(AUTH, kept.id()));
+        for (ThrowingCallable path : paths) {
+            assertThatThrownBy(path).isInstanceOfSatisfying(UserException.class,
+                    e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_NOT_FOUND));
+        }
+        verify(fence, times(paths.size() + 2)).admitWrite(AUTH);
+        assertThat(parkingRepo.findAllByUserProfileId(PROFILE)).extracting(FavouriteParking::targetId)
+                .containsExactly(FACILITY);
+        assertThat(destinationRepo.findAllByUserProfileId(PROFILE)).extracting(FavouriteDestination::label)
+                .containsExactly("Kept");
     }
 
     @Test
