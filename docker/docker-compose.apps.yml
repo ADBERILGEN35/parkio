@@ -388,6 +388,9 @@ services:
       PARKIO_PUSH_DELIVERY_ENABLED: ${PARKIO_PUSH_DELIVERY_ENABLED:-true}
       PARKIO_PUSH_DELIVERY_PROVIDER: ${PARKIO_PUSH_DELIVERY_PROVIDER:-noop}
       PARKIO_EXPO_ACCESS_TOKEN: ${PARKIO_EXPO_ACCESS_TOKEN:-}
+      # Bounds of one Expo send (#595); the defaults match application.yml. Connect must stay shorter than read.
+      PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: ${PARKIO_EXPO_PUSH_CONNECT_TIMEOUT:-2s}
+      PARKIO_EXPO_PUSH_READ_TIMEOUT: ${PARKIO_EXPO_PUSH_READ_TIMEOUT:-5s}
     healthcheck:
       <<: *app-healthcheck
       test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]

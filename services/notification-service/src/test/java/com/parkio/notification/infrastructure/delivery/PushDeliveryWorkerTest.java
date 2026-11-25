@@ -119,6 +119,44 @@ class PushDeliveryWorkerTest {
         assertThat(meterRegistry.counter("parkio.notification.delivery.retry.count").count()).isEqualTo(1);
     }
 
+    /** #595: a send whose response never completes ends at the read timeout, and the batch still releases it. */
+    @Test
+    void actualStalledResponseIsTerminalUnknownAndReleasesTheClaim() throws Exception {
+        Duration readTimeout = Duration.ofMillis(800);
+        try (var silentExpo = SilentPeer.start()) {
+            var sender = new ExpoPushNotificationSender(org.springframework.web.client.RestClient.builder()
+                    .baseUrl(silentExpo.baseUrl())
+                    .requestFactory(com.parkio.notification.infrastructure.config.ExpoPushConfig.requestFactory(
+                            org.springframework.boot.http.client.HttpClientSettings.defaults(),
+                            Duration.ofMillis(300), readTimeout))
+                    .build(),
+                    new com.parkio.notification.infrastructure.metrics.PushSenderMetrics(meterRegistry), "default");
+            var attempt = persistPendingAttempt();
+            var worker = worker(sender, 5);
+
+            long started = System.nanoTime();
+            int processed = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                    Duration.ofSeconds(10), worker::processPendingBatch);
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+
+            assertThat(processed).isEqualTo(1);
+            assertThat(silentExpo.awaitRequestHead(Duration.ofSeconds(1))).isTrue();
+            assertThat(elapsed).isGreaterThanOrEqualTo(readTimeout);
+            var saved = attempts.byId.get(attempt.id());
+            assertThat(saved.status()).isEqualTo(DeliveryStatus.FAILED);
+            assertThat(saved.failureReason()).isEqualTo("PROVIDER_OUTCOME_UNKNOWN");
+            assertThat(saved.attemptCount()).isEqualTo(1);
+            assertThat(saved.nextAttemptAt()).isNull();
+            assertThat(attempts.claimed).isEmpty();
+            assertThat(worker.processPendingBatch()).isZero();
+            assertThat(silentExpo.connectionCount()).isEqualTo(1);
+            assertThat(deviceTokens.findById(saved.deviceTokenId()).orElseThrow().active()).isTrue();
+            assertThat(meterRegistry.counter("parkio.notification.delivery.retry.count").count()).isZero();
+            assertThat(meterRegistry.counter("parkio.notification.push.outcome_unknown.count").count()).isEqualTo(1);
+            assertThat(meterRegistry.counter("parkio.notification.push.provider_unavailable.count").count()).isZero();
+        }
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"PROVIDER_OUTCOME_UNKNOWN", "PROVIDER_CONFIGURATION_ERROR"})
     void unresolvedOrConfigurationFailureIsTerminalAndPreservesToken(String reason) {
