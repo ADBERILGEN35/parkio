@@ -970,7 +970,8 @@ def recover_latest_trusted(store, trust, required_through_sequence=None, at=None
 
 # The guards below read repository sources: service main trees, docker/ and .github/.
 # restore-drill-01-source-guards.yml runs them on a change to any of those (#609). A guard that
-# reads a new path adds it to that workflow's pull_request paths.
+# reads a new path adds it to that workflow's pull_request paths: the CI gate's unit tests record
+# every file the two suites read and fail on one that the filter misses (#640).
 def production_durable_recording_is_disabled(root=None):
     """Guard: production default remains off. COMPLETE is persist-gated only when enabled."""
     root = Path(root or Path(__file__).resolve().parents[2])
