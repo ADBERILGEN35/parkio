@@ -30,6 +30,7 @@
     {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "label": "vitest tests", "pattern": "Tests\\s+[^\\n]*?(\\d+) passed", "min": 1},
     {"workflow": "mobile-ci.yml", "job": "Mobile-v2 typecheck, lint, test & expo doctor", "label": "jest tests", "pattern": "Tests:[^\\n]*?(\\d+) passed", "min": 1},
     {"workflow": "n02-gcs-acceptance-op.yml", "job": "Operator script stub test", "label": "operator script stub tests", "pattern": "passed=(\\d+) failed=0", "min": 90},
-    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "source-scanning helper tests", "pattern": "Ran (\\d+) tests? in", "min": 66}
+    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "recovery evidence contract tests", "pattern": "Recovery evidence contract suite evidence: (\\d+) tests", "min": 31},
+    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "recovery persist protocol tests", "pattern": "Recovery persist protocol suite evidence: (\\d+) tests", "min": 36}
   ]
 }

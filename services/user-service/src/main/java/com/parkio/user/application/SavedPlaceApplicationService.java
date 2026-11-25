@@ -31,10 +31,16 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Erasure fence (#597): methods keyed by the caller's {@code authUserId} resolve the profile
  * through {@link FencedProfileLookup}. Methods keyed by a profile id take no fence of their own:
- * {@link #mirrorLegacyHomeToSavedPlace} and {@link #resolveHome} run inside a
- * {@link UserApplicationService} transaction that has already taken it (the Smart Return check
- * claim only reads), {@link #findHome} only reads, and {@link #backfillLegacyHomes} relies on the
- * {@code REFERENCES user_profiles} foreign key.
+ * <ul>
+ *   <li>{@link #mirrorLegacyHomeToSavedPlace} writes, and runs only inside
+ *       {@link UserApplicationService#updateMySmartReturnSettings}, which has already taken the
+ *       fence.</li>
+ *   <li>{@link #resolveHome} and {@link #findHome} only read saved places. The Smart Return
+ *       settings read and update call {@code resolveHome} after taking the fence;
+ *       {@link UserApplicationService#claimDueSmartReturnChecks} calls it without the fence.</li>
+ *   <li>{@link #backfillLegacyHomes} relies on the {@code REFERENCES user_profiles} foreign
+ *       key.</li>
+ * </ul>
  */
 @Service
 @Transactional

@@ -25,6 +25,8 @@ on:
       - "scripts/lib/recovery_evidence_contract.py"
       - "scripts/test_restore_readiness.py"
       - "scripts/test-restore-safe-preflight.sh"
+      # test-restore-safe-preflight.sh checks that this script calls no production restore entrypoint (#640).
+      - "scripts/staging/run-wp062b-restored-stack-verification.sh"
       - "scripts/test-production-recovery-evidence.sh"
       - "scripts/production-recovery-evidence.sh"
       - "scripts/lib/production-recovery-evidence.sh"

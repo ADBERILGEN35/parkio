@@ -44,9 +44,13 @@ that no longer exists fails the gate as stale.
   - Frontend vitest: `Tests N passed`.
   - Mobile-v2 jest: `Tests: N passed`.
   - N-02 operator script stub test: `passed=N failed=0`, at least 90.
-  - Restore drill 01 source guards: unittest's `Ran N tests`, summed over the contract and
-    persist-protocol suites. The minimum is their count when the job was added, so dropping
-    either suite fails the gate (#609).
+  - Restore drill 01 source guards: one rule per suite (#609, #640). The job prints
+    `Recovery evidence contract suite evidence: N tests` and
+    `Recovery persist protocol suite evidence: N tests`, each taken from that suite's own `Ran N tests`
+    line. Each minimum is the suite's current test count, and the gate's unit tests require that, so
+    a suite that loses a test fails the gate and one that gains a test raises its minimum in the same
+    pull request. The same tests record every file the two suites read and require the job's
+    `pull_request` filter to list it.
 - `ignore_workflows`: the gate itself.
 
 When a workflow gains a dispatch- or schedule-only job, add an allowed skip with its reason. When
