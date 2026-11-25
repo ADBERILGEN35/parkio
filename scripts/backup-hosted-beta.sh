@@ -19,10 +19,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/backup-common.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-}"
-OPERATOR="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
-ARTIFACT_DIR="${PARKIO_BACKUP_ARTIFACT_DIR:-backup-artifacts}"
-# The per-run switches come from the command line only. The env file is sourced below under
-# set -a, so they are parsed into private names and become NO_PRUNE / DRY_RUN after it.
+# The per-run switches and options come from the command line only; --operator and --artifact-dir
+# default to PARKIO_BACKUP_OPERATOR and PARKIO_BACKUP_ARTIFACT_DIR from the caller's environment.
+# The env file is sourced below under set -a, so they are parsed into private names and become
+# NO_PRUNE / DRY_RUN / OPERATOR / ARTIFACT_DIR after it.
+arg_operator="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
+arg_artifact_dir="${PARKIO_BACKUP_ARTIFACT_DIR:-backup-artifacts}"
 arg_dry_run=0
 arg_no_prune=0
 
@@ -39,8 +41,8 @@ option_value() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
-    --artifact-dir) option_value "$1" "${2-}"; ARTIFACT_DIR="$2"; shift 2 ;;
-    --operator) option_value "$1" "${2-}"; OPERATOR="$2"; shift 2 ;;
+    --artifact-dir) option_value "$1" "${2-}"; arg_artifact_dir="$2"; shift 2 ;;
+    --operator) option_value "$1" "${2-}"; arg_operator="$2"; shift 2 ;;
     --dry-run) arg_dry_run=1; shift ;;
     --no-prune) arg_no_prune=1; shift ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
@@ -55,8 +57,18 @@ fi
 if [ -n "${DRY_RUN+set}" ]; then
   echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
 fi
+if [ -n "${OPERATOR+set}" ]; then
+  echo "WARN: ignoring OPERATOR from the environment or env file;" \
+    "only --operator or the caller's PARKIO_BACKUP_OPERATOR counts." >&2
+fi
+if [ -n "${ARTIFACT_DIR+set}" ]; then
+  echo "WARN: ignoring ARTIFACT_DIR from the environment or env file;" \
+    "only --artifact-dir or the caller's PARKIO_BACKUP_ARTIFACT_DIR counts." >&2
+fi
 NO_PRUNE="${arg_no_prune}"
 DRY_RUN="${arg_dry_run}"
+OPERATOR="${arg_operator}"
+ARTIFACT_DIR="${arg_artifact_dir}"
 parkio_backup_validate_deployment_profile
 if ! parkio_backup_preflight; then
   exit 2
@@ -110,6 +122,8 @@ fi
 
 MINIO_OBJECTS=0
 MINIO_OK=1
+# backup-minio.sh sources the same env file, but like this script it takes --dry-run only from
+# its command line. This is a real run, so it gets no --dry-run and always mirrors.
 if ! MINIO_RAW="$("${ROOT}/scripts/backup-minio.sh" "${DEST_DIR}" ${ENV_FILE:+--env-file "$ENV_FILE"})"; then
   MINIO_OK=0
   MINIO_OBJECTS=0

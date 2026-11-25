@@ -865,8 +865,16 @@ groups:
         # worker holds the lock. The worker heartbeats only while delivery is enabled. 300s is well
         # above a slow batch (20 sends at the 5s HTTP timeout). A clean close of every relay process
         # still fires through relay_db_open == 0, delivery enabled or not.
+        # A worker that crash-loops after taking the lock refreshes the heartbeat on every start, yet
+        # takes no row: the oldest queued or retry row keeps aging (#599). The worker polls every 2s and
+        # the retry budget (5 attempts, backoff up to 60s or Slack's Retry-After) ends a row within
+        # minutes, so 900s is well above delivery in progress. A backlog queued while delivery was
+        # disabled is old once delivery is enabled; it stays below `for` if it drains within 15m.
+        # Each arm needs its series. With an exporter that lacks one, that arm is empty and the rule
+        # reduces to the others, so rule reload and script update are safe in either order.
         expr: |
           (parkio_slack_biz_worker_heartbeat_age_seconds > 300 and parkio_slack_biz_delivery_enabled == 1)
+            or (parkio_slack_biz_oldest_queued_age_seconds > 900 and parkio_slack_biz_delivery_enabled == 1)
             or parkio_slack_biz_relay_db_open == 0
         for: 15m
         labels:
@@ -874,7 +882,7 @@ groups:
           service: slack-biz
         annotations:
           summary: "Slack biz delivery worker is down or stuck"
-          description: "The Slack biz delivery worker's lock heartbeat has been older than 5m for 15m while delivery is enabled (crashed, killed, stopped, hung, or enabled without a webhook), or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
+          description: "While delivery is enabled, the Slack biz delivery worker's lock heartbeat has been older than 5m for 15m (crashed, killed, stopped, hung, enabled without a webhook or without a worker restart), or the oldest queued or retry row has been older than 15m for 15m (a crash loop or a worker that takes no rows); or no relay process has held the delivery DB open for 15m. Check parkio-slack-biz-worker and parkio-slack-biz-waitlist-consumer; queued events wait until they run."
           runbook_url: "https://github.com/ADBERILGEN35/parkio/blob/api/docs/operations/alert-response-runbook.md#slackbizrelaystopped"
 
       - alert: NrBudgetGateExhausted

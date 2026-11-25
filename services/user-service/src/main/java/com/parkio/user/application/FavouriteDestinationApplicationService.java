@@ -1,7 +1,6 @@
 package com.parkio.user.application;
 
 import com.parkio.user.application.port.FavouriteDestinationRepository;
-import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.exception.UserErrorCode;
 import com.parkio.user.domain.exception.UserException;
@@ -24,12 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class FavouriteDestinationApplicationService {
 
     private final FavouriteDestinationRepository favourites;
-    private final UserProfileRepository profiles;
+    private final FencedProfileLookup profiles;
     private final Clock clock;
 
     public FavouriteDestinationApplicationService(
             FavouriteDestinationRepository favourites,
-            UserProfileRepository profiles,
+            FencedProfileLookup profiles,
             Clock clock) {
         this.favourites = favourites;
         this.profiles = profiles;
@@ -83,7 +82,6 @@ public class FavouriteDestinationApplicationService {
     }
 
     private UserProfile requireProfile(UUID authUserId) {
-        return profiles.findByAuthUserId(authUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.PROFILE_NOT_FOUND));
+        return profiles.requireProfile(authUserId);
     }
 }

@@ -15,8 +15,9 @@ import java.util.function.Supplier;
 /**
  * In-memory {@link LoginThrottleStore} with the Redis semantics the throttle relies on (INCR + EXPIRE,
  * SET with a lifetime, SADD + EXPIRE, an atomic check-and-set of markers), driven by a test clock. Every
- * operation is synchronized, so concurrency tests see the same atomicity as the Redis script.
- * {@link #failing} simulates the store being unavailable.
+ * operation is synchronized, so concurrency tests see the same atomicity as the Redis scripts. Like the
+ * Redis store, it refuses a counter or set lifetime under 1 ms. {@link #failing} simulates the store
+ * being unavailable.
  */
 final class InMemoryLoginThrottleStore implements LoginThrottleStore {
 
@@ -37,6 +38,7 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
 
     @Override
     public synchronized long increment(String key, Duration window) {
+        requireLifetime(window);
         live(key);
         long value = counters.merge(key, 1L, Long::sum);
         expiresAt.put(key, now.get().plus(window));
@@ -85,6 +87,7 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
 
     @Override
     public synchronized void addToSet(String key, String member, Duration keyTtl) {
+        requireLifetime(keyTtl);
         live(key);
         sets.computeIfAbsent(key, k -> new LinkedHashSet<>()).add(member);
         expiresAt.put(key, now.get().plus(keyTtl));
@@ -129,6 +132,13 @@ final class InMemoryLoginThrottleStore implements LoginThrottleStore {
             return at != null && !now.get().isBefore(at);
         });
         return all;
+    }
+
+    /** The port's contract, as {@code RedisLoginThrottleStore} enforces it: at least 1 ms. */
+    private static void requireLifetime(Duration lifetime) {
+        if (lifetime.toMillis() < 1) {
+            throw new IllegalArgumentException("A throttle lifetime must be at least 1 ms, not " + lifetime);
+        }
     }
 
     private void live(String key) {

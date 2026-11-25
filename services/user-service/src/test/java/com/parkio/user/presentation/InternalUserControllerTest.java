@@ -67,6 +67,16 @@ class InternalUserControllerTest {
     }
 
     @Test
+    void fenceWaitTimeoutYields503SoTheGatewayFailsClosed() throws Exception {
+        when(userService.getAccountStatus(any()))
+                .thenThrow(new UserException(UserErrorCode.PROFILE_BUSY));
+
+        mvc.perform(get("/internal/users/{id}/status", UUID.randomUUID()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("PROFILE_BUSY"));
+    }
+
+    @Test
     void returnsPreferredLocale() throws Exception {
         UUID authUserId = UUID.randomUUID();
         UserPreference preference = mock(UserPreference.class);

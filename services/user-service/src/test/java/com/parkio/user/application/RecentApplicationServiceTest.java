@@ -6,11 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.parkio.user.application.port.RecentDestinationRepository;
 import com.parkio.user.application.port.RecentParkingRepository;
+import com.parkio.user.application.port.UserOwnerFence;
 import com.parkio.user.application.port.UserProfileRepository;
 import com.parkio.user.domain.UserProfile;
 import com.parkio.user.domain.exception.UserErrorCode;
@@ -27,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +45,7 @@ class RecentApplicationServiceTest {
     private RecentDestinationRepository destinationRepo;
     private RecentParkingRepository parkingRepo;
     private UserProfileRepository profiles;
+    private UserOwnerFence fence;
     private RecentDestinationApplicationService destinations;
     private RecentParkingApplicationService parking;
 
@@ -49,10 +54,34 @@ class RecentApplicationServiceTest {
         destinationRepo = mock(RecentDestinationRepository.class);
         parkingRepo = mock(RecentParkingRepository.class);
         profiles = mock(UserProfileRepository.class);
+        fence = mock(UserOwnerFence.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         when(profiles.findByAuthUserId(AUTH)).thenReturn(Optional.of(profile()));
-        destinations = new RecentDestinationApplicationService(destinationRepo, profiles, clock, 3);
-        parking = new RecentParkingApplicationService(parkingRepo, profiles, clock, 3);
+        when(fence.admitWrite(any())).thenReturn(true);
+        FencedProfileLookup fencedProfiles = new FencedProfileLookup(fence, profiles);
+        destinations = new RecentDestinationApplicationService(destinationRepo, fencedProfiles, clock, 3);
+        parking = new RecentParkingApplicationService(parkingRepo, fencedProfiles, clock, 3);
+    }
+
+    @Test
+    void everyCallerPathIsRefusedByTheErasureFenceBeforeReadingOrWritingRecents() {
+        when(fence.admitWrite(AUTH)).thenReturn(false);
+        List<ThrowingCallable> paths = List.of(
+                () -> destinations.list(AUTH),
+                () -> destinations.confirm(AUTH, "Kordon", 38.43, 27.14, PlaceDestinationSource.MAP_PIN, null, null),
+                () -> destinations.delete(AUTH, UUID.randomUUID()),
+                () -> destinations.clearAll(AUTH),
+                () -> parking.list(AUTH),
+                () -> parking.record(AUTH, RecentParkingTargetKind.MUNICIPAL_FACILITY, FACILITY),
+                () -> parking.delete(AUTH, UUID.randomUUID()),
+                () -> parking.clearAll(AUTH));
+        for (ThrowingCallable path : paths) {
+            assertThatThrownBy(path).isInstanceOfSatisfying(UserException.class,
+                    e -> assertThat(e.errorCode()).isEqualTo(UserErrorCode.PROFILE_NOT_FOUND));
+        }
+        verify(fence, times(paths.size())).admitWrite(AUTH);
+        verify(profiles, never()).findByAuthUserId(any());
+        verifyNoInteractions(destinationRepo, parkingRepo);
     }
 
     @Test
