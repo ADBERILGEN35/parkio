@@ -42,6 +42,10 @@ that no longer exists fails the gate as stale.
   - Integration tests: `Integration test evidence: N tests`, printed the same way.
   - Frontend vitest: `Tests N passed`.
   - Mobile-v2 jest: `Tests: N passed`.
+  - N-02 operator script stub test: `passed=N failed=0`, at least 90.
+  - Restore drill 01 source guards: unittest's `Ran N tests`, summed over the contract and
+    persist-protocol suites. The minimum is their count when the job was added, so dropping
+    either suite fails the gate (#609).
 - `ignore_workflows`: the gate itself.
 
 When a workflow gains a dispatch- or schedule-only job, add an allowed skip with its reason. When

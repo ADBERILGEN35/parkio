@@ -14,12 +14,15 @@ source "$ROOT/scripts/lib/backup-common.sh"
 
 DEST_DIR=""
 ENV_FILE="${PARKIO_ENV_FILE:-}"
-DRY_RUN=0
+# --dry-run comes from the command line only. The env file is sourced below under set -a, and
+# backup-hosted-beta.sh hands this script the env file it ran with, so the switch is parsed into
+# a private name and becomes DRY_RUN after it.
+arg_dry_run=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) ENV_FILE="${2:-}"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
+    --dry-run) arg_dry_run=1; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *)
       if [ -z "${DEST_DIR}" ]; then DEST_DIR="$1"; shift
@@ -34,6 +37,10 @@ if [ -z "${DEST_DIR}" ]; then
 fi
 
 parkio_backup_load_env "${ENV_FILE}"
+if [ -n "${DRY_RUN+set}" ]; then
+  echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
+fi
+DRY_RUN="${arg_dry_run}"
 
 BUCKET="${MINIO_BUCKET:-parkio-media}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in env}"
