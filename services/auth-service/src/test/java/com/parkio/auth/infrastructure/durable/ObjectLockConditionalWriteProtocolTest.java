@@ -191,8 +191,9 @@ class ObjectLockConditionalWriteProtocolTest {
         assertThat(recover().expectedThrough()).isEqualTo(3L);
     }
 
+    /** Runs on a thread of its own, so an unbounded retry fails as a named timeout instead of stalling the run. */
     @Test
-    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     void aFrontierThatKeepsChangingFailsTheCallClosedAndTheRetryCompletesIt() {
         DurableErasureRecord first = record(1);
         assertThat(store.putIfAbsent(first).created()).isTrue();
@@ -222,6 +223,24 @@ class ObjectLockConditionalWriteProtocolTest {
         assertThat(faulty.preconditionFailures).isEqualTo(1);
         assertThat(bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY)).isEqualTo(3);
         assertThat(recover().expectedThrough()).isEqualTo(2L);
+    }
+
+    /**
+     * The sizing basis of the listing bounds (#616 F2): after the bucket's first boundary (0, 0), the
+     * frontier gains one generation per new record and one per checkpoint; an identical retry adds none.
+     */
+    @Test
+    void theFrontierGainsOneGenerationPerNewRecordAndPerCheckpoint() {
+        for (int n = 1; n <= 3; n++) {
+            assertThat(store.putIfAbsent(record(n)).created()).isTrue();
+        }
+        store.publishCheckpoint(() -> ledger(record(1), record(2), record(3)));
+        assertThat(store.putIfAbsent(record(4)).created()).isTrue();
+        store.publishCheckpoint(() -> ledger(record(1), record(2), record(3), record(4)));
+        assertThat(store.putIfAbsent(record(2)).created()).isFalse();
+
+        assertThat(bucket.versionCount(DurableErasureEvidence.FRONTIER_KEY)).isEqualTo(1 + 4 + 2);
+        assertThat(recover().expectedThrough()).isEqualTo(6L);
     }
 
     private RecoveryVerdict recover() {

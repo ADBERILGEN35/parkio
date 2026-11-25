@@ -58,7 +58,20 @@ class ObjectLockDurableStoreConfig {
             throw new IllegalStateException(PREFIX + ": the trust document is pinned to "
                     + trust.databaseIdentity() + ", but this service uses " + database);
         }
-        MinioClient client = MinioClient.builder()
+        ObjectLockBucket bucket = new ObjectLockBucket(client(properties), properties.getBucket());
+        bucket.requireObjectLock();
+        return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(),
+                EvidenceRetentionMode.parse(properties.getRetentionMode()), properties.getRetention(), clock);
+    }
+
+    /**
+     * The MinIO client with the configured endpoint, credentials and timeouts. Its OkHttp keeps the
+     * default {@code retryOnConnectionFailure(true)}; MinIO turns that off for the store's PUTs (their
+     * bodies are streams), so only a 503 with {@code Retry-After: 0} makes the client send a write
+     * again (ObjectLockBucketResendTest, #616).
+     */
+    static MinioClient client(ObjectLockStoreProperties properties) {
+        return MinioClient.builder()
                 .endpoint(properties.getEndpoint())
                 .region(properties.getRegion())
                 .credentials(properties.getAccessKey(), properties.getSecretKey())
@@ -67,10 +80,6 @@ class ObjectLockDurableStoreConfig {
                         .callTimeout(properties.getCallTimeout())
                         .build())
                 .build();
-        ObjectLockBucket bucket = new ObjectLockBucket(client, properties.getBucket());
-        bucket.requireObjectLock();
-        return new ObjectLockDurableErasureRecordStore(bucket, trust, signingKey.keyId(),
-                EvidenceRetentionMode.parse(properties.getRetentionMode()), properties.getRetention(), clock);
     }
 
     private static EvidenceTrust trust(String file) {
