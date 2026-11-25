@@ -180,6 +180,13 @@ parkio:
           access-token: ${PARKIO_EXPO_ACCESS_TOKEN:}
           base-url: ${PARKIO_EXPO_PUSH_BASE_URL:https://exp.host/--/api/v2}
           android-channel-id: ${PARKIO_EXPO_ANDROID_CHANNEL_ID:default}
+          # Bounds of one send (#595); the tick holds its row claims while it sends. A connection not open
+          # (TLS included) within connect-timeout stays retryable; a response not complete within
+          # read-timeout is a terminal PROVIDER_OUTCOME_UNKNOWN, because Expo may already have it. The read
+          # timeout runs from the start of the exchange, so connect-timeout must be shorter. Limits: 0 < connect
+          # <= 30s, 0 < read <= 60s. A tick lasts at most about batch-size x read-timeout (100 x 5s).
+          connect-timeout: ${PARKIO_EXPO_PUSH_CONNECT_TIMEOUT:2s}
+          read-timeout: ${PARKIO_EXPO_PUSH_READ_TIMEOUT:5s}
         fcm:
           # Real FCM is backlog: disabled by default; no credentials committed. These
           # are placeholders for when the real adapter is implemented.

@@ -123,6 +123,11 @@ PARKING_ALLOWED = {
     "PARKIO_LOCATION_LOG_RETENTION_MAX_BATCHES",
     "PARKIO_LOCATION_LOG_RETENTION",
 }
+# #595: the bounds of one Expo push send (notification-service refuses an unbounded or inverted pair).
+NOTIFICATION_ALLOWED = {
+    "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT",
+    "PARKIO_EXPO_PUSH_READ_TIMEOUT",
+}
 AUTH_ALLOWED = {
     "PARKIO_REGISTRATION_MODE",
     "PARKIO_REGISTRATION_INVITE_CREATION_ENABLED",
@@ -166,6 +171,10 @@ def strip_allowlisted_env(model, from_base=False):
         penv = m["services"]["parking-service"].setdefault("environment", {})
         for k in PARKING_ALLOWED:
             penv.pop(k, None)
+    if "notification-service" in m["services"]:
+        nenv = m["services"]["notification-service"].setdefault("environment", {})
+        for k in NOTIFICATION_ALLOWED:
+            nenv.pop(k, None)
     if "web" in m["services"]:
         wenv = m["services"]["web"].setdefault("environment", {})
         for k in WEB_ALLOWED:
@@ -266,6 +275,10 @@ check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATI
 penv = dis["services"].get("parking-service", {}).get("environment", {})
 check("parking location-log retention OFF by example/default",
       penv.get("PARKIO_LOCATION_LOG_RETENTION_ENABLED") == "false" and penv.get("PARKIO_LOCATION_LOG_RETENTION") == "P30D")
+nenv = dis["services"].get("notification-service", {}).get("environment", {})
+check("notification Expo push bounds 2s/5s by example/default",
+      nenv.get("PARKIO_EXPO_PUSH_CONNECT_TIMEOUT") == "2s" and nenv.get("PARKIO_EXPO_PUSH_READ_TIMEOUT") == "5s",
+      f"{nenv.get('PARKIO_EXPO_PUSH_CONNECT_TIMEOUT')}/{nenv.get('PARKIO_EXPO_PUSH_READ_TIMEOUT')}")
 check("kafka GC logs capped for the tmpfs",
       dis["services"].get("kafka", {}).get("environment", {}).get("KAFKA_GC_LOG_OPTS") == KAFKA_GC_LOG_OPTS)
 if "web" in dis["services"]:
