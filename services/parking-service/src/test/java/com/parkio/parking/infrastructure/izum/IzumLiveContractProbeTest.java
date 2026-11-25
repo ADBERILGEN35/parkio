@@ -3,40 +3,38 @@ package com.parkio.parking.infrastructure.izum;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.parkio.parking.externalsource.schema.SchemaFingerprint;
+import com.parkio.parking.infrastructure.client.IzumParkingClient;
+import com.parkio.parking.infrastructure.client.Jackson2RestClientBuilder;
+import com.parkio.parking.infrastructure.config.MunicipalSourceProperties;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Opt-in live contract probe against the official IZUM Open API.
  *
+ * <p>The probe fetches through the production client with the production defaults: the official URL,
+ * a 2 s connect timeout, a 27 s read timeout, a 30 s whole-response bound and two retries. The feed's
+ * first byte took 11.6-24.9 s on 2026-11-23 (#523), so the 5 s request timeout the probe used before
+ * failed against the real feed (#615). A probe against a feed that does not answer takes about 87 s.
+ *
  * <p>Disabled unless {@code PARKIO_IZUM_LIVE_PROBE=true}. Never part of default CI.
  */
 @Tag("live-municipal")
 class IzumLiveContractProbeTest {
-    private static final String URL = "https://openapi.izmir.bel.tr/api/ibb/izum/otoparklar";
 
     @Test
-    void officialEndpointReturnsJsonArrayWithRequiredKeys() throws Exception {
+    void officialEndpointReturnsJsonArrayWithRequiredKeys() {
         assumeTrue("true".equalsIgnoreCase(System.getenv("PARKIO_IZUM_LIVE_PROBE")),
                 "Set PARKIO_IZUM_LIVE_PROBE=true to run live IZUM probe");
 
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(URL))
-                .timeout(Duration.ofSeconds(5))
-                .header("Accept", "application/json")
-                .header("User-Agent", "ParkioParkingServiceLiveProbe/1.0")
-                .GET()
-                .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        MunicipalSourceProperties properties = new MunicipalSourceProperties();
+        properties.getIzum().setUserAgent("ParkioParkingServiceLiveProbe/1.0");
+        JsonNode feed = new IzumParkingClient(Jackson2RestClientBuilder.builder(), properties).fetch();
 
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.headers().firstValue("content-type").orElse(""))
-                .contains("application/json");
-        assertThat(response.body()).contains("\"ufid\"").contains("\"occupancy\"");
+        assertThat(feed.isArray()).as("the feed is a JSON array").isTrue();
+        assertThat(feed.size()).as("records in the feed").isPositive();
+        assertThat(SchemaFingerprint.fromArray(feed).fields()).contains("ufid", "lat", "lng", "occupancy");
     }
 }
