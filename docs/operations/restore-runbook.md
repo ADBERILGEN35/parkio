@@ -75,6 +75,11 @@ Dry-run (supported: stamp preflight only, nothing is decrypted or applied):
 ./scripts/restore-hosted-beta.sh --manifest backup-artifacts/backup-current.json --dry-run
 ```
 
+`--dry-run` and `--yes` count only on the command line. A `DRY_RUN` or `ASSUME_YES` line in the
+env file (or the environment) is ignored with a `WARN`: it cannot cancel a dry run or answer the
+confirmation. An option that needs a value exits 2 before anything runs when the value is missing
+or starts with `-` (`--env-file --dry-run`).
+
 Partial (BLOCKED: `--only databases` exits 3 like the full restore; `--only minio` exits 3
 via `parkio_restore_refuse_unsupported_production_scope`):
 
