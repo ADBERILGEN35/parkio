@@ -29,19 +29,54 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.ops.district-coverage-enabled` | `PARKIO_MUNICIPAL_OPS_DISTRICT_COVERAGE_ENABLED` | false |
 
 Every municipal source (izum, ispark, anpark, konya, kayseri) has the same two response bounds
-(CL-F23): `max-response-size` caps the body that is read and `max-response-time` caps the whole
-response from request start (a read already blocked still ends at `read-timeout`), so an oversized
-or slow-drip feed fails once (it is not retried) and takes the normal source-failure path. The
+(CL-F23): `max-response-size` caps the body that is read and `max-response-time` caps the time until
+the body has been read, counted from request start (the time is checked around each read, so a
+read that is waiting at the bound ends only with its next byte or at `read-timeout`). An oversized
+or slow-drip body fails once (it is not retried) and takes the normal source-failure path. The
 connection is then closed without reading the rest of the body. The per-read `read-timeout` alone
 does not bound a slow drip.
 
+**Header drip (not bounded).** The status line and the headers are read before the body bound
+starts to apply, so `max-response-time` does not cut off a feed that sends its headers slowly. Each
+byte only has to arrive within `read-timeout`, so such an attempt has no upper bound. Bounding it
+would need a second thread that closes the connection, or another HTTP client; that is not a small,
+safe change, so it is not done. A source caught in a header drip holds only its own sync thread (see
+below), and its next runs wait. No run completes, so its SLA gauges keep their last values until the
+stale-run watchdog marks the run `FAILED` after `sync.stale-running-threshold` (20m) and refreshes
+them. A restart ends the attempt; set the source's `scheduler-enabled=false` first if the feed keeps
+doing it.
+
 İZUM `read-timeout` has been 27s since #523. On 2026-11-23 the feed sent its first byte 11.6-24.9 s
 after the request, so the old 5s timed out on every attempt. The read timeout is also the wait for
-the first byte. Together with the 2s connect timeout it still ends inside the 30s `max-response-time`.
-A run whose three attempts all time out ends after at most 3 × 29s + 0.3s backoff, about 87s, which
-is below the 120s fixed delay. Runs never overlap: the delay counts from the end of the previous run,
-and the run lease skips a concurrent sync. All parking-service `@Scheduled` jobs share one scheduler
-thread, so such a run delays the other jobs by that long.
+the first byte. Together with the 2s connect timeout it ends inside the 30s `max-response-time`.
+Startup refuses İZUM settings where `connect-timeout + read-timeout` reaches `max-response-time`
+(#615): a first byte that came in time could not be used, and the run would fail on the time bound
+without a retry, classified `unknown`. Startup also refuses a `connect-timeout` or `read-timeout`
+under 1ms, which the HTTP client treats as no timeout. `max-response-time` does not end a read that
+is waiting, so with no read timeout a stalled feed could hold the İZUM sync until a restart. The
+error names the property, its value and its origin. To give the feed more time, raise
+`PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
+
+How long one İZUM run can take with the defaults (three attempts: `max-retries` 2, with 0.1s and
+0.2s backoff; DNS and TLS handshake time come on top):
+
+| The feed | Each attempt ends | The run takes |
+|----------|-------------------|---------------|
+| never sends a first byte | at the read timeout, at most 2s + 27s = 29s after the request | about 3 × 29s + 0.3s ≈ 87s |
+| sends the headers and part of the body, then stalls | at the read timeout of the stalled read, up to 30s + 27s = 57s after the request | up to 3 × 57s + 0.3s ≈ 171s |
+| keeps dripping the body past `max-response-time` | on the time bound (not retried), when the read that is waiting at 30s gets its next byte: 30s to 30s + 27s = 57s after the request | 30-57s, one attempt |
+| drips its status line or headers | not bounded (see header drip above) | not bounded |
+
+Runs of one source never overlap: the 120s fixed delay counts from the end of the previous run, and
+the run lease skips a concurrent sync.
+
+**Scheduler threads (#615).** The municipal feed syncs (İZUM, İSPARK, ANPARK, Konya, Kayseri) run on
+their own scheduler, which has a `municipal-sync-` thread for each source. A slow or stalled feed
+delays only that source's next run. It does not delay the other feeds, or the jobs on the default `scheduling-1`
+thread: `ParkingOutboxRelay`, which publishes parking spot and session events and erasure
+acknowledgements every second, the spot-expiry and moderation-timeout jobs, the stale-run watchdog
+and the retention jobs. Before #615 all of them shared one thread, so a stalled İZUM run held event
+publishing back by about 87s, or 171s for a stall mid-body.
 
 Source key: `izmir-izum-otoparklar`.  
 Admin: `POST /api/v1/parking/municipal/sources/{sourceKey}/sync` (requires `municipal.enabled` + `manual-sync-enabled`; İZUM also requires `izum.enabled`).  
@@ -64,11 +99,20 @@ Freshness thresholds live on the seeded source row (aging 300s, stale 900s), not
    field ownership from `primary_source_key`. Successful re-ingest also withdraws same-source
    stale selections (DATA-WP-14).
 
+**A manual sync can return 504 and still succeed (#615).** The endpoint runs the whole fetch and
+ingest on the request thread, and the gateway gives every `/api/v1/parking/**` request 30s
+(`PARKIO_GATEWAY_DOWNSTREAM_RESPONSE_TIMEOUT`). The İZUM feed's first byte alone can take 25s, and a
+run of timed-out attempts takes about 87s (see the table above). The gateway then answers 504 while
+parking-service finishes the run and records it. Judge a manual sync by its run record
+(`municipal_source_sync_runs`: `status`, `completed_at`, `error_category`), not by the HTTP status.
+Do not resend after a 504: while the first run is still `RUNNING`, a second request returns
+`status=SKIPPED` with `errorCategory=concurrent_run`. Scheduled runs do not pass the gateway.
+
 ## Scheduler
 
 Enable only after soak:
 `parkio.municipal.izum.scheduler-enabled=true`  
-Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap.
+Cadence: `fixed-delay-ms` default **120000** (2 minutes). Job is gated by municipal.enabled + izum.enabled + izum.scheduler-enabled. Unique RUNNING lock prevents overlap. The job runs on the municipal sync scheduler, not on the shared `scheduling-1` thread (see "Scheduler threads" above).
 
 ## Source health / SLA (DATA-WP-06 + DATA-WP-16 + DATA-WP-17)
 

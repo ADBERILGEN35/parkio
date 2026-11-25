@@ -19,7 +19,7 @@ No additional feature flag.
 
 | Filter | Source field(s) | Values |
 |--------|-----------------|--------|
-| Availability | `availableSpaces` only | All / Available (`> 0`) / Unavailable (`=== 0`) / Unknown (`null`) |
+| Availability | `availableSpaces`, counted only for live or aging occupancy | All / Available (`> 0`) / Unavailable (`=== 0`) / Unknown (`null`, or not live or aging) |
 | Source | exact `sourceLabel` from the payload | Distinct labels present in results (e.g. IZUM / OSM strings as published) |
 | Facility type | `facilityType` | `ON_STREET` / `OFF_STREET` / `UNKNOWN` when present |
 | Provenance | non-empty `selectedFieldProvenanceSummary` | Optional “Has provenance” chip |
@@ -27,7 +27,10 @@ No additional feature flag.
 - Nearby query params unchanged (`lat` / `lng` / `radius` / `limit`).
 - No extra requests, no polling, no backend faceting.
 - Source chips use **exact** backend labels — no fabricated İZUM/OSM groups.
-- Availability does **not** infer from freshness or capacity alone.
+- Availability does **not** infer from freshness or capacity alone. It follows the same
+  occupancy presentation kind that decides whether the card and detail page show numbers
+  (`municipalOccupancyPresentationKind`). Stale, unavailable, invalid or missing freshness
+  is Unknown, even when a number is retained (#598).
 
 ## Map behaviour
 

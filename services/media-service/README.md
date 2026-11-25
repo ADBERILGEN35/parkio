@@ -23,20 +23,22 @@ This service follows clean architecture. Source lives under
 ## Responsibilities
 
 ClamAV scans have a monotonic total deadline equal to the configured connect plus
-read timeouts (defaults: 2s + 10s). Connect retains its own shorter bound; writes
-and reads share the remaining total budget. Nonblocking NIO closes the channel and
-selector on timeout/interruption; it starts no supporting executor. At most 16
-scans per scanner instance are admitted, with immediate fail-closed rejection on
-saturation. The clamd hostname is resolved for each scan through the JVM resolver
-cache, so a recreated clamav container's new address is used without restarting
+read timeouts (defaults: 2s + 10s). Connect retains its own shorter bound, which
+also covers the hostname lookup; writes and reads share the remaining total
+budget. Nonblocking NIO on the calling thread closes the channel and selector on
+timeout/interruption; no executor runs socket I/O. At most 16 scans per scanner
+instance are admitted, with immediate fail-closed rejection on saturation. The
+clamd hostname is resolved for each scan through the JVM resolver cache, so a
+recreated clamav container's new address is used without restarting
 media-service, and an unresolvable host fails scans closed instead of blocking
-startup. Upload still holds its transaction and owner fence while scanning. Socket
-connect, write and read cannot hold them beyond this budget, but the hostname
-lookup is not bounded by it: the lookup cannot be interrupted and is checked
-against the connect budget only after it returns, so slow or failing DNS can hold
-an admitted scan, its upload transaction and the owner fence for up to the OS
-resolver timeout (as on the base). Storage/decode and database lock waits have
-separate bounds.
+startup. Upload still holds its transaction and owner fence while scanning; the
+hostname lookup and socket connect, write and read cannot hold them beyond this
+budget. The JDK lookup cannot be interrupted, so it runs on a daemon thread and a
+scan waits for it only within its connect budget. Scans that arrive during a
+lookup share it, so a lookup that outlives its scans (slow or failing DNS) leaves
+one thread per scanner until the OS resolver timeout, holding no scan permit,
+socket, upload transaction or owner fence. Storage/decode and database lock waits
+have separate bounds.
 
 media-service owns **image upload metadata, file validation, storage object keys,
 checksums and duplicate detection**. It does not own parking-spot business logic and

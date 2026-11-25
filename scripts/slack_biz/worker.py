@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import signal
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
@@ -17,6 +20,23 @@ from slack_biz.config import load_config  # noqa: E402
 from slack_biz.delivery import DeliveryWorker  # noqa: E402
 from slack_biz.store import DeliveryStore, WorkerLockError, close_store_on_sigterm  # noqa: E402
 from slack_biz.transport import SlackWebhookTransport  # noqa: E402
+
+
+@contextlib.contextmanager
+def _sigterm_held() -> Iterator[None]:
+    """Hold SIGTERM back for the block. DeliveryWorker takes the lock inside its constructor, and a
+    SIGTERM handled after the lock row commits but before main() binds `worker` skipped worker.close():
+    the lock and its fresh heartbeat outlived the worker (#618). Blocked, the signal stays pending and its
+    handler runs when the mask is restored, after the assignment. The mask is per thread; the worker runs
+    no other thread that could take the signal meanwhile."""
+    if not hasattr(signal, "pthread_sigmask"):  # Windows has no signal masks
+        yield
+        return
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,13 +133,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
         try:
-            worker = DeliveryWorker(
-                config,
-                store,
-                SlackWebhookTransport(timeout_seconds=config.http_timeout_seconds),
-                worker_id=args.worker_id,
-                acquire_lock=True,
-            )
+            with _sigterm_held():
+                worker = DeliveryWorker(
+                    config,
+                    store,
+                    SlackWebhookTransport(timeout_seconds=config.http_timeout_seconds),
+                    worker_id=args.worker_id,
+                    acquire_lock=True,
+                )
         except WorkerLockError as exc:
             print(json.dumps({"error": "worker_lock", "detail": str(exc)}), file=sys.stderr)
             return 3

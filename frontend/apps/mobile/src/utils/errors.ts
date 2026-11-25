@@ -24,7 +24,12 @@ function messageForApiError(error: ParkioApiError): string {
     case 422:
       return firstFieldError(error) ?? 'Please check the details and try again.';
     case 401:
-      return 'Your session has expired. Please sign in again.';
+      // INVALID_CREDENTIALS is a failed password check, not an expired session: a wrong
+      // password on login or account deletion, or a wrong current password on change-password.
+      // Token 401s (MISSING_TOKEN, INVALID_TOKEN, TOKEN_REVOKED) mean the session has expired.
+      return error.code === 'INVALID_CREDENTIALS'
+        ? 'Incorrect email or password.'
+        : 'Your session has expired. Please sign in again.';
     case 403:
       return 'You don’t have access to do that.';
     case 404:

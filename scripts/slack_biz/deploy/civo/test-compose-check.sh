@@ -7,6 +7,8 @@
 #      itself, a branch run, and an api→master merge whose tree equals api's.
 #   3. app_pin_moves.py (U13): the only accepted image change is a move of one of the six host-built
 #      app services from build-only to exactly its digest pin in the app pin file.
+#   4. app_healthcheck_moves.py (#617): the only accepted healthcheck change is one of the ten app
+#      services going from start_period 1m0s to exactly 3m0s, and only that key is compared away.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${COMPOSE_CHECK_SCRIPT:-$HERE/validate-compose-integration.sh}"
@@ -207,6 +209,57 @@ then
   pass "N-17 infra pin moves: accepted only for mutable-tag -> pin-file digest"
 else
   bad "N-17 infra pin moves"
+fi
+
+echo "=== #617 app healthcheck start period (app_healthcheck_moves.py) ==="
+if python3 -B - "$HERE" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from app_healthcheck_moves import SERVICES, accepted_moves, without_start_period
+
+def svc(start_period, **health):
+    check = {"test": ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"],
+             "interval": "15s", "timeout": "5s", "retries": 5, "start_period": start_period}
+    check.update(health)
+    return {"image": "parkio/app:test", "healthcheck": check}
+
+base = {s: svc("1m0s") for s in SERVICES}
+base["clamav"] = svc("1m0s")
+head = {s: svc("3m0s") for s in SERVICES}
+head["clamav"] = svc("3m0s")
+results = []
+def case(name, got, want):
+    results.append(got == want)
+    print(("PASS " if got == want else "FAIL ") + name + ("" if got == want else f": got {got}"))
+
+case("each of the ten app services moves from 1m0s to exactly 3m0s",
+     sorted(accepted_moves(base, head)), sorted(SERVICES))
+case("the same move on a service outside the ten is not accepted",
+     "clamav" in accepted_moves(base, head), False)
+case("another head value is not accepted",
+     "auth-service" in accepted_moves(base, dict(head, **{"auth-service": svc("4m0s")})), False)
+case("a base already at 3m0s (a later change) is not accepted",
+     "auth-service" in accepted_moves(dict(base, **{"auth-service": svc("3m0s")}),
+                                      dict(head, **{"auth-service": svc("4m0s")})), False)
+case("a service without a healthcheck is not accepted",
+     "auth-service" in accepted_moves(dict(base, **{"auth-service": {"image": "parkio/app:test"}}), head), False)
+moves = accepted_moves(base, head)
+case("an accepted move compares equal once start_period is left out",
+     without_start_period(base, moves)["auth-service"] == without_start_period(head, moves)["auth-service"], True)
+other = dict(head, **{"auth-service": svc("3m0s", interval="30s")})
+case("another healthcheck change with the move still differs",
+     without_start_period(base, accepted_moves(base, other))["auth-service"]
+     == without_start_period(other, accepted_moves(base, other))["auth-service"], False)
+case("leaving out start_period does not change the input",
+     base["auth-service"]["healthcheck"]["start_period"], "1m0s")
+case("a service outside the moves keeps its start_period",
+     without_start_period(base, moves)["clamav"]["healthcheck"].get("start_period"), "1m0s")
+sys.exit(0 if all(results) else 1)
+PY
+then
+  pass "#617 app healthcheck start period: accepted only for 1m0s -> 3m0s on the ten app services"
+else
+  bad "#617 app healthcheck start period"
 fi
 
 if [ "$fails" -ne 0 ]; then

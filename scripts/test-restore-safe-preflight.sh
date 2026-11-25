@@ -661,6 +661,87 @@ else
   cat /tmp/parkio-f03-valid.out >&2 || true
 fi
 
+# --- #611: the env file is sourced under set -a after the command line is parsed. It must not
+# cancel --dry-run or answer the confirmation, and a switch must not become an option's value. ---
+SWITCH_ENV="${WORK}/switch.env"
+SWITCH_IN="${WORK}/switch.stdin"
+SWITCH_OUT="${WORK}/switch.out"
+# switch_restore ENV_LINES STDIN [ARG...]: the valid isolated databases restore above, with these
+# extra env-file lines, this stdin and these extra arguments. Sets switch_rc; output in SWITCH_OUT.
+switch_restore() {
+  printf 'PARKIO_DEPLOYMENT_PROFILE=hosted-beta\n%s\n' "$1" > "${SWITCH_ENV}"
+  printf '%s' "$2" > "${SWITCH_IN}"
+  shift 2
+  : > "${LOG}"
+  switch_rc=0
+  PARKIO_ENV_FILE="${SWITCH_ENV}" \
+    PARKIO_RESTORE_DUMP_PROFILE="${STAMP}/auth.dump-profile.json" \
+    "${ROOT}/scripts/restore-hosted-beta.sh" \
+    --manifest "${MANIFEST}" --only databases --isolated-fixture \
+    --isolated-ticket "${PARKIO_RESTORE_ISOLATED_TICKET}" \
+    --recovery-cutoff "2026-09-20T03:30:01Z" "$@" \
+    < "${SWITCH_IN}" > "${SWITCH_OUT}" 2>&1 || switch_rc=$?
+}
+said() { grep -qxF -- "$1" "${SWITCH_OUT}"; }   # a whole output line
+asked() { grep -qF -- "Type RESTORE to proceed" "${SWITCH_OUT}"; }
+WARN_DRY_RUN="WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts."
+WARN_ASSUME_YES="WARN: ignoring ASSUME_YES from the environment or env file; only --yes counts."
+dry_run_only() {
+  [ "${switch_rc}" -eq 0 ] && no_destroy && said "dryRun=1" \
+    && said "DRY-RUN: would restore auth" && ! asked
+}
+
+mint_ticket ok
+switch_restore "" "" --dry-run
+if dry_run_only && ! grep -q "WARN: ignoring" "${SWITCH_OUT}"; then
+  ok "#611: a plain --dry-run stays a dry run and warns about nothing"
+else
+  bad "#611: a plain --dry-run must stay a quiet dry run (rc=${switch_rc})"
+fi
+
+switch_restore "DRY_RUN=0" "" --dry-run --yes
+if dry_run_only && said "${WARN_DRY_RUN}"; then
+  ok "#611: env-file DRY_RUN=0 cannot cancel --dry-run (zero decrypt or apply, WARN)"
+else
+  bad "#611: env-file DRY_RUN=0 turned --dry-run --yes into a real restore (rc=${switch_rc})"
+fi
+
+switch_restore $'DRY_RUN=0\nASSUME_YES=yes' "" --dry-run
+if dry_run_only && said "${WARN_DRY_RUN}" && said "${WARN_ASSUME_YES}"; then
+  ok "#611: env-file DRY_RUN=0 plus ASSUME_YES=yes cannot turn a bare --dry-run into an unprompted restore"
+else
+  bad "#611: a bare --dry-run became a restore without a prompt (rc=${switch_rc})"
+fi
+
+switch_restore "ASSUME_YES=yes" $'no\n'
+if [ "${switch_rc}" -eq 1 ] && no_destroy && asked && grep -qF "Aborted." "${SWITCH_OUT}" \
+    && said "${WARN_ASSUME_YES}"; then
+  ok "#611: env-file ASSUME_YES=yes cannot skip the confirmation (a wrong answer aborts, zero apply)"
+else
+  bad "#611: env-file ASSUME_YES=yes skipped the confirmation (rc=${switch_rc})"
+fi
+
+switch_restore "ASSUME_YES=yes" $'RESTORE\n'
+if [ "${switch_rc}" -eq 0 ] && asked && grep -q PSQL_APPLY "${LOG}"; then
+  ok "#611: with env-file ASSUME_YES=yes the confirmation is still asked, and RESTORE proceeds"
+else
+  bad "#611: the confirmation was not asked, or RESTORE did not proceed (rc=${switch_rc})"
+fi
+
+switch_restore "" "" --yes --env-file --dry-run
+if [ "${switch_rc}" -eq 2 ] && no_destroy && said "ERROR: --env-file needs a value; got '--dry-run'"; then
+  ok "#611: --env-file cannot take --dry-run as its value (exit 2, zero apply)"
+else
+  bad "#611: '--env-file --dry-run' must exit 2 before anything runs (rc=${switch_rc})"
+fi
+
+switch_restore "" "" --yes --recovery-cutoff
+if [ "${switch_rc}" -eq 2 ] && no_destroy && said "ERROR: --recovery-cutoff needs a value; got ''"; then
+  ok "#611: a value option with no value exits 2 with an error"
+else
+  bad "#611: a trailing value option must exit 2 with an error (rc=${switch_rc})"
+fi
+
 # --- interrupted restore / failure propagation ---
 mint_ticket ok
 : > "${LOG}"
