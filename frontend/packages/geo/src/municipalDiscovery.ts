@@ -1,5 +1,6 @@
 import type { MunicipalFacility, MunicipalFacilityType } from '@parkio/types';
 import { MUNICIPAL_FACILITY_TYPES } from '@parkio/types';
+import { municipalOccupancyPresentationKind } from './municipalOccupancyPresentation';
 
 /**
  * Client-side municipal discovery filters (WEB-MUNI-03).
@@ -9,7 +10,10 @@ import { MUNICIPAL_FACILITY_TYPES } from '@parkio/types';
  * categories, source groups, or availability states beyond published fields.
  */
 
-/** Availability buckets derived only from published `availableSpaces`. */
+/**
+ * Availability buckets derived from published `availableSpaces`, counted only
+ * when the occupancy presentation shows the numbers (live or aging).
+ */
 export type MunicipalAvailabilityFilter = 'all' | 'available' | 'unavailable' | 'unknown';
 
 export const MUNICIPAL_AVAILABILITY_FILTERS: MunicipalAvailabilityFilter[] = [
@@ -53,18 +57,24 @@ export function hasActiveMunicipalFilters(filters: MunicipalFacilityFilters): bo
 }
 
 /**
- * Map a facility to an availability bucket using only `availableSpaces`.
- * - spaces &gt; 0 → available
- * - spaces === 0 → unavailable
- * - spaces null → unknown (live availability not published)
+ * Map a facility to an availability bucket. The bucket follows
+ * {@link municipalOccupancyPresentationKind}, which also decides whether the
+ * card and detail page show the numbers, so the filter never disagrees with
+ * what the user sees:
+ * - live or aging, spaces &gt; 0 → available
+ * - live or aging, spaces === 0 → unavailable
+ * - anything else → unknown: stale, unavailable, invalid or missing
+ *   freshness, or no published `availableSpaces`
  *
- * Does not infer from freshness, capacity, or source.
+ * Does not infer from capacity or source.
  */
 export function municipalAvailabilityBucket(
   facility: MunicipalFacility,
 ): Exclude<MunicipalAvailabilityFilter, 'all'> {
-  if (facility.availableSpaces == null) return 'unknown';
-  return facility.availableSpaces > 0 ? 'available' : 'unavailable';
+  const kind = municipalOccupancyPresentationKind(facility);
+  const spaces = facility.availableSpaces;
+  if ((kind !== 'live' && kind !== 'aging') || spaces == null) return 'unknown';
+  return spaces > 0 ? 'available' : 'unavailable';
 }
 
 export function hasMunicipalProvenance(facility: MunicipalFacility): boolean {

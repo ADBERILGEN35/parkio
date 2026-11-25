@@ -1,6 +1,7 @@
 package com.parkio.parking.infrastructure.lifecycle;
 
 import com.parkio.parking.application.MunicipalFacilitySyncService;
+import com.parkio.parking.infrastructure.config.MunicipalSyncSchedulingConfig;
 import com.parkio.parking.infrastructure.izum.IzumMunicipalParkingAdapter;
 import com.parkio.parking.infrastructure.metrics.MunicipalSourceMetrics;
 import java.time.Duration;
@@ -24,7 +25,8 @@ public class IzumMunicipalSyncJob {
         this.metrics = metrics;
     }
 
-    @Scheduled(fixedDelayString = "${parkio.municipal.izum.fixed-delay-ms:120000}")
+    @Scheduled(fixedDelayString = "${parkio.municipal.izum.fixed-delay-ms:120000}",
+            scheduler = MunicipalSyncSchedulingConfig.MUNICIPAL_SYNC_SCHEDULER)
     public void sync() {
         Instant started = Instant.now();
         var result = service.sync(IzumMunicipalParkingAdapter.SOURCE_KEY);

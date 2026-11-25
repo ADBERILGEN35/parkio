@@ -52,6 +52,15 @@ public class WaitlistOpsNotificationExporter {
     static final int CONTRACT_VERSION_V2 = 2;
     static final ZoneId ISTANBUL = ZoneId.of("Europe/Istanbul");
 
+    /** Usable bytes on the file store of the export directory, which the low-disk deferral compares. */
+    @FunctionalInterface
+    interface UsableSpaceProbe {
+        long usableBytes(Path dir) throws IOException;
+    }
+
+    /** The probe every deployment uses: the export directory's own file store. */
+    static final UsableSpaceProbe FILE_STORE = dir -> Files.getFileStore(dir).getUsableSpace();
+
     private static final Logger log = LoggerFactory.getLogger(WaitlistOpsNotificationExporter.class);
 
     private final JdbcWaitlistOpsNotificationOutbox outbox;
@@ -63,6 +72,7 @@ public class WaitlistOpsNotificationExporter {
     private final AtomicLong inboxBacklog = new AtomicLong();
     private final AtomicLong oldestPendingAgeSeconds = new AtomicLong();
     private volatile String lastDeferral;
+    private volatile UsableSpaceProbe usableSpace = FILE_STORE;
 
     public WaitlistOpsNotificationExporter(
             JdbcWaitlistOpsNotificationOutbox outbox,
@@ -168,13 +178,21 @@ public class WaitlistOpsNotificationExporter {
             return "inbox_backlog";
         }
         try {
-            if (Files.getFileStore(dir).getUsableSpace() < properties.getMinFreeBytes()) {
+            if (usableSpace.usableBytes(dir) < properties.getMinFreeBytes()) {
                 return "low_disk";
             }
         } catch (IOException ex) {
             return null;
         }
         return null;
+    }
+
+    /**
+     * Test seam (#607): replaces how the free space of the export directory is read, so a test
+     * decides what the low-disk deferral sees instead of depending on the host's disk.
+     */
+    void setUsableSpaceProbe(UsableSpaceProbe probe) {
+        this.usableSpace = probe == null ? FILE_STORE : probe;
     }
 
     Duration backoff(int attempts) {
