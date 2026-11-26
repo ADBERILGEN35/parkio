@@ -980,6 +980,103 @@ else
   bad "the dumps must go to the new stamp (rc=${rc}, old stamp before: ${before_dest}after: ${after_dest})"
 fi
 
+# --- #639: the env file cannot move the MinIO mirror (DEST_DIR), or the orchestrator's checkout and
+# env file (ROOT, ENV_FILE), and cannot reach the private arg_* names they come from ---
+# backup-minio.sh on its own: a DEST_DIR line moved the plaintext mirror out of the stamp.
+reset_fakes
+case_mdest="${WORK}/minio-env-dest-dir"
+mkdir -p "${case_mdest}/stamp"
+printf 'DEST_DIR=%s\n' "${case_mdest}/elsewhere" > "${case_mdest}.env"
+rc=0
+bash "${ROOT}/scripts/backup-minio.sh" "${case_mdest}/stamp" --env-file "${case_mdest}.env" \
+  > "${case_mdest}.out" 2> "${case_mdest}.err" || rc=$?
+if [ "${rc}" -eq 0 ] && [ "$(tail -1 "${case_mdest}.out")" = 1 ] \
+  && [ -f "${case_mdest}/stamp/minio/parkio-media/object.bin" ] && [ ! -e "${case_mdest}/elsewhere" ] \
+  && grep -qx 'WARN: ignoring DEST_DIR from the environment or env file; only the destination argument counts.' \
+    "${case_mdest}.err"; then
+  ok "backup-minio.sh ignores an env file DEST_DIR with a warning and mirrors into its destination argument"
+else
+  bad "an env file DEST_DIR must not move the backup-minio.sh mirror (rc=${rc})"
+fi
+# A line that assigns a private name stops the step before it mirrors anything.
+for line in "arg_dest_dir=${case_mdest}/elsewhere" "arg_dry_run=1"; do
+  name="${line%%=*}"
+  rm -rf "${case_mdest}/stamp" "${case_mdest}/elsewhere"
+  mkdir -p "${case_mdest}/stamp"
+  printf '%s\n' "${line}" > "${case_mdest}.env"
+  rc=0
+  bash "${ROOT}/scripts/backup-minio.sh" "${case_mdest}/stamp" --env-file "${case_mdest}.env" \
+    > "${case_mdest}.out" 2> "${case_mdest}.err" || rc=$?
+  if [ "${rc}" -eq 1 ] && [ ! -e "${case_mdest}/stamp/minio" ] && [ ! -e "${case_mdest}/elsewhere" ] \
+    && grep -qF "${name}: readonly variable" "${case_mdest}.err"; then
+    ok "backup-minio.sh stops at an env file ${name}= line (exit 1, nothing mirrored)"
+  else
+    bad "an env file ${name}= line must stop backup-minio.sh before the mirror (rc=${rc})"
+  fi
+done
+# The orchestrator hands backup-minio.sh its env file, so the same line reached the MinIO step of a
+# real run: COMPLETE was refused and the plaintext mirror stayed outside the stamp, neither sealed
+# nor removed.
+reset_fakes
+case_odest="${WORK}/env-dest-dir-minio"
+printf 'DEST_DIR=%s\n' "${case_odest}/elsewhere" > "${case_odest}.env"
+rc=0
+run_hosted "${case_odest}" --env-file "${case_odest}.env" > "${case_odest}.log" 2>&1 || rc=$?
+stamp_odest="$(latest_stamp_dir "${case_odest}/backups" || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_odest}" ] && [ -f "${stamp_odest}/COMPLETE" ] \
+  && [ -f "${stamp_odest}/minio.tar.gz.enc" ] && [ ! -e "${stamp_odest}/minio" ] \
+  && [ ! -e "${case_odest}/elsewhere" ] && grep -q '^WARN: ignoring DEST_DIR' "${case_odest}.log"; then
+  ok "an env file DEST_DIR cannot move the MinIO step: the mirror is sealed in the stamp, nothing is left outside it"
+else
+  bad "an env file DEST_DIR must not leave a plaintext mirror outside the stamp (rc=${rc}, outside: $([ -e "${case_odest}/elsewhere" ] && echo yes || echo no))"
+fi
+# ROOT: the steps ran from another checkout (here a missing one, so every step failed).
+reset_fakes
+case_oroot="${WORK}/env-root"
+printf 'ROOT=%s\n' "${case_oroot}/no-such-checkout" > "${case_oroot}.env"
+rc=0
+run_hosted "${case_oroot}" --env-file "${case_oroot}.env" > "${case_oroot}.log" 2>&1 || rc=$?
+stamp_oroot="$(latest_stamp_dir "${case_oroot}/backups" || true)"
+if [ "${rc}" -eq 0 ] && [ -n "${stamp_oroot}" ] && [ -f "${stamp_oroot}/COMPLETE" ] \
+  && ! grep -q 'no-such-checkout' "${case_oroot}.log" && grep -q '^WARN: ignoring ROOT' "${case_oroot}.log"; then
+  ok "an env file ROOT is ignored with a warning; the steps run from the orchestrator's own checkout"
+else
+  bad "an env file ROOT must not move the orchestrator's steps (rc=${rc})"
+fi
+# ENV_FILE: the steps got another env file, and the manifest named it.
+manifest_env_profile() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["envProfile"])' "$1" 2>/dev/null \
+    || echo "<unreadable>"
+}
+reset_fakes
+case_oenv="${WORK}/env-env-file"
+printf 'ENV_FILE=%s\n' "${case_oenv}/other.env" > "${case_oenv}.env"
+rc=0
+run_hosted "${case_oenv}" --env-file "${case_oenv}.env" > "${case_oenv}.log" 2>&1 || rc=$?
+profile_oenv="$(manifest_env_profile "${case_oenv}/artifacts/backup-current.json")"
+if [ "${rc}" -eq 0 ] && [ "${profile_oenv}" = "${case_oenv}.env" ] && ! grep -q 'other\.env' "${case_oenv}.log" \
+  && grep -q '^WARN: ignoring ENV_FILE' "${case_oenv}.log"; then
+  ok "an env file ENV_FILE is ignored with a warning; the steps and the manifest get --env-file"
+else
+  bad "an env file ENV_FILE must not replace --env-file for the steps (rc=${rc}, manifest envProfile=${profile_oenv})"
+fi
+# A line that assigns one of the orchestrator's private names stops the run before it writes anything.
+for line in "arg_root=${WORK}/no-such-checkout" "arg_env_file=${WORK}/other.env" "arg_dry_run=1" \
+    "arg_no_prune=1" "arg_operator=env-file-operator" "arg_artifact_dir=${WORK}/env-artifacts"; do
+  name="${line%%=*}"
+  case_priv="${WORK}/env-private-${name}"
+  printf '%s\n' "${line}" > "${case_priv}.env"
+  rc=0
+  run_hosted "${case_priv}" --env-file "${case_priv}.env" > "${case_priv}.log" 2>&1 || rc=$?
+  written="$(find "${case_priv}/backups" "${case_priv}/artifacts" "${case_priv}/textfile" -mindepth 1 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  if [ "${rc}" -eq 1 ] && [ "${written}" = 0 ] && grep -qF "${name}: readonly variable" "${case_priv}.log"; then
+    ok "an env file ${name}= line stops the backup at the env file (exit 1, nothing written)"
+  else
+    bad "an env file ${name}= line must stop the backup before it writes (rc=${rc}, entries written=${written})"
+  fi
+done
+
 # --- #520 review: a value option never takes the next option as its value ---
 for opt_args in "--env-file --no-prune" "--operator --no-prune" "--env-file"; do
   case_opt="${WORK}/opt-$(printf '%s' "${opt_args}" | tr -c 'a-z' '-')"
@@ -1000,7 +1097,9 @@ case_dmc="${WORK}/docker-mc"
 export BACKUP_MC_ACCESS_KEY=testtest-testtest BACKUP_MC_SECRET_KEY=testtest-testtest
 export BACKUP_MC_DOCKER_NETWORK=parkio-backend
 rc=0
-CASE_MC_URL=http://offsite-minio:9000 run_hosted "${case_dmc}" > "${case_dmc}.log" 2>&1 || rc=$?
+# The stub logs the arguments of every docker run there, with or without MC_DEST (#639).
+CASE_MC_URL=http://offsite-minio:9000 DOCKER_RUN_LOG="${case_dmc}/docker-run.log" \
+  run_hosted "${case_dmc}" > "${case_dmc}.log" 2>&1 || rc=$?
 unset BACKUP_MC_URL BACKUP_MC_ACCESS_KEY BACKUP_MC_SECRET_KEY BACKUP_MC_DOCKER_NETWORK
 stamp_dmc="$(latest_stamp_dir "${case_dmc}/backups" || true)"
 dest_dmc="${case_dmc}/offsite/parkio-backups/$(basename "${stamp_dmc:-none}")"
@@ -1055,19 +1154,76 @@ for (got_dest, got), (want_dest, want) in zip(runs, allowed):
         fail("the script for %s is not the allowed one" % got_dest)
 PY
 }
+# #639: the stub logs only the runs that set MC_DEST to mc.log, so a docker run without it never
+# reached dmc_log_allowed. The stub logs every run's arguments to DOCKER_RUN_LOG, one per line, the
+# -c script last. That log must hold exactly three runs, in order: the local MinIO mirror of
+# backup-minio.sh into <stamp>/minio/parkio-media, running exactly its script, then the two runs
+# with MC_DEST that dmc_log_allowed checks. Any other run fails, with or without MC_DEST.
+# Prints the first difference and returns 1.
+docker_runs_allowed() { # docker-run.log stamp new-stamp-dest
+  python3 - "$1" "$2" "$3" <<'PY'
+import os, sys
+
+log, stamp, dest = sys.argv[1:]
+mirror_volume = stamp + "/minio/parkio-media:/backup"
+mirror_script = ["set -eu", "umask 077", "mc alias set local http://minio:9000 >/dev/null",
+                 'mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null',
+                 'mc ls --recursive "local/${BUCKET}" | wc -l']
+
+
+def fail(message):
+    print(message)
+    sys.exit(1)
+
+
+if not os.path.isfile(log):
+    fail("no docker run was logged")
+runs, current = [], []
+for line in open(log, encoding="utf-8").read().splitlines():
+    if line == "=== end docker run ===":
+        runs.append(current)
+        current = []
+    else:
+        current.append(line)
+if current:
+    fail("a docker run without its end marker")
+seen = []
+for run in runs:
+    cut = run.index("-c") if "-c" in run else len(run)
+    args, script = run[:cut], [line.strip() for line in run[cut + 1:] if line.strip()]
+    env = dict(value.split("=", 1) for flag, value in zip(args, args[1:]) if flag == "-e" and "=" in value)
+    if "MC_DEST" in env:
+        seen.append("offsite " + env["MC_DEST"])
+        continue
+    if mirror_volume not in args:
+        fail("not allowed: docker %s" % " ".join(args))
+    extra = [line for line in script if line not in mirror_script]
+    if extra:
+        fail("not allowed: %s" % extra[0])
+    if script != mirror_script:
+        fail("the MinIO mirror script is not the allowed one")
+    seen.append("mirror")
+expected = ["mirror", "offsite " + dest, "offsite " + dest + "/COMPLETE"]
+if seen != expected:
+    fail("docker runs %s, expected %s" % (seen, expected))
+PY
+}
 why_dmc=""
 if [ "${rc}" -eq 0 ] && [ -n "${stamp_dmc}" ] \
   && why_dmc="$(dmc_log_allowed "${case_dmc}/mc.log" "${dest_dmc}")" \
+  && why_dmc="$(docker_runs_allowed "${case_dmc}/docker-run.log" "${stamp_dmc}" "${dest_dmc}")" \
   && check_receipt "${stamp_dmc}" "${case_dmc}/offsite/parkio-backups" > /dev/null; then
-  ok "docker mc upload runs only the allowed mc commands, under the new stamp's prefix"
+  ok "docker mc upload runs only the allowed mc commands, under the new stamp's prefix, and no other docker run"
 else
   bad "docker mc upload must run only the allowed mc commands under the new stamp's prefix (rc=${rc} ${why_dmc})"
 fi
-# The allow-list itself: lines the old deny-list (--remove, ^mc rm) let through must fail it.
+# The allow-list itself. The first two lines got through the old deny-list (--remove, ^mc rm); the
+# third pins --remove, which it caught. Each must fail on its own line, not on another difference.
 for injected in 'mc rb --force offsite/parkio-backups' \
   'mc --quiet rm --recursive --force "$MC_DEST"' \
   'mc mirror --overwrite --remove /upload "$MC_DEST"'; do
-  python3 - "${case_dmc}/mc.log" "${case_dmc}/mc-injected.log" "${injected}" <<'PY'
+  python3 - "${case_dmc}/mc.log" "${case_dmc}/mc-injected.log" "${injected}" <<'PY' \
+    || { bad "cannot build the injected mc log for '${injected}'"; continue; }
 import sys
 
 source, target, injected = sys.argv[1:]
@@ -1075,10 +1231,42 @@ lines = open(source, encoding="utf-8").read().splitlines()
 end = next(i for i, line in enumerate(lines) if line.strip() == "=== end script ===")
 open(target, "w", encoding="utf-8").write("\n".join(lines[:end] + ["  " + injected] + lines[end:]) + "\n")
 PY
-  if dmc_log_allowed "${case_dmc}/mc-injected.log" "${dest_dmc}" > /dev/null; then
-    bad "the docker mc allow-list must reject an added '${injected}'"
+  rc=0
+  why="$(dmc_log_allowed "${case_dmc}/mc-injected.log" "${dest_dmc}")" || rc=$?
+  if [ "${rc}" -ne 0 ] && [ "${why}" = "not allowed: ${injected}" ]; then
+    ok "the docker mc allow-list rejects an added '${injected}' by name"
   else
-    ok "the docker mc allow-list rejects an added '${injected}'"
+    bad "the docker mc allow-list must reject an added '${injected}' as 'not allowed: ${injected}' (rc=${rc}: ${why})"
+  fi
+done
+# The docker run check itself, on the two shapes a run without MC_DEST can take: a run of its own
+# (appended), and a line added to the local mirror's script (the first run).
+for injected in "run --rm --network parkio-backend --entrypoint /bin/sh mc-image -c mc rb --force offsite/parkio-backups" \
+  "mc rb --force local/parkio-media"; do
+  python3 - "${case_dmc}/docker-run.log" "${case_dmc}/docker-run-injected.log" "${injected}" <<'PY' \
+    || { bad "cannot build the injected docker run log for '${injected}'"; continue; }
+import sys
+
+source, target, injected = sys.argv[1:]
+lines = open(source, encoding="utf-8").read().splitlines()
+if injected.startswith("run "):
+    head, _, script = injected.partition(" -c ")
+    lines += head.split() + ["-c", script, "=== end docker run ==="]
+else:
+    end = lines.index("=== end docker run ===")
+    lines[end:end] = ["    " + injected]
+open(target, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+  case "${injected}" in
+    run\ *) what="an extra docker run without MC_DEST"; want="not allowed: docker ${injected%% -c *}" ;;
+    *) what="a line added to the MinIO mirror script"; want="not allowed: ${injected}" ;;
+  esac
+  rc=0
+  why="$(docker_runs_allowed "${case_dmc}/docker-run-injected.log" "${stamp_dmc}" "${dest_dmc}")" || rc=$?
+  if [ "${rc}" -ne 0 ] && [ "${why}" = "${want}" ]; then
+    ok "the docker run check rejects ${what} by name"
+  else
+    bad "the docker run check must reject ${what} as '${want}' (rc=${rc}: ${why})"
   fi
 done
 

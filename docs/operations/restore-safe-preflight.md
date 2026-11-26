@@ -55,7 +55,8 @@ refused while `verifiedCoverage` is false.
 This closes accidental/misrouted use of the supported restore scripts. It does
 not stop a malicious root operator who can edit the scripts.
 
-Dry-run is unchanged (no decrypt/apply of databases). Restore drill 01 does not
+Dry-run decrypts and applies nothing: no database dump and, since #639, not the MinIO
+archive either (it was decrypted into a temporary folder before). Restore drill 01 does not
 call these production entrypoints; it uses the helper tools and its own apply
 path. Isolated-fixture acceptance drives `restore-hosted-beta.sh` and
 `restore-database.sh` against disposable targets.

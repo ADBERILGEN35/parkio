@@ -83,6 +83,41 @@ parkio_restore_accept_isolated_fixture() {
   fi
 }
 
+# The restore controls (PARKIO_RESTORE_*) come from the command line or the caller's environment,
+# never from the env file. parkio_backup_load_env sources that file as shell code under set -a, so
+# each restore entrypoint lists the controls before the load and refuses the run after it when the
+# env file set, changed or cleared one.
+# Prints every set PARKIO_RESTORE_* variable as NAME=<shell-quoted value>, one per line, sorted.
+parkio_restore_controls() {
+  local name
+  for name in ${!PARKIO_RESTORE_@}; do
+    printf '%s=%q\n' "${name}" "${!name}"
+  done | LC_ALL=C sort
+}
+
+# Returns 2, naming the controls, when the listing differs from BEFORE (parkio_restore_controls
+# output taken before the env file was loaded). A line that repeats the caller's value changes nothing.
+parkio_restore_refuse_env_controls() {
+  local before="$1" after line name changed=""
+  after="$(parkio_restore_controls)"
+  if [ "${after}" = "${before}" ]; then
+    return 0
+  fi
+  # A NAME=value line in only one of the two listings was set, changed or cleared.
+  while IFS= read -r line; do
+    [ -n "${line}" ] || continue
+    name="${line%%=*}"
+    case ", ${changed}, " in
+      *", ${name}, "*) continue ;;
+    esac
+    changed="${changed:+${changed}, }${name}"
+  done < <(printf '%s\n%s\n' "${before}" "${after}" | LC_ALL=C sort | uniq -u)
+  echo "ERROR: the env file sets, changes or clears ${changed}." \
+    "Restore controls (PARKIO_RESTORE_*) come from the command line or the caller's environment only;" \
+    "nothing was decrypted or restored." >&2
+  return 2
+}
+
 parkio_restore_allow_plaintext() {
   case "${PARKIO_RESTORE_ALLOW_PLAINTEXT:-0}" in
     1|true|yes|on|TRUE|YES|ON) return 0 ;;

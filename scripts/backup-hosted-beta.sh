@@ -14,15 +14,19 @@
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# The env file is sourced below as shell code under set -a. So the checkout this script runs from,
+# the env file and the per-run switches and options are parsed into private read-only names, and
+# become ROOT / ENV_FILE / NO_PRUNE / DRY_RUN / OPERATOR / ARTIFACT_DIR after it: a line there that
+# sets one of those is ignored with a WARN, and a line that assigns an arg_* name stops the run
+# (exit 1) before it writes anything.
+arg_root="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
-source "$ROOT/scripts/lib/backup-common.sh"
+source "${arg_root}/scripts/lib/backup-common.sh"
 
-ENV_FILE="${PARKIO_ENV_FILE:-}"
-# The per-run switches and options come from the command line only; --operator and --artifact-dir
-# default to PARKIO_BACKUP_OPERATOR and PARKIO_BACKUP_ARTIFACT_DIR from the caller's environment.
-# The env file is sourced below under set -a, so they are parsed into private names and become
-# NO_PRUNE / DRY_RUN / OPERATOR / ARTIFACT_DIR after it.
+# --env-file, --operator and --artifact-dir default to PARKIO_ENV_FILE, PARKIO_BACKUP_OPERATOR and
+# PARKIO_BACKUP_ARTIFACT_DIR from the caller's environment, and then to no env file, $USER (else
+# "unknown") and backup-artifacts under the checkout.
+arg_env_file="${PARKIO_ENV_FILE:-}"
 arg_operator="${PARKIO_BACKUP_OPERATOR:-${USER:-unknown}}"
 arg_artifact_dir="${PARKIO_BACKUP_ARTIFACT_DIR:-backup-artifacts}"
 arg_dry_run=0
@@ -40,7 +44,7 @@ option_value() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --env-file) option_value "$1" "${2-}"; ENV_FILE="$2"; shift 2 ;;
+    --env-file) option_value "$1" "${2-}"; arg_env_file="$2"; shift 2 ;;
     --artifact-dir) option_value "$1" "${2-}"; arg_artifact_dir="$2"; shift 2 ;;
     --operator) option_value "$1" "${2-}"; arg_operator="$2"; shift 2 ;;
     --dry-run) arg_dry_run=1; shift ;;
@@ -49,8 +53,16 @@ while [ "$#" -gt 0 ]; do
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+readonly arg_root arg_env_file arg_operator arg_artifact_dir arg_dry_run arg_no_prune
 
-parkio_backup_load_env "${ENV_FILE}"
+parkio_backup_load_env "${arg_env_file}"
+if [ -n "${ROOT+set}" ]; then
+  echo "WARN: ignoring ROOT from the environment or env file; the steps run from this script's checkout." >&2
+fi
+if [ -n "${ENV_FILE+set}" ]; then
+  echo "WARN: ignoring ENV_FILE from the environment or env file;" \
+    "only --env-file or the caller's PARKIO_ENV_FILE counts." >&2
+fi
 if [ -n "${NO_PRUNE+set}" ]; then
   echo "WARN: ignoring NO_PRUNE from the environment or env file; only --no-prune counts." >&2
 fi
@@ -65,6 +77,8 @@ if [ -n "${ARTIFACT_DIR+set}" ]; then
   echo "WARN: ignoring ARTIFACT_DIR from the environment or env file;" \
     "only --artifact-dir or the caller's PARKIO_BACKUP_ARTIFACT_DIR counts." >&2
 fi
+ROOT="${arg_root}"
+ENV_FILE="${arg_env_file}"
 NO_PRUNE="${arg_no_prune}"
 DRY_RUN="${arg_dry_run}"
 OPERATOR="${arg_operator}"

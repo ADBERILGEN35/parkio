@@ -12,11 +12,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/backup-common.sh
 source "$ROOT/scripts/lib/backup-common.sh"
 
-DEST_DIR=""
 ENV_FILE="${PARKIO_ENV_FILE:-}"
-# --dry-run comes from the command line only. The env file is sourced below under set -a, and
-# backup-hosted-beta.sh hands this script the env file it ran with, so the switch is parsed into
-# a private name and becomes DRY_RUN after it.
+# The destination argument and --dry-run come from the command line only. The env file is sourced
+# below as shell code under set -a, and backup-hosted-beta.sh hands this script the env file it ran
+# with. So they are parsed into private read-only names and become DEST_DIR / DRY_RUN after it: a
+# DEST_DIR or DRY_RUN line there is ignored with a WARN, and a line that assigns arg_dest_dir or
+# arg_dry_run stops this step (exit 1) before it mirrors anything.
+arg_dest_dir=""
 arg_dry_run=0
 
 while [ "$#" -gt 0 ]; do
@@ -25,13 +27,14 @@ while [ "$#" -gt 0 ]; do
     --dry-run) arg_dry_run=1; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *)
-      if [ -z "${DEST_DIR}" ]; then DEST_DIR="$1"; shift
+      if [ -z "${arg_dest_dir}" ]; then arg_dest_dir="$1"; shift
       else echo "ERROR: unexpected argument '$1'" >&2; exit 2
       fi ;;
   esac
 done
+readonly arg_dest_dir arg_dry_run
 
-if [ -z "${DEST_DIR}" ]; then
+if [ -z "${arg_dest_dir}" ]; then
   echo "Usage: $0 <destination-dir> [--dry-run] [--env-file <path>]" >&2
   exit 2
 fi
@@ -40,7 +43,11 @@ parkio_backup_load_env "${ENV_FILE}"
 if [ -n "${DRY_RUN+set}" ]; then
   echo "WARN: ignoring DRY_RUN from the environment or env file; only --dry-run counts." >&2
 fi
+if [ -n "${DEST_DIR+set}" ]; then
+  echo "WARN: ignoring DEST_DIR from the environment or env file; only the destination argument counts." >&2
+fi
 DRY_RUN="${arg_dry_run}"
+DEST_DIR="${arg_dest_dir}"
 
 BUCKET="${MINIO_BUCKET:-parkio-media}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in env}"
