@@ -117,8 +117,10 @@ takes the overlay's default. It refuses every value that would stop parking-serv
 - connect + read that is not less than `max-response-time`;
 - a `max-response-time` above 2^63-1 ns (about 292 years), which overflows the client's nanosecond
   deadline;
-- a `max-response-size` Spring cannot bind (the units are `B`, `KB`, `MB`, `GB` and `TB`, in upper
-  case), or one of 0 bytes or less, which `BoundedFeedResponses` refuses when each client is built.
+- a `max-response-size` Spring cannot bind, or one of 0 bytes or less, which `BoundedFeedResponses`
+  refuses when each client is built. A size is a whole number of bytes, or one with `B`, `KB`, `MB`,
+  `GB` or `TB` in upper case. Spaces inside it are ignored, so `16 MB` is 16MB, and Spring cannot
+  bind a size above 2^63-1 bytes.
 
 A `$` in a value is refused too, because the preflight does not expand it.
 

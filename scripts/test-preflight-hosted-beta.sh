@@ -553,14 +553,61 @@ run_case "an EM SPACE before the value stays in it, as docker compose keeps it" 
 # The defaults are the overlay's: for each feed, read its overlay defaults and set one key where the
 # rule flips. If the preflight assumed another default, one run of each pair would end the other way.
 OVERLAY="$ROOT/docker/docker-compose.azure-hosted-beta.yml"
+# overlay_default KEY -> the default the overlay ($OVERLAY) gives KEY, in KEY: ${KEY:-default}.
+overlay_default() {
+  sed -n "s/^ *$1: \${$1:-\([^}]*\)}\$/\1/p" "$OVERLAY"
+}
 # overlay_ms KEY -> the overlay default of KEY in ms; only whole seconds are expected there.
 overlay_ms() {
   om_s=$(sed -n "s/^ *$1: \${$1:-\([0-9][0-9]*\)s}\$/\1/p" "$OVERLAY")
   [ -n "$om_s" ] && echo $((om_s * 1000))
 }
-# The feeds are the overlay's: each PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key it maps. A feed the
-# preflight does not check fails the first run below.
-FEEDS=$(sed -n 's/^ *PARKIO_MUNICIPAL_\([A-Z][A-Z]*\)_MAX_RESPONSE_TIME: .*/\1/p' "$OVERLAY")
+# overlay_feeds FILE -> the feeds FILE maps: NAME in each PARKIO_MUNICIPAL_NAME_MAX_RESPONSE_TIME key.
+# NAME is all that comes before the suffix, so it can have underscores and digits, as SAMPLE_FEED_2 has.
+overlay_feeds() {
+  sed -n 's/^ *PARKIO_MUNICIPAL_\([A-Z0-9_][A-Z0-9_]*\)_MAX_RESPONSE_TIME: .*/\1/p' "$1"
+}
+# feed_cases FEED runs FEED's cases at the defaults the overlay ($OVERLAY) gives it. While the preflight
+# does not check FEED, each case that expects a refusal fails.
+feed_cases() {
+  key=PARKIO_MUNICIPAL_$1
+  connect=$(overlay_ms "${key}_CONNECT_TIMEOUT")
+  read_timeout=$(overlay_ms "${key}_READ_TIMEOUT")
+  max=$(overlay_ms "${key}_MAX_RESPONSE_TIME")
+  size=$(overlay_default "${key}_MAX_RESPONSE_SIZE")
+  TESTS=$((TESTS + 1))
+  if [ -z "$connect" ] || [ -z "$read_timeout" ] || [ -z "$max" ] || [ -z "$size" ]; then
+    echo "FAIL the overlay maps ${key}_{CONNECT_TIMEOUT,READ_TIMEOUT,MAX_RESPONSE_TIME} with whole-second defaults, and ${key}_MAX_RESPONSE_SIZE with a default"
+    FAILED=$((FAILED + 1))
+    return 0
+  fi
+  echo "PASS $1 overlay defaults: connect ${connect}ms, read ${read_timeout}ms, max ${max}ms, size $size"
+  municipal "${key}_READ_TIMEOUT=$((max - connect))ms"
+  run_case "$1 read timeout that reaches the default max with the default connect exits 1" "$MUNI" 1
+  municipal "${key}_READ_TIMEOUT=$((max - connect - 1))ms"
+  run_case "$1 read timeout 1ms inside the defaults exits 0" "$MUNI" 0
+  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout))ms"
+  run_case "$1 connect timeout that reaches the default max with the default read exits 1" "$MUNI" 1
+  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout - 1))ms"
+  run_case "$1 connect timeout 1ms inside the defaults exits 0" "$MUNI" 0
+  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout))ms"
+  run_case "$1 max-response-time equal to the default connect + read exits 1" "$MUNI" 1
+  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout + 1))ms"
+  run_case "$1 max-response-time 1ms above the default connect + read exits 0" "$MUNI" 0
+  municipal "${key}_READ_TIMEOUT=2147483647ms" "${key}_MAX_RESPONSE_TIME=100d"
+  run_case "$1 read timeout of 2147483647ms exits 0" "$MUNI" 0
+  municipal "${key}_READ_TIMEOUT=2147483648ms" "${key}_MAX_RESPONSE_TIME=100d"
+  run_case "$1 read timeout of 2^31 ms exits 1" "$MUNI" 1
+  municipal "${key}_MAX_RESPONSE_SIZE=1B"
+  run_case "$1 max-response-size of 1B exits 0" "$MUNI" 0
+  municipal "${key}_MAX_RESPONSE_SIZE=0B"
+  run_case "$1 max-response-size of 0B exits 1" "$MUNI" 1
+  # With the key unset, parking-service gets the overlay's size default, so that default must bind.
+  municipal "${key}_MAX_RESPONSE_SIZE=$size"
+  run_case "$1 max-response-size of $size, the overlay default, exits 0" "$MUNI" 0
+}
+# The feeds are the overlay's: each PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key it maps.
+FEEDS=$(overlay_feeds "$OVERLAY")
 TESTS=$((TESTS + 1))
 if [ -n "$FEEDS" ]; then
   echo "PASS the overlay maps max-response-time for: $(echo "$FEEDS" | tr '\n' ' ')"
@@ -568,39 +615,72 @@ else
   echo "FAIL the overlay maps no PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key"
   FAILED=$((FAILED + 1))
 fi
+# Every PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key the overlay names, in whatever case or form, is in the
+# list, so a key the pattern above cannot read fails here instead of going unchecked.
+TESTS=$((TESTS + 1))
+missed=$(grep -o 'PARKIO_MUNICIPAL_[A-Za-z0-9_]*_MAX_RESPONSE_TIME' "$OVERLAY" | sort -u \
+  | sed 's/^PARKIO_MUNICIPAL_//; s/_MAX_RESPONSE_TIME$//' | grep -vxF "$FEEDS")
+if [ -z "$missed" ]; then
+  echo "PASS every PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key the overlay names is in the feed list"
+else
+  echo "FAIL the feed list misses the overlay's PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key for: $(echo "$missed" | tr '\n' ' ')"
+  FAILED=$((FAILED + 1))
+fi
 for feed in $FEEDS; do
-  key=PARKIO_MUNICIPAL_$feed
-  connect=$(overlay_ms "${key}_CONNECT_TIMEOUT")
-  read_timeout=$(overlay_ms "${key}_READ_TIMEOUT")
-  max=$(overlay_ms "${key}_MAX_RESPONSE_TIME")
-  TESTS=$((TESTS + 1))
-  if [ -z "$connect" ] || [ -z "$read_timeout" ] || [ -z "$max" ]; then
-    echo "FAIL the overlay maps ${key}_{CONNECT_TIMEOUT,READ_TIMEOUT,MAX_RESPONSE_TIME} with whole-second defaults"
-    FAILED=$((FAILED + 1))
-    continue
-  fi
-  echo "PASS $feed overlay defaults: connect ${connect}ms, read ${read_timeout}ms, max ${max}ms"
-  municipal "${key}_READ_TIMEOUT=$((max - connect))ms"
-  run_case "$feed read timeout that reaches the default max with the default connect exits 1" "$MUNI" 1
-  municipal "${key}_READ_TIMEOUT=$((max - connect - 1))ms"
-  run_case "$feed read timeout 1ms inside the defaults exits 0" "$MUNI" 0
-  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout))ms"
-  run_case "$feed connect timeout that reaches the default max with the default read exits 1" "$MUNI" 1
-  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout - 1))ms"
-  run_case "$feed connect timeout 1ms inside the defaults exits 0" "$MUNI" 0
-  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout))ms"
-  run_case "$feed max-response-time equal to the default connect + read exits 1" "$MUNI" 1
-  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout + 1))ms"
-  run_case "$feed max-response-time 1ms above the default connect + read exits 0" "$MUNI" 0
-  municipal "${key}_READ_TIMEOUT=2147483647ms" "${key}_MAX_RESPONSE_TIME=100d"
-  run_case "$feed read timeout of 2147483647ms exits 0" "$MUNI" 0
-  municipal "${key}_READ_TIMEOUT=2147483648ms" "${key}_MAX_RESPONSE_TIME=100d"
-  run_case "$feed read timeout of 2^31 ms exits 1" "$MUNI" 1
-  municipal "${key}_MAX_RESPONSE_SIZE=1B"
-  run_case "$feed max-response-size of 1B exits 0" "$MUNI" 0
-  municipal "${key}_MAX_RESPONSE_SIZE=0B"
-  run_case "$feed max-response-size of 0B exits 1" "$MUNI" 1
+  feed_cases "$feed"
 done
+# A feed whose name has underscores and a digit, mapped in a scratch overlay with Kayseri's defaults:
+# the feed list takes it in, and its cases fail until the preflight checks it. A scratch copy of the
+# preflight that checks it shows the second half. With compose skipped, the preflight reads only the
+# env file and scripts/lib/cosign-pin.env from its own tree, so the copy runs in a scratch tree.
+SCRATCH="${TMPDIR:-/tmp}/preflight-feed-$$"
+mkdir -p "$SCRATCH/scripts/lib"
+cp "$ROOT/scripts/lib/cosign-pin.env" "$SCRATCH/scripts/lib/"
+sed '/^ *PARKIO_MUNICIPAL_KAYSERI_[A-Z_]*: /{p;s/KAYSERI/SAMPLE_FEED_2/g;}' "$OVERLAY" > "$SCRATCH/overlay.yml"
+sed '/^ *municipal_feed_check KAYSERI /{p;s/KAYSERI/SAMPLE_FEED_2/;}' "$PREFLIGHT" \
+  > "$SCRATCH/scripts/preflight-hosted-beta.sh"
+TESTS=$((TESTS + 1))
+if overlay_feeds "$SCRATCH/overlay.yml" | grep -qx SAMPLE_FEED_2; then
+  echo "PASS a scratch overlay's feed list takes in SAMPLE_FEED_2"
+else
+  echo "FAIL a scratch overlay's feed list leaves out SAMPLE_FEED_2"
+  FAILED=$((FAILED + 1))
+fi
+# scratch_cases PREFLIGHT -> SAMPLE_FEED_2's case lines, with the scratch overlay and PREFLIGHT. It puts
+# OVERLAY and PREFLIGHT back when it is done; call it in $(...), so that its counts stay out of the totals.
+scratch_cases() {
+  sc_overlay=$OVERLAY
+  sc_preflight=$PREFLIGHT
+  OVERLAY="$SCRATCH/overlay.yml"
+  PREFLIGHT=$1
+  PREFLIGHT_RUNNER='sh'
+  feed_cases SAMPLE_FEED_2
+  OVERLAY=$sc_overlay
+  PREFLIGHT=$sc_preflight
+  PREFLIGHT_RUNNER=
+}
+scratch_out=$(scratch_cases "$PREFLIGHT")
+scratch_fails=$(printf '%s\n' "$scratch_out" | grep -c '^FAIL ')
+scratch_misses=$(printf '%s\n' "$scratch_out" | grep -c '^FAIL SAMPLE_FEED_2 .*: expected exit 1, got 0$')
+TESTS=$((TESTS + 1))
+if [ "$scratch_misses" -gt 0 ] && [ "$scratch_misses" -eq "$scratch_fails" ]; then
+  echo "PASS while the preflight does not check SAMPLE_FEED_2, its $scratch_fails refusal cases fail"
+else
+  echo "FAIL while the preflight does not check SAMPLE_FEED_2, only its refusal cases should fail:"
+  printf '%s\n' "$scratch_out" | sed 's/^/     | /'
+  FAILED=$((FAILED + 1))
+fi
+scratch_out=$(scratch_cases "$SCRATCH/scripts/preflight-hosted-beta.sh")
+TESTS=$((TESTS + 1))
+if printf '%s\n' "$scratch_out" | grep -q '^PASS SAMPLE_FEED_2 overlay defaults' \
+  && ! printf '%s\n' "$scratch_out" | grep -q '^FAIL '; then
+  echo "PASS once a scratch preflight checks SAMPLE_FEED_2, all its cases pass"
+else
+  echo "FAIL once a scratch preflight checks SAMPLE_FEED_2, all its cases should pass:"
+  printf '%s\n' "$scratch_out" | sed 's/^/     | /'
+  FAILED=$((FAILED + 1))
+fi
+rm -rf "$SCRATCH"
 # invite-production's Compose files do not pass these keys to parking-service, which then runs on its
 # application.yml values, so its env file is not checked for them.
 municipal "PARKIO_DEPLOYMENT_PROFILE=invite-production" "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s"
