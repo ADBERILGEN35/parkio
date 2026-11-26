@@ -8,7 +8,7 @@
 FROM scratch AS gradle-ro-dep-cache
 
 # ---- build stage ----
-FROM eclipse-temurin@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4714783dd62eb AS build
+FROM eclipse-temurin@sha256:ce2ef9d2d67a68de5e196d4de9d743327c44a10b57fe02ec39f572c652cacfd3 AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
@@ -17,7 +17,7 @@ RUN --mount=type=bind,from=gradle-ro-dep-cache,target=/gradle-ro-dep-cache \
  && ./gradlew :services:gateway-service:bootJar --no-daemon
 
 # ---- runtime stage ----
-FROM eclipse-temurin@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef AS runtime
+FROM eclipse-temurin@sha256:ce2ef9d2d67a68de5e196d4de9d743327c44a10b57fe02ec39f572c652cacfd3 AS runtime
 WORKDIR /app
 
 # curl is the ONLY added runtime package: the HEALTHCHECK below (and the compose apps
