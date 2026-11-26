@@ -37,7 +37,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
+
+      # No `cache: gradle` (#653): setup-java saves its entry in a post step whenever no entry it can
+      # read has the key, on pull requests too, and it has no restore-only mode, so a pull request that
+      # changed a build file saved about 0.5 GB that only it could read. This job restores Backend CI's
+      # dependency entry instead, which only api saves (backend-ci.yml), and saves none.
+      - name: Restore Backend CI's Gradle dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: gradle-deps-backend-ci-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-backend-ci-${{ runner.os }}-
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
