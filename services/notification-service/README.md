@@ -134,6 +134,12 @@ until the batch commits. The pending queue is served by a **partial index**
 (`idx_nda_pending_next_attempt` on `next_attempt_at WHERE status = 'PENDING'`) that
 stays small as terminal rows accumulate.
 
+**Shutdown.** When shutdown interrupts a tick that is still sending (the scheduler calls
+`shutdownNow()` once the 30s lifecycle stop phase has ended), the send in flight ends as
+`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick stops there: the
+attempts it has not tried stay `PENDING` and due, the commit releases their claims, and
+the next tick, on any replica, takes them (#651).
+
 **Retry / backoff.** A failed send keeps the attempt `PENDING` and pushes
 `next_attempt_at` into the future with exponential backoff —
 `base-backoff-ms * 2^(attemptCount-1)` (30s, 60s, 120s, … by default) — until
