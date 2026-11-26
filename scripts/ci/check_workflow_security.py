@@ -24,8 +24,10 @@
    whenever their exact key had no entry, pull requests included, and neither has a restore-only
    mode. An entry that a pull request saves serves that pull request only, and setup-java's Gradle
    entry is about 0.5 GB. Such a step needs `github.event_name != 'pull_request'` as an `&&` term of
-   its own `if:` or of its job's; pull requests restore with `actions/cache/restore`. Reusable
-   workflows and local actions are not traced.
+   its own `if:` or of its job's; a condition with `||` outside parentheses has no such term. Pull
+   requests restore with `actions/cache/restore`. Reusable workflows and local actions are not
+   traced, nor are other cache actions (gradle/actions/setup-gradle), a path given only through
+   GRADLE_USER_HOME, or the pull_request_target trigger.
 
 Usage: check_workflow_security.py [workflow ...]   (default: .github/workflows/*.yml and *.yaml)
 Exit 1 lists every problem as file: job: step: reason.
@@ -99,11 +101,15 @@ def triggered_by_pull_requests(workflow: dict) -> bool:
 
 
 def and_terms(condition: object) -> set[str]:
-    """The `&&` terms of an `if:` outside parentheses and strings, without blanks, in lower case."""
+    """The `&&` terms of an `if:` outside parentheses and strings, without blanks, in lower case.
+
+    `&&` binds tighter than `||`, so a condition with `||` outside parentheses is no conjunction:
+    `x || always() && guard` runs whenever x holds. Such a condition is one term, the whole of it.
+    """
     text = str(condition if condition is not None else "").strip()
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
-    terms, depth, quoted, start = [], 0, False, 0
+    terms, depth, quoted, start, disjunction = [], 0, False, 0, False
     for index, char in enumerate(text):
         if char == "'":
             quoted = not quoted
@@ -112,7 +118,11 @@ def and_terms(condition: object) -> set[str]:
         elif not quoted and depth == 0 and text.startswith("&&", index):
             terms.append(text[start:index])
             start = index + 2
+        elif not quoted and depth == 0 and text.startswith("||", index):
+            disjunction = True
     terms.append(text[start:])
+    if disjunction:
+        terms = [text]
     found = set()
     for term in terms:
         term = re.sub(r"\s+", "", term).lower()

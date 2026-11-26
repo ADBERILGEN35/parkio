@@ -77,7 +77,8 @@ requests included, and neither has a restore-only mode. An entry that a pull req
 only that pull request, and setup-java's Gradle entry takes about 0.5 GB of the repository's 10 GB
 cache budget. Restore on pull requests with `actions/cache/restore`. Where a job must save, use
 `actions/cache/save` under an `if:` that has `github.event_name != 'pull_request'` as an `&&` term,
-on the step or on its job:
+on the step or on its job. `&&` binds tighter than `||`, so a condition with `||` outside
+parentheses has no such term: `x || always() && <guard>` saves whenever `x` holds.
 
 ```yaml
 - name: Save Gradle dependencies
@@ -88,3 +89,5 @@ on the step or on its job:
 Backend CI and Backend integration save their entries that way, on api only. The pull request jobs
 that ran Gradle on setup-java's cache restore those entries instead and save none
 (`scripts/ci/test_gradle_ro_dep_cache.py`). Reusable workflows and local actions are not traced.
+Nor are other cache actions (`gradle/actions/setup-gradle`), a path given only through
+`GRADLE_USER_HOME`, or the `pull_request_target` trigger.

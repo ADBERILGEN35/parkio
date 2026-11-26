@@ -170,7 +170,8 @@ class GradleCacheOnPullRequests(unittest.TestCase):
         for condition in ("github.event_name != 'pull_request' && github.ref == 'refs/heads/api'",
                           "${{ github.ref == 'refs/heads/api' && github.event_name != 'pull_request' }}",
                           "(GitHub.Event_Name!='PULL_REQUEST') && steps.deps.outputs.cache-hit != 'true'",
-                          "always() && 'pull_request' != github.event_name"):
+                          "always() && 'pull_request' != github.event_name",
+                          "(steps.deps.outputs.cache-hit != 'true' || always()) && github.event_name != 'pull_request'"):
             for step in self.saving_steps():
                 self.assertEqual(check.check_workflow("w.yml", self.flow({**step, "if": condition})), [], condition)
                 self.assertEqual(check.check_workflow("w.yml", self.flow(step, job_if=condition)), [], condition)
@@ -182,7 +183,10 @@ class GradleCacheOnPullRequests(unittest.TestCase):
                           "github.event_name == 'pull_request'",
                           "github.ref_name != 'pull_request'",
                           "steps.deps.outputs.cache-hit != 'true'",
-                          "contains('github.event_name != ''pull_request''', 'x') && true"):
+                          "contains('github.event_name != ''pull_request''', 'x') && true",
+                          # && binds tighter than ||: these are x || (always() && guard) and (guard && x) || always().
+                          "github.ref == 'refs/heads/api' || always() && github.event_name != 'pull_request'",
+                          "github.event_name != 'pull_request' && steps.deps.outputs.cache-hit != 'true' || always()"):
             for step in self.saving_steps():
                 problems = check.check_workflow("w.yml", self.flow({**step, "if": condition}))
                 self.assertEqual(len(problems), 1, condition)
