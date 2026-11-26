@@ -1,0 +1,49 @@
+# Dedicated tests for the off-host erasure journal. Does not replace
+# backup-restore-drill.yml or restore-drill-01-procedure.yml.
+name: Off-host erasure recovery
+
+on:
+  pull_request:
+    paths:
+      - "scripts/lib/offhost_erasure.py"
+      - "scripts/lib/offhost_erasure_pg.py"
+      - "scripts/lib/offhost-erasure-locked-snapshot.sql"
+      - "scripts/offhost-erasure-export.py"
+      - "scripts/offhost-erasure-recover.py"
+      - "scripts/test_offhost_erasure_recovery.py"
+      - "scripts/test_offhost_erasure_pg.py"
+      - "docs/operations/offhost-erasure-recovery.md"
+      - ".github/workflows/offhost-erasure-recovery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Synthetic off-host erasure tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: python3 -m unittest scripts.test_offhost_erasure_recovery -v
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Isolated PostgreSQL concurrency tests
+        env:
+          PARKIO_OFFHOST_PG_PSQL: psql
+          PARKIO_OFFHOST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python3 -m unittest scripts.test_offhost_erasure_pg -v
