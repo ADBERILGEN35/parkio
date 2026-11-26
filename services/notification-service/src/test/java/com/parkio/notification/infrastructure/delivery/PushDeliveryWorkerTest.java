@@ -266,6 +266,54 @@ class PushDeliveryWorkerTest {
         assertThat(attempts.byId.get(attempt.id()).attemptCount()).isZero();
     }
 
+    /**
+     * #651: shutdown interrupts a tick that is still sending ({@code shutdownNow()} once the lifecycle stop phase
+     * ends). The send in flight keeps its conservative unknown outcome. Spring's JDK request sets the interrupt flag
+     * again, so every later send of the batch would fail at once as well; the tick leaves the batch instead, and the
+     * attempts it never tried stay due for the next tick.
+     */
+    @Test
+    void interruptedTickLeavesTheAttemptsItNeverTriedForTheNextTick() {
+        List<UUID> batch = List.of(
+                persistPendingAttempt().id(), persistPendingAttempt().id(), persistPendingAttempt().id());
+        AtomicInteger sends = new AtomicInteger();
+        // Like the Expo sender when shutdownNow() interrupts its send: an unknown outcome, the interrupt flag set.
+        PushDeliveryWorker interruptedWorker = worker(message -> {
+            sends.incrementAndGet();
+            Thread.currentThread().interrupt();
+            return PushSendResult.failed(ExpoPushNotificationSender.FAILURE_OUTCOME_UNKNOWN);
+        }, 5);
+
+        int processed;
+        boolean interruptKept;
+        try {
+            processed = interruptedWorker.processPendingBatch();
+        } finally {
+            // Clears the flag, so it cannot leak into the next test.
+            interruptKept = Thread.interrupted();
+        }
+        attempts.endTransaction();
+
+        assertThat(interruptKept).as("the interrupt stays set for the executor").isTrue();
+        assertThat(sends).as("sends").hasValue(1);
+        assertThat(processed).isEqualTo(1);
+        List<NotificationDeliveryAttempt> afterTick = batch.stream().map(attempts.byId::get).toList();
+        assertThat(afterTick).filteredOn(a -> a.status() == DeliveryStatus.FAILED).singleElement().satisfies(a -> {
+            assertThat(a.failureReason()).isEqualTo(ExpoPushNotificationSender.FAILURE_OUTCOME_UNKNOWN);
+            assertThat(a.attemptCount()).isEqualTo(1);
+        });
+        assertThat(afterTick).filteredOn(a -> a.status() == DeliveryStatus.PENDING).hasSize(2).allSatisfy(a -> {
+            assertThat(a.attemptCount()).isZero();
+            assertThat(a.failureReason()).isNull();
+            assertThat(a.nextAttemptAt()).isEqualTo(NOW);
+        });
+
+        // The next tick takes the two attempts that the interrupted one never tried.
+        assertThat(worker(new NoopPushNotificationSender(), 5).processPendingBatch()).isEqualTo(2);
+        assertThat(batch.stream().map(attempts.byId::get).map(NotificationDeliveryAttempt::status))
+                .containsExactlyInAnyOrder(DeliveryStatus.FAILED, DeliveryStatus.SENT, DeliveryStatus.SENT);
+    }
+
     @Test
     void senderExceptionRecordsSanitisedFailureWithoutAbortingBatch() {
         NotificationDeliveryAttempt first = persistPendingAttempt();
@@ -436,6 +484,14 @@ class PushDeliveryWorkerTest {
                                                                      NotificationChannel channel) {
             return byId.values().stream()
                     .anyMatch(a -> a.notificationId().equals(notificationId) && a.channel() == channel);
+        }
+
+        /**
+         * Test helper: the end of the tick's transaction. In production its commit releases the
+         * {@code FOR UPDATE SKIP LOCKED} claims of the rows the tick did not save.
+         */
+        synchronized void endTransaction() {
+            claimed.clear();
         }
 
         /** Test helper: rewrites nextAttemptAt (e.g. to re-arm an attempt as due). */

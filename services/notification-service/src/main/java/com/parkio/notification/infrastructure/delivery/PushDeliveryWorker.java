@@ -124,6 +124,12 @@ public class PushDeliveryWorker {
      * handled. Must run inside a transaction (see {@link #tick()}); send failures are
      * recorded as attempt state, never thrown, so a single failed attempt does not roll
      * back the whole batch.
+     *
+     * <p>An interrupted tick (shutdown calls {@code shutdownNow()} once the lifecycle stop
+     * phase ends) stops before its next attempt and keeps the interrupt flag (#651). Every
+     * later send would fail at once and be recorded as a terminal unknown outcome. The
+     * attempts it has not tried stay untouched, the commit releases their claims, and the
+     * next tick takes them.
      */
     @Transactional
     public int processPendingBatch() {
@@ -132,10 +138,17 @@ public class PushDeliveryWorker {
         }
         Instant now = clock.instant();
         List<NotificationDeliveryAttempt> claimed = attempts.claimDue(now, batchSize);
+        int handled = 0;
         for (NotificationDeliveryAttempt attempt : claimed) {
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("Push delivery tick interrupted; leaving {} of {} claimed attempt(s) for the next tick",
+                        claimed.size() - handled, claimed.size());
+                break;
+            }
             deliver(attempt);
+            handled++;
         }
-        return claimed.size();
+        return handled;
     }
 
     private void deliver(NotificationDeliveryAttempt attempt) {

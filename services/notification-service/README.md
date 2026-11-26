@@ -134,6 +134,12 @@ until the batch commits. The pending queue is served by a **partial index**
 (`idx_nda_pending_next_attempt` on `next_attempt_at WHERE status = 'PENDING'`) that
 stays small as terminal rows accumulate.
 
+**Shutdown.** When shutdown interrupts a tick that is still sending (the scheduler calls
+`shutdownNow()` once the 30s lifecycle stop phase has ended), the send in flight ends as
+`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick stops there: the
+attempts it has not tried stay `PENDING` and due, the commit releases their claims, and
+the next tick, on any replica, takes them (#651).
+
 **Retry / backoff.** A failed send keeps the attempt `PENDING` and pushes
 `next_attempt_at` into the future with exponential backoff —
 `base-backoff-ms * 2^(attemptCount-1)` (30s, 60s, 120s, … by default) — until
@@ -185,9 +191,10 @@ while the read timeout is already running (#641). When the lookup and the connec
 attempt together outlast the read timeout, the send therefore ends at the read timeout as
 `PROVIDER_OUTCOME_UNKNOWN` and is not retried, although no connection was opened. That is
 the case for a lookup slower than the read timeout, and for one slower than the read
-timeout minus the connect timeout (3s with the defaults) when the connection then does not
-open. The result errs on the side of no resend. A lookup that fails before the read
-timeout (unknown host) stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
+timeout minus the connect timeout (3s with the defaults) when the connect attempt then gets
+no answer until the connect timeout. The result errs on the side of no resend. A lookup or
+a connect attempt that fails before the read timeout (unknown host, refused connection)
+stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
 zero, negative or over-limit value, or with a connect timeout that is not shorter than the
 read timeout; the hosted-beta preflight checks the same rules. The Expo client is always
 the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
