@@ -300,6 +300,192 @@ run_case "a read timeout below the default connect timeout exits 1" "$EXPO_BOUND
 expect "default connect against a short read rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: 2000ms is not shorter than PARKIO_EXPO_PUSH_READ_TIMEOUT (1000ms)"
 rm -f "$EXPO_BOUNDS"
 
+# ---- municipal feed timings (#615, #637, #654) ------------------------------
+# parking-service refuses to start, even with the feed disabled, unless each HTTP feed's connect and
+# read timeouts are at least 1ms and connect + read is less than max-response-time. The preflight reads
+# the values as docker compose does and as Spring Boot binds them, with the overlay's defaults.
+
+# The duration parser, extracted from the preflight, must give Spring Boot 4.1's result for each value.
+# The expected column was generated with Spring's Binder: nanoseconds, INVALID (Spring rejects it),
+# NEGATIVE, or TOO_LONG (above 2^63-1 ns, where BoundedFeedResponses' deadline overflows).
+DURATIONS="${TMPDIR:-/tmp}/preflight-durations-$$.sh"
+sed -n '/^# >>> spring-duration/,/^# <<< spring-duration/p' "$PREFLIGHT" > "$DURATIONS"
+while IFS='|' read -r sd_value sd_expected; do
+  TESTS=$((TESTS + 1))
+  sd_out=$(sh -c '. "$1"; sd_ns=$(spring_duration_ns "$2"); printf "%s %s" "$?" "$sd_ns"' _ "$DURATIONS" "$sd_value" </dev/null 2>&1)
+  case $sd_out in
+    "0 "?*) sd_actual=${sd_out#0 } ;;
+    "1 ") sd_actual=INVALID ;;
+    "2 ") sd_actual=TOO_LONG ;;
+    "3 ") sd_actual=NEGATIVE ;;
+    *) sd_actual="unexpected output '$sd_out'" ;;
+  esac
+  if [ "$sd_actual" = "$sd_expected" ]; then
+    echo "PASS Spring duration '$sd_value' is $sd_expected"
+  else
+    echo "FAIL Spring duration '$sd_value': expected $sd_expected, got $sd_actual"
+    FAILED=$((FAILED + 1))
+  fi
+done <<'DURATIONS'
+20s|20000000000
+20S|20000000000
+20000|20000000000
++20s|20000000000
+0007s|7000000000
+1500ms|1500000000
+1500MS|1500000000
+1ms|1000000
+999us|999000
+1500us|1500000
+999999ns|999999
+1m|60000000000
+1h|3600000000000
+1d|86400000000000
+PT20S|20000000000
+pt20s|20000000000
++PT20S|20000000000
+PT0.5S|500000000
+PT0,5S|500000000
+PT1.S|1000000000
+PT1.123456789S|1123456789
+PT1M-30S|30000000000
+P1DT-23H-59M-30S|30000000000
+-PT-20S|20000000000
+P5Dt|432000000000000
+0s|0
+-0s|0
+-1s|NEGATIVE
+PT-0.5S|NEGATIVE
+-PT0.5S|NEGATIVE
+9223372036854775807ns|9223372036854775807
+9223372036s|9223372036000000000
+9223372037s|TOO_LONG
+PT9223372036.854775807S|9223372036854775807
+PT9223372036.854775808S|TOO_LONG
+106751d|9223286400000000000
+106752d|TOO_LONG
+153722867280912930m|TOO_LONG
+153722867280912931m|INVALID
+9223372036854775808ns|INVALID
+P106751991167300D|TOO_LONG
+P106751991167301D|INVALID
+PT-9223372036854775808S|NEGATIVE
+-PT-9223372036854775808S|INVALID
+PT-9223372036854775808.5S|INVALID
+20 s|INVALID
+ 20s|INVALID
+20s |INVALID
+20sec|INVALID
+20x|INVALID
+1.5s|INVALID
+--1s|INVALID
+0x10s|INVALID
+PT|INVALID
+P|INVALID
+P5DT|INVALID
+PT1.1234567891S|INVALID
+PT1H30|INVALID
+T20S|INVALID
+PT1M2H|INVALID
+PT.5S|INVALID
+P1W|INVALID
+PT1.5.5S|INVALID
+２0s|INVALID
+DURATIONS
+rm -f "$DURATIONS"
+
+MUNI="${TMPDIR:-/tmp}/preflight-municipal-$$.env"
+# municipal LINE... — valid.env plus the given env-file lines.
+municipal() {
+  cp "$FIXTURES/valid.env" "$MUNI"
+  for municipal_line in "$@"; do
+    printf '%s\n' "$municipal_line" >> "$MUNI"
+  done
+}
+municipal
+run_case "the overlay's municipal timing defaults exit 0" "$MUNI" 0
+expect_not "the defaults raise no municipal timing failure" "FAIL PARKIO_MUNICIPAL_"
+municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s"
+run_case "the former Konya read timeout exits 1" "$MUNI" 1
+expect "connect + read reaching max-response-time rejected" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: KONYA connect-timeout (5s, the default) + read-timeout (30s) must be less than max-response-time (30s, the default)"
+expect "the fix names both variables" "raise PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME together with PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT"
+municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=40s" "PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME=PT1M"
+run_case "raising max-response-time with the read timeout exits 0" "$MUNI" 0
+municipal "PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_TIME=PT12S"
+run_case "max-response-time equal to the default connect + read exits 1" "$MUNI" 1
+expect "an ISO-8601 bound is compared with the defaults" "FAIL PARKIO_MUNICIPAL_ANPARK_READ_TIMEOUT: ANPARK connect-timeout (2s, the default) + read-timeout (10s, the default) must be less than max-response-time (PT12S)"
+municipal "PARKIO_MUNICIPAL_IZUM_CONNECT_TIMEOUT=0s"
+run_case "a zero İZUM connect timeout exits 1" "$MUNI" 1
+expect "zero connect timeout rejected" "FAIL PARKIO_MUNICIPAL_IZUM_CONNECT_TIMEOUT: IZUM connect-timeout (0s) must be at least 1ms"
+municipal "PARKIO_MUNICIPAL_ISPARK_READ_TIMEOUT=999us"
+run_case "a read timeout under 1ms exits 1" "$MUNI" 1
+expect "sub-millisecond read timeout rejected" "FAIL PARKIO_MUNICIPAL_ISPARK_READ_TIMEOUT: ISPARK read-timeout (999us) must be at least 1ms"
+municipal "PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT=1ms" "PARKIO_MUNICIPAL_ISPARK_READ_TIMEOUT=1000us"
+run_case "1ms timeouts exit 0" "$MUNI" 0
+municipal 'PARKIO_MUNICIPAL_KAYSERI_READ_TIMEOUT="20 s"'
+run_case "a value Spring cannot bind exits 1" "$MUNI" 1
+expect "unbindable value rejected" "FAIL PARKIO_MUNICIPAL_KAYSERI_READ_TIMEOUT: KAYSERI read-timeout ('20 s') is not a duration parking-service accepts"
+municipal "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_TIME=106752d"
+run_case "max-response-time above 2^63-1 ns exits 1" "$MUNI" 1
+expect "overflowing response deadline rejected" "FAIL PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_TIME: KAYSERI max-response-time (106752d) is longer than 2^63-1 nanoseconds"
+# Values as docker compose reads the env file.
+municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=20s # the #637 default" "PARKIO_MUNICIPAL_KONYA_CONNECT_TIMEOUT=5s   "
+run_case "an inline comment and trailing blanks are not part of the value" "$MUNI" 0
+municipal "export PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s"
+run_case "an exported former read timeout exits 1" "$MUNI" 1
+expect "export prefix read" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: KONYA connect-timeout (5s, the default) + read-timeout (30s) must be"
+municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: 30s"
+run_case "a YAML-style former read timeout exits 1" "$MUNI" 1
+municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s" "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT="
+run_case "an empty last definition takes the default and exits 0" "$MUNI" 0
+# shellcheck disable=SC2016 # the env-file line must keep its $ for the preflight to refuse it
+municipal 'PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=$KONYA_READ'
+run_case "a value with \$ exits 1" "$MUNI" 1
+expect "expansion not resolved" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: '\$KONYA_READ' uses \$"
+municipal 'PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT="20s'
+run_case "an unclosed quote exits 1" "$MUNI" 1
+expect "unclosed quote rejected" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: the quote that opens the value is not closed"
+# The defaults are the overlay's: for each feed, read its overlay defaults and set one key where the
+# rule flips. If the preflight assumed another default, one run of each pair would end the other way.
+OVERLAY="$ROOT/docker/docker-compose.azure-hosted-beta.yml"
+# overlay_ms KEY -> the overlay default of KEY in ms; only whole seconds are expected there.
+overlay_ms() {
+  om_s=$(sed -n "s/^ *$1: \${$1:-\([0-9][0-9]*\)s}\$/\1/p" "$OVERLAY")
+  [ -n "$om_s" ] && echo $((om_s * 1000))
+}
+for feed in IZUM ISPARK ANPARK KONYA KAYSERI; do
+  key=PARKIO_MUNICIPAL_$feed
+  connect=$(overlay_ms "${key}_CONNECT_TIMEOUT")
+  read_timeout=$(overlay_ms "${key}_READ_TIMEOUT")
+  max=$(overlay_ms "${key}_MAX_RESPONSE_TIME")
+  TESTS=$((TESTS + 1))
+  if [ -z "$connect" ] || [ -z "$read_timeout" ] || [ -z "$max" ]; then
+    echo "FAIL the overlay maps ${key}_{CONNECT_TIMEOUT,READ_TIMEOUT,MAX_RESPONSE_TIME} with whole-second defaults"
+    FAILED=$((FAILED + 1))
+    continue
+  fi
+  echo "PASS $feed overlay defaults: connect ${connect}ms, read ${read_timeout}ms, max ${max}ms"
+  municipal "${key}_READ_TIMEOUT=$((max - connect))ms"
+  run_case "$feed read timeout that reaches the default max with the default connect exits 1" "$MUNI" 1
+  municipal "${key}_READ_TIMEOUT=$((max - connect - 1))ms"
+  run_case "$feed read timeout 1ms inside the defaults exits 0" "$MUNI" 0
+  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout))ms"
+  run_case "$feed connect timeout that reaches the default max with the default read exits 1" "$MUNI" 1
+  municipal "${key}_CONNECT_TIMEOUT=$((max - read_timeout - 1))ms"
+  run_case "$feed connect timeout 1ms inside the defaults exits 0" "$MUNI" 0
+  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout))ms"
+  run_case "$feed max-response-time equal to the default connect + read exits 1" "$MUNI" 1
+  municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout + 1))ms"
+  run_case "$feed max-response-time 1ms above the default connect + read exits 0" "$MUNI" 0
+done
+# invite-production's Compose files do not pass these keys to parking-service, which then runs on its
+# application.yml values, so its env file is not checked for them.
+municipal "PARKIO_DEPLOYMENT_PROFILE=invite-production" "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s"
+"$PREFLIGHT" --env-file "$MUNI" --skip-compose > "$OUT" 2>&1
+expect "the invite-production checks ran" "deploymentProfile=invite-production"
+expect_not "invite-production does not check municipal timings" "FAIL PARKIO_MUNICIPAL_"
+rm -f "$MUNI"
+
 # ---- known CI synthetic MapTiler key must fail hosted deploy preflight ------
 SYNTH_MAP="${TMPDIR:-/tmp}/preflight-synthetic-map-$$.env"
 sed -e 's/^VITE_APP_ENV=hosted-beta$/VITE_APP_ENV=hosted-beta\nVITE_MAPTILER_KEY=ci-web-build-security-synthetic/' \
@@ -312,6 +498,10 @@ rm -f "$SYNTH_MAP"
 run_case "docker/.env.hosted-beta.example exits 1" ../../docker/.env.hosted-beta.example 1
 expect "template blocked" "PREFLIGHT: FAIL"
 expect_not "the template's Expo bounds are valid" "FAIL PARKIO_EXPO_PUSH_"
+expect_not "the template's municipal timings are valid" "FAIL PARKIO_MUNICIPAL_"
+run_case "docker/.env.azure-hosted-beta.example exits 1" ../../docker/.env.azure-hosted-beta.example 1
+expect "Azure template blocked" "PREFLIGHT: FAIL"
+expect_not "the Azure template's municipal timings are valid" "FAIL PARKIO_MUNICIPAL_"
 
 rm -f "$OUT"
 

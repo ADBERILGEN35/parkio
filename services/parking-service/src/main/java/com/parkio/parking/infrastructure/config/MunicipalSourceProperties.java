@@ -32,8 +32,10 @@ public class MunicipalSourceProperties implements Validator {
     /**
      * Spring Boot validates every object that it binds under {@code parkio.municipal} with this root
      * object. The rules below apply to every source that is fetched over HTTP: İZUM, İSPARK, ANPARK,
-     * Konya and Kayseri (#637). The OSM import reads a local file and the fake test provider fetches
-     * nothing, so neither has an HTTP timeout to check.
+     * Konya and Kayseri (#637). The other sources have no HTTP client and so no timeout to check: the
+     * OSM import reads a local file, İZELMAN imports CSV files from an operator directory
+     * ({@link IzelmanProperties} set that directory and a size cap, and no HTTP settings), and the fake
+     * test provider fetches nothing.
      */
     @Override
     public boolean supports(Class<?> type) {
