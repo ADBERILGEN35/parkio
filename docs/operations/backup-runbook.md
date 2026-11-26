@@ -134,6 +134,8 @@ PARKIO_ENV_FILE=docker/.env ./scripts/restore-drill-offsite.sh
 
 `restore-drill-offsite.sh` encrypts, uploads, **deletes the local stamp**, pulls to a new directory, verifies checksums, restores all 10 DBs + MinIO from the retrieved copy.
 
+`restore-drill.sh`, `restore-drill-minio.sh` and `restore-drill-offsite.sh`, like `verify-backup.sh`, `backup-offsite-pull.sh` and `backup-dated-acceptance.sh`, load the env file after they have fixed their own checkout, options and arguments (`restore-drill-failure-modes.sh` hands it to those scripts). Those are read-only from then on: a line in the env file that assigns one (`ROOT=`, `FROM_DIR=`, `TARGET_SERVICE=`, `MC_IMAGE=`, ...) stops the tool at that line with exit 1, before it seeds, backs up, pulls or restores anything. Only the scheduled backup ignores such a line with a `WARN` instead, so that a stray line cannot stop it.
+
 ## How to know a backup is actually protected
 
 1. Local stamp has `COMPLETE` + `SHA256SUMS` + only `*.sql.gz.enc` (production mode).
@@ -209,10 +211,13 @@ caller's value. Make the first run against the restored target a bounded run wit
      orchestrator hands its steps: `BACKUP_SKIP_MC_UPLOAD` and `BACKUP_DEST_DIR` for
      `backup-databases.sh`, and the destination and the dry-run decision for `backup-minio.sh`,
      which takes both from its command line only. A `DRY_RUN=1` line cannot skip the MinIO
-     mirror, and a `DEST_DIR` line cannot move it out of the stamp.
+     mirror, and a `DEST_DIR` line cannot move it out of the stamp. Nor can it change where a step
+     loads its code from: a `SCRIPT_DIR` line is ignored with a `WARN`, and `backup-databases.sh`
+     still exports the erasure ledger with its own checkout's library.
    - A line that assigns one of the scripts' private `arg_*` names stops that script at the line
-     with exit 1: the orchestrator before it writes anything, `backup-minio.sh` before it mirrors
-     (the run then fails like any MinIO failure, without `COMPLETE`).
+     with exit 1: the orchestrator before it writes anything, `backup-databases.sh` before it dumps
+     and `backup-minio.sh` before it mirrors (the run then fails like any dump or MinIO failure,
+     without `COMPLETE`).
    - A checkout without this option rejects it (`ERROR: unknown argument '--no-prune'`,
      exit 2) before it writes or deletes anything. Do not drop the flag to get past that;
      update the checkout first.
