@@ -21,7 +21,6 @@ source "${SCRIPT_DIR}/lib/backup-common.sh"
 source "${SCRIPT_DIR}/lib/restore-drill-services.sh"
 
 ENV_FILE="${PARKIO_ENV_FILE:-${ROOT}/docker/.env}"
-STARTED_OFFSITE=0
 OFFSITE_NAME="${BACKUP_OFFSITE_MINIO_CONTAINER:-parkio-offsite-minio}"
 MC_IMAGE="${MINIO_MC_IMAGE:-ghcr.io/adberilgen35/parkio/mc@sha256:456b1e641897329fc9491f9bc8b31df351d728af9a328bf5653707af62d0d6bf}"
 # Quay sha256:7d80fd23… now returns unauthorized. Isolation is a second
@@ -41,6 +40,12 @@ done
 readonly SCRIPT_DIR ROOT ENV_FILE OFFSITE_NAME MC_IMAGE OFFSITE_IMAGE
 
 parkio_backup_load_env "${ENV_FILE}"
+
+# Whether this drill started the offsite MinIO itself; the cleanup removes that container only then.
+# It is state, set to 1 below when the drill starts one, so it cannot be read-only. It is set after
+# the env file instead, so a STARTED_OFFSITE line there cannot make the cleanup remove a container
+# this drill did not start.
+STARTED_OFFSITE=0
 
 cleanup() {
   if [ "${STARTED_OFFSITE}" -eq 1 ]; then
