@@ -5,7 +5,13 @@ FROM eclipse-temurin@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
-RUN ./gradlew :services:gamification-service:bootJar --no-daemon
+# Build-cache trial (owner decision 6, 2026-10-05): Gradle's user home (wrapper distribution,
+# dependencies, build cache) is a BuildKit cache mount shared by the trial services. It never
+# enters a layer; scripts/ci/build_cache_trial.py compares the jar built without it. sharing=locked:
+# Gradle's cross-process locks cannot reach a Gradle in another build container, so concurrent
+# builds (Compose builds services in parallel) take turns instead of timing out on a cache lock.
+RUN --mount=type=cache,id=parkio-gradle-home,target=/root/.gradle,sharing=locked \
+    ./gradlew :services:gamification-service:bootJar --no-daemon
 
 # ---- runtime stage ----
 FROM eclipse-temurin@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef AS runtime
