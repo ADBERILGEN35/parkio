@@ -153,6 +153,65 @@ class MunicipalFeedTimingBoundsValidationTest {
                 });
     }
 
+    /**
+     * #661: {@code SimpleClientHttpRequestFactory} narrows {@code toMillis()} to an int, so a timeout of
+     * 2^31 ms (about 24.9 days) or more wraps around, to a negative value that sets no timeout or to a much
+     * shorter one. Startup refuses it. The 100-day max-response-time keeps the sum rule out of the way.
+     */
+    static Stream<Arguments> timeoutsTheHttpClientCannotHoldInAnInt() {
+        return Stream.of("izum", "ispark", "anpark", "konya", "kayseri").flatMap(source -> Stream.of(
+                Arguments.of(source, "2147483648ms", "2s", "connectTimeout", "connect-timeout (2147483648ms)"),
+                Arguments.of(source, "2s", "2147483648ms", "readTimeout", "read-timeout (2147483648ms)"),
+                Arguments.of(source, "2s", "25d", "readTimeout", "read-timeout (2160000s)")));
+    }
+
+    @ParameterizedTest(name = "{0}: connect {1}, read {2}")
+    @MethodSource("timeoutsTheHttpClientCannotHoldInAnInt")
+    void startupRefusesATimeoutTheHttpClientCannotHoldInAnInt(
+            String source, String connect, String read, String field, String named) {
+        runner.withPropertyValues(
+                        "parkio.municipal." + source + ".connect-timeout=" + connect,
+                        "parkio.municipal." + source + ".read-timeout=" + read,
+                        "parkio.municipal." + source + ".max-response-time=100d")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    FieldError error = IzumTimingBoundsValidationTest.fieldError(context.getStartupFailure());
+                    assertThat(error.getField()).isEqualTo(field);
+                    assertThat(error.getDefaultMessage())
+                            .startsWith(envSegment(source) + " " + named + " must be less than 2147483648ms");
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"izum", "ispark", "anpark", "konya", "kayseri"})
+    void theLongestTimeoutsTheHttpClientCanHoldStart(String source) {
+        runner.withPropertyValues(
+                        "parkio.municipal." + source + ".connect-timeout=2147483647ms",
+                        "parkio.municipal." + source + ".read-timeout=2147483647999999ns",
+                        "parkio.municipal." + source + ".max-response-time=100d")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /**
+     * A timeout far beyond the int limit is refused like any other, as a bind validation error. It does
+     * not reach the connect + read sum, which would overflow a Duration and fail startup with an
+     * ArithmeticException instead.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"izum", "ispark", "anpark", "konya", "kayseri"})
+    void aTimeoutFarBeyondTheIntLimitIsAValidationError(String source) {
+        runner.withPropertyValues(
+                        "parkio.municipal." + source + ".connect-timeout=9223372036854775807s",
+                        "parkio.municipal." + source + ".read-timeout=9223372036854775807s",
+                        "parkio.municipal." + source + ".max-response-time=9223372036854775807s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    FieldError error = IzumTimingBoundsValidationTest.fieldError(context.getStartupFailure());
+                    assertThat(error.getField()).isEqualTo("connectTimeout");
+                    assertThat(error.getDefaultMessage()).contains("must be less than 2147483648ms");
+                });
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"izum", "ispark", "anpark", "konya", "kayseri"})
     void theErrorNamesTheSourceTheValuesAndTheEnvironmentVariableThatSetThem(String source) {

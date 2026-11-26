@@ -661,12 +661,13 @@ if [ "$DEPLOYMENT_PROFILE" != "invite-production" ] && [ "$PUSH_PROVIDER" = "exp
   fi
 fi
 
-# Municipal feed timings (#615, #637, #654). parking-service refuses to start, whether or not a feed
-# is enabled, unless each HTTP feed's connect-timeout and read-timeout are at least 1ms and
-# connect-timeout + read-timeout is less than max-response-time (MunicipalSourceProperties#validate).
-# A max-response-time above 2^63-1 ns also stops it: BoundedFeedResponses holds the deadline in
-# nanoseconds. A value Spring cannot bind stops it too. The production Compose overlay
-# (docker-compose.azure-hosted-beta.yml) passes these keys with the defaults given below. The
+# Municipal feed timings and sizes (#615, #637, #654, #661). parking-service refuses to start, whether
+# or not a feed is enabled, unless each HTTP feed's connect-timeout and read-timeout are at least 1ms and
+# less than 2^31 ms, and connect-timeout + read-timeout is less than max-response-time
+# (MunicipalSourceProperties#validate). BoundedFeedResponses stops it as well when each client is built:
+# for a max-response-time above 2^63-1 ns, which overflows its nanosecond deadline, and for a
+# max-response-size of 0 bytes or less. A value Spring cannot bind stops it too. The production Compose
+# overlay (docker-compose.azure-hosted-beta.yml) passes these keys with the defaults given below. The
 # invite-production Compose files pass none of them, so parking-service keeps its application.yml values.
 
 # >>> spring-duration (scripts/test-preflight-hosted-beta.sh extracts this block)
@@ -856,15 +857,79 @@ sd_iso() {
 }
 # <<< spring-duration
 
+# >>> spring-data-size (scripts/test-preflight-hosted-beta.sh extracts this block)
+# spring_data_size_bytes VALUE prints VALUE in bytes, read as parking-service binds a DataSize: Spring
+# Framework's DataSize.parse, with no @DataSizeUnit. It first removes every character that Java's
+# Character.isWhitespace accepts, anywhere in VALUE. What remains must be an optional sign, digits, and
+# an optional unit B, KB, MB, GB or TB in upper case; no unit means bytes. Returns 0 with the value
+# printed, which can be 0 or negative, or 1 with nothing printed when Spring rejects VALUE: no match,
+# another unit, or a long overflow. Uses sd_long and SD_MAX from the spring-duration block.
+# Character.isWhitespace beyond ASCII, as UTF-8: U+1680, U+2000-U+2006, U+2008-U+200A, U+2028, U+2029,
+# U+205F and U+3000. The no-break spaces U+00A0, U+2007 and U+202F are not whitespace to Java.
+SD_JAVA_BLANKS=$(printf '\341\232\200 \342\200\200 \342\200\201 \342\200\202 \342\200\203 \342\200\204 \342\200\205 \342\200\206 \342\200\210 \342\200\211 \342\200\212 \342\200\250 \342\200\251 \342\201\237 \343\200\200')
+
+spring_data_size_bytes() {
+  ds_v=$(printf '%s' "$1" | tr -d '\011\012\013\014\015\034\035\036\037 ')
+  for ds_blank in $SD_JAVA_BLANKS; do
+    while :; do
+      case $ds_v in
+        *"$ds_blank"*) ds_v=${ds_v%%"$ds_blank"*}${ds_v#*"$ds_blank"} ;;
+        *) break ;;
+      esac
+    done
+  done
+  ds_sign=
+  case $ds_v in [+-]*) ds_sign=${ds_v%"${ds_v#?}"}; ds_v=${ds_v#?} ;; esac
+  ds_num=${ds_v%%[!0123456789]*}
+  ds_unit=${ds_v#"$ds_num"}
+  [ -n "$ds_num" ] || return 1
+  # Bytes per unit, and Long.MAX_VALUE divided by that. Math.multiplyExact also allows -(limit + 1),
+  # whose product is Long.MIN_VALUE.
+  case $ds_unit in
+    ''|B) ds_per=1; ds_limit=$SD_MAX ;;
+    KB) ds_per=1024; ds_limit=9007199254740991 ;;
+    MB) ds_per=1048576; ds_limit=8796093022207 ;;
+    GB) ds_per=1073741824; ds_limit=8589934591 ;;
+    TB) ds_per=1099511627776; ds_limit=8388607 ;;
+    *) return 1 ;;
+  esac
+  sd_long "$ds_sign$ds_num" || return 1
+  ds_n=$SD_LONG
+  if [ "$ds_n" -gt "$ds_limit" ] || [ "$ds_n" -lt $(( -ds_limit - 1 )) ]; then
+    return 1
+  fi
+  echo $(( ds_n * ds_per ))
+}
+# <<< spring-data-size
+
+# Blanks as docker compose's env-file parser (compose-go dotenv) tells them apart: ENV_ISSPACE is its
+# isSpace (ASCII blanks, U+0085 and U+00A0), and ENV_UNICODE_BLANKS completes Go's unicode.IsSpace.
+ENV_ASCII_BLANKS=$(printf ' \t\v\f\r')
+ENV_NEL=$(printf '\302\205')
+ENV_NBSP=$(printf '\302\240')
+ENV_UNICODE_BLANKS=$(printf '\341\232\200 \342\200\200 \342\200\201 \342\200\202 \342\200\203 \342\200\204 \342\200\205 \342\200\206 \342\200\207 \342\200\210 \342\200\211 \342\200\212 \342\200\250 \342\200\251 \342\200\257 \342\201\237 \343\200\200')
+ENV_ISSPACE_ERE="([$ENV_ASCII_BLANKS]|$ENV_NEL|$ENV_NBSP)"
+ENV_UNICODE_SPACE_ERE="([$ENV_ASCII_BLANKS]|$ENV_NEL|$ENV_NBSP|$(printf '%s' "$ENV_UNICODE_BLANKS" | tr ' ' '|'))"
+# Go's regexp \s, without the newline, after `export`.
+ENV_EXPORT_BLANKS=$(printf ' \t\f\r')
+
 # compose_env_value KEY prints KEY's value as docker compose reads it from the env file, which env_get
-# does not quite do. The last line that sets KEY wins. A line may start with `export `, and `=` or `:`
-# may have blanks around it. A quoted value is what lies between its quotes. An unquoted value ends at
-# " #" (a comment) and loses its surrounding blanks, a CR included. Prints nothing for an unset or
-# empty KEY. Returns 4 for an opening quote with no closing one: docker compose cannot read the file.
+# does not quite do. The last line that sets KEY wins. Blanks (Go's unicode.IsSpace) may come before the
+# key, and an `export ` prefix. isSpace blanks may surround the `=` or `:` that follows the key. A
+# quoted value is what lies between its quotes. An unquoted value ends at " #" (a comment), and loses
+# its unicode.IsSpace blanks at the end. Prints nothing for an unset or empty KEY. Returns 4 for an
+# opening quote with no closing one: docker compose then cannot read the file.
 compose_env_value() {
-  cev_v=$(grep -E "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*[=:]" "$ENV_FILE" | tail -n 1 \
-    | sed -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*[=:]//")
-  cev_v=${cev_v#"${cev_v%%[![:space:]]*}"}
+  cev_re="^$ENV_UNICODE_SPACE_ERE*(export[$ENV_EXPORT_BLANKS]+$ENV_ISSPACE_ERE*)?$1$ENV_ISSPACE_ERE*[=:]"
+  cev_v=$(LC_ALL=C grep -E "$cev_re" "$ENV_FILE" | tail -n 1 | LC_ALL=C sed -E "s/$cev_re//")
+  while :; do
+    case $cev_v in
+      [$ENV_ASCII_BLANKS]*) cev_v=${cev_v#?} ;;
+      "$ENV_NEL"*) cev_v=${cev_v#"$ENV_NEL"} ;;
+      "$ENV_NBSP"*) cev_v=${cev_v#"$ENV_NBSP"} ;;
+      *) break ;;
+    esac
+  done
   case $cev_v in
     \"*|\'*)
       cev_q=${cev_v%"${cev_v#?}"}
@@ -873,45 +938,64 @@ compose_env_value() {
       cev_v=${cev_v%%"$cev_q"*} ;;
     *)
       cev_v=${cev_v%%" #"*}
-      cev_v=${cev_v%"${cev_v##*[![:space:]]}"} ;;
+      while :; do
+        case $cev_v in
+          *[$ENV_ASCII_BLANKS]) cev_v=${cev_v%?} ;;
+          *"$ENV_NEL") cev_v=${cev_v%"$ENV_NEL"} ;;
+          *"$ENV_NBSP") cev_v=${cev_v%"$ENV_NBSP"} ;;
+          *)
+            cev_trimmed=0
+            for cev_blank in $ENV_UNICODE_BLANKS; do
+              case $cev_v in *"$cev_blank") cev_v=${cev_v%"$cev_blank"}; cev_trimmed=1; break ;; esac
+            done
+            [ "$cev_trimmed" -eq 1 ] || break ;;
+        esac
+      done ;;
   esac
   printf '%s' "$cev_v"
 }
 
-# municipal_timing KEY DEFAULT NAME SOURCE sets MT_SHOWN (the value in effect, as messages show it),
-# and MT_NS and MT_RC (spring_duration_ns's output and return code). An unset or empty KEY takes
-# DEFAULT, as the overlay's ${KEY:-DEFAULT} does. Reports a value that parking-service cannot bind, and
-# returns 1 for it.
-municipal_timing() {
-  MT_NS=; MT_RC=1
-  mt_raw=$(compose_env_value "$1")
+# municipal_value KEY DEFAULT sets MV_RAW (the value in effect) and MV_SHOWN (that value as messages
+# show it). An unset or empty KEY takes DEFAULT, as the overlay's ${KEY:-DEFAULT} does. Reports an env
+# file docker compose cannot read and a value with $, and returns 1 for them.
+municipal_value() {
+  MV_RAW=$(compose_env_value "$1")
   if [ "$?" -eq 4 ]; then
     fail "$1" "the quote that opens the value is not closed, so docker compose cannot read the env file" "close the quote"
     return 1
   fi
-  if [ -z "$mt_raw" ]; then
-    mt_raw=$2
-    MT_SHOWN="$2, the default"
+  if [ -z "$MV_RAW" ]; then
+    MV_RAW=$2
+    MV_SHOWN="$2, the default"
   else
-    MT_SHOWN=$mt_raw
+    MV_SHOWN=$MV_RAW
   fi
-  case $mt_raw in
+  case $MV_RAW in
     *'$'*)
-      fail "$1" "'$mt_raw' uses \$, which docker compose or Spring would expand before parking-service reads it" "write the duration out, such as 20s"
+      fail "$1" "'$MV_RAW' uses \$, which docker compose or Spring would expand before parking-service reads it" "write the value out, such as 20s or 16MB"
       return 1 ;;
   esac
-  MT_NS=$(spring_duration_ns "$mt_raw")
-  MT_RC=$?
-  case $MT_RC in
-    0|3) return 0 ;;
-    1) fail "$1" "$4 $3 ('$mt_raw') is not a duration parking-service accepts" "use a number with ns, us, ms, s, m, h or d (no unit means ms), or ISO-8601 such as PT20S" ;;
-    2) fail "$1" "$4 $3 ($mt_raw) is longer than 2^63-1 nanoseconds (about 292 years)" "use a duration below 292 years" ;;
-  esac
-  return 1
+  return 0
 }
 
-# municipal_feed_check SOURCE CONNECT READ MAX checks one feed. CONNECT, READ and MAX are the overlay's
-# defaults for its unset keys.
+# municipal_timing KEY DEFAULT NAME SOURCE sets MT_SHOWN, and MT_NS and MT_RC: spring_duration_ns's
+# output and return code for the value in effect. Reports a value that Spring cannot bind, and returns 1
+# for it and for what municipal_value reports.
+municipal_timing() {
+  MT_NS=; MT_RC=1
+  municipal_value "$1" "$2" || return 1
+  MT_SHOWN=$MV_SHOWN
+  MT_NS=$(spring_duration_ns "$MV_RAW")
+  MT_RC=$?
+  if [ "$MT_RC" -eq 1 ]; then
+    fail "$1" "$4 $3 ('$MV_RAW') is not a duration parking-service accepts" "use a number with ns, us, ms, s, m, h or d (no unit means ms), or ISO-8601 such as PT20S"
+    return 1
+  fi
+  return 0
+}
+
+# municipal_feed_check SOURCE CONNECT READ MAX SIZE checks one feed. CONNECT, READ, MAX and SIZE are the
+# overlay's defaults for its unset keys.
 municipal_feed_check() {
   mf_key=PARKIO_MUNICIPAL_$1
   mf_ok=1
@@ -925,8 +1009,14 @@ municipal_feed_check() {
       mf_ok=0
       continue
     fi
-    if [ "$MT_RC" -eq 3 ] || [ "$MT_NS" -lt 1000000 ]; then
+    if [ "$MT_RC" -eq 3 ] || { [ "$MT_RC" -eq 0 ] && [ "$MT_NS" -lt 1000000 ]; }; then
       fail "${mf_key}_$mf_part" "$1 $mf_name ($MT_SHOWN) must be at least 1ms" "the HTTP client counts whole milliseconds and treats 0 or less as no timeout"
+      mf_ok=0
+      continue
+    fi
+    # 2147483648000000 ns is 2^31 ms. MT_RC 2 is longer still.
+    if [ "$MT_RC" -eq 2 ] || [ "$MT_NS" -ge 2147483648000000 ]; then
+      fail "${mf_key}_$mf_part" "$1 $mf_name ($MT_SHOWN) must be less than 2147483648ms (2^31 ms, about 24.9 days)" "the HTTP client holds the timeout as an int of milliseconds, so a longer one wraps around to no timeout or a much shorter one"
       mf_ok=0
       continue
     fi
@@ -937,22 +1027,38 @@ municipal_feed_check() {
       mf_r=$MT_NS; mf_r_shown=$MT_SHOWN
     fi
   done
-  municipal_timing "${mf_key}_MAX_RESPONSE_TIME" "$4" max-response-time "$1" || mf_ok=0
-  [ "$mf_ok" -eq 1 ] || return 0
-  # A negative max-response-time (MT_RC 3) is never above connect + read.
-  if [ "$MT_RC" -eq 0 ] && [ "$mf_r" -lt $(( MT_NS - mf_c )) ]; then
-    ok
+  if municipal_timing "${mf_key}_MAX_RESPONSE_TIME" "$4" max-response-time "$1"; then
+    if [ "$MT_RC" -eq 2 ]; then
+      fail "${mf_key}_MAX_RESPONSE_TIME" "$1 max-response-time ($MT_SHOWN) is longer than 2^63-1 nanoseconds (about 292 years)" "BoundedFeedResponses holds the deadline in nanoseconds: use a duration below 292 years"
+      mf_ok=0
+    fi
   else
-    fail "${mf_key}_READ_TIMEOUT" "$1 connect-timeout ($mf_c_shown) + read-timeout ($mf_r_shown) must be less than max-response-time ($MT_SHOWN)" "the body is read only until max-response-time after the request starts: raise ${mf_key}_MAX_RESPONSE_TIME together with ${mf_key}_READ_TIMEOUT"
+    mf_ok=0
+  fi
+  if [ "$mf_ok" -eq 1 ]; then
+    # A negative max-response-time (MT_RC 3) is never above connect + read.
+    if [ "$MT_RC" -eq 0 ] && [ "$mf_r" -lt $(( MT_NS - mf_c )) ]; then
+      ok
+    else
+      fail "${mf_key}_READ_TIMEOUT" "$1 connect-timeout ($mf_c_shown) + read-timeout ($mf_r_shown) must be less than max-response-time ($MT_SHOWN)" "the body is read only until max-response-time after the request starts: raise ${mf_key}_MAX_RESPONSE_TIME together with ${mf_key}_READ_TIMEOUT"
+    fi
+  fi
+  municipal_value "${mf_key}_MAX_RESPONSE_SIZE" "$5" || return 0
+  if ! mf_bytes=$(spring_data_size_bytes "$MV_RAW"); then
+    fail "${mf_key}_MAX_RESPONSE_SIZE" "$1 max-response-size ('$MV_RAW') is not a size parking-service accepts" "use a whole number with B, KB, MB, GB or TB in upper case (no unit means bytes), such as 16MB"
+  elif [ "$mf_bytes" -le 0 ]; then
+    fail "${mf_key}_MAX_RESPONSE_SIZE" "$1 max-response-size ($MV_SHOWN) must be more than 0 bytes" "BoundedFeedResponses refuses a smaller bound when each feed client is built, which stops parking-service"
+  else
+    ok
   fi
 }
 
 if [ "$DEPLOYMENT_PROFILE" != "invite-production" ]; then
-  municipal_feed_check IZUM 2s 27s 30s
-  municipal_feed_check ISPARK 2s 10s 30s
-  municipal_feed_check ANPARK 2s 10s 30s
-  municipal_feed_check KONYA 5s 20s 30s
-  municipal_feed_check KAYSERI 5s 20s 30s
+  municipal_feed_check IZUM 2s 27s 30s 16MB
+  municipal_feed_check ISPARK 2s 10s 30s 16MB
+  municipal_feed_check ANPARK 2s 10s 30s 16MB
+  municipal_feed_check KONYA 5s 20s 30s 16MB
+  municipal_feed_check KAYSERI 5s 20s 30s 16MB
 fi
 
 # AI vision: hosted beta should run the real provider so valid parking photos can

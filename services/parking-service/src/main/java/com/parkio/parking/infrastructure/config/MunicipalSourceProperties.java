@@ -15,6 +15,11 @@ import org.springframework.validation.Validator;
 public class MunicipalSourceProperties implements Validator {
     /** The shortest timeout that {@code SimpleClientHttpRequestFactory} does not turn into none. */
     private static final Duration SHORTEST_TIMEOUT = Duration.ofMillis(1);
+    /**
+     * The shortest timeout that {@code SimpleClientHttpRequestFactory} cannot hold (#661). It narrows
+     * {@code toMillis()} to an int, so 2^31 ms (about 24.9 days) and more wrap around.
+     */
+    private static final Duration INT_MILLIS_LIMIT = Duration.ofMillis(1L << 31);
 
     /**
      * CL-F22: 0 is the only way to disable the unchanged-feed alert. A negative value fails the binding,
@@ -43,14 +48,17 @@ public class MunicipalSourceProperties implements Validator {
     }
 
     /**
-     * #615, #637: two rules for the timeouts of every HTTP feed. Each error is reported on the timeout it
-     * concerns, so the startup failure names that property, its value and its origin, such as the
-     * environment variable.
+     * #615, #637, #661: the rules for the timeouts of every HTTP feed. Each error is reported on the
+     * timeout it concerns, so the startup failure names that property, its value and its origin, such as
+     * the environment variable.
      * <ul>
      *   <li>The connect and read timeouts must be at least 1 ms. {@code SimpleClientHttpRequestFactory}
      *       hands whole milliseconds to {@code HttpURLConnection}, which treats 0 as no timeout, and it
      *       skips a negative value, which leaves none. {@code max-response-time} is checked only between
      *       reads, so it does not end a read that waits forever.</li>
+     *   <li>They must also be less than 2^31 ms, about 24.9 days. The factory narrows the milliseconds to
+     *       an int, so a longer timeout wraps around, to a negative value that sets no timeout or to a much
+     *       shorter one.</li>
      *   <li>The body is read only until {@code max-response-time} after the request starts, so a connect
      *       plus a full read timeout must end before that bound. Otherwise a first byte that arrives
      *       within the read timeout still fails, on the time bound and without a retry, and the run is
@@ -82,7 +90,10 @@ public class MunicipalSourceProperties implements Validator {
                             + "sync until the connection drops or the service restarts.",
                     source, print(read), source));
         }
-        if (connect == null || read == null || max == null) {
+        boolean connectHeld = rejectBeyondIntMillis(errors, "connectTimeout", "connect-timeout", source, connect);
+        boolean readHeld = rejectBeyondIntMillis(errors, "readTimeout", "read-timeout", source, read);
+        // A timeout beyond the int limit is refused already, and the sum could overflow a Duration.
+        if (connect == null || read == null || max == null || !connectHeld || !readHeld) {
             return;
         }
         if (connect.plus(read).compareTo(max) >= 0) {
@@ -93,6 +104,20 @@ public class MunicipalSourceProperties implements Validator {
                             + "PARKIO_MUNICIPAL_%s_READ_TIMEOUT.",
                     source, print(connect), print(read), print(max), source, source));
         }
+    }
+
+    /** Rejects a timeout of 2^31 ms or more, and returns whether the timeout passes that rule. */
+    private static boolean rejectBeyondIntMillis(
+            Errors errors, String field, String name, String source, Duration timeout) {
+        if (timeout == null || timeout.compareTo(INT_MILLIS_LIMIT) < 0) {
+            return true;
+        }
+        errors.rejectValue(field, "beyondIntMillis", String.format(
+                "%s %s (%s) must be less than 2147483648ms (2^31 ms, about 24.9 days). The HTTP client "
+                        + "holds the timeout as an int of milliseconds, so a longer one wraps around, to a "
+                        + "negative value that sets no timeout or to a much shorter one.",
+                source, name, print(timeout)));
+        return false;
     }
 
     /**
@@ -402,12 +427,15 @@ public class MunicipalSourceProperties implements Validator {
         private boolean enabled;
         private String baseUrl = "https://openapi.izmir.bel.tr";
         private String path = "/api/ibb/izum/otoparklar";
-        /** At least 1 ms: the HTTP client treats 0 or less as no timeout (#615). */
+        /**
+         * At least 1 ms, as the HTTP client treats 0 or less as no timeout (#615), and less than 2^31 ms,
+         * which it cannot hold in its int of milliseconds (#661).
+         */
         private Duration connectTimeout = Duration.ofSeconds(2);
         /**
          * Socket read timeout, which also bounds the wait for the first byte (#523: up to 24.9 s on
          * 2026-11-23). Connect plus read timeout must stay inside {@code maxResponseTime}, and each must
-         * be at least 1 ms; startup refuses values that break this (#615, see
+         * be at least 1 ms and less than 2^31 ms; startup refuses values that break this (#615, #661, see
          * {@link MunicipalSourceProperties#validate}).
          */
         private Duration readTimeout = Duration.ofSeconds(27);

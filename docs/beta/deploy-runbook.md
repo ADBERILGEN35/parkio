@@ -95,7 +95,7 @@ PARKIO_ENV_FILE=docker/.env ./scripts/preflight-hosted-beta.sh
 | `PARKIO_RESEND_API_KEY` | `re_` prefix | Resend dashboard |
 | `PARKIO_EXPO_ACCESS_TOKEN` | non-empty, no placeholder | expo.dev → Access tokens |
 | `PARKIO_EXPO_PUSH_CONNECT_TIMEOUT` / `READ_TIMEOUT` | optional; `<n>ms` or `<n>s`, 0 < connect ≤ 30s, 0 < read ≤ 60s, connect < read | defaults `2s` / `5s` |
-| `PARKIO_MUNICIPAL_<SOURCE>_CONNECT_TIMEOUT` / `READ_TIMEOUT` / `MAX_RESPONSE_TIME` (İZUM, İSPARK, ANPARK, Konya, Kayseri) | optional; any duration Spring Boot binds (`20s`, `1500ms`, `PT20S`); connect and read ≥ 1ms, connect + read < max-response-time, max-response-time ≤ 2^63−1 ns; checked even for a disabled feed | the overlay defaults; see [the municipal runbook](../operations/municipal-parking-source-runbook.md) |
+| `PARKIO_MUNICIPAL_<SOURCE>_CONNECT_TIMEOUT` / `READ_TIMEOUT` / `MAX_RESPONSE_TIME` / `MAX_RESPONSE_SIZE` (İZUM, İSPARK, ANPARK, Konya, Kayseri) | optional; checked even for a disabled feed. A value with `$` is refused. Timeouts: a duration Spring Boot binds (`20s`, `1500ms`, `PT20S`); connect and read ≥ 1ms and < 2^31 ms; connect + read < max-response-time; max-response-time ≤ 2^63−1 ns. Size: a whole number of bytes (`16777216`), or one with `B`, `KB`, `MB`, `GB` or `TB` in upper case (`16MB`); spaces inside it are ignored (`16 MB`); more than 0 bytes and at most 2^63−1 bytes | the overlay defaults; see [the municipal runbook](../operations/municipal-parking-source-runbook.md) |
 | `PARKIO_ALERT_SLACK_WEBHOOK_URL` | `https://hooks.slack.com/…`, or generic `PARKIO_ALERT_WEBHOOK_URL` | Slack app → Incoming webhooks |
 
 ### Domain / URL rules
