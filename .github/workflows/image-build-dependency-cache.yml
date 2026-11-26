@@ -6,14 +6,18 @@
 # its read-only dependency cache (GRADLE_RO_DEP_CACHE). Security CI's container scans and the Compose
 # jobs (runtime validation, chaos validation, performance smoke) restore Backend CI's entry, which only
 # api saves, and pass it (scripts/ci/gradle_ro_dep_cache.py). The images that get published, the
-# candidate builds and release.yml's, never read it: they resolve every dependency themselves.
+# candidate builds and release.yml's, never read it: they resolve every dependency themselves. The jobs
+# that ran Gradle on setup-java's `cache: gradle`, which saved from pull requests, restore the backend
+# jobs' api entries into their Gradle home instead (#653).
 #
 # This workflow checks that wiring and probes it on one service:
 #   - tests: the staging, the Compose override, the image comparison, the Dockerfiles, that every
-#     Gradle dependency cache is restore-only on pull requests and saved on api only, and that the
-#     candidate action and release.yml read no dependency cache. Gradle's own read-only cache
-#     behaviour (a cached dependency is not downloaded, a missing one still fails) is tested in
-#     gradle-dependency-retry.yml;
+#     Gradle dependency cache is restore-only on pull requests and saved on api only, that the jobs
+#     once on setup-java's cache restore an api entry, that the candidate action and release.yml read
+#     no dependency cache, and that the CI gate's minimum for these tests is their count. Gradle's own
+#     read-only cache behaviour (a cached dependency is not downloaded, a missing one still fails) is
+#     tested in gradle-dependency-retry.yml. scripts/ci/check_workflow_security.py refuses a Gradle
+#     cache saved on a pull request in any workflow;
 #   - probe: one service image built twice without the layer cache, without and then with the read-only
 #     cache. The second build must download no artifact and carry the same application (the image's
 #     history and configuration, every jar entry, the SBOM without its per-build fields). The report
@@ -38,6 +42,12 @@ on:
       - ".github/workflows/performance-smoke.yml"
       - ".github/actions/candidate-image-build/**"
       - ".github/workflows/release.yml"
+      - ".github/workflows/auth-csrf-browser-acceptance.yml"
+      - ".github/workflows/auth-csrf-gateway-https-acceptance.yml"
+      - ".github/workflows/recovery-drill.yml"
+      - ".github/workflows/restore-replay-harness.yml"
+      - ".github/workflows/staging-verification.yml"
+      - ".github/ci-gate-policy.json"
   workflow_dispatch:
 
 permissions:

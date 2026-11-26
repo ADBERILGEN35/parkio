@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for scripts/ci/gradle_ro_dep_cache.py and for its wiring (#638).
+"""Unit tests for scripts/ci/gradle_ro_dep_cache.py and for its wiring (#638, #653).
 
 The probe runs against a recording fake docker. The wiring tests read the repository's own service
 Dockerfiles and workflows. Gradle's own read-only cache behaviour (a cached dependency is not
@@ -35,6 +35,15 @@ SERVICES = sorted(path.parent.name for path in (ROOT / "services").glob("*/Docke
 CONTEXT = '"gradle-ro-dep-cache=$RUNNER_TEMP/gradle-ro-dep-cache"'
 STAGE_COMMAND = 'python3 scripts/ci/gradle_ro_dep_cache.py stage "$RUNNER_TEMP/gradle-ro-dep-cache"'
 BACKEND_CI_PREFIX = "gradle-deps-backend-ci-${{ runner.os }}-"
+# The jobs that ran Gradle on the runner on setup-java's `cache: gradle`, which saved an entry from pull
+# requests too (#653), and the workflows whose api entries each one restores, in restore order.
+RUNNER_GRADLE_JOBS = (
+    ("auth-csrf-browser-acceptance.yml", "chromium", ("backend-ci.yml",)),
+    ("auth-csrf-gateway-https-acceptance.yml", "gateway-https", ("backend-ci.yml",)),
+    ("recovery-drill.yml", "drill", ("backend-ci.yml",)),
+    ("restore-replay-harness.yml", "harness", ("backend-integration.yml", "backend-ci.yml")),
+    ("staging-verification.yml", "structural", ("backend-ci.yml",)),
+)
 
 
 def jar(entries: dict) -> bytes:
@@ -426,6 +435,28 @@ class WorkflowWiringTest(unittest.TestCase):
                 gradle = max(i for i, step in enumerate(steps) if "./gradlew" in (step.get("run") or ""))
                 self.assertGreater(steps.index(save), gradle)
 
+    def test_the_jobs_once_on_setup_javas_cache_restore_entries_that_only_api_saves(self):
+        # setup-java's `cache: gradle` saved an entry from pull requests whenever its key had none (#653). These
+        # jobs restore what the backend jobs save on api, with the same path list (a different one is another
+        # cache version, which never matches), right after setup-java, so before any Gradle run. The harness
+        # runs integration tests, so it takes Backend integration's entry first and Backend CI's without one.
+        integration = steps_of(WORKFLOWS / "backend-integration.yml", "integration-test")
+        saved = {"backend-ci.yml": self.restore(self.backend_ci), "backend-integration.yml": self.restore(integration)}
+        for workflow, job, sources in RUNNER_GRADLE_JOBS:
+            with self.subTest(workflow=workflow):
+                steps = steps_of(WORKFLOWS / workflow, job)
+                restore = self.restore(steps)
+                self.assertEqual(restore["with"]["path"], saved[sources[0]]["with"]["path"])
+                self.assertEqual(restore["with"]["key"], saved[sources[0]]["with"]["key"])
+                self.assertEqual([line.strip() for line in restore["with"]["restore-keys"].splitlines() if line.strip()],
+                                 [saved[source]["with"]["restore-keys"].strip() for source in sources])
+                setup_java = [step for step in steps if uses(step) == "actions/setup-java"]
+                self.assertEqual(len(setup_java), 1)
+                self.assertNotIn("cache", setup_java[0].get("with") or {})
+                self.assertIs(steps[steps.index(setup_java[0]) + 1], restore)
+                saving = [step.get("name") for step in steps if uses(step) in ("actions/cache", "actions/cache/save")]
+                self.assertEqual(saving, [])
+
     def check_image_build(self, steps: list, build_marker: str):
         restore = self.restore(steps)
         reference = self.restore(self.backend_ci)
@@ -479,6 +510,16 @@ class WorkflowWiringTest(unittest.TestCase):
                     self.assertFalse(str((step.get("with") or {}).get("key", "")).startswith("gradle-"), step.get("name"))
                     if uses(step) == "docker/build-push-action":
                         self.assertNotIn("build-contexts", step.get("with") or {})
+
+
+class GateEvidenceTest(unittest.TestCase):
+    def test_the_ci_gate_holds_this_suite_to_its_test_count(self):
+        # The CI gate reads this suite's `Ran N tests` (.github/ci-gate-policy.json). With the floor at the test
+        # count, a test that stops running fails the gate, and a new test raises the floor in the same change.
+        policy = json.loads((ROOT / ".github" / "ci-gate-policy.json").read_text(encoding="utf-8"))
+        (rule,) = [rule for rule in policy["evidence"] if rule["workflow"] == "image-build-dependency-cache.yml"]
+        self.assertEqual(rule["job"], "Read-only dependency cache tests (no Docker)")
+        self.assertEqual(rule["min"], unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]).countTestCases())
 
 
 if __name__ == "__main__":
