@@ -18,6 +18,14 @@
    it. Without one Gradle runs on the runner image's default JDK; ubuntu-26.04 ships 25, which
    Gradle 8.11.1 cannot run on (G-04, #486). Making the wrapper executable (`chmod +x gradlew`)
    and comment lines do not count as running it; scripts called from a step are not traced.
+4. In a workflow that a pull request triggers, no step saves a Gradle cache on a pull request
+   (#653): `actions/setup-java` with `cache: gradle`, or `actions/cache` or `actions/cache/save`
+   with a path in a `.gradle` directory. setup-java and actions/cache save in their post step
+   whenever their exact key had no entry, pull requests included, and neither has a restore-only
+   mode. An entry that a pull request saves serves that pull request only, and setup-java's Gradle
+   entry is about 0.5 GB. Such a step needs `github.event_name != 'pull_request'` as an `&&` term of
+   its own `if:` or of its job's; pull requests restore with `actions/cache/restore`. Reusable
+   workflows and local actions are not traced.
 
 Usage: check_workflow_security.py [workflow ...]   (default: .github/workflows/*.yml and *.yaml)
 Exit 1 lists every problem as file: job: step: reason.
@@ -48,6 +56,11 @@ UNTRUSTED = re.compile(
 # are removed first, so `chmod +x gradlew && ./gradlew build` still counts.
 GRADLE_WRAPPER = re.compile(r"(?<![\w-])(?:[\w.$/{}-]*/)?gradlew(?:\.bat)?(?![\w.-])")
 CHMOD = re.compile(r"\bchmod\b[^;&|\n]*")
+GRADLE_PATH = re.compile(r"(?:^|[/\\])\.gradle(?:[/\\]|$)")
+PULL_REQUEST_GUARD = "github.event_name != 'pull_request'"
+# The guard as and_terms() returns it: without blanks and in lower case (GitHub compares strings and
+# context names without regard to case), in either operand order.
+GUARD_TERMS = {"github.event_name!='pull_request'", "'pull_request'!=github.event_name"}
 
 
 def action_problem(uses: str) -> str | None:
@@ -77,6 +90,60 @@ def runs_gradle(script: str) -> bool:
     return False
 
 
+def triggered_by_pull_requests(workflow: dict) -> bool:
+    # PyYAML reads the key `on` as the boolean true (YAML 1.1).
+    on = workflow.get("on", workflow.get(True))
+    if isinstance(on, str):
+        on = [on]
+    return isinstance(on, (list, dict)) and "pull_request" in on
+
+
+def and_terms(condition: object) -> set[str]:
+    """The `&&` terms of an `if:` outside parentheses and strings, without blanks, in lower case."""
+    text = str(condition if condition is not None else "").strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    terms, depth, quoted, start = [], 0, False, 0
+    for index, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char in "()":
+            depth += 1 if char == "(" else -1
+        elif not quoted and depth == 0 and text.startswith("&&", index):
+            terms.append(text[start:index])
+            start = index + 2
+    terms.append(text[start:])
+    found = set()
+    for term in terms:
+        term = re.sub(r"\s+", "", term).lower()
+        while term.startswith("(") and term.endswith(")") and balanced(term[1:-1]):
+            term = term[1:-1]
+        found.add(term)
+    return found
+
+
+def balanced(text: str) -> bool:
+    depth = 0
+    for char in text:
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        if depth < 0:
+            return False
+    return depth == 0
+
+
+def gradle_cache_save(step: dict) -> str | None:
+    """How the step saves a Gradle cache in its post step or as its own work, if it does."""
+    action = step["uses"].split("@")[0].strip().lower() if isinstance(step.get("uses"), str) else ""
+    inputs = step.get("with") if isinstance(step.get("with"), dict) else {}
+    if action == "actions/setup-java" and str(inputs.get("cache") or "").strip().lower() == "gradle":
+        return "setup-java's `cache: gradle` saves a Gradle cache on a pull request"
+    paths = [line.strip() for line in str(inputs.get("path") or "").splitlines()]
+    if action in ("actions/cache", "actions/cache/save") \
+            and any(GRADLE_PATH.search(line) for line in paths if not line.startswith("!")):
+        return f"{action} saves its .gradle path on a pull request"
+    return None
+
+
 def default_shell(holder: dict) -> object:
     defaults = holder.get("defaults")
     run = defaults.get("run") if isinstance(defaults, dict) else None
@@ -85,6 +152,7 @@ def default_shell(holder: dict) -> object:
 
 def check_workflow(name: str, workflow: dict) -> list[str]:
     problems = []
+    pull_requests = triggered_by_pull_requests(workflow)
     if isinstance(default_shell(workflow), str):
         problems.extend(f"{name}: defaults.run.shell: {problem}" for problem in script_problems(default_shell(workflow)))
     for job_id, job in (workflow.get("jobs") or {}).items():
@@ -107,6 +175,10 @@ def check_workflow(name: str, workflow: dict) -> list[str]:
                 java_set_up = java_set_up or step["uses"].split("@")[0].strip().lower() == "actions/setup-java"
             if isinstance(step.get("run"), str) and runs_gradle(step["run"]) and not java_set_up:
                 problems.append(f"{label}: runs gradlew without an earlier actions/setup-java step in this job")
+            saves = gradle_cache_save(step) if pull_requests else None
+            if saves and not GUARD_TERMS & (and_terms(job.get("if")) | and_terms(step.get("if"))):
+                problems.append(f"{label}: {saves}; restore it with actions/cache/restore, and save only under an "
+                                f"if: with the && term {PULL_REQUEST_GUARD}")
             for key in ("run", "shell"):
                 if isinstance(step.get(key), str):
                     problems.extend(f"{label}: {key}: {problem}" for problem in script_problems(step[key]))
@@ -128,7 +200,8 @@ def main(argv: list[str]) -> int:
         print("Workflow security check FAILED:\n  " + "\n  ".join(problems))
         return 1
     print(f"Workflow security check passed: {len(paths)} workflow(s); third-party actions pinned, "
-          "no input or event field substituted into a script, Java set up before every Gradle step.")
+          "no input or event field substituted into a script, Java set up before every Gradle step, "
+          "no Gradle cache saved on a pull request.")
     return 0
 
 

@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_workflow_security as check  # noqa: E402
 
@@ -134,6 +136,79 @@ class GradleNeedsSetupJava(unittest.TestCase):
     def test_making_the_wrapper_executable_is_not_running_it(self):
         for script in ("chmod +x gradlew", "chmod +x ./gradlew scripts/*.sh", "# ./gradlew build runs in a script"):
             self.assertEqual(check.check_workflow("w.yml", workflow({"run": script})), [], script)
+
+
+class GradleCacheOnPullRequests(unittest.TestCase):
+    # setup-java and actions/cache save in their post step whenever their exact key had no entry, pull
+    # requests included; such an entry serves only that pull request (#653).
+    SETUP_JAVA_CACHE = {"uses": "actions/setup-java@v4",
+                        "with": {"distribution": "temurin", "java-version": "21", "cache": "gradle"}}
+    GRADLE_PATHS = "~/.gradle/caches/*\n!~/.gradle/caches/build-cache-1\n~/.gradle/wrapper\n"
+
+    def flow(self, *steps, on=("pull_request",), job_if=None):
+        flow = workflow(*steps)
+        flow[True] = list(on)  # as PyYAML reads the key `on`
+        if job_if is not None:
+            flow["jobs"]["build"]["if"] = job_if
+        return flow
+
+    def cache(self, action, path=None, **step):
+        return {"uses": f"actions/{action}@v4", "with": {"path": path or self.GRADLE_PATHS, "key": "gradle-k"}, **step}
+
+    def saving_steps(self):
+        return self.SETUP_JAVA_CACHE, self.cache("cache"), self.cache("cache/save")
+
+    def test_a_step_that_saves_a_gradle_cache_on_pull_requests_is_refused(self):
+        for step in self.saving_steps():
+            problems = check.check_workflow("w.yml", self.flow(step))
+            self.assertEqual(len(problems), 1, step)
+            self.assertTrue(problems[0].startswith(f"w.yml: build: step 1 ({step['uses']}): "), problems[0])
+            self.assertIn("on a pull request; restore it with actions/cache/restore", problems[0])
+            self.assertIn("github.event_name != 'pull_request'", problems[0])
+
+    def test_a_step_or_job_whose_if_excludes_pull_requests_may_save(self):
+        for condition in ("github.event_name != 'pull_request' && github.ref == 'refs/heads/api'",
+                          "${{ github.ref == 'refs/heads/api' && github.event_name != 'pull_request' }}",
+                          "(GitHub.Event_Name!='PULL_REQUEST') && steps.deps.outputs.cache-hit != 'true'",
+                          "always() && 'pull_request' != github.event_name"):
+            for step in self.saving_steps():
+                self.assertEqual(check.check_workflow("w.yml", self.flow({**step, "if": condition})), [], condition)
+                self.assertEqual(check.check_workflow("w.yml", self.flow(step, job_if=condition)), [], condition)
+
+    def test_a_condition_that_lets_a_pull_request_through_is_no_guard(self):
+        for condition in ("github.event_name != 'pull_request' || github.ref == 'refs/heads/api'",
+                          "(github.event_name != 'pull_request' || always()) && success()",
+                          "!(github.event_name != 'pull_request')",
+                          "github.event_name == 'pull_request'",
+                          "github.ref_name != 'pull_request'",
+                          "steps.deps.outputs.cache-hit != 'true'",
+                          "contains('github.event_name != ''pull_request''', 'x') && true"):
+            for step in self.saving_steps():
+                problems = check.check_workflow("w.yml", self.flow({**step, "if": condition}))
+                self.assertEqual(len(problems), 1, condition)
+
+    def test_restores_and_caches_of_other_files_pass(self):
+        steps = (self.cache("cache/restore"),
+                 self.cache("cache", path="${{ env.TRIVY_CACHE_DIR }}/db"),
+                 self.cache("cache/save", path="!~/.gradle/caches/build-cache-1\nbuild/reports"),
+                 {"uses": "actions/setup-node@v4", "with": {"node-version": "22", "cache": "pnpm"}},
+                 {"uses": "actions/setup-java@v4", "with": {"distribution": "temurin", "java-version": "21"}})
+        self.assertEqual(check.check_workflow("w.yml", self.flow(*steps)), [])
+
+    def test_only_a_workflow_that_a_pull_request_triggers_is_held_to_it(self):
+        for on in (["push", "workflow_dispatch"], ["schedule"]):
+            self.assertEqual(check.check_workflow("w.yml", self.flow(*self.saving_steps(), on=on)), [], on)
+        for trigger in ("pull_request", ["push", "pull_request"], {"pull_request": {"paths": ["x"]}}):
+            flow = workflow(self.SETUP_JAVA_CACHE)
+            flow[True] = trigger
+            self.assertEqual(len(check.check_workflow("w.yml", flow)), 1, trigger)
+
+    def test_the_on_key_is_read_as_pyyaml_loads_a_workflow(self):
+        text = ("on:\n  pull_request:\n    paths: [x]\n  push:\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
+                "    steps:\n      - uses: actions/setup-java@v4\n        with:\n          cache: gradle\n")
+        self.assertEqual(len(check.check_workflow("w.yml", yaml.safe_load(text))), 1)
+        jobs = yaml.safe_load(text[text.index("jobs"):])
+        self.assertEqual(len(check.check_workflow("w.yml", {"on": "pull_request", **jobs})), 1)
 
 
 class Repository(unittest.TestCase):

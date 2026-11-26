@@ -1,7 +1,7 @@
 # Workflow security (CL-F40)
 
 `scripts/ci/check_workflow_security.py` runs in the *Workflow security* workflow on every change to
-`.github/workflows/`. It enforces two rules.
+`.github/workflows/`. It enforces four rules.
 
 ## Third-party actions are pinned
 
@@ -58,3 +58,33 @@ becomes code. Pass the value through `env:` instead and use it quoted:
 Values the workflow controls (`github.sha`, `github.event_name`, `runner.temp`, …) may still be
 written inline. The deploy workflows have their own, stricter guard
 (`scripts/ci/test_deploy_workflow_guards.py`).
+
+## Java is set up before Gradle
+
+A job that runs the Gradle wrapper in a step's `run:` has an `actions/setup-java` step before it.
+Without one, Gradle runs on the runner image's default JDK; ubuntu-26.04 ships 25, which Gradle
+8.11.1 cannot run on (G-04, #486). Scripts called from a step are not traced.
+
+## Pull requests save no Gradle cache
+
+In a workflow that a pull request triggers, no step saves a Gradle cache on a pull request (#653):
+
+- `actions/setup-java` with `cache: gradle`;
+- `actions/cache` or `actions/cache/save` with a path in a `.gradle` directory.
+
+setup-java and `actions/cache` save in their post step whenever their exact key had no entry, pull
+requests included, and neither has a restore-only mode. An entry that a pull request saves serves
+only that pull request, and setup-java's Gradle entry takes about 0.5 GB of the repository's 10 GB
+cache budget. Restore on pull requests with `actions/cache/restore`. Where a job must save, use
+`actions/cache/save` under an `if:` that has `github.event_name != 'pull_request'` as an `&&` term,
+on the step or on its job:
+
+```yaml
+- name: Save Gradle dependencies
+  if: github.event_name != 'pull_request' && github.ref == 'refs/heads/api' && steps.gradle-deps.outputs.cache-hit != 'true'
+  uses: actions/cache/save@v4
+```
+
+Backend CI and Backend integration save their entries that way, on api only. The pull request jobs
+that ran Gradle on setup-java's cache restore those entries instead and save none
+(`scripts/ci/test_gradle_ro_dep_cache.py`). Reusable workflows and local actions are not traced.
