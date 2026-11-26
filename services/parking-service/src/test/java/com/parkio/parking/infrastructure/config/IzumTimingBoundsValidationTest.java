@@ -128,7 +128,7 @@ class IzumTimingBoundsValidationTest {
                 });
     }
 
-    private static FieldError fieldError(Throwable startupFailure) {
+    static FieldError fieldError(Throwable startupFailure) {
         Throwable cause = startupFailure;
         while (cause != null && !(cause instanceof BindValidationException)) {
             cause = cause.getCause();

@@ -31,16 +31,19 @@ public class MunicipalSourceProperties implements Validator {
 
     /**
      * Spring Boot validates every object that it binds under {@code parkio.municipal} with this root
-     * object; the rules below apply to the İZUM settings.
+     * object. The rules below apply to every source that is fetched over HTTP: İZUM, İSPARK, ANPARK,
+     * Konya and Kayseri (#637). The OSM import reads a local file and the fake test provider fetches
+     * nothing, so neither has an HTTP timeout to check.
      */
     @Override
     public boolean supports(Class<?> type) {
-        return Izum.class.isAssignableFrom(type);
+        return HttpFeed.class.isAssignableFrom(type);
     }
 
     /**
-     * #615: two rules for the İZUM timeouts. Each error is reported on the timeout it concerns, so the
-     * startup failure names that property, its value and its origin, such as the environment variable.
+     * #615, #637: two rules for the timeouts of every HTTP feed. Each error is reported on the timeout it
+     * concerns, so the startup failure names that property, its value and its origin, such as the
+     * environment variable.
      * <ul>
      *   <li>The connect and read timeouts must be at least 1 ms. {@code SimpleClientHttpRequestFactory}
      *       hands whole milliseconds to {@code HttpURLConnection}, which treats 0 as no timeout, and it
@@ -51,40 +54,61 @@ public class MunicipalSourceProperties implements Validator {
      *       within the read timeout still fails, on the time bound and without a retry, and the run is
      *       classified {@code unknown} instead of {@code read_timeout}.</li>
      * </ul>
-     * The defaults (2s + 27s, 30s) pass, so only overridden values can fail.
+     * The rules apply whether or not the source is enabled, so a bad value fails the deploy that sets it,
+     * not a later one that enables the source. Every feed's defaults pass, so only overridden values can
+     * fail.
      */
     @Override
     public void validate(Object target, Errors errors) {
-        Izum izum = (Izum) target;
-        Duration connect = izum.getConnectTimeout();
-        Duration read = izum.getReadTimeout();
-        Duration max = izum.getMaxResponseTime();
+        HttpFeed feed = (HttpFeed) target;
+        String source = feed.sourceName();
+        Duration connect = feed.getConnectTimeout();
+        Duration read = feed.getReadTimeout();
+        Duration max = feed.getMaxResponseTime();
         if (connect != null && connect.compareTo(SHORTEST_TIMEOUT) < 0) {
             errors.rejectValue("connectTimeout", "noTimeout", String.format(
-                    "IZUM connect-timeout (%s) must be at least 1ms. The HTTP client counts whole "
+                    "%s connect-timeout (%s) must be at least 1ms. The HTTP client counts whole "
                             + "milliseconds and treats 0 or less as no timeout, which leaves the wait for a "
                             + "connection to the operating system.",
-                    print(connect)));
+                    source, print(connect)));
         }
         if (read != null && read.compareTo(SHORTEST_TIMEOUT) < 0) {
             errors.rejectValue("readTimeout", "noTimeout", String.format(
-                    "IZUM read-timeout (%s) must be at least 1ms. The HTTP client counts whole "
+                    "%s read-timeout (%s) must be at least 1ms. The HTTP client counts whole "
                             + "milliseconds and treats 0 or less as no timeout, and max-response-time is "
-                            + "checked only between reads, so a feed that stops sending could hold the IZUM "
+                            + "checked only between reads, so a feed that stops sending could hold the %s "
                             + "sync until the connection drops or the service restarts.",
-                    print(read)));
+                    source, print(read), source));
         }
         if (connect == null || read == null || max == null) {
             return;
         }
         if (connect.plus(read).compareTo(max) >= 0) {
             errors.rejectValue("readTimeout", "notInsideMaxResponseTime", String.format(
-                    "IZUM connect-timeout (%s) + read-timeout (%s) must be less than max-response-time (%s), "
+                    "%s connect-timeout (%s) + read-timeout (%s) must be less than max-response-time (%s), "
                             + "because the body is read only until max-response-time after the request "
-                            + "starts. Raise PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME together with "
-                            + "PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT.",
-                    print(connect), print(read), print(max)));
+                            + "starts. Raise PARKIO_MUNICIPAL_%s_MAX_RESPONSE_TIME together with "
+                            + "PARKIO_MUNICIPAL_%s_READ_TIMEOUT.",
+                    source, print(connect), print(read), print(max), source, source));
         }
+    }
+
+    /**
+     * A municipal source that is fetched over HTTP. Its client reads the feed through
+     * {@code BoundedFeedResponses} with these settings, which {@link #validate} checks at startup.
+     */
+    public interface HttpFeed {
+        /**
+         * The source as its environment variables name it: {@code KONYA} in
+         * {@code PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT}. Not a getter, so it is not bound as a property.
+         */
+        String sourceName();
+
+        Duration getConnectTimeout();
+
+        Duration getReadTimeout();
+
+        Duration getMaxResponseTime();
     }
 
     private static String print(Duration duration) {
@@ -372,7 +396,7 @@ public class MunicipalSourceProperties implements Validator {
         }
     }
 
-    public static class Izum {
+    public static class Izum implements HttpFeed {
         private boolean enabled;
         private String baseUrl = "https://openapi.izmir.bel.tr";
         private String path = "/api/ibb/izum/otoparklar";
@@ -404,6 +428,8 @@ public class MunicipalSourceProperties implements Validator {
         /** Explicit SLA mode; never inferred from schedulerEnabled alone. */
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
+        @Override
+        public String sourceName() { return "IZUM"; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
@@ -447,7 +473,7 @@ public class MunicipalSourceProperties implements Validator {
      * İstanbul / İSPARK live inventory + occupancy feed (PROVIDER-ISTANBUL-01).
      * Defaults off; independently controllable from İZUM.
      */
-    public static class Ispark {
+    public static class Ispark implements HttpFeed {
         private boolean enabled;
         private String baseUrl = "https://api.ibb.gov.tr";
         private String path = "/ispark/Park";
@@ -471,6 +497,8 @@ public class MunicipalSourceProperties implements Validator {
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
+        @Override
+        public String sourceName() { return "ISPARK"; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
@@ -514,7 +542,7 @@ public class MunicipalSourceProperties implements Validator {
      * Ankara / ANPARK facility inventory feed (PROVIDER-ANKARA-01).
      * Inventory only — no live occupancy. Defaults off; LEGAL REVIEW REQUIRED for production.
      */
-    public static class Anpark {
+    public static class Anpark implements HttpFeed {
         private boolean enabled;
         private String baseUrl = "https://www.anpark.com.tr";
         private String path = "/wp-json/anpark/v1/parks";
@@ -533,6 +561,8 @@ public class MunicipalSourceProperties implements Validator {
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
+        @Override
+        public String sourceName() { return "ANPARK"; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
@@ -571,7 +601,7 @@ public class MunicipalSourceProperties implements Validator {
      * Konya / Otopark Bilgileri CKAN inventory feed (PROVIDER-KONYA-01).
      * Inventory only — no live occupancy. Defaults off.
      */
-    public static class Konya {
+    public static class Konya implements HttpFeed {
         private boolean enabled;
         private String baseUrl = "https://acikveri.konya.bel.tr";
         private String path = "/api/3/action/datastore_search";
@@ -580,7 +610,12 @@ public class MunicipalSourceProperties implements Validator {
         private int maxPages = 10;
         private int maxRecords = 500;
         private Duration connectTimeout = Duration.ofSeconds(5);
-        private Duration readTimeout = Duration.ofSeconds(30);
+        /**
+         * Also the wait for the first byte. Connect plus read timeout (25s) must end inside
+         * {@code maxResponseTime}; startup refuses values that do not (#637, see
+         * {@link MunicipalSourceProperties#validate}).
+         */
+        private Duration readTimeout = Duration.ofSeconds(20);
         private int maxRetries = 1;
         /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
         private DataSize maxResponseSize = DataSize.ofMegabytes(16);
@@ -594,6 +629,8 @@ public class MunicipalSourceProperties implements Validator {
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
+        @Override
+        public String sourceName() { return "KONYA"; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }
@@ -640,13 +677,18 @@ public class MunicipalSourceProperties implements Validator {
      * Kayseri / Otoparklar GeoJSON inventory feed (PROVIDER-KAYSERI-01).
      * Inventory only — no live occupancy. Defaults off.
      */
-    public static class Kayseri {
+    public static class Kayseri implements HttpFeed {
         private boolean enabled;
         private String baseUrl = "https://acikveri.kayseri.bel.tr";
         private String path = "/uploads/data/2024/10/7/otoparklar-456371.geojson";
         private int maxRecords = 100;
         private Duration connectTimeout = Duration.ofSeconds(5);
-        private Duration readTimeout = Duration.ofSeconds(30);
+        /**
+         * Also the wait for the first byte. Connect plus read timeout (25s) must end inside
+         * {@code maxResponseTime}; startup refuses values that do not (#637, see
+         * {@link MunicipalSourceProperties#validate}).
+         */
+        private Duration readTimeout = Duration.ofSeconds(20);
         private int maxRetries = 1;
         /** Response body bound (CL-F23); exceeding it fails the fetch without a retry. */
         private DataSize maxResponseSize = DataSize.ofMegabytes(16);
@@ -660,6 +702,8 @@ public class MunicipalSourceProperties implements Validator {
         private String userAgent = "ParkioParkingService/1.0 (+https://parkio.dev)";
         private MunicipalSourceOperatingMode operatingMode = MunicipalSourceOperatingMode.SCHEDULED;
 
+        @Override
+        public String sourceName() { return "KAYSERI"; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public MunicipalSourceOperatingMode getOperatingMode() { return operatingMode; }

@@ -206,7 +206,8 @@ parkio:
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
-      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry). The production
+      # Compose overlay maps both with these defaults (#637).
       max-response-size: 16MB
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED:false}
@@ -226,7 +227,8 @@ parkio:
       connect-timeout: 2s
       read-timeout: 10s
       max-retries: 1
-      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry). The production
+      # Compose overlay maps both with these defaults (#637).
       max-response-size: 16MB
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED:false}
@@ -244,9 +246,13 @@ parkio:
       max-pages: 10
       max-records: 500
       connect-timeout: 5s
-      read-timeout: 30s
+      # #637: connect plus read timeout (25 s) must end inside max-response-time, so a late first byte
+      # still leaves 5 s for the body; startup refuses values that do not. The production Compose
+      # overlay passes the same defaults.
+      read-timeout: 20s
       max-retries: 1
-      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry). The production
+      # Compose overlay maps both with these defaults (#637).
       max-response-size: 16MB
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED:false}
@@ -261,9 +267,13 @@ parkio:
       path: /uploads/data/2024/10/7/otoparklar-456371.geojson
       max-records: 100
       connect-timeout: 5s
-      read-timeout: 30s
+      # #637: connect plus read timeout (25 s) must end inside max-response-time, so a late first byte
+      # still leaves 5 s for the body; startup refuses values that do not. The production Compose
+      # overlay passes the same defaults.
+      read-timeout: 20s
       max-retries: 1
-      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry).
+      # CL-F23: whole-response bounds; a breach fails the fetch once (no retry). The production
+      # Compose overlay maps both with these defaults (#637).
       max-response-size: 16MB
       max-response-time: 30s
       scheduler-enabled: ${PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED:false}

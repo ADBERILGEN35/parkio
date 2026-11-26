@@ -126,6 +126,23 @@ PARKING_ALLOWED = {
     "PARKIO_LOCATION_LOG_RETENTION_MAX_BATCHES",
     "PARKIO_LOCATION_LOG_RETENTION",
 }
+# #637: parking-service refuses connect + read timeout >= max-response-time for every municipal feed.
+# The overlay maps the response bounds of İSPARK, ANPARK, Konya and Kayseri, and the Konya and Kayseri
+# read timeout dropped from 30s to 20s to end inside them. These keys leave the comparison; the check
+# below pins each one to exactly this default.
+PARKING_FEED_DEFAULTS = {
+    "PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_SIZE": "16MB",
+    "PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_TIME": "30s",
+    "PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_SIZE": "16MB",
+    "PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_TIME": "30s",
+    "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT": "20s",
+    "PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE": "16MB",
+    "PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME": "30s",
+    "PARKIO_MUNICIPAL_KAYSERI_READ_TIMEOUT": "20s",
+    "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE": "16MB",
+    "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_TIME": "30s",
+}
+PARKING_ALLOWED |= set(PARKING_FEED_DEFAULTS)
 # #595: the bounds of one Expo push send (notification-service refuses an unbounded or inverted pair).
 NOTIFICATION_ALLOWED = {
     "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT",
@@ -286,6 +303,10 @@ check("auth registration CLOSED by example/default", aenv.get("PARKIO_REGISTRATI
 penv = dis["services"].get("parking-service", {}).get("environment", {})
 check("parking location-log retention OFF by example/default",
       penv.get("PARKIO_LOCATION_LOG_RETENTION_ENABLED") == "false" and penv.get("PARKIO_LOCATION_LOG_RETENTION") == "P30D")
+feed_drift = {k: penv.get(k) for k, v in PARKING_FEED_DEFAULTS.items() if penv.get(k) != v}
+check("parking municipal feed bounds 16MB/30s and Konya/Kayseri read timeout 20s by example/default",
+      not feed_drift,
+      ", ".join(f"{k}={v}" for k, v in sorted(feed_drift.items())) or f"{len(PARKING_FEED_DEFAULTS)} keys")
 nenv = dis["services"].get("notification-service", {}).get("environment", {})
 check("notification Expo push bounds 2s/5s by example/default",
       nenv.get("PARKIO_EXPO_PUSH_CONNECT_TIMEOUT") == "2s" and nenv.get("PARKIO_EXPO_PUSH_READ_TIMEOUT") == "5s",
