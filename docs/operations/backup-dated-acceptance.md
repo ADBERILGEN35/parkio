@@ -67,6 +67,11 @@ scripts/backup-dated-acceptance.sh --combine backup-host/acceptance.json drill-h
   --evidence ~/acceptance/<date>-<stamp>/combined
 ```
 
+On the backup host the env file is loaded after the script has fixed the stamp, `--evidence`, `--work`
+and its switches. They are read-only from then on: a line in the env file that assigns one (`STAMP_DIR=`,
+`EVIDENCE=`, `WORK=`, ...) stops the run at that line with exit 1 and writes no record, instead of
+checking another stamp or recording somewhere else.
+
 The drill host takes no `--env-file` or `PARKIO_ENV_FILE`; the copy is already pulled. The record's
 stamp name comes from the copy's `COMPLETE` (`stamp=`), so a copy pulled into a directory of another name
 still combines. The script sets the drill's `--stamp` (the verified copy), `--work`, `--evidence` and `--env-file`

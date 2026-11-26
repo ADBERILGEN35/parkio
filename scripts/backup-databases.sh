@@ -34,15 +34,24 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# The env file is sourced below as shell code under set -a, and backup-hosted-beta.sh hands this
+# step the env file it ran with. So the checkout this step runs from is kept in a private read-only
+# name and becomes SCRIPT_DIR after the load: a SCRIPT_DIR line there is ignored with a WARN, and a
+# line that assigns arg_script_dir stops the step (exit 1) before it dumps anything.
+arg_script_dir="$(cd "$(dirname "$0")" && pwd)"
+readonly arg_script_dir
 # shellcheck source=lib/backup-common.sh
-source "${SCRIPT_DIR}/lib/backup-common.sh"
+source "${arg_script_dir}/lib/backup-common.sh"
 
 # Optionally load an env file (so POSTGRES_*_USER/DB, BACKUP_* are available).
 # Non-empty BACKUP_ENCRYPT_PASSPHRASE / BACKUP_MC_DEST already in the environment
 # win over blank .env placeholders.
 ENV_FILE="${PARKIO_ENV_FILE:-}"
 parkio_backup_load_env "${ENV_FILE}"
+if [ -n "${SCRIPT_DIR+set}" ]; then
+  echo "WARN: ignoring SCRIPT_DIR from the environment or env file; this step uses its own checkout's library." >&2
+fi
+SCRIPT_DIR="${arg_script_dir}"
 if ! parkio_backup_preflight; then
   exit 2
 fi

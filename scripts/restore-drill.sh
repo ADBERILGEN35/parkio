@@ -63,6 +63,10 @@ while [ "$#" -gt 0 ]; do
     *) echo "ERROR: unexpected argument '$1'" >&2; exit 2 ;;
   esac
 done
+# The env file is sourced below as shell code. What this drill fixed before loading it is
+# read-only, so a line there that assigns one (TARGET_SERVICE=, FROM_DIR=, ROOT_DIR=, ...) stops
+# the drill at that line (exit 1) before it seeds or backs up anything.
+readonly SCRIPT_DIR ROOT_DIR ALL_SERVICES TARGET_SERVICE ENV_FILE KEEP_BACKUPS FROM_DIR KEEP_CANARIES
 
 parkio_backup_load_env "${ENV_FILE}"
 
