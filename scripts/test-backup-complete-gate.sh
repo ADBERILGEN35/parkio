@@ -1202,6 +1202,29 @@ for line in "ROOT=${other_checkout}" "OFFSITE_NAME=parkio-minio" "MC_IMAGE=examp
     bad "an env file ${name}= line must stop restore-drill-offsite.sh before it starts a container (rc=${rc})"
   fi
 done
+# #660: STARTED_OFFSITE records that the drill started the offsite MinIO itself; its EXIT cleanup
+# removes that container only then. It was set before the env file loads, so a STARTED_OFFSITE=1 line
+# there made the cleanup run docker rm -f on an offsite container the drill had found and not started.
+# The env file below also stops step 1 (restore-drill.sh) at its read-only TARGET_SERVICE, so the drill
+# exits right after it sets its trap, before it inspects or starts anything. A wrapper logs each docker call.
+mkdir -p "${WORK}/call-log-bin"
+cat > "${WORK}/call-log-bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\${DOCKER_CALL_LOG:?}"
+exec "${BIN}/docker" "\$@"
+EOF
+chmod +x "${WORK}/call-log-bin/docker"
+printf 'STARTED_OFFSITE=1\nTARGET_SERVICE=gateway\n' > "${WORK}/drill-env.env"
+: > "${WORK}/drill-offsite-calls.log"
+rc=0
+PATH="${WORK}/call-log-bin:${PATH}" DOCKER_CALL_LOG="${WORK}/drill-offsite-calls.log" \
+  bash "${ROOT}/scripts/restore-drill-offsite.sh" --env-file "${WORK}/drill-env.env" > "${WORK}/drill-env.log" 2>&1 || rc=$?
+rm_calls="$(grep -c '^rm ' "${WORK}/drill-offsite-calls.log" || true)"
+if [ "${rc}" -ne 0 ] && grep -qF "TARGET_SERVICE: readonly variable" "${WORK}/drill-env.log" && [ "${rm_calls}" = 0 ]; then
+  ok "an env file STARTED_OFFSITE=1 line cannot make restore-drill-offsite.sh remove a container it did not start"
+else
+  bad "an env file STARTED_OFFSITE=1 line must not reach the offsite drill's cleanup (rc=${rc}, docker rm calls: ${rm_calls})"
+fi
 
 # --- #520 review: a value option never takes the next option as its value ---
 for opt_args in "--env-file --no-prune" "--operator --no-prune" "--env-file"; do
