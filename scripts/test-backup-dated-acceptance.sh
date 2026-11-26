@@ -480,6 +480,37 @@ else
   bad "Azure listing: ${listing}"
 fi
 
+# ---- 9b. the env file cannot steer the backup-host run (#652) -----------------------------------
+# The acceptance takes its stamp, directories and switches before it loads the env file. A
+# STAMP_DIR= line there ran the checks on another stamp and recorded them under this stamp's name.
+# Here the requested stamp no longer matches its seal, and the env file points at a sealed copy that does.
+new_case env-stamp-dir
+mkdir -p "${CASE}/other"
+cp -a "${CASE}/backups/${STAMP}" "${CASE}/other/${STAMP}"
+printf 'x' >> "${CASE}/backups/${STAMP}/auth.sql.gz.enc"
+printf 'STAMP_DIR=%s\n' "${CASE}/other/${STAMP}" > "${CASE}/host.env"
+backup_host --env-file "${CASE}/host.env"
+if [ "${rc}" -eq 1 ] && [ ! -e "${REPORT}" ] && grep -qF "STAMP_DIR: readonly variable" <<<"${out}"; then
+  ok "an env file STAMP_DIR= line stops the backup-host run (exit 1, no record) instead of checking another stamp"
+else
+  bad "env-file STAMP_DIR (rc=${rc}): $(results 2>/dev/null)"
+fi
+# The other names, on the intact stamp, so that the env-file line is the only difference.
+rm -rf "${CASE}/backups/${STAMP}"
+cp -a "${CASE}/other/${STAMP}" "${CASE}/backups/${STAMP}"
+for line in "EVIDENCE=${CASE}/other-evidence" "WORK=${CASE}/other-work" "OUTCOMES=${CASE}/other-outcomes.tsv" \
+    "MODE=drill-host" "STAMP=2026-01-01T00-00-00Z" "DECRYPT=1" "ROOT=${CASE}/other" "ENV_FILE=${CASE}/other.env"; do
+  name="${line%%=*}"
+  rm -rf "${CASE}/evidence" "${CASE}/work"
+  printf '%s\n' "${line}" > "${CASE}/host.env"
+  backup_host --env-file "${CASE}/host.env"
+  if [ "${rc}" -eq 1 ] && [ ! -e "${REPORT}" ] && grep -qF "${name}: readonly variable" <<<"${out}"; then
+    ok "an env file ${name}= line stops the backup-host run (exit 1, no record)"
+  else
+    bad "env-file ${name} (rc=${rc}): ${out:0:200}"
+  fi
+done
+
 # ---- 10. no process argv carried the passphrase (#220 review D1) --------------------------------
 if grep -q -- "${PASSPHRASE}" "${ARGV_LOG}"; then
   bad "the passphrase was an argv element of $(grep -c -- "${PASSPHRASE}" "${ARGV_LOG}") env call(s)"

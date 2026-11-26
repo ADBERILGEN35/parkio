@@ -1077,6 +1077,132 @@ for line in "arg_root=${WORK}/no-such-checkout" "arg_env_file=${WORK}/other.env"
   fi
 done
 
+# --- #652: backup-databases.sh, the orchestrator's dump step, sources its erasure-ledger library
+# after it loads the env file. A SCRIPT_DIR= line there pointed the step at another checkout's library. ---
+# A stand-in library in another "checkout": it records that it ran and writes an empty ledger, so
+# the run still completes and only the marker tells which library ran.
+other_checkout="${WORK}/other-checkout"
+mkdir -p "${other_checkout}/lib"
+cat > "${other_checkout}/lib/erasure-tombstones.sh" <<'EOF'
+parkio_export_erasure_tombstones() { : > "${FAKE_LIB_MARKER:?}"; printf '[]\n' > "$1/erasure-tombstones.json"; }
+EOF
+WARN_SCRIPT_DIR="WARN: ignoring SCRIPT_DIR from the environment or env file; this step uses its own checkout's library."
+# run_db_only_env CASE ENV_FILE: a DB-only run of backup-databases.sh with that env file.
+run_db_only_env() {
+  mkdir -p "$1/backups" "$1/offsite/parkio-backups"
+  (
+    export BACKUP_DIR="$1/backups" BACKUP_MC_DEST="$1/offsite/parkio-backups" BACKUP_RETENTION_DAYS=14 \
+      OFFSITE_LOG="$1/mc.log" FAKE_LIB_MARKER="$1/other-library-ran"
+    unset BACKUP_DEST_DIR BACKUP_SKIP_MC_UPLOAD BACKUP_MC_URL
+    PARKIO_ENV_FILE="$2" bash "${ROOT}/scripts/backup-databases.sh"
+  )
+}
+reset_fakes
+case_sdir="${WORK}/env-script-dir"
+printf 'SCRIPT_DIR=%s\n' "${other_checkout}" > "${case_sdir}.env"
+rc=0
+run_db_only_env "${case_sdir}" "${case_sdir}.env" > "${case_sdir}.log" 2>&1 || rc=$?
+stamp_sdir="$(latest_stamp_dir "${case_sdir}/backups" || true)"
+if [ "${rc}" -eq 0 ] && [ ! -e "${case_sdir}/other-library-ran" ] && [ -n "${stamp_sdir}" ] \
+  && [ -f "${stamp_sdir}/COMPLETE" ] && grep -qxF "${WARN_SCRIPT_DIR}" "${case_sdir}.log"; then
+  ok "backup-databases.sh ignores an env file SCRIPT_DIR with a warning and exports the ledger with its own library"
+else
+  bad "an env file SCRIPT_DIR must not point backup-databases.sh at another library (rc=${rc}, other library ran: $([ -e "${case_sdir}/other-library-ran" ] && echo yes || echo no))"
+fi
+# The orchestrator hands the step its env file, so the same line reached the dump step of a real run.
+reset_fakes
+case_osdir="${WORK}/env-script-dir-orchestrator"
+printf 'SCRIPT_DIR=%s\n' "${other_checkout}" > "${case_osdir}.env"
+rc=0
+FAKE_LIB_MARKER="${case_osdir}/other-library-ran" \
+  run_hosted "${case_osdir}" --env-file "${case_osdir}.env" > "${case_osdir}.log" 2>&1 || rc=$?
+stamp_osdir="$(latest_stamp_dir "${case_osdir}/backups" || true)"
+if [ "${rc}" -eq 0 ] && [ ! -e "${case_osdir}/other-library-ran" ] && [ -n "${stamp_osdir}" ] \
+  && [ -f "${stamp_osdir}/COMPLETE" ] && grep -qxF "${WARN_SCRIPT_DIR}" "${case_osdir}.log"; then
+  ok "an env file SCRIPT_DIR cannot reach the dump step of a real run; the stamp completes with the step's own library"
+else
+  bad "an env file SCRIPT_DIR must not reach backup-databases.sh under the orchestrator (rc=${rc}, other library ran: $([ -e "${case_osdir}/other-library-ran" ] && echo yes || echo no))"
+fi
+# A line that assigns the step's private name stops it before it dumps anything.
+reset_fakes
+case_psdir="${WORK}/env-script-dir-private"
+printf 'arg_script_dir=%s\n' "${other_checkout}" > "${case_psdir}.env"
+rc=0
+run_db_only_env "${case_psdir}" "${case_psdir}.env" > "${case_psdir}.log" 2>&1 || rc=$?
+written="$(find "${case_psdir}/backups" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${rc}" -eq 1 ] && [ "${written}" = 0 ] && [ ! -e "${case_psdir}/other-library-ran" ] \
+  && grep -qF "arg_script_dir: readonly variable" "${case_psdir}.log"; then
+  ok "backup-databases.sh stops at an env file arg_script_dir= line (exit 1, nothing written)"
+else
+  bad "an env file arg_script_dir= line must stop backup-databases.sh before it dumps (rc=${rc}, entries written=${written})"
+fi
+
+# --- #652: the operator tools take their arguments before they load the env file. A line there
+# that assigns one of them now stops the tool at that line (exit 1), before it touches a database. ---
+printf 'Salted__synthetic' > "${WORK}/verify-auth.sql.gz.enc"
+printf 'Salted__synthetic' > "${WORK}/verify-gateway.sql.gz.enc"
+for line in "SERVICE=gateway" "DUMP_FILE=${WORK}/verify-gateway.sql.gz.enc" "KEEP=yes" \
+    "SCRIPT_DIR=${other_checkout}" "ENV_FILE=${WORK}/other.env"; do
+  name="${line%%=*}"
+  printf '%s\n' "${line}" > "${WORK}/verify-env.env"
+  rc=0
+  bash "${ROOT}/scripts/verify-backup.sh" auth "${WORK}/verify-auth.sql.gz.enc" --env-file "${WORK}/verify-env.env" \
+    > "${WORK}/verify-env.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 1 ] && ! grep -q '^Verifying ' "${WORK}/verify-env.log" \
+    && grep -qF "${name}: readonly variable" "${WORK}/verify-env.log"; then
+    ok "verify-backup.sh stops at an env file ${name}= line (exit 1) before it creates a database"
+  else
+    bad "an env file ${name}= line must stop verify-backup.sh before it creates a database (rc=${rc})"
+  fi
+done
+for line in "TARGET_SERVICE=gateway" "FROM_DIR=${WORK}" "KEEP_BACKUPS=yes" "KEEP_CANARIES=yes" "ALL_SERVICES=auth" \
+    "ROOT_DIR=${other_checkout}" "SCRIPT_DIR=${other_checkout}" "ENV_FILE=${WORK}/other.env"; do
+  name="${line%%=*}"
+  printf '%s\n' "${line}" > "${WORK}/drill-env.env"
+  rc=0
+  bash "${ROOT}/scripts/restore-drill.sh" --service auth --env-file "${WORK}/drill-env.env" \
+    > "${WORK}/drill-env.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 1 ] && ! grep -q '^==> Parkio restore drill' "${WORK}/drill-env.log" \
+    && grep -qF "${name}: readonly variable" "${WORK}/drill-env.log"; then
+    ok "restore-drill.sh stops at an env file ${name}= line (exit 1) before it seeds or backs up anything"
+  else
+    bad "an env file ${name}= line must stop restore-drill.sh before it seeds or backs up anything (rc=${rc})"
+  fi
+done
+# The other two drills that the backup runbook runs with the production env file. restore-drill-minio.sh
+# sources its library after the env file, so the stand-in checkout gets one that records that it ran.
+mkdir -p "${other_checkout}/scripts/lib"
+printf ': > "${FAKE_LIB_MARKER:?}"\n' > "${other_checkout}/scripts/lib/backup-common.sh"
+for line in "ROOT=${other_checkout}" "SCRIPT_DIR=${other_checkout}" "ENV_FILE=${WORK}/other.env"; do
+  name="${line%%=*}"
+  printf '%s\n' "${line}" > "${WORK}/drill-env.env"
+  rm -f "${WORK}/other-library-ran"
+  rc=0
+  FAKE_LIB_MARKER="${WORK}/other-library-ran" bash "${ROOT}/scripts/restore-drill-minio.sh" \
+    --env-file "${WORK}/drill-env.env" > "${WORK}/drill-env.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 1 ] && [ ! -e "${WORK}/other-library-ran" ] \
+    && grep -qF "${name}: readonly variable" "${WORK}/drill-env.log"; then
+    ok "restore-drill-minio.sh stops at an env file ${name}= line (exit 1) before it sources a library"
+  else
+    bad "an env file ${name}= line must stop restore-drill-minio.sh before it sources a library (rc=${rc}, other library ran: $([ -e "${WORK}/other-library-ran" ] && echo yes || echo no))"
+  fi
+done
+for line in "ROOT=${other_checkout}" "OFFSITE_NAME=parkio-minio" "MC_IMAGE=example.invalid/mc" \
+    "OFFSITE_IMAGE=example.invalid/minio" "SCRIPT_DIR=${other_checkout}" "ENV_FILE=${WORK}/other.env"; do
+  name="${line%%=*}"
+  printf '%s\n' "${line}" > "${WORK}/drill-env.env"
+  rm -f "${WORK}/drill-offsite-runs.log"
+  rc=0
+  DOCKER_RUN_LOG="${WORK}/drill-offsite-runs.log" bash "${ROOT}/scripts/restore-drill-offsite.sh" \
+    --env-file "${WORK}/drill-env.env" > "${WORK}/drill-env.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 1 ] && [ ! -s "${WORK}/drill-offsite-runs.log" ] \
+    && grep -qF "${name}: readonly variable" "${WORK}/drill-env.log"; then
+    ok "restore-drill-offsite.sh stops at an env file ${name}= line (exit 1) before it starts a container"
+  else
+    bad "an env file ${name}= line must stop restore-drill-offsite.sh before it starts a container (rc=${rc})"
+  fi
+done
+
 # --- #520 review: a value option never takes the next option as its value ---
 for opt_args in "--env-file --no-prune" "--operator --no-prune" "--env-file"; do
   case_opt="${WORK}/opt-$(printf '%s' "${opt_args}" | tr -c 'a-z' '-')"
@@ -1157,23 +1283,56 @@ PY
 # #639: the stub logs only the runs that set MC_DEST to mc.log, so a docker run without it never
 # reached dmc_log_allowed. The stub logs every run's arguments to DOCKER_RUN_LOG, one per line, the
 # -c script last. That log must hold exactly three runs, in order: the local MinIO mirror of
-# backup-minio.sh into <stamp>/minio/parkio-media, running exactly its script, then the two runs
-# with MC_DEST that dmc_log_allowed checks. Any other run fails, with or without MC_DEST.
-# Prints the first difference and returns 1.
+# backup-minio.sh into <stamp>/minio/parkio-media, then the two runs with MC_DEST.
+# #652: each run's arguments before -c must be exactly its full allowed list: every flag, mount,
+# variable, the user, the network and the image, in order. So an added --privileged, -v or --user
+# fails on any of the three runs, as does a changed or missing argument. The mirror run must also
+# run exactly its script; dmc_log_allowed pins the scripts of the two MC_DEST runs.
+# The expected values come from the case's inputs: PIN_USER (uid:gid), PIN_NETWORK, PIN_MIRROR_IMAGE,
+# PIN_OFFSITE_IMAGE, PIN_MC_URL, PIN_MC_ACCESS, PIN_MC_SECRET and PIN_UPLOAD_DIR (where the COMPLETE
+# file is staged). Prints the first difference and returns 1.
 docker_runs_allowed() { # docker-run.log stamp new-stamp-dest
   python3 - "$1" "$2" "$3" <<'PY'
-import os, sys
+import os, re, sys
 
 log, stamp, dest = sys.argv[1:]
-mirror_volume = stamp + "/minio/parkio-media:/backup"
+pin = {name: os.environ[name] for name in ("PIN_USER", "PIN_NETWORK", "PIN_MIRROR_IMAGE", "PIN_OFFSITE_IMAGE",
+                                           "PIN_MC_URL", "PIN_MC_ACCESS", "PIN_MC_SECRET", "PIN_UPLOAD_DIR")}
+offsite_head = ["run", "--rm", "--network", pin["PIN_NETWORK"], "--entrypoint", "/bin/sh"]
+offsite_env = ["-e", "MC_URL=" + pin["PIN_MC_URL"], "-e", "MC_ACCESS=" + pin["PIN_MC_ACCESS"],
+               "-e", "MC_SECRET=" + pin["PIN_MC_SECRET"]]
+allowed = [
+    ("the mirror run",
+     ["run", "--rm", "-i", "--user", pin["PIN_USER"], "--network", pin["PIN_NETWORK"],
+      "-v", stamp + "/minio/parkio-media:/backup", "-e", "MC_CONFIG_DIR=/tmp/.mc", "-e", "BUCKET=parkio-media",
+      "--entrypoint", "/bin/sh", pin["PIN_MIRROR_IMAGE"]]),
+    ("the offsite mirror run",
+     offsite_head + ["-v", stamp + ":/upload:ro"] + offsite_env + ["-e", "MC_DEST=" + dest, pin["PIN_OFFSITE_IMAGE"]]),
+    ("the offsite COMPLETE run",
+     offsite_head + ["-v", pin["PIN_UPLOAD_DIR"] + ":/upload:ro"] + offsite_env
+     + ["-e", "MC_DEST=" + dest + "/COMPLETE", "-e", re.compile(r"SRC_FILE=parkio-complete\.[A-Za-z0-9]{6}"),
+        pin["PIN_OFFSITE_IMAGE"]]),
+]
 mirror_script = ["set -eu", "umask 077", "mc alias set local http://minio:9000 >/dev/null",
                  'mc mirror --overwrite --quiet "local/${BUCKET}" /backup >/dev/null',
                  'mc ls --recursive "local/${BUCKET}" | wc -l']
+TAKES_VALUE = {"-v", "--volume", "--mount", "-e", "--env", "--env-file", "-u", "--user", "--network", "--net",
+               "--entrypoint", "--cap-add", "--device", "--pid", "--ipc", "--security-opt", "-w", "--workdir"}
 
 
 def fail(message):
     print(message)
     sys.exit(1)
+
+
+def same(want, got):
+    return want.fullmatch(got) is not None if isinstance(want, re.Pattern) else want == got
+
+
+def shown(args, i):  # an argument, with its value when it is an option that takes one
+    if args[i] in TAKES_VALUE and i + 1 < len(args):
+        return args[i] + " " + args[i + 1]
+    return args[i]
 
 
 if not os.path.isfile(log):
@@ -1187,31 +1346,47 @@ for line in open(log, encoding="utf-8").read().splitlines():
         current.append(line)
 if current:
     fail("a docker run without its end marker")
-seen = []
-for run in runs:
+for index, run in enumerate(runs):
     cut = run.index("-c") if "-c" in run else len(run)
     args, script = run[:cut], [line.strip() for line in run[cut + 1:] if line.strip()]
-    env = dict(value.split("=", 1) for flag, value in zip(args, args[1:]) if flag == "-e" and "=" in value)
-    if "MC_DEST" in env:
-        seen.append("offsite " + env["MC_DEST"])
-        continue
-    if mirror_volume not in args:
+    if index >= len(allowed):
         fail("not allowed: docker %s" % " ".join(args))
-    extra = [line for line in script if line not in mirror_script]
-    if extra:
-        fail("not allowed: %s" % extra[0])
-    if script != mirror_script:
-        fail("the MinIO mirror script is not the allowed one")
-    seen.append("mirror")
-expected = ["mirror", "offsite " + dest, "offsite " + dest + "/COMPLETE"]
-if seen != expected:
-    fail("docker runs %s, expected %s" % (seen, expected))
+    name, want = allowed[index]
+    for i, got in enumerate(args):
+        if i >= len(want):
+            fail("not allowed: %s (%s, argument %d; expected nothing more before -c)" % (shown(args, i), name, i))
+        if not same(want[i], got):
+            expected = want[i].pattern if isinstance(want[i], re.Pattern) else want[i]
+            fail("not allowed: %s (%s, argument %d; expected %s)" % (shown(args, i), name, i, expected))
+    if len(args) < len(want):
+        missing = want[len(args)]
+        fail("missing: %s (%s, argument %d)" % (missing.pattern if isinstance(missing, re.Pattern) else missing,
+                                                 name, len(args)))
+    if cut == len(run):
+        fail("%s has no -c script" % name)
+    if index == 0:
+        extra = [line for line in script if line not in mirror_script]
+        if extra:
+            fail("not allowed: %s" % extra[0])
+        if script != mirror_script:
+            fail("the MinIO mirror script is not the allowed one")
+if len(runs) != len(allowed):
+    fail("%d docker runs, expected %d" % (len(runs), len(allowed)))
 PY
+}
+# The pinned values of the docker-mc case. The images are what the scripts use: MINIO_MC_IMAGE when
+# the environment sets it (CI may), else each script's own pinned default.
+docker_runs_pins() {
+  PIN_USER="$(id -u):$(id -g)" PIN_NETWORK=parkio-backend \
+    PIN_MIRROR_IMAGE="${MINIO_MC_IMAGE:-$(sed -n 's/^MC_IMAGE="${MINIO_MC_IMAGE:-\([^}]*\)}"$/\1/p' "${ROOT}/scripts/backup-minio.sh")}" \
+    PIN_OFFSITE_IMAGE="${MINIO_MC_IMAGE:-$(sed -n 's/^ *local mc_image="${MINIO_MC_IMAGE:-\([^}]*\)}"$/\1/p' "${ROOT}/scripts/lib/backup-common.sh")}" \
+    PIN_MC_URL=http://offsite-minio:9000 PIN_MC_ACCESS=testtest-testtest PIN_MC_SECRET=testtest-testtest \
+    PIN_UPLOAD_DIR="$(dirname "${TMPDIR:-/tmp}/parkio-complete")" "$@"
 }
 why_dmc=""
 if [ "${rc}" -eq 0 ] && [ -n "${stamp_dmc}" ] \
   && why_dmc="$(dmc_log_allowed "${case_dmc}/mc.log" "${dest_dmc}")" \
-  && why_dmc="$(docker_runs_allowed "${case_dmc}/docker-run.log" "${stamp_dmc}" "${dest_dmc}")" \
+  && why_dmc="$(docker_runs_pins docker_runs_allowed "${case_dmc}/docker-run.log" "${stamp_dmc}" "${dest_dmc}")" \
   && check_receipt "${stamp_dmc}" "${case_dmc}/offsite/parkio-backups" > /dev/null; then
   ok "docker mc upload runs only the allowed mc commands, under the new stamp's prefix, and no other docker run"
 else
@@ -1262,11 +1437,40 @@ PY
     *) what="a line added to the MinIO mirror script"; want="not allowed: ${injected}" ;;
   esac
   rc=0
-  why="$(docker_runs_allowed "${case_dmc}/docker-run-injected.log" "${stamp_dmc}" "${dest_dmc}")" || rc=$?
+  why="$(docker_runs_pins docker_runs_allowed "${case_dmc}/docker-run-injected.log" "${stamp_dmc}" "${dest_dmc}")" \
+    || rc=$?
   if [ "${rc}" -ne 0 ] && [ "${why}" = "${want}" ]; then
     ok "the docker run check rejects ${what} by name"
   else
     bad "the docker run check must reject ${what} as '${want}' (rc=${rc}: ${why})"
+  fi
+done
+# #652: the full argument lists. An argument added to any of the three runs fails, named with its value.
+for injected in "0 --privileged" "0 -v /:/host" "1 --user 0:0" "2 -v /:/host"; do
+  run_index="${injected%% *}" extra="${injected#* }"
+  python3 - "${case_dmc}/docker-run.log" "${case_dmc}/docker-run-args.log" "${run_index}" "${extra}" <<'PY' \
+    || { bad "cannot build the docker run log with '${extra}' added to run ${run_index}"; continue; }
+import sys
+
+source, target, run_index, extra = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4].split()
+lines = open(source, encoding="utf-8").read().splitlines()
+starts = [0] + [i + 1 for i, line in enumerate(lines) if line == "=== end docker run ==="][:-1]
+at = starts[run_index] + 1  # right after that run's "run"
+lines[at:at] = extra
+open(target, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+  case "${run_index}" in
+    0) run_name="the mirror run" ;;
+    1) run_name="the offsite mirror run" ;;
+    *) run_name="the offsite COMPLETE run" ;;
+  esac
+  want="not allowed: ${extra} (${run_name}, argument 1; expected --rm)"
+  rc=0
+  why="$(docker_runs_pins docker_runs_allowed "${case_dmc}/docker-run-args.log" "${stamp_dmc}" "${dest_dmc}")" || rc=$?
+  if [ "${rc}" -ne 0 ] && [ "${why}" = "${want}" ]; then
+    ok "the docker run check rejects '${extra}' added to ${run_name} by name"
+  else
+    bad "the docker run check must reject '${extra}' added to ${run_name} as '${want}' (rc=${rc}: ${why})"
   fi
 done
 
@@ -1321,6 +1525,25 @@ if [ "${rc}" -eq 0 ] && [ -n "${stamp_gcs}" ] && diff -r "${stamp_gcs}" "${case_
 else
   bad "gcs pull must restore the stamp byte for byte (rc=${rc}, other gcloud calls: ${other_calls:-no log})"
 fi
+# #652: backup-offsite-pull.sh takes --stamp and --dest before it loads the env file. A DEST= or STAMP=
+# line there pulled into another directory, or another stamp. It now stops the pull (exit 1).
+for line in "DEST=${case_gcs}/pulled-elsewhere" "STAMP=2026-01-01T00-00-00Z" "ROOT=${WORK}/other-checkout" \
+    "ENV_FILE=${WORK}/other.env"; do
+  name="${line%%=*}"
+  printf '%s\n' "${line}" > "${case_gcs}-pull.env"
+  rm -rf "${case_gcs}/pulled-env" "${case_gcs}/pulled-elsewhere"
+  : > "${case_gcs}/gcloud-pull-env.log"
+  rc=0
+  BACKUP_OFFSITE_KIND=gcs BACKUP_GCS_DEST="${GCS_DEST}" FAKE_GCS_ROOT="${case_gcs}/gcs" GCLOUD_LOG="${case_gcs}/gcloud-pull-env.log" \
+    bash "${ROOT}/scripts/backup-offsite-pull.sh" --env-file "${case_gcs}-pull.env" --stamp "${name_gcs}" \
+    --dest "${case_gcs}/pulled-env" > "${case_gcs}-pull-env.log" 2>&1 || rc=$?
+  if [ "${rc}" -eq 1 ] && [ ! -e "${case_gcs}/pulled-env" ] && [ ! -e "${case_gcs}/pulled-elsewhere" ] \
+    && [ ! -s "${case_gcs}/gcloud-pull-env.log" ] && grep -qF "${name}: readonly variable" "${case_gcs}-pull-env.log"; then
+    ok "backup-offsite-pull.sh stops at an env file ${name}= line (exit 1, no gcloud call, nothing pulled)"
+  else
+    bad "an env file ${name}= line must stop backup-offsite-pull.sh before it pulls (rc=${rc})"
+  fi
+done
 # The pull writes new files only: a file already in the destination is kept, and nothing is downloaded.
 pre_pull="${case_gcs}/pre-existing"
 mkdir -p "${pre_pull}"
