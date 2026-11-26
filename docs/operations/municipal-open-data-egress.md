@@ -133,7 +133,9 @@ Suggested content for a human operator to send:
 
 Konya is **not** unblocked by a Kayseri allowlist. Resume PROVIDER-KONYA-01R
 only if the official CKAN host returns normal (non-challenge) JSON from
-hosted-beta without evasion.
+hosted-beta without evasion. Then follow the
+[Konya enablement steps](municipal-parking-source-runbook.md#konya-enablement-provider-konya-01r),
+which measure the feed's first-byte time from the production egress before it is enabled.
 
 ## Rollback
 

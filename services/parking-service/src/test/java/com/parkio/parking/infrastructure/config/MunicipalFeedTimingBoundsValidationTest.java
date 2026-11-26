@@ -28,8 +28,9 @@ import org.springframework.validation.FieldError;
  * {@code max-response-time} after the request starts. So startup refuses a connect plus read timeout
  * that reaches that bound, because a first byte that arrives in time could not be used. It also refuses
  * a connect or read timeout under 1 ms, which the HTTP client treats as no timeout. Konya and Kayseri
- * broke the first rule with their defaults (5s + 30s against 30s). The OSM import reads a local file and
- * the fake test provider fetches nothing, so neither has an HTTP timeout to check.
+ * broke the first rule with their defaults (5s + 30s against 30s). The other sources have no HTTP client
+ * and so no timeout to check: the OSM import reads a local file, İZELMAN imports CSV files from an
+ * operator directory ({@link IzelmanProperties}), and the fake test provider fetches nothing.
  */
 class MunicipalFeedTimingBoundsValidationTest {
 

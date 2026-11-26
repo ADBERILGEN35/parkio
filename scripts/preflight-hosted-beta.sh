@@ -661,6 +661,300 @@ if [ "$DEPLOYMENT_PROFILE" != "invite-production" ] && [ "$PUSH_PROVIDER" = "exp
   fi
 fi
 
+# Municipal feed timings (#615, #637, #654). parking-service refuses to start, whether or not a feed
+# is enabled, unless each HTTP feed's connect-timeout and read-timeout are at least 1ms and
+# connect-timeout + read-timeout is less than max-response-time (MunicipalSourceProperties#validate).
+# A max-response-time above 2^63-1 ns also stops it: BoundedFeedResponses holds the deadline in
+# nanoseconds. A value Spring cannot bind stops it too. The production Compose overlay
+# (docker-compose.azure-hosted-beta.yml) passes these keys with the defaults given below. The
+# invite-production Compose files pass none of them, so parking-service keeps its application.yml values.
+
+# >>> spring-duration (scripts/test-preflight-hosted-beta.sh extracts this block)
+# spring_duration_ns VALUE prints VALUE in nanoseconds, read as parking-service binds a Duration:
+# Spring Boot 4.1's DurationStyle, with no @DurationUnit. Two forms are accepted:
+#   - simple: an optional sign, digits, and an optional unit ns, us, ms, s, m, h or d in any case.
+#     No unit means ms.
+#   - ISO-8601: anything else that starts with an optional sign and P goes to
+#     java.time.Duration.parse, e.g. PT20S, pt0,5s or PT1M-30S.
+# Returns 0 with the value printed, or prints nothing and returns:
+#   1 when Spring rejects VALUE (no form matches, or a long overflows as Java checks it);
+#   2 when VALUE is longer than 2^63-1 ns (about 292 years);
+#   3 when VALUE is negative.
+SD_MAX=9223372036854775807
+SD_LOWER=abcdefghijklmnopqrstuvwxyz
+SD_UPPER=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+# sd_le A B: A <= B, for decimal digit strings without leading zeros; B has at most 19 digits.
+sd_le() {
+  if [ "${#1}" -ne "${#2}" ]; then [ "${#1}" -lt "${#2}" ]; return; fi
+  if [ "${#1}" -le 18 ]; then [ "$1" -le "$2" ]; return; fi
+  sd_lea=${1%?}; sd_leb=${2%?}
+  [ "$sd_lea" -lt "$sd_leb" ] && return 0
+  [ "$sd_lea" -eq "$sd_leb" ] && [ "${1#"$sd_lea"}" -le "${2#"$sd_leb"}" ]
+}
+
+# sd_long TEXT: SD_LONG = Long.parseLong(TEXT) for [+-]?[0-9]+; returns 1 when that fails.
+sd_long() {
+  sd_lt=$1; sd_ln=0
+  case $sd_lt in -*) sd_ln=1; sd_lt=${sd_lt#?} ;; +*) sd_lt=${sd_lt#?} ;; esac
+  case $sd_lt in ''|*[!0123456789]*) return 1 ;; esac
+  sd_lt=${sd_lt#"${sd_lt%%[!0]*}"}
+  [ -n "$sd_lt" ] || sd_lt=0
+  if [ "$sd_ln" -eq 1 ] && [ "$sd_lt" = 9223372036854775808 ]; then
+    SD_LONG=$(( -SD_MAX - 1 ))
+    return 0
+  fi
+  sd_le "$sd_lt" "$SD_MAX" || return 1
+  if [ "$sd_ln" -eq 1 ]; then SD_LONG=$(( -sd_lt )); else SD_LONG=$sd_lt; fi
+}
+
+# The arithmetic below reads values through variable names: dash reads a variable's value with its
+# sign, but a literal -9223372036854775808 is the negation of an out-of-range number.
+
+# sd_mul V K LIMIT: SD_MUL = Math.multiplyExact(V, K), where LIMIT = Long.MAX_VALUE / K bounds |V|.
+sd_mul() {
+  sd_mv=$1; sd_mk=$2
+  if [ "$sd_mv" -gt "$3" ] || [ "$sd_mv" -lt "-$3" ]; then return 1; fi
+  SD_MUL=$(( sd_mv * sd_mk ))
+}
+
+# sd_add A B: SD_ADD = Math.addExact(A, B).
+sd_add() {
+  sd_aa=$1; sd_ab=$2
+  if [ "$sd_ab" -gt 0 ] && [ "$sd_aa" -gt $(( SD_MAX - sd_ab )) ]; then return 1; fi
+  if [ "$sd_ab" -lt 0 ] && [ "$sd_aa" -lt $(( -SD_MAX - 1 - sd_ab )) ]; then return 1; fi
+  SD_ADD=$(( sd_aa + sd_ab ))
+}
+
+# sd_print SECONDS NANOS: print a Duration, 0 <= NANOS < 10^9, in nanoseconds (see the return codes).
+sd_print() {
+  sd_ps=$1; sd_pn=$2
+  if [ "$sd_ps" -lt 0 ]; then return 3; fi
+  if [ "$sd_ps" -gt 9223372036 ] || { [ "$sd_ps" -eq 9223372036 ] && [ "$sd_pn" -gt 854775807 ]; }; then return 2; fi
+  echo $(( sd_ps * 1000000000 + sd_pn ))
+}
+
+spring_duration_ns() {
+  case $1 in
+    [+-][pP]*|[pP]*) sd_iso "$1" ;;
+    *) sd_simple "$1" ;;
+  esac
+}
+
+# SIMPLE: ^([+-]?\d+)([a-zA-Z]{0,2})$, then Duration.of(Long.parseLong(group 1), unit).
+sd_simple() {
+  sd_v=$1; sd_sign=
+  case $sd_v in [+-]*) sd_sign=${sd_v%"${sd_v#?}"}; sd_v=${sd_v#?} ;; esac
+  sd_num=${sd_v%%[!0123456789]*}
+  sd_unit=${sd_v#"$sd_num"}
+  [ -n "$sd_num" ] || return 1
+  sd_long "$sd_sign$sd_num" || return 1
+  sd_n=$SD_LONG
+  # m, h and d become seconds first, with Java's overflow check (the limit is Long.MAX_VALUE / factor);
+  # sd_ns_per is then the nanoseconds per unit that remains.
+  case $sd_unit in
+    [nN][sS]) sd_ns_per=1 ;;
+    [uU][sS]) sd_ns_per=1000 ;;
+    ''|[mM][sS]) sd_ns_per=1000000 ;;
+    [sS]) sd_ns_per=1000000000 ;;
+    [mM]) sd_mul "$sd_n" 60 153722867280912930 || return 1; sd_n=$SD_MUL; sd_ns_per=1000000000 ;;
+    [hH]) sd_mul "$sd_n" 3600 2562047788015215 || return 1; sd_n=$SD_MUL; sd_ns_per=1000000000 ;;
+    [dD]) sd_mul "$sd_n" 86400 106751991167300 || return 1; sd_n=$SD_MUL; sd_ns_per=1000000000 ;;
+    *) return 1 ;;
+  esac
+  if [ "$sd_n" -lt 0 ]; then return 3; fi
+  if [ "$sd_n" -gt $(( SD_MAX / sd_ns_per )) ]; then return 2; fi
+  echo $(( sd_n * sd_ns_per ))
+}
+
+# sd_isint TEXT: TEXT matches [-+]?[0-9]+.
+sd_isint() {
+  sd_it=$1
+  case $sd_it in [+-]*) sd_it=${sd_it#?} ;; esac
+  case $sd_it in ''|*[!0123456789]*) return 1 ;; esac
+  return 0
+}
+
+# sd_part TEXT K LIMIT: SD_PART = Math.multiplyExact(Long.parseLong(TEXT), K), 0 for an absent part.
+sd_part() {
+  if [ -z "$1" ]; then SD_PART=0; return 0; fi
+  sd_long "$1" || return 1
+  if [ "$2" -eq 1 ]; then SD_PART=$SD_LONG; return 0; fi
+  sd_mul "$SD_LONG" "$2" "$3" || return 1
+  SD_PART=$SD_MUL
+}
+
+# ISO-8601: java.time.Duration.parse, case-insensitive:
+#   ([-+]?)P(?:([-+]?[0-9]+)D)?(T(?:([-+]?[0-9]+)H)?(?:([-+]?[0-9]+)M)?(?:([-+]?[0-9]+)(?:[.,]([0-9]{0,9}))?S)?)?
+# with at least one part, and at least one time part after a T.
+sd_iso() {
+  # JDK quirk: an empty time section is refused only after an upper-case T (P5DT), not after t (P5Dt).
+  sd_tcase=${1#*[Tt]}
+  sd_tcase=${1%"$sd_tcase"}
+  sd_tcase=${sd_tcase#"${sd_tcase%?}"}
+  sd_v=$(printf '%s' "$1" | tr "$SD_LOWER" "$SD_UPPER")
+  sd_negate=0
+  case $sd_v in -*) sd_negate=1; sd_v=${sd_v#?} ;; +*) sd_v=${sd_v#?} ;; esac
+  case $sd_v in P*) sd_v=${sd_v#P} ;; *) return 1 ;; esac
+  sd_d=; sd_h=; sd_m=; sd_s=; sd_f=; sd_t=
+  case $sd_v in *T*) sd_t=${sd_v#*T}; sd_v=${sd_v%%T*}; sd_hast=1 ;; *) sd_hast=0 ;; esac
+  case $sd_v in
+    '') ;;
+    *D) sd_d=${sd_v%D}; sd_isint "$sd_d" || return 1 ;;
+    *) return 1 ;;
+  esac
+  if [ "$sd_hast" -eq 1 ]; then
+    case $sd_t in *H*) sd_h=${sd_t%%H*}; sd_t=${sd_t#*H}; sd_isint "$sd_h" || return 1 ;; esac
+    case $sd_t in *M*) sd_m=${sd_t%%M*}; sd_t=${sd_t#*M}; sd_isint "$sd_m" || return 1 ;; esac
+    case $sd_t in
+      '') ;;
+      *S)
+        sd_s=${sd_t%S}
+        case $sd_s in
+          *[.,]*) sd_f=${sd_s#*[.,]}; sd_s=${sd_s%%[.,]*}
+                  case $sd_f in *[!0123456789]*) return 1 ;; esac
+                  [ "${#sd_f}" -le 9 ] || return 1 ;;
+        esac
+        sd_isint "$sd_s" || return 1 ;;
+      *) return 1 ;;
+    esac
+    [ -n "$sd_h$sd_m$sd_s" ] || [ "$sd_tcase" = t ] || return 1
+  fi
+  [ -n "$sd_d$sd_h$sd_m$sd_s" ] || return 1
+  sd_part "$sd_d" 86400 106751991167300 || return 1; sd_pd=$SD_PART
+  sd_part "$sd_h" 3600 2562047788015215 || return 1; sd_ph=$SD_PART
+  sd_part "$sd_m" 60 153722867280912930 || return 1; sd_pm=$SD_PART
+  sd_part "$sd_s" 1 0 || return 1; sd_ps=$SD_PART
+  sd_add "$sd_pm" "$sd_ps" || return 1
+  sd_add "$sd_ph" "$SD_ADD" || return 1
+  sd_add "$sd_pd" "$SD_ADD" || return 1
+  sd_secs=$SD_ADD
+  sd_nanos=0
+  if [ -n "$sd_f" ]; then
+    sd_f=${sd_f}000000000
+    sd_f=${sd_f%"${sd_f#?????????}"}
+    sd_f=${sd_f#"${sd_f%%[!0]*}"}
+    sd_nanos=${sd_f:-0}
+    case $sd_s in -*) sd_nanos=$(( -sd_nanos )) ;; esac
+  fi
+  # Duration.ofSeconds(seconds, nanos), then negated() for a leading '-'.
+  if [ "$sd_nanos" -lt 0 ]; then
+    sd_add "$sd_secs" -1 || return 1
+    sd_secs=$SD_ADD
+    sd_nanos=$(( sd_nanos + 1000000000 ))
+  fi
+  if [ "$sd_negate" -eq 1 ]; then
+    if [ "$sd_nanos" -eq 0 ]; then
+      [ "$sd_secs" -ne $(( -SD_MAX - 1 )) ] || return 1
+      sd_secs=$(( -sd_secs ))
+    else
+      sd_secs=$(( -(sd_secs + 1) ))
+      sd_nanos=$(( 1000000000 - sd_nanos ))
+    fi
+  fi
+  sd_print "$sd_secs" "$sd_nanos"
+}
+# <<< spring-duration
+
+# compose_env_value KEY prints KEY's value as docker compose reads it from the env file, which env_get
+# does not quite do. The last line that sets KEY wins. A line may start with `export `, and `=` or `:`
+# may have blanks around it. A quoted value is what lies between its quotes. An unquoted value ends at
+# " #" (a comment) and loses its surrounding blanks, a CR included. Prints nothing for an unset or
+# empty KEY. Returns 4 for an opening quote with no closing one: docker compose cannot read the file.
+compose_env_value() {
+  cev_v=$(grep -E "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*[=:]" "$ENV_FILE" | tail -n 1 \
+    | sed -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*[=:]//")
+  cev_v=${cev_v#"${cev_v%%[![:space:]]*}"}
+  case $cev_v in
+    \"*|\'*)
+      cev_q=${cev_v%"${cev_v#?}"}
+      cev_v=${cev_v#?}
+      case $cev_v in *"$cev_q"*) ;; *) return 4 ;; esac
+      cev_v=${cev_v%%"$cev_q"*} ;;
+    *)
+      cev_v=${cev_v%%" #"*}
+      cev_v=${cev_v%"${cev_v##*[![:space:]]}"} ;;
+  esac
+  printf '%s' "$cev_v"
+}
+
+# municipal_timing KEY DEFAULT NAME SOURCE sets MT_SHOWN (the value in effect, as messages show it),
+# and MT_NS and MT_RC (spring_duration_ns's output and return code). An unset or empty KEY takes
+# DEFAULT, as the overlay's ${KEY:-DEFAULT} does. Reports a value that parking-service cannot bind, and
+# returns 1 for it.
+municipal_timing() {
+  MT_NS=; MT_RC=1
+  mt_raw=$(compose_env_value "$1")
+  if [ "$?" -eq 4 ]; then
+    fail "$1" "the quote that opens the value is not closed, so docker compose cannot read the env file" "close the quote"
+    return 1
+  fi
+  if [ -z "$mt_raw" ]; then
+    mt_raw=$2
+    MT_SHOWN="$2, the default"
+  else
+    MT_SHOWN=$mt_raw
+  fi
+  case $mt_raw in
+    *'$'*)
+      fail "$1" "'$mt_raw' uses \$, which docker compose or Spring would expand before parking-service reads it" "write the duration out, such as 20s"
+      return 1 ;;
+  esac
+  MT_NS=$(spring_duration_ns "$mt_raw")
+  MT_RC=$?
+  case $MT_RC in
+    0|3) return 0 ;;
+    1) fail "$1" "$4 $3 ('$mt_raw') is not a duration parking-service accepts" "use a number with ns, us, ms, s, m, h or d (no unit means ms), or ISO-8601 such as PT20S" ;;
+    2) fail "$1" "$4 $3 ($mt_raw) is longer than 2^63-1 nanoseconds (about 292 years)" "use a duration below 292 years" ;;
+  esac
+  return 1
+}
+
+# municipal_feed_check SOURCE CONNECT READ MAX checks one feed. CONNECT, READ and MAX are the overlay's
+# defaults for its unset keys.
+municipal_feed_check() {
+  mf_key=PARKIO_MUNICIPAL_$1
+  mf_ok=1
+  for mf_part in CONNECT_TIMEOUT READ_TIMEOUT; do
+    if [ "$mf_part" = CONNECT_TIMEOUT ]; then
+      mf_name=connect-timeout; mf_default=$2
+    else
+      mf_name=read-timeout; mf_default=$3
+    fi
+    if ! municipal_timing "${mf_key}_$mf_part" "$mf_default" "$mf_name" "$1"; then
+      mf_ok=0
+      continue
+    fi
+    if [ "$MT_RC" -eq 3 ] || [ "$MT_NS" -lt 1000000 ]; then
+      fail "${mf_key}_$mf_part" "$1 $mf_name ($MT_SHOWN) must be at least 1ms" "the HTTP client counts whole milliseconds and treats 0 or less as no timeout"
+      mf_ok=0
+      continue
+    fi
+    ok
+    if [ "$mf_part" = CONNECT_TIMEOUT ]; then
+      mf_c=$MT_NS; mf_c_shown=$MT_SHOWN
+    else
+      mf_r=$MT_NS; mf_r_shown=$MT_SHOWN
+    fi
+  done
+  municipal_timing "${mf_key}_MAX_RESPONSE_TIME" "$4" max-response-time "$1" || mf_ok=0
+  [ "$mf_ok" -eq 1 ] || return 0
+  # A negative max-response-time (MT_RC 3) is never above connect + read.
+  if [ "$MT_RC" -eq 0 ] && [ "$mf_r" -lt $(( MT_NS - mf_c )) ]; then
+    ok
+  else
+    fail "${mf_key}_READ_TIMEOUT" "$1 connect-timeout ($mf_c_shown) + read-timeout ($mf_r_shown) must be less than max-response-time ($MT_SHOWN)" "the body is read only until max-response-time after the request starts: raise ${mf_key}_MAX_RESPONSE_TIME together with ${mf_key}_READ_TIMEOUT"
+  fi
+}
+
+if [ "$DEPLOYMENT_PROFILE" != "invite-production" ]; then
+  municipal_feed_check IZUM 2s 27s 30s
+  municipal_feed_check ISPARK 2s 10s 30s
+  municipal_feed_check ANPARK 2s 10s 30s
+  municipal_feed_check KONYA 5s 20s 30s
+  municipal_feed_check KAYSERI 5s 20s 30s
+fi
+
 # AI vision: hosted beta should run the real provider so valid parking photos can
 # become ACTIVE. The heuristic placeholder fails closed (everything -> PENDING_REVIEW)
 # which is safe but routes every upload to manual review.
