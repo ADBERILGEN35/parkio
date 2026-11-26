@@ -45,8 +45,13 @@ jobs:
       # 403. After a build change, restore-keys start from the latest entry, so only new artifacts are
       # downloaded. The local build cache (build-cache-1) stays out: no task output, and so no test
       # result, carries over from one run to the next.
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
+      # Every run restores; only api saves (the step after the build, #638). actions/cache saved on pull
+      # requests too, and each pull request that changed a build file added about 1 GB to the
+      # repository's 10 GB cache budget. The service image builds read this entry as well, read-only
+      # (scripts/ci/gradle_ro_dep_cache.py).
+      - name: Restore Gradle dependencies
+        id: gradle-deps
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches/*
@@ -70,6 +75,19 @@ jobs:
       # Test evidence for the CI gate (scripts/ci/ci_gate.py): a green build that ran no tests fails there.
       - name: Unit test evidence
         run: python3 scripts/ci/junit_summary.py --label "Unit test" --task test
+
+      # Only api itself (its pushes and dispatches) saves, after a green build, and only when the exact
+      # key missed: pull requests restore api's entry and never write one.
+      # master saves no gradle-deps-* entry, by design: its pushes and PRs into master download the graph.
+      - name: Save Gradle dependencies
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/api' && steps.gradle-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-deps.outputs.cache-primary-key }}
 
       - name: Upload test reports on failure
         if: failure()

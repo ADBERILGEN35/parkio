@@ -3,8 +3,11 @@
 # gradle.properties raises Gradle's retry budget for downloads that get HTTP 429, a 5xx answer or a
 # dropped connection. scripts/ci/test_gradle_dependency_retry.py checks, on the wrapper's Gradle
 # version, that the budget takes effect and stays bounded, and that a missing artifact (404) still
-# fails at once. It runs Gradle against a local fault-injecting repository, so it needs no external
-# dependency host. It runs when the setting, the wrapper or the test changes.
+# fails at once. It also checks the read-only dependency cache that the image builds read (#638,
+# scripts/ci/gradle_ro_dep_cache.py): a dependency found there is not downloaded, any other is, and a
+# missing artifact still fails at once. It runs Gradle against a local fault-injecting repository, so
+# it needs no external dependency host. It runs when the setting, the wrapper, the staging script or
+# the test changes.
 
 name: Gradle dependency retry
 
@@ -16,6 +19,7 @@ on:
       - "gradle/wrapper/**"
       - "gradlew"
       - "scripts/ci/test_gradle_dependency_retry.py"
+      - "scripts/ci/gradle_ro_dep_cache.py"
       - ".github/workflows/gradle-dependency-retry.yml"
   workflow_dispatch:
 

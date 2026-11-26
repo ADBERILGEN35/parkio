@@ -24,11 +24,13 @@
     {"workflow": "frontend-ci.yml", "job": "Browser regression (e2e)", "reason": "path scope: no frontend/marketing paths; Frontend CI summary still required and fails closed on in-scope failures (#418)"}
   ],
   "evidence": [
+    {"workflow": "image-build-dependency-cache.yml", "job": "Read-only dependency cache tests (no Docker)", "label": "read-only dependency cache tests", "pattern": "Ran (\\d+) tests? in", "min": 29},
     {"workflow": "backend-ci.yml", "job": "Build & unit tests", "label": "unit tests", "pattern": "Unit test evidence: (\\d+) tests", "min": 1},
     {"workflow": "backend-integration.yml", "job": "Integration tests (Testcontainers)", "label": "integration tests", "pattern": "Integration test evidence: (\\d+) tests", "min": 1},
     {"workflow": "frontend-ci.yml", "job": "Typecheck, lint, test & build", "label": "vitest tests", "pattern": "Tests\\s+[^\\n]*?(\\d+) passed", "min": 1},
     {"workflow": "mobile-ci.yml", "job": "Mobile-v2 typecheck, lint, test & expo doctor", "label": "jest tests", "pattern": "Tests:[^\\n]*?(\\d+) passed", "min": 1},
     {"workflow": "n02-gcs-acceptance-op.yml", "job": "Operator script stub test", "label": "operator script stub tests", "pattern": "passed=(\\d+) failed=0", "min": 90},
-    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "source-scanning helper tests", "pattern": "Ran (\\d+) tests? in", "min": 66}
+    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "recovery evidence contract tests", "pattern": "Recovery evidence contract suite evidence: (\\d+) tests", "min": 31},
+    {"workflow": "restore-drill-01-source-guards.yml", "job": "Source-scanning helper tests (no Docker)", "label": "recovery persist protocol tests", "pattern": "Recovery persist protocol suite evidence: (\\d+) tests", "min": 36}
   ]
 }

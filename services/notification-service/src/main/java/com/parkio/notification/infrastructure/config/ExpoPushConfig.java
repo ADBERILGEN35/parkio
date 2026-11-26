@@ -77,7 +77,8 @@ public class ExpoPushConfig {
      * The Expo transport: the JDK client with both timeouts, on top of the shared {@code spring.http.clients}
      * settings. It is the JDK client whatever factory the other clients use, because the sender treats only the
      * JDK's {@code HttpConnectTimeoutException} as a connect timeout that is safe to retry. The JDK connect timeout
-     * also covers the TLS handshake; the read timeout covers the whole exchange, response body included.
+     * also covers the TLS handshake but not the DNS lookup, which the JDK does before it starts the connect timer; the
+     * read timeout covers the whole exchange, lookup and response body included (#641).
      */
     public static ClientHttpRequestFactory requestFactory(
             HttpClientSettings settings, Duration connectTimeout, Duration readTimeout) {
