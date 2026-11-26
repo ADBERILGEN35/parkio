@@ -90,9 +90,11 @@ jobs:
       # This job's own Gradle dependency cache (#608), for the reasons given in backend-ci.yml: the
       # shared setup-java entry holds no test classpaths, so every run downloaded them. The nightly
       # dispatch on api saves the entry that pull requests restore. The local build cache
-      # (build-cache-1) stays out, so no task output carries over between runs.
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
+      # (build-cache-1) stays out, so no task output carries over between runs. Pull requests only
+      # restore it (#638): see the save step below.
+      - name: Restore Gradle dependencies
+        id: gradle-deps
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches/*
@@ -123,6 +125,18 @@ jobs:
           ./scripts/ci/check-integration-test-not-reused.sh --module :platform:parkio-platform
           ./scripts/ci/check-integration-test-not-reused.sh --module :tools:dlt-redrive
           ./scripts/ci/check-integration-test-not-reused.sh --module :platform:parkio-platform --without-flag
+
+      # Only api itself saves (its nightly dispatch and other runs on api), after a green run, and only
+      # when the exact key missed: pull requests restore api's entry and never write one (#638).
+      - name: Save Gradle dependencies
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/api' && steps.gradle-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-deps.outputs.cache-primary-key }}
 
       - name: Upload integration test reports on failure
         if: failure()

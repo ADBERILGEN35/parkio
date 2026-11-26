@@ -37,6 +37,7 @@ that no longer exists fails the gate as stale.
   the invite-production dispatch-only jobs, the scheduled staging restore, and CodeQL while
   `CODEQL_ENABLED` is off.
 - `evidence`: a log pattern whose numbers are summed, and a minimum. Today:
+  - Image build dependency cache tests: unittest's `Ran N tests`, at least 29 (#638).
   - Backend unit tests: `Unit test evidence: N tests`, printed by `scripts/ci/junit_summary.py`
     after `./gradlew build`.
   - Integration tests: `Integration test evidence: N tests`, printed the same way.

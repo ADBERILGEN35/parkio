@@ -346,6 +346,28 @@ jobs:
       - name: Ensure gradlew executable
         run: chmod +x gradlew
 
+      # A service image build takes its Gradle dependencies from Backend CI's dependency cache instead
+      # of downloading the whole graph from Maven Central, whose 429s outlast Gradle's retries (#638).
+      # The entry is restored here and never saved (Backend CI saves it on api), then passed read-only
+      # as the gradle-ro-dep-cache build context (scripts/ci/gradle_ro_dep_cache.py). After a miss
+      # the context is empty and the build downloads everything, as before. The web image has no
+      # Gradle build.
+      - name: Restore Backend CI's Gradle dependencies
+        if: matrix.service != 'web'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/*
+            !~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper
+          key: gradle-deps-backend-ci-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-backend-ci-${{ runner.os }}-
+
+      - name: Stage the read-only dependency cache
+        if: matrix.service != 'web'
+        run: python3 scripts/ci/gradle_ro_dep_cache.py stage "$RUNNER_TEMP/gradle-ro-dep-cache"
+
       # S2: the web image is built as the release builds it (release bake values) with a
       # synthetic MapTiler key; only its dependencies and base image matter to the scan.
       - name: Build image
@@ -362,7 +384,7 @@ jobs:
               --build-arg VITE_MAPTILER_KEY=securityScanSyntheticMapKey00 \
               -t "parkio/web:security-ci" .
           else
-            docker build -f "services/${SERVICE}/Dockerfile" -t "parkio/${SERVICE}:security-ci" .
+            docker build --build-context "gradle-ro-dep-cache=$RUNNER_TEMP/gradle-ro-dep-cache" -f "services/${SERVICE}/Dockerfile" -t "parkio/${SERVICE}:security-ci" .
           fi
 
       - name: Scan image for high and critical findings
