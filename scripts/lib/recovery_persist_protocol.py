@@ -339,16 +339,20 @@ class IsolatedVersionedStore:
         return data, sha256_hex(data)
 
     def get(self, key):
-        dest = self._path(key)
-        if not dest.is_file():
+        data = self.get_optional(key)
+        if data is None:
             raise ContractError(f"missing publication {key}")
-        return dest.read_bytes()
+        return data
 
     def get_optional(self, key):
+        """The live bytes of ``key``, or None. Reads hold the lock that writes hold: write_bytes
+        truncates before it writes, so an unlocked read could return an empty or partial object
+        (#640; the JSONDecodeError flake #621 reported)."""
         dest = self._path(key)
-        if not dest.is_file():
-            return None
-        return dest.read_bytes()
+        with self._io:
+            if not dest.is_file():
+                return None
+            return dest.read_bytes()
 
     def exists(self, key):
         return self._path(key).is_file()
@@ -966,7 +970,8 @@ def recover_latest_trusted(store, trust, required_through_sequence=None, at=None
 
 # The guards below read repository sources: service main trees, docker/ and .github/.
 # restore-drill-01-source-guards.yml runs them on a change to any of those (#609). A guard that
-# reads a new path adds it to that workflow's pull_request paths.
+# reads a new path adds it to that workflow's pull_request paths: the CI gate's unit tests record
+# every file the two suites read and fail on one that the filter misses (#640).
 def production_durable_recording_is_disabled(root=None):
     """Guard: production default remains off. COMPLETE is persist-gated only when enabled."""
     root = Path(root or Path(__file__).resolve().parents[2])

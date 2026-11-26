@@ -45,7 +45,13 @@ public class ClamavMediaScanner implements MediaScanner {
     /** clamd default chunk ceiling is generous; 32 KiB keeps memory/syscalls modest. */
     private static final int CHUNK_SIZE = 32 * 1024;
     private static final byte[] INSTREAM_COMMAND = "zINSTREAM\0".getBytes(StandardCharsets.US_ASCII);
-    private static final CompletableFuture<InetAddress> NO_LOOKUP = CompletableFuture.completedFuture(null);
+    /**
+     * The lookup state before the first scan. Scans replace it before they wait (see resolve), and
+     * it fails rather than holding null: a null address is the wildcard, and a connect to it would
+     * reach the local machine instead of failing closed.
+     */
+    static final CompletableFuture<InetAddress> NO_LOOKUP =
+            CompletableFuture.failedFuture(new UnknownHostException("clamd host not looked up"));
 
     /** Resolves the clamd host. Production uses the JDK lookup, through the JVM resolver cache. */
     @FunctionalInterface

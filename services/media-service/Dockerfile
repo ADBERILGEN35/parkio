@@ -1,11 +1,20 @@
 # syntax=docker/dockerfile:1
 
+# ---- read-only Gradle dependency cache (#638) ----
+# An empty stage unless the build passes `--build-context gradle-ro-dep-cache=<dir>`. CI passes a copy
+# of Backend CI's dependency cache there (scripts/ci/gradle_ro_dep_cache.py). Gradle then takes each
+# dependency it finds there instead of downloading it, never writes to it, and downloads the others
+# as before. The bind mount below is in no layer of either stage.
+FROM scratch AS gradle-ro-dep-cache
+
 # ---- build stage ----
 FROM eclipse-temurin@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4714783dd62eb AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew
-RUN ./gradlew :services:media-service:bootJar --no-daemon
+RUN --mount=type=bind,from=gradle-ro-dep-cache,target=/gradle-ro-dep-cache \
+    if [ -d /gradle-ro-dep-cache/modules-2 ]; then export GRADLE_RO_DEP_CACHE=/gradle-ro-dep-cache; fi \
+ && ./gradlew :services:media-service:bootJar --no-daemon
 
 # ---- runtime stage ----
 FROM eclipse-temurin@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef AS runtime

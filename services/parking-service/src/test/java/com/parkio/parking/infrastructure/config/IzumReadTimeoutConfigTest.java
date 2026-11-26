@@ -8,13 +8,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.env.YamlPropertySourceLoader;
-import org.springframework.core.env.MutablePropertySources;
-import org.springframework.core.env.PropertySource;
-import org.springframework.core.env.StandardEnvironment;
-import org.springframework.core.env.SystemEnvironmentPropertySource;
-import org.springframework.core.io.FileSystemResource;
 
 /**
  * #523: the İZUM read timeout. On 2026-11-23 the feed sent its first byte 11.6-24.9 s after the
@@ -29,7 +22,6 @@ import org.springframework.core.io.FileSystemResource;
 class IzumReadTimeoutConfigTest {
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(27);
     static final Path ROOT = Path.of("").toAbsolutePath();
-    private static final Path MAIN_YML = ROOT.resolve("src/main/resources/application.yml");
     static final Path AZURE_COMPOSE =
             ROOT.resolve("../../docker/docker-compose.azure-hosted-beta.yml").normalize();
 
@@ -84,20 +76,6 @@ class IzumReadTimeoutConfigTest {
     }
 
     static MunicipalSourceProperties.Izum bindIzum(Map<String, Object> environment) {
-        StandardEnvironment env = new StandardEnvironment();
-        MutablePropertySources sources = env.getPropertySources();
-        sources.remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
-        sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
-        sources.addFirst(new SystemEnvironmentPropertySource("environment", environment));
-        loadYaml(MAIN_YML).forEach(sources::addLast);
-        return Binder.get(env).bind("parkio.municipal.izum", MunicipalSourceProperties.Izum.class).get();
-    }
-
-    private static List<PropertySource<?>> loadYaml(Path path) {
-        try {
-            return new YamlPropertySourceLoader().load("application", new FileSystemResource(path));
-        } catch (Exception ex) {
-            throw new IllegalStateException("could not parse " + path, ex);
-        }
+        return MainApplicationYaml.bind("parkio.municipal.izum", MunicipalSourceProperties.Izum.class, environment);
     }
 }

@@ -5,8 +5,9 @@
 # - scripts/test-recovery-evidence-contract.py reads the auth AccountErasureApplicationService;
 # - scripts/test-recovery-persist-protocol.py also reads the auth application.yml and main Java
 #   tree, and its fixture-key scan reads every services/*/src/main tree, docker/ and .github/.
-# Their paths filter below lists every file they read. A change elsewhere in those trees used to
-# break the drill without running it (#567, fixed by #572). The full drill
+# Their paths filter below lists every file they read; the CI gate's unit tests record those reads
+# and fail on one that the filter misses (scripts/ci/test_ci_gate.py, #640). A change elsewhere in
+# those trees used to break the drill without running it (#567, fixed by #572). The full drill
 # (restore-drill-01-procedure.yml) keeps its narrow filter: it needs Docker and runs for many
 # minutes, while these suites need only Python's standard library. The CI gate requires this
 # workflow wherever its filter matches (scripts/ci/ci_gate.py).
@@ -44,7 +45,15 @@ jobs:
           persist-credentials: false
 
       # The same suites run in the drill's "Helper unit tests" step; keep the two lists in step.
+      # Each suite prints its own evidence line, so the CI gate holds each suite to its own minimum
+      # (.github/ci-gate-policy.json, #640): with one summed minimum, a suite could stop running while
+      # the other one grew.
       - name: Source-scanning helper tests
         run: |
-          python3 scripts/test-recovery-evidence-contract.py
-          python3 scripts/test-recovery-persist-protocol.py
+          set -euo pipefail
+          suite() {
+            python3 "$2" 2>&1 | tee "$RUNNER_TEMP/suite.log"
+            echo "$1 suite evidence: $(sed -n -E 's/^Ran ([0-9]+) tests? in .*/\1/p' "$RUNNER_TEMP/suite.log") tests"
+          }
+          suite "Recovery evidence contract" scripts/test-recovery-evidence-contract.py
+          suite "Recovery persist protocol" scripts/test-recovery-persist-protocol.py

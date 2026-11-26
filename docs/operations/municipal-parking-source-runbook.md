@@ -21,6 +21,38 @@ Azure overlay `docker/docker-compose.azure-hosted-beta.yml` must map these into
 | `parkio.municipal.izum.max-retries` | `PARKIO_MUNICIPAL_IZUM_MAX_RETRIES` | 2 |
 | `parkio.municipal.izum.max-response-size` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_SIZE` | 16MB |
 | `parkio.municipal.izum.max-response-time` | `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` | 30s |
+| `parkio.municipal.ispark.enabled` | `PARKIO_MUNICIPAL_ISPARK_ENABLED` | false |
+| `parkio.municipal.ispark.scheduler-enabled` | `PARKIO_MUNICIPAL_ISPARK_SCHEDULER_ENABLED` | false |
+| `parkio.municipal.ispark.fixed-delay-ms` | `PARKIO_MUNICIPAL_ISPARK_FIXED_DELAY_MS` | 120000 |
+| `parkio.municipal.ispark.connect-timeout` | `PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT` | 2s |
+| `parkio.municipal.ispark.read-timeout` | `PARKIO_MUNICIPAL_ISPARK_READ_TIMEOUT` | 10s |
+| `parkio.municipal.ispark.max-retries` | `PARKIO_MUNICIPAL_ISPARK_MAX_RETRIES` | 1 |
+| `parkio.municipal.ispark.max-response-size` | `PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_SIZE` | 16MB |
+| `parkio.municipal.ispark.max-response-time` | `PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_TIME` | 30s |
+| `parkio.municipal.anpark.enabled` | `PARKIO_MUNICIPAL_ANPARK_ENABLED` | false |
+| `parkio.municipal.anpark.scheduler-enabled` | `PARKIO_MUNICIPAL_ANPARK_SCHEDULER_ENABLED` | false |
+| `parkio.municipal.anpark.fixed-delay-ms` | `PARKIO_MUNICIPAL_ANPARK_FIXED_DELAY_MS` | 21600000 |
+| `parkio.municipal.anpark.connect-timeout` | `PARKIO_MUNICIPAL_ANPARK_CONNECT_TIMEOUT` | 2s |
+| `parkio.municipal.anpark.read-timeout` | `PARKIO_MUNICIPAL_ANPARK_READ_TIMEOUT` | 10s |
+| `parkio.municipal.anpark.max-retries` | `PARKIO_MUNICIPAL_ANPARK_MAX_RETRIES` | 1 |
+| `parkio.municipal.anpark.max-response-size` | `PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_SIZE` | 16MB |
+| `parkio.municipal.anpark.max-response-time` | `PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_TIME` | 30s |
+| `parkio.municipal.konya.enabled` | `PARKIO_MUNICIPAL_KONYA_ENABLED` | false |
+| `parkio.municipal.konya.scheduler-enabled` | `PARKIO_MUNICIPAL_KONYA_SCHEDULER_ENABLED` | false |
+| `parkio.municipal.konya.fixed-delay-ms` | `PARKIO_MUNICIPAL_KONYA_FIXED_DELAY_MS` | 86400000 |
+| `parkio.municipal.konya.connect-timeout` | `PARKIO_MUNICIPAL_KONYA_CONNECT_TIMEOUT` | 5s |
+| `parkio.municipal.konya.read-timeout` | `PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT` | 20s |
+| `parkio.municipal.konya.max-retries` | `PARKIO_MUNICIPAL_KONYA_MAX_RETRIES` | 1 |
+| `parkio.municipal.konya.max-response-size` | `PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE` | 16MB |
+| `parkio.municipal.konya.max-response-time` | `PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME` | 30s |
+| `parkio.municipal.kayseri.enabled` | `PARKIO_MUNICIPAL_KAYSERI_ENABLED` | false |
+| `parkio.municipal.kayseri.scheduler-enabled` | `PARKIO_MUNICIPAL_KAYSERI_SCHEDULER_ENABLED` | false |
+| `parkio.municipal.kayseri.fixed-delay-ms` | `PARKIO_MUNICIPAL_KAYSERI_FIXED_DELAY_MS` | 86400000 |
+| `parkio.municipal.kayseri.connect-timeout` | `PARKIO_MUNICIPAL_KAYSERI_CONNECT_TIMEOUT` | 5s |
+| `parkio.municipal.kayseri.read-timeout` | `PARKIO_MUNICIPAL_KAYSERI_READ_TIMEOUT` | 20s |
+| `parkio.municipal.kayseri.max-retries` | `PARKIO_MUNICIPAL_KAYSERI_MAX_RETRIES` | 1 |
+| `parkio.municipal.kayseri.max-response-size` | `PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE` | 16MB |
+| `parkio.municipal.kayseri.max-response-time` | `PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_TIME` | 30s |
 | `parkio.municipal.registry.provenance-ingest-write-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_INGEST_WRITE_ENABLED` | true |
 | `parkio.municipal.registry.provenance-publication-enabled` | `PARKIO_MUNICIPAL_REGISTRY_PROVENANCE_PUBLICATION_ENABLED` | true (prod profile: false) |
 | `parkio.municipal.discovery.duplicate-presentation-enabled` | `PARKIO_MUNICIPAL_DISCOVERY_DUPLICATE_PRESENTATION_ENABLED` | true (prod profile: false) |
@@ -56,6 +88,22 @@ under 1ms, which the HTTP client treats as no timeout. `max-response-time` does 
 is waiting, so with no read timeout a stalled feed could hold the İZUM sync until a restart. The
 error names the property, its value and its origin. To give the feed more time, raise
 `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
+
+**The other HTTP feeds (#637).** Startup applies both rules to İSPARK, ANPARK, Konya and Kayseri
+too, whether or not the source is enabled. The error starts with the source, for example
+`KONYA connect-timeout (5s) + read-timeout (30s) must be less than max-response-time (30s)`, and the
+startup failure names the property, its value and its origin. The OSM import reads a local file and
+the fake test provider fetches nothing, so neither has an HTTP timeout to check. Konya and Kayseri
+broke the rule with their former defaults (5s + 30s against 30s), so their `read-timeout` default is
+20s since #637. Connect plus read timeout is then 25s, which leaves 5s of the 30s `max-response-time`
+for the body after a late first byte. The 5s connect timeout is unchanged
+([municipal-open-data-egress.md](municipal-open-data-egress.md) records why Kayseri's must not be
+raised), and `max-response-time` stays at the 30s that every feed uses. No slow first byte is on
+record for either feed: the 2026-08-13 egress diagnosis got Kayseri's GeoJSON with HTTP 200 in about
+35 ms from a Turkish residential client, and no response time is recorded for Konya. Both are daily
+inventory feeds and both are off by default.
+To give one of these feeds more time, raise `PARKIO_MUNICIPAL_<SOURCE>_MAX_RESPONSE_TIME` together
+with `PARKIO_MUNICIPAL_<SOURCE>_READ_TIMEOUT`; the overlay maps both for every feed.
 
 How long one İZUM run can take with the defaults (three attempts: `max-retries` 2, with 0.1s and
 0.2s backoff; DNS and TLS handshake time come on top):
