@@ -180,8 +180,9 @@ egress policy. Before setting `PARKIO_MUNICIPAL_KONYA_ENABLED` or
    `--max-time 40` lets a first byte that comes after the client's timeouts show up instead of being
    cut off. `--http1.1` and `Accept: application/json` make curl send the request `KonyaParkingClient`
    sends: its `HttpURLConnection` speaks HTTP/1.1, and a challenge or a slow first byte can depend on
-   either. This is the client's own request, not a header change to get past bot protection. Every run must end with `http=200`, and the slowest `first_byte` must stay clearly inside
-   5s connect + 20s read. Record the values in municipal-open-data-egress.md.
+   either. This is the client's own request, not a header change to get past bot protection. Every
+   run must end with `http=200`, and the slowest `first_byte` must stay clearly inside 5s connect +
+   20s read. Record the values in municipal-open-data-egress.md.
 3. If the slowest first byte comes close to 20s, raise `PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT` above it
    together with `PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME`, as #523 set İZUM's 27s just above its
    slowest first byte (24.9s). Then run `scripts/preflight-hosted-beta.sh` on the env file: it refuses
