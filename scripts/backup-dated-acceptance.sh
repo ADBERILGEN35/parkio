@@ -254,6 +254,11 @@ PY
 
 if [ "${MODE}" = backup-host ]; then
   STAMP="$(basename "${STAMP_DIR%/}")"
+  # The env file is shell code. What this run fixed before loading it is read-only, so a line there
+  # that assigns one (STAMP_DIR=, EVIDENCE=, WORK=, ...) stops the run at that line (exit 1) instead
+  # of checking another stamp or recording somewhere else.
+  readonly ROOT STAMP_DIR PULLED_INPUT EXPECTED_SUMS EVIDENCE WORK ENV_FILE DRILL_ENV_FILE DECRYPT RESTORE \
+    RESTORE_ARGS COMBINE MODE OUTCOMES STARTED STAMP
   parkio_backup_load_env "${ENV_FILE}"
   LOCAL_SUMS="$(sed -n 's/^sha256sums=//p' "${STAMP_DIR}/COMPLETE" 2>/dev/null | head -1 || true)"
 

@@ -17,6 +17,10 @@ while [ "$#" -gt 0 ]; do
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+# The env file is sourced below as shell code, and the library is sourced after it. What this
+# drill fixed before loading it is read-only, so a ROOT= line there stops the drill at that line
+# (exit 1) instead of sourcing another checkout's library.
+readonly SCRIPT_DIR ROOT ENV_FILE
 
 if [ -n "${ENV_FILE}" ] && [ -f "${ENV_FILE}" ]; then
   set -a
