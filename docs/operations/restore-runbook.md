@@ -48,6 +48,11 @@ PARKIO_ENV_FILE=docker/.env \
 #    MINIO_RESTORE_BUCKET; the isolated MinIO proof runs in CI (restore-drill-minio.sh).
 ```
 
+`backup-offsite-pull.sh` and `restore-drill.sh` load the env file after they have fixed their
+arguments and their own checkout, which are read-only from then on. A line in the env file that
+assigns one (`STAMP=`, `DEST=`, `FROM_DIR=`, `ROOT_DIR=`, ...) stops them at that line with exit 1,
+before they pull or restore anything.
+
 ## Full hosted-beta restore (EMERGENCY) — BLOCKED
 
 A non-dry-run production restore exits 3 (`parkio_restore_refuse_unverified_production`),
@@ -78,6 +83,10 @@ Dry-run (supported: stamp preflight only, nothing is decrypted or applied):
 Nothing is decrypted, the MinIO archive included, so a dry run neither needs nor checks
 `BACKUP_ENCRYPT_PASSPHRASE`. A wrong or missing key shows only on a restore that decrypts, such
 as the isolated database proof `restore-drill.sh --from-dir` above.
+
+The stamp preflight runs only on a `COMPLETE` stamp. When the destination is missing or has no
+`COMPLETE`, the dry run prints a `WARN` and continues without checking anything; it still decrypts
+and applies nothing. Check `COMPLETE` and `SHA256SUMS` first, as in the stop points below.
 
 The command line decides the run, for `restore-hosted-beta.sh` and `restore-database.sh` alike:
 

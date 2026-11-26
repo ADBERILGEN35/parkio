@@ -1,6 +1,7 @@
 # Workflow security (CL-F40): third-party actions pinned to commit SHAs (docker actions to
-# digests), and no dispatch input or event field substituted into a script. See
-# scripts/ci/check_workflow_security.py for the rules and their exemptions.
+# digests), no dispatch input or event field substituted into a script, Java set up before Gradle,
+# and no Gradle cache saved on a pull request (#653). See scripts/ci/check_workflow_security.py for
+# the rules and their exemptions.
 name: Workflow security
 
 on:

@@ -293,8 +293,9 @@ restore_minio() {
   local mirror_src=""
   local cleanup_stage=0
 
-  # A dry run decrypts and copies nothing (docs/operations/restore-runbook.md): the stamp preflight
-  # has checked the archive against SHA256SUMS, and only the apply path below opens it.
+  # A dry run decrypts and copies nothing (docs/operations/restore-runbook.md); only the apply path
+  # below opens the archive. The stamp preflight has checked it against SHA256SUMS only when the
+  # stamp is COMPLETE: a dry run of a missing or incomplete stamp continues with a WARN and checks nothing.
   if [ "$DRY_RUN" -eq 1 ]; then
     if [ -f "${DEST_DIR}/minio.tar.gz.enc" ]; then
       echo "DRY-RUN: would decrypt ${DEST_DIR}/minio.tar.gz.enc and mirror it -> isolated MinIO destination (nothing decrypted, apply skipped)"

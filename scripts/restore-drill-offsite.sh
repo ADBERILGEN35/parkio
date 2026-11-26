@@ -35,6 +35,10 @@ while [ "$#" -gt 0 ]; do
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+# The env file is sourced below as shell code. What this drill fixed before loading it is
+# read-only, so a line there that assigns one (ROOT=, MC_IMAGE=, OFFSITE_NAME=, ...) stops the
+# drill at that line (exit 1) before it starts a container.
+readonly SCRIPT_DIR ROOT ENV_FILE OFFSITE_NAME MC_IMAGE OFFSITE_IMAGE
 
 parkio_backup_load_env "${ENV_FILE}"
 

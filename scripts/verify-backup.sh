@@ -47,6 +47,10 @@ while [ "$#" -gt 0 ]; do
       shift ;;
   esac
 done
+# The env file is sourced below as shell code. What this script fixed before loading it is
+# read-only, so a line there that assigns one (SERVICE=, DUMP_FILE=, KEEP=, ...) stops it at that
+# line (exit 1) before it creates a database, instead of verifying something else.
+readonly SCRIPT_DIR SERVICE DUMP_FILE ENV_FILE KEEP
 
 if [ -z "${SERVICE}" ] || [ -z "${DUMP_FILE}" ]; then
   echo "Usage: $0 <service> <dump-file> [--env-file <path>] [--keep]" >&2

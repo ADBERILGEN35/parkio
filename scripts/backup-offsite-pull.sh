@@ -25,6 +25,10 @@ while [ "$#" -gt 0 ]; do
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+# The env file is sourced below as shell code. What this script fixed before loading it is
+# read-only, so a line there that assigns one (STAMP=, DEST=, ...) stops the pull at that line
+# (exit 1) instead of pulling another stamp or into another directory.
+readonly ROOT ENV_FILE STAMP DEST
 
 if [ -z "${STAMP}" ] || [ -z "${DEST}" ]; then
   echo "Usage: $0 --stamp <stamp> --dest <dir>" >&2
