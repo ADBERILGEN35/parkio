@@ -83,7 +83,7 @@ RUN set -e; \
 # ---- runtime stage ----
 # linux/amd64 digest of nginx:1.30.7-alpine3.24 (Alpine 3.24.4). nginx 1.30.7 fixes
 # CVE-2026-121810, CVE-2026-123007 and CVE-2026-123633 (CRITICAL in nginx 1.30.5-r1).
-FROM nginx:1.30.7-alpine3.24@sha256:4d1d4ce08432dc7dfe4af762cb224ce6b5273ae878f41e020ea2425d02ea91a4 AS runtime
+FROM nginx:1.30.7-alpine3.24@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3 AS runtime
 
 ARG IMAGE_VERSION=0.0.1-SNAPSHOT
 ARG IMAGE_REVISION=unknown
