@@ -191,9 +191,10 @@ while the read timeout is already running (#641). When the lookup and the connec
 attempt together outlast the read timeout, the send therefore ends at the read timeout as
 `PROVIDER_OUTCOME_UNKNOWN` and is not retried, although no connection was opened. That is
 the case for a lookup slower than the read timeout, and for one slower than the read
-timeout minus the connect timeout (3s with the defaults) when the connection then does not
-open. The result errs on the side of no resend. A lookup that fails before the read
-timeout (unknown host) stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
+timeout minus the connect timeout (3s with the defaults) when the connect attempt then gets
+no answer until the connect timeout. The result errs on the side of no resend. A lookup or
+a connect attempt that fails before the read timeout (unknown host, refused connection)
+stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
 zero, negative or over-limit value, or with a connect timeout that is not shorter than the
 read timeout; the hosted-beta preflight checks the same rules. The Expo client is always
 the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
