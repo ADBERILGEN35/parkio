@@ -126,10 +126,11 @@ public class PushDeliveryWorker {
      * back the whole batch.
      *
      * <p>An interrupted tick (shutdown calls {@code shutdownNow()} once the lifecycle stop
-     * phase ends) stops before its next attempt and keeps the interrupt flag (#651). Every
-     * later send would fail at once and be recorded as a terminal unknown outcome. The
-     * attempts it has not tried stay untouched, the commit releases their claims, and the
-     * next tick takes them.
+     * phase ends) keeps the interrupt flag and sends nothing more (#651, #659). It stops
+     * before its next attempt, or before the send of an attempt whose lookups the
+     * interrupt caught. Every later send would fail at once and be recorded as a terminal
+     * unknown outcome. The attempts it has not sent stay untouched, the commit releases
+     * their claims, and the next tick takes them.
      */
     @Transactional
     public int processPendingBatch() {
@@ -140,31 +141,38 @@ public class PushDeliveryWorker {
         List<NotificationDeliveryAttempt> claimed = attempts.claimDue(now, batchSize);
         int handled = 0;
         for (NotificationDeliveryAttempt attempt : claimed) {
-            if (Thread.currentThread().isInterrupted()) {
+            if (Thread.currentThread().isInterrupted() || !deliver(attempt)) {
                 log.warn("Push delivery tick interrupted; leaving {} of {} claimed attempt(s) for the next tick",
                         claimed.size() - handled, claimed.size());
                 break;
             }
-            deliver(attempt);
             handled++;
         }
         return handled;
     }
 
-    private void deliver(NotificationDeliveryAttempt attempt) {
+    /**
+     * Delivers one claimed attempt and records its outcome. Returns false, and leaves the
+     * attempt untouched, when the tick was interrupted before the send started.
+     */
+    private boolean deliver(NotificationDeliveryAttempt attempt) {
         if (attempt.deviceTokenId() == null) {
             fail(attempt, "MISSING_DEVICE_TOKEN");
-            return;
+            return true;
         }
         Optional<DeviceToken> token = deviceTokens.findById(attempt.deviceTokenId());
         if (token.isEmpty() || !token.get().active()) {
             fail(attempt, "DEVICE_TOKEN_INACTIVE");
-            return;
+            return true;
         }
         Optional<Notification> notification = notifications.findById(attempt.notificationId());
         if (notification.isEmpty()) {
             fail(attempt, "NOTIFICATION_NOT_FOUND");
-            return;
+            return true;
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            // The interrupt landed during the lookups (#659): a send now would fail at once.
+            return false;
         }
         DeviceToken target = token.get();
         Notification n = notification.get();
@@ -179,7 +187,7 @@ public class PushDeliveryWorker {
         } catch (RuntimeException ex) {
             log.warn("Push sender threw for attempt {}", attempt.id(), ex);
             fail(attempt, REASON_PROVIDER_ERROR, null);
-            return;
+            return true;
         }
         if (result.delivered()) {
             attempt.markSent(result.providerMessageId(), clock.instant());
@@ -189,6 +197,7 @@ public class PushDeliveryWorker {
         } else {
             fail(attempt, result.failureReason(), target);
         }
+        return true;
     }
 
     private void fail(NotificationDeliveryAttempt attempt, String reason, DeviceToken deviceToken) {

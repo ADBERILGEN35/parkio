@@ -136,9 +136,15 @@ stays small as terminal rows accumulate.
 
 **Shutdown.** When shutdown interrupts a tick that is still sending (the scheduler calls
 `shutdownNow()` once the 30s lifecycle stop phase has ended), the send in flight ends as
-`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick stops there: the
-attempts it has not tried stay `PENDING` and due, the commit releases their claims, and
-the next tick, on any replica, takes them (#651).
+`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick sends nothing more:
+the attempts it has not sent, including one whose token and notification lookups the
+interrupt caught, stay `PENDING` and due. The commit releases their claims, and the next
+tick, on any replica, takes them (#651, #659). The scheduler then waits up to 5s for that
+commit, before the context closes the database. Without the wait, the outcome could roll
+back, and the attempt would be sent again after the restart. A stalled tick therefore
+holds shutdown for at most about 35s, inside Compose's 45s `stop_grace_period`. The wait
+is fixed: no property changes it, and `spring.task.scheduling.shutdown.*` applies only to
+Spring Boot's default scheduler.
 
 **Retry / backoff.** A failed send keeps the attempt `PENDING` and pushes
 `next_attempt_at` into the future with exponential backoff —
@@ -192,9 +198,10 @@ attempt together outlast the read timeout, the send therefore ends at the read t
 `PROVIDER_OUTCOME_UNKNOWN` and is not retried, although no connection was opened. That is
 the case for a lookup slower than the read timeout, and for one slower than the read
 timeout minus the connect timeout (3s with the defaults) when the connect attempt then gets
-no answer until the connect timeout. The result errs on the side of no resend. A lookup or
-a connect attempt that fails before the read timeout (unknown host, refused connection)
-stays `PROVIDER_UNAVAILABLE`. The service refuses to start with a
+no answer until the connect timeout. The result errs on the side of no resend. Before the
+read timeout, only a refused connection, an unresolved host, no route and the connect
+timeout stay `PROVIDER_UNAVAILABLE`. A TLS handshake that fails, rather than gets no
+answer, is `PROVIDER_OUTCOME_UNKNOWN` (#659). The service refuses to start with a
 zero, negative or over-limit value, or with a connect timeout that is not shorter than the
 read timeout; the hosted-beta preflight checks the same rules. The Expo client is always
 the JDK HTTP client, whatever factory `spring.http.clients` selects for other clients,
@@ -211,10 +218,10 @@ HTTP 401/403 counts under `failed`, like the ticket-level credential errors.
 
 Expo send accepts either a single ticket or a one-element ticket array. `SENT`
 means **Expo ticket accepted**, not delivery to FCM/APNs or a device; the real ticket
-ID is retained. Missing IDs, malformed/empty responses and transport failures after
-the connection is established (read timeouts, resets, unreadable responses) are terminal
-`FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved and the worker
-does not resend automatically. This trades possible missed notifications for
+ID is retained. Missing IDs, malformed/empty responses, a TLS handshake that fails, and
+transport failures after the connection is established (read timeouts, resets, unreadable
+responses) are terminal `FAILED` with `PROVIDER_OUTCOME_UNKNOWN`: acceptance is unresolved
+and the worker does not resend automatically. This trades possible missed notifications for
 avoiding duplicate sends when acceptance cannot be established. A failure to
 connect (refused, unresolved host, no route, connect timeout) proves Expo never
 received the request, so it is `PROVIDER_UNAVAILABLE` and keeps bounded backoff,
