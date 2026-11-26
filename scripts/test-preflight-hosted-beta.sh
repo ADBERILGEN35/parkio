@@ -13,6 +13,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PREFLIGHT="$ROOT/scripts/preflight-hosted-beta.sh"
 FIXTURES="$ROOT/scripts/preflight-fixtures"
 OUT="${TMPDIR:-/tmp}/preflight-test-$$.out"
+# A shell to run the preflight with, such as bash; empty runs it through its #!/bin/sh shebang.
+PREFLIGHT_RUNNER=
 TESTS=0
 FAILED=0
 
@@ -24,7 +26,8 @@ run_case() {
     *) rc_path="$FIXTURES/$rc_fixture" ;;
   esac
   TESTS=$((TESTS + 1))
-  "$PREFLIGHT" --env-file "$rc_path" --skip-compose > "$OUT" 2>&1
+  # shellcheck disable=SC2086 # an empty PREFLIGHT_RUNNER runs the preflight through its shebang
+  $PREFLIGHT_RUNNER "$PREFLIGHT" --env-file "$rc_path" --skip-compose > "$OUT" 2>&1
   rc_actual=$?
   if [ "$rc_actual" -ne "$rc_expected" ]; then
     echo "FAIL $rc_name: expected exit $rc_expected, got $rc_actual"
@@ -300,33 +303,49 @@ run_case "a read timeout below the default connect timeout exits 1" "$EXPO_BOUND
 expect "default connect against a short read rejected" "PARKIO_EXPO_PUSH_CONNECT_TIMEOUT: 2000ms is not shorter than PARKIO_EXPO_PUSH_READ_TIMEOUT (1000ms)"
 rm -f "$EXPO_BOUNDS"
 
-# ---- municipal feed timings (#615, #637, #654) ------------------------------
+# ---- municipal feed timings and sizes (#615, #637, #654, #661) --------------
 # parking-service refuses to start, even with the feed disabled, unless each HTTP feed's connect and
-# read timeouts are at least 1ms and connect + read is less than max-response-time. The preflight reads
-# the values as docker compose does and as Spring Boot binds them, with the overlay's defaults.
+# read timeouts are at least 1ms and less than 2^31 ms, connect + read is less than max-response-time,
+# and max-response-size is more than 0 bytes. The preflight reads the values as docker compose does and
+# as Spring Boot binds them, with the overlay's defaults.
 
-# The duration parser, extracted from the preflight, must give Spring Boot 4.1's result for each value.
-# The expected column was generated with Spring's Binder: nanoseconds, INVALID (Spring rejects it),
-# NEGATIVE, or TOO_LONG (above 2^63-1 ns, where BoundedFeedResponses' deadline overflows).
-DURATIONS="${TMPDIR:-/tmp}/preflight-durations-$$.sh"
-sed -n '/^# >>> spring-duration/,/^# <<< spring-duration/p' "$PREFLIGHT" > "$DURATIONS"
-while IFS='|' read -r sd_value sd_expected; do
-  TESTS=$((TESTS + 1))
-  sd_out=$(sh -c '. "$1"; sd_ns=$(spring_duration_ns "$2"); printf "%s %s" "$?" "$sd_ns"' _ "$DURATIONS" "$sd_value" </dev/null 2>&1)
-  case $sd_out in
-    "0 "?*) sd_actual=${sd_out#0 } ;;
-    "1 ") sd_actual=INVALID ;;
-    "2 ") sd_actual=TOO_LONG ;;
-    "3 ") sd_actual=NEGATIVE ;;
-    *) sd_actual="unexpected output '$sd_out'" ;;
-  esac
-  if [ "$sd_actual" = "$sd_expected" ]; then
-    echo "PASS Spring duration '$sd_value' is $sd_expected"
-  else
-    echo "FAIL Spring duration '$sd_value': expected $sd_expected, got $sd_actual"
-    FAILED=$((FAILED + 1))
-  fi
-done <<'DURATIONS'
+# The parsers, extracted from the preflight, must give Spring Boot 4.1's result for each value. The
+# expected columns were generated with Spring's Binder: the number, INVALID (Spring rejects it) and,
+# for durations, NEGATIVE or TOO_LONG (above 2^63-1 ns). Every row runs under sh, which is dash on the
+# CI runners and the hosts, and under bash when it is installed. A row is read with printf %b, so
+# \0NNN stands for a byte.
+PARSERS="${TMPDIR:-/tmp}/preflight-parsers-$$.sh"
+sed -n '/^# >>> spring-duration/,/^# <<< spring-duration/p; /^# >>> spring-data-size/,/^# <<< spring-data-size/p' \
+  "$PREFLIGHT" > "$PARSERS"
+PARSER_SHELLS='sh'
+if command -v bash >/dev/null 2>&1; then
+  PARSER_SHELLS="sh bash"
+fi
+# parser_table FUNCTION LABEL, with VALUE|EXPECTED rows on stdin.
+parser_table() {
+  while IFS='|' read -r pt_row pt_expected; do
+    pt_value=$(printf '%b' "$pt_row")
+    for pt_shell in $PARSER_SHELLS; do
+      TESTS=$((TESTS + 1))
+      # shellcheck disable=SC2016 # the child shell expands these, from its own arguments
+      pt_out=$("$pt_shell" -c '. "$1"; pt_n=$("$2" "$3"); printf "%s %s" "$?" "$pt_n"' _ "$PARSERS" "$1" "$pt_value" </dev/null 2>&1)
+      case $pt_out in
+        "0 "?*) pt_actual=${pt_out#0 } ;;
+        "1 ") pt_actual=INVALID ;;
+        "2 ") pt_actual=TOO_LONG ;;
+        "3 ") pt_actual=NEGATIVE ;;
+        *) pt_actual="unexpected output '$pt_out'" ;;
+      esac
+      if [ "$pt_actual" = "$pt_expected" ]; then
+        echo "PASS $2 '$pt_row' is $pt_expected ($pt_shell)"
+      else
+        echo "FAIL $2 '$pt_row': expected $pt_expected, got $pt_actual ($pt_shell)"
+        FAILED=$((FAILED + 1))
+      fi
+    done
+  done
+}
+parser_table spring_duration_ns "Spring duration" <<'DURATIONS'
 20s|20000000000
 20S|20000000000
 20000|20000000000
@@ -392,7 +411,59 @@ P1W|INVALID
 PT1.5.5S|INVALID
 ２0s|INVALID
 DURATIONS
-rm -f "$DURATIONS"
+parser_table spring_data_size_bytes "Spring data size" <<'DATA_SIZES'
+16MB|16777216
+16mb|INVALID
+16Mb|INVALID
+16 MB|16777216
+ 16MB |16777216
+16\0011MB|16777216
+16\0013MB|16777216
+16\0037MB|16777216
+16B|16
+16|16
+16KB|16384
+16kB|INVALID
+16GB|17179869184
+16TB|17592186044416
+0|0
+0B|0
+-1B|-1
+-1KB|-1024
++16MB|16777216
+0016MB|16777216
+16M|INVALID
+16MiB|INVALID
+16PB|INVALID
+1.5MB|INVALID
+MB|INVALID
+   |INVALID
+1 6MB|16777216
+16M B|16777216
+- 1B|-1
++ 16MB|16777216
+9223372036854775807B|9223372036854775807
+9223372036854775808B|INVALID
+9007199254740991KB|9223372036854774784
+9007199254740992KB|INVALID
+-9007199254740992KB|-9223372036854775808
+-9007199254740993KB|INVALID
+8388607TB|9223370937343148032
+8388608TB|INVALID
+-8388608TB|-9223372036854775808
+-8388609TB|INVALID
+16\0342\0200\0203MB|16777216
+16\0343\0200\0200MB|16777216
+16\0342\0200\0250MB|16777216
+16\0342\0201\0237MB|16777216
+16\0341\0232\0200MB|16777216
+16\0302\0240MB|INVALID
+16\0302\0205MB|INVALID
+16\0342\0200\0207MB|INVALID
+16\0342\0200\0257MB|INVALID
+\0357\0274\02216MB|INVALID
+DATA_SIZES
+rm -f "$PARSERS"
 
 MUNI="${TMPDIR:-/tmp}/preflight-municipal-$$.env"
 # municipal LINE... — valid.env plus the given env-file lines.
@@ -445,6 +516,40 @@ expect "expansion not resolved" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: '\$KO
 municipal 'PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT="20s'
 run_case "an unclosed quote exits 1" "$MUNI" 1
 expect "unclosed quote rejected" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: the quote that opens the value is not closed"
+# #661: SimpleClientHttpRequestFactory holds a timeout as an int of milliseconds.
+municipal "PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT=25d" "PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME=100d"
+run_case "a 25-day read timeout exits 1" "$MUNI" 1
+expect "a read timeout the HTTP client cannot hold rejected" "FAIL PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT: IZUM read-timeout (25d) must be less than 2147483648ms"
+municipal "PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT=PT596H31M23.648S" "PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_TIME=100d"
+run_case "an ISO-8601 connect timeout of exactly 2^31 ms exits 1" "$MUNI" 1
+expect "the int limit applies to the connect timeout" "FAIL PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT: ISPARK connect-timeout (PT596H31M23.648S) must be less than 2147483648ms"
+municipal "PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT=PT596H31M23.647999999S" "PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_TIME=100d"
+run_case "a connect timeout 1ns under 2^31 ms exits 0" "$MUNI" 0
+municipal "PARKIO_MUNICIPAL_ANPARK_CONNECT_TIMEOUT=9223372037s"
+run_case "a connect timeout beyond 2^63-1 ns exits 1" "$MUNI" 1
+expect "a timeout beyond the deadline is named by the int limit" "FAIL PARKIO_MUNICIPAL_ANPARK_CONNECT_TIMEOUT: ANPARK connect-timeout (9223372037s) must be less than 2147483648ms"
+# #661: BoundedFeedResponses refuses a size bound of 0 bytes or less when each client is built.
+municipal "PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE=0"
+run_case "a zero response size exits 1" "$MUNI" 1
+expect "zero size rejected" "FAIL PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE: KONYA max-response-size (0) must be more than 0 bytes"
+municipal "PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE=-1KB"
+run_case "a negative response size exits 1" "$MUNI" 1
+expect "negative size rejected" "FAIL PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_SIZE: KONYA max-response-size (-1KB) must be more than 0 bytes"
+municipal "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE=16mb"
+run_case "a lower-case size unit exits 1" "$MUNI" 1
+expect "unbindable size rejected" "FAIL PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE: KAYSERI max-response-size ('16mb') is not a size parking-service accepts"
+municipal "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE=9007199254740992KB"
+run_case "a size beyond a long exits 1" "$MUNI" 1
+expect "overflowing size rejected" "FAIL PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE: KAYSERI max-response-size ('9007199254740992KB') is not a size parking-service accepts"
+municipal "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE=16 MB" "PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_SIZE=8KB"
+run_case "sizes Spring binds exit 0" "$MUNI" 0
+# docker compose drops Unicode blanks after an unquoted value and before a key, but not before a value.
+municipal "$(printf 'PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=20s\302\240')"
+run_case "a trailing NBSP is not part of the value" "$MUNI" 0
+municipal "$(printf '\342\200\203PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s')"
+run_case "a key after an EM SPACE is still read" "$MUNI" 1
+municipal "$(printf 'PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=\342\200\20320s')"
+run_case "an EM SPACE before the value stays in it, as docker compose keeps it" "$MUNI" 1
 # The defaults are the overlay's: for each feed, read its overlay defaults and set one key where the
 # rule flips. If the preflight assumed another default, one run of each pair would end the other way.
 OVERLAY="$ROOT/docker/docker-compose.azure-hosted-beta.yml"
@@ -453,7 +558,17 @@ overlay_ms() {
   om_s=$(sed -n "s/^ *$1: \${$1:-\([0-9][0-9]*\)s}\$/\1/p" "$OVERLAY")
   [ -n "$om_s" ] && echo $((om_s * 1000))
 }
-for feed in IZUM ISPARK ANPARK KONYA KAYSERI; do
+# The feeds are the overlay's: each PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key it maps. A feed the
+# preflight does not check fails the first run below.
+FEEDS=$(sed -n 's/^ *PARKIO_MUNICIPAL_\([A-Z][A-Z]*\)_MAX_RESPONSE_TIME: .*/\1/p' "$OVERLAY")
+TESTS=$((TESTS + 1))
+if [ -n "$FEEDS" ]; then
+  echo "PASS the overlay maps max-response-time for: $(echo "$FEEDS" | tr '\n' ' ')"
+else
+  echo "FAIL the overlay maps no PARKIO_MUNICIPAL_*_MAX_RESPONSE_TIME key"
+  FAILED=$((FAILED + 1))
+fi
+for feed in $FEEDS; do
   key=PARKIO_MUNICIPAL_$feed
   connect=$(overlay_ms "${key}_CONNECT_TIMEOUT")
   read_timeout=$(overlay_ms "${key}_READ_TIMEOUT")
@@ -477,6 +592,14 @@ for feed in IZUM ISPARK ANPARK KONYA KAYSERI; do
   run_case "$feed max-response-time equal to the default connect + read exits 1" "$MUNI" 1
   municipal "${key}_MAX_RESPONSE_TIME=$((connect + read_timeout + 1))ms"
   run_case "$feed max-response-time 1ms above the default connect + read exits 0" "$MUNI" 0
+  municipal "${key}_READ_TIMEOUT=2147483647ms" "${key}_MAX_RESPONSE_TIME=100d"
+  run_case "$feed read timeout of 2147483647ms exits 0" "$MUNI" 0
+  municipal "${key}_READ_TIMEOUT=2147483648ms" "${key}_MAX_RESPONSE_TIME=100d"
+  run_case "$feed read timeout of 2^31 ms exits 1" "$MUNI" 1
+  municipal "${key}_MAX_RESPONSE_SIZE=1B"
+  run_case "$feed max-response-size of 1B exits 0" "$MUNI" 0
+  municipal "${key}_MAX_RESPONSE_SIZE=0B"
+  run_case "$feed max-response-size of 0B exits 1" "$MUNI" 1
 done
 # invite-production's Compose files do not pass these keys to parking-service, which then runs on its
 # application.yml values, so its env file is not checked for them.
@@ -484,6 +607,22 @@ municipal "PARKIO_DEPLOYMENT_PROFILE=invite-production" "PARKIO_MUNICIPAL_KONYA_
 "$PREFLIGHT" --env-file "$MUNI" --skip-compose > "$OUT" 2>&1
 expect "the invite-production checks ran" "deploymentProfile=invite-production"
 expect_not "invite-production does not check municipal timings" "FAIL PARKIO_MUNICIPAL_"
+# The whole preflight under bash as well, for hosts where sh is bash.
+if command -v bash >/dev/null 2>&1; then
+  PREFLIGHT_RUNNER=bash
+  municipal
+  run_case "under bash, the overlay's municipal defaults exit 0" "$MUNI" 0
+  municipal "PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=30s"
+  run_case "under bash, the former Konya read timeout exits 1" "$MUNI" 1
+  expect "under bash, connect + read reaching max-response-time rejected" "FAIL PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT: KONYA connect-timeout (5s, the default) + read-timeout (30s) must be less than max-response-time (30s, the default)"
+  municipal "PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT=25d" "PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME=100d" "PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE=0"
+  run_case "under bash, a 25-day read timeout and a zero size exit 1" "$MUNI" 1
+  expect "under bash, the int limit holds" "FAIL PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT: IZUM read-timeout (25d) must be less than 2147483648ms"
+  expect "under bash, the zero size is refused" "FAIL PARKIO_MUNICIPAL_KAYSERI_MAX_RESPONSE_SIZE: KAYSERI max-response-size (0) must be more than 0 bytes"
+  municipal "$(printf 'export PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT=20s\302\240')" "PARKIO_MUNICIPAL_ANPARK_MAX_RESPONSE_SIZE=16 MB" "PARKIO_MUNICIPAL_ISPARK_CONNECT_TIMEOUT=PT596H31M23.647999999S" "PARKIO_MUNICIPAL_ISPARK_MAX_RESPONSE_TIME=100d"
+  run_case "under bash, values read as docker compose and Spring read them exit 0" "$MUNI" 0
+  PREFLIGHT_RUNNER=
+fi
 rm -f "$MUNI"
 
 # ---- known CI synthetic MapTiler key must fail hosted deploy preflight ------

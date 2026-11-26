@@ -85,11 +85,14 @@ Startup refuses İZUM settings where `connect-timeout + read-timeout` reaches `m
 (#615): a first byte that came in time could not be used, and the run would fail on the time bound
 without a retry, classified `unknown`. Startup also refuses a `connect-timeout` or `read-timeout`
 under 1ms, which the HTTP client treats as no timeout. `max-response-time` does not end a read that
-is waiting, so with no read timeout a stalled feed could hold the İZUM sync until a restart. The
-error names the property, its value and its origin. To give the feed more time, raise
-`PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with `PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
+is waiting, so with no read timeout a stalled feed could hold the İZUM sync until a restart. It
+refuses a timeout of 2^31 ms (about 24.9 days) or more as well (#661): the client holds the timeout
+as an int of milliseconds, so a longer one wraps around, to a negative value that sets no timeout or
+to a much shorter one. The error names the property, its value and its origin. To give the feed more
+time, raise `PARKIO_MUNICIPAL_IZUM_MAX_RESPONSE_TIME` together with
+`PARKIO_MUNICIPAL_IZUM_READ_TIMEOUT`.
 
-**The other HTTP feeds (#637).** Startup applies both rules to İSPARK, ANPARK, Konya and Kayseri
+**The other HTTP feeds (#637).** Startup applies these rules to İSPARK, ANPARK, Konya and Kayseri
 too, whether or not the source is enabled. The error starts with the source, for example
 `KONYA connect-timeout (5s) + read-timeout (30s) must be less than max-response-time (30s)`, and the
 startup failure names the property, its value and its origin. The other sources have no HTTP client
@@ -106,12 +109,18 @@ record for either feed: the 2026-08-13 egress diagnosis got Kayseri's GeoJSON wi
 inventory feeds and both are off by default.
 To give one of these feeds more time, raise `PARKIO_MUNICIPAL_<SOURCE>_MAX_RESPONSE_TIME` together
 with `PARKIO_MUNICIPAL_<SOURCE>_READ_TIMEOUT`; the overlay maps both for every feed.
-`scripts/preflight-hosted-beta.sh` applies the same rules to the env file before a deploy (#654). It
-reads the values as docker compose does and as Spring Boot binds them, and an unset key takes the
-overlay's default. It refuses a value that would stop parking-service at startup: one Spring cannot
-bind, a timeout under 1ms, connect + read not less than `max-response-time`, or a
-`max-response-time` above 2^63-1 ns (about 292 years), which overflows the client's nanosecond
-deadline. A `$` in a value is refused too, because the preflight does not expand it.
+`scripts/preflight-hosted-beta.sh` applies the same rules to the env file before a deploy (#654,
+#661). It reads the values as docker compose does and as Spring Boot binds them, and an unset key
+takes the overlay's default. It refuses every value that would stop parking-service at startup:
+- a timeout Spring cannot bind;
+- a connect or read timeout under 1ms, or of 2^31 ms or more;
+- connect + read that is not less than `max-response-time`;
+- a `max-response-time` above 2^63-1 ns (about 292 years), which overflows the client's nanosecond
+  deadline;
+- a `max-response-size` Spring cannot bind (the units are `B`, `KB`, `MB`, `GB` and `TB`, in upper
+  case), or one of 0 bytes or less, which `BoundedFeedResponses` refuses when each client is built.
+
+A `$` in a value is refused too, because the preflight does not expand it.
 
 How long one İZUM run can take with the defaults (three attempts: `max-retries` 2, with 0.1s and
 0.2s backoff; DNS and TLS handshake time come on top):
@@ -155,8 +164,9 @@ egress policy. Before setting `PARKIO_MUNICIPAL_KONYA_ENABLED` or
    ```bash
    for i in 1 2 3 4 5; do
      for offset in 0 100; do
-       ./scripts/parkio-prod-compose.sh exec -T parking-service curl -sS -o /dev/null \
+       ./scripts/parkio-prod-compose.sh exec -T parking-service curl -sS -o /dev/null --http1.1 \
          --connect-timeout 5 --max-time 40 -A 'ParkioParkingService/1.0 (+https://parkio.dev)' \
+         -H 'Accept: application/json' \
          -w "offset=$offset http=%{http_code} connect=%{time_connect}s first_byte=%{time_starttransfer}s total=%{time_total}s\n" \
          "https://acikveri.konya.bel.tr/api/3/action/datastore_search?resource_id=707d3cb9-1264-49dc-98a0-b9863766ab39&limit=100&offset=$offset"
      done
@@ -168,7 +178,9 @@ egress policy. Before setting `PARKIO_MUNICIPAL_KONYA_ENABLED` or
    27 with copied coordinates, PROVIDER-KONYA-01), so the loop measures the first two pages.
    `first_byte` counts from the start of the request, so it includes the connect and TLS time.
    `--max-time 40` lets a first byte that comes after the client's timeouts show up instead of being
-   cut off. Every run must end with `http=200`, and the slowest `first_byte` must stay clearly inside
+   cut off. `--http1.1` and `Accept: application/json` make curl send the request `KonyaParkingClient`
+   sends: its `HttpURLConnection` speaks HTTP/1.1, and a challenge or a slow first byte can depend on
+   either. This is the client's own request, not a header change to get past bot protection. Every run must end with `http=200`, and the slowest `first_byte` must stay clearly inside
    5s connect + 20s read. Record the values in municipal-open-data-egress.md.
 3. If the slowest first byte comes close to 20s, raise `PARKIO_MUNICIPAL_KONYA_READ_TIMEOUT` above it
    together with `PARKIO_MUNICIPAL_KONYA_MAX_RESPONSE_TIME`, as #523 set İZUM's 27s just above its
