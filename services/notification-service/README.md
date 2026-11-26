@@ -136,9 +136,15 @@ stays small as terminal rows accumulate.
 
 **Shutdown.** When shutdown interrupts a tick that is still sending (the scheduler calls
 `shutdownNow()` once the 30s lifecycle stop phase has ended), the send in flight ends as
-`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick stops there: the
-attempts it has not tried stay `PENDING` and due, the commit releases their claims, and
-the next tick, on any replica, takes them (#651).
+`PROVIDER_OUTCOME_UNKNOWN`, because Expo may already have it. The tick sends nothing more:
+the attempts it has not sent, including one whose token and notification lookups the
+interrupt caught, stay `PENDING` and due. The commit releases their claims, and the next
+tick, on any replica, takes them (#651, #659). The scheduler then waits up to 5s for that
+commit, before the context closes the database. Without the wait, the outcome could roll
+back, and the attempt would be sent again after the restart. A stalled tick therefore
+holds shutdown for at most about 35s, inside Compose's 45s `stop_grace_period`. The wait
+is fixed: no property changes it, and `spring.task.scheduling.shutdown.*` applies only to
+Spring Boot's default scheduler.
 
 **Retry / backoff.** A failed send keeps the attempt `PENDING` and pushes
 `next_attempt_at` into the future with exponential backoff —

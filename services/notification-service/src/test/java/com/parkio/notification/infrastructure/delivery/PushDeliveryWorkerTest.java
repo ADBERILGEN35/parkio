@@ -314,6 +314,68 @@ class PushDeliveryWorkerTest {
                 .containsExactlyInAnyOrder(DeliveryStatus.FAILED, DeliveryStatus.SENT, DeliveryStatus.SENT);
     }
 
+    /**
+     * #659: the interrupt can also land while the tick looks up an attempt's token and notification, after the
+     * check before that attempt. Its send would then start on an interrupted thread and fail at once as a terminal
+     * unknown outcome, although it never reached Expo. The tick leaves that attempt untouched instead.
+     */
+    @Test
+    void interruptDuringTheLookupsLeavesThatAttemptUntouched() {
+        NotificationDeliveryAttempt attempt = persistPendingAttempt();
+        NotificationRepository interruptedLookup = new NotificationRepository() {
+            @Override
+            public Notification save(Notification notification) {
+                return notifications.save(notification);
+            }
+
+            @Override
+            public Optional<Notification> findById(UUID id) {
+                // shutdownNow() lands during the lookup.
+                Thread.currentThread().interrupt();
+                return notifications.findById(id);
+            }
+
+            @Override
+            public List<Notification> findRecentByUserId(UUID userId, int limit) {
+                return notifications.findRecentByUserId(userId, limit);
+            }
+        };
+        AtomicInteger sends = new AtomicInteger();
+        // Like the Expo sender: a send started on an interrupted thread fails at once as an unknown outcome.
+        PushNotificationSender sender = message -> {
+            sends.incrementAndGet();
+            return Thread.currentThread().isInterrupted()
+                    ? PushSendResult.failed(ExpoPushNotificationSender.FAILURE_OUTCOME_UNKNOWN)
+                    : PushSendResult.sent("synthetic-ticket");
+        };
+        PushDeliveryWorker interruptedWorker = new PushDeliveryWorker(attempts, deviceTokens, interruptedLookup,
+                sender, clock, meterRegistry, true, 100, 5, BASE_BACKOFF_MS);
+
+        int processed;
+        boolean interruptKept;
+        try {
+            processed = interruptedWorker.processPendingBatch();
+        } finally {
+            // Clears the flag, so it cannot leak into the next test.
+            interruptKept = Thread.interrupted();
+        }
+        attempts.endTransaction();
+
+        assertThat(interruptKept).as("the interrupt stays set for the executor").isTrue();
+        assertThat(sends).as("sends").hasValue(0);
+        assertThat(processed).isZero();
+        NotificationDeliveryAttempt untouched = attempts.byId.get(attempt.id());
+        assertThat(untouched.status()).isEqualTo(DeliveryStatus.PENDING);
+        assertThat(untouched.attemptCount()).isZero();
+        assertThat(untouched.failureReason()).isNull();
+        assertThat(untouched.nextAttemptAt()).isEqualTo(NOW);
+        assertThat(meterRegistry.counter("parkio.notification.delivery.worker.failure.count").count()).isZero();
+
+        // The next tick sends it.
+        assertThat(worker(sender, 5).processPendingBatch()).isEqualTo(1);
+        assertThat(attempts.byId.get(attempt.id()).status()).isEqualTo(DeliveryStatus.SENT);
+    }
+
     @Test
     void senderExceptionRecordsSanitisedFailureWithoutAbortingBatch() {
         NotificationDeliveryAttempt first = persistPendingAttempt();
